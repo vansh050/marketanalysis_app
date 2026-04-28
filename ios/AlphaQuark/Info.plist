@@ -33,14 +33,16 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.892331696104-gs4gdllr0ges38e0i4627b4arb6over6</string>
+				<string>com.googleusercontent.apps.794163196580-5aj9gberg81tvb6au2c4a5mrghusj7b6</string>
 			</array>
 		</dict>
 		<dict>
 			<key>CFBundleTypeRole</key>
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
-			<array/>
+			<array>
+				<string>Marketanalysisacademy</string>
+			</array>
 		</dict>
 	</array>
 	<key>CFBundleVersion</key>

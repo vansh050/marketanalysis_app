@@ -55,7 +55,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
-                    android:scheme="alphab2bapp"
+                    android:scheme="Marketanalysisacademy"
                     android:host="zerodha"
                     android:pathPrefix="/callback" />
             </intent-filter>

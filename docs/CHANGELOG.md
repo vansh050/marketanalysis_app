@@ -4,6 +4,27 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
 
+## [1.0.2] - 2026-04-28
+
+### Fixed — Android/iOS deep link scheme, iOS Google OAuth scheme, gradle APP_VARIANT
+
+Four misconfigurations left over from the AlphaB2B fork that would have silently broken broker OAuth and Google Sign-In:
+
+1. **Android Zerodha intent-filter scheme** (`AndroidManifest.xml`): was `alphab2bapp` (the parent app's scheme), changed to `Marketanalysisacademy`. Without this, Zerodha's OAuth redirect would open in the browser instead of being caught by the app.
+
+2. **iOS Google OAuth URL scheme** (`Info.plist`): was `com.googleusercontent.apps.892331696104-…` (old AlphaQuark Firebase project), changed to `com.googleusercontent.apps.794163196580-5aj9gberg81tvb6au2c4a5mrghusj7b6` (from `GoogleService-Info.plist` REVERSED_CLIENT_ID). Without this, Google Sign-In on iOS fails silently.
+
+3. **iOS deep-link URL scheme** (`Info.plist`): second `CFBundleURLSchemes` array was empty, added `Marketanalysisacademy`. Required for broker OAuth callbacks on iOS.
+
+4. **gradle.properties APP_VARIANT**: was `alphaquark`, changed to `marketanalysis`. Without this the Gradle build would load the wrong variant during native compilation.
+
+### Files
+- `android/app/src/main/AndroidManifest.xml` — Zerodha scheme: `alphab2bapp` → `Marketanalysisacademy`
+- `ios/AlphaQuark/Info.plist` — Google OAuth scheme updated; `Marketanalysisacademy` deep-link scheme added
+- `android/gradle.properties` — `APP_VARIANT=alphaquark` → `APP_VARIANT=marketanalysis`
+
+---
+
 ## [1.0.1] - 2026-04-28
 
 ### Added — Release SHA-1 fingerprint registered in Firebase for Market Analysis Academy
