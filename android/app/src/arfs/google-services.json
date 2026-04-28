@@ -1,0 +1,62 @@
+{
+  "project_info": {
+    "project_number": "936678648737",
+    "project_id": "magnus-b0759",
+    "storage_bucket": "magnus-b0759.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:936678648737:android:cf6ec51178889537f539e0",
+        "android_client_info": {
+          "package_name": "com.magnus"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "936678648737-3ejd157h82g89ak3isbe9qcvm8jtukjv.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.magnus",
+            "certificate_hash": "5aab8464d64ec97a7fabf8f608a5d968609ad293"
+          }
+        },
+        {
+          "client_id": "936678648737-ib0bp8n84k0b9qru75ai4i1bsdbgej5b.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.magnus",
+            "certificate_hash": "9c208250b35d10ccceccd40125d3a58df270097f"
+          }
+        },
+        {
+          "client_id": "936678648737-ab87nseb4093ds1gt3v82125cvml051f.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCdA7ciQwhsSHHO1SqkctOEz0IsqKiRxbI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "936678648737-ab87nseb4093ds1gt3v82125cvml051f.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "936678648737-qlfqgu8h565vksbe8ilb4p15g3lomp8m.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.magnus"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

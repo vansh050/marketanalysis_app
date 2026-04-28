@@ -1,0 +1,60 @@
+import React from 'react';
+import { View } from 'react-native';
+import Svg, { Path, G } from 'react-native-svg';
+import Animated, {
+  useSharedValue,
+  withRepeat,
+  withTiming,
+  useAnimatedStyle,
+  Easing, // Import Easing from react-native-reanimated
+} from 'react-native-reanimated';
+
+const AnimatedSvg = Animated.createAnimatedComponent(Svg);
+
+const Loader = ({color,width,height}) => {
+  // Shared value for rotation
+  const rotation = useSharedValue(0);
+
+  // Start the rotation animation
+  React.useEffect(() => {
+    rotation.value = withRepeat(
+      withTiming(-360, {
+        duration: 2000,
+        easing: Easing.linear, // Use Easing.linear from react-native-reanimated
+      }),
+      -1, // Infinite loop
+      false
+    );
+  }, []);
+
+  // Apply rotation to the SVG
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ rotate: `${rotation.value}deg` }],
+    };
+  });
+
+  return (
+    <View style={{ alignItems: 'center', justifyContent: 'center', }}>
+      <AnimatedSvg
+        width={width}
+        height={height}
+        viewBox="0 0 2000 2000"
+        style={animatedStyle}
+      >
+        <G>
+          <Path
+            fill={color}
+            d="M879.6,519.9c-58.9,0-116.5,13.6-168.5,38.9-38.2,18.6-73.5,43.5-104.2,74.1l-260.3,260.4-4.8-356.9c-1.7-49.6,11.3-97.1,36.7-137.1l-155.3,156.5c-28.8,29-50,65.2-57.9,105.2-3.6,18.3-5.2,37.3-4.5,56.5v279.9h-.2v218.2h0c0-.1,127.3-.1,127.3-.1h0s399.6-.2,399.6-.2c19.3.7,38.2-.9,56.5-4.5,40-8,76.2-29.2,105.2-57.9l156.5-155.3c-39.9,25.4-87.5,38.4-137.1,36.7l-335.1-4.8h0l203.5-210.1c19-19,39.8-35.8,62-50.2,28.5-18.6,59.4-33.3,91.7-43.8,23.2-6.2,47.3-9.7,71.8-9.7h253.4c19.6,0,38.7-4.5,56.1-12.8,13.4-6.4,25.8-14.9,36.4-25.5l157.3-157.3h-586.1Z"
+          />
+          <Path
+            fill={color}
+            d="M1119.5,1479.3c58.9,0,116.5-13.6,168.5-38.9,38.2-18.6,73.5-43.5,104.2-74.1l260.3-260.4,4.8,356.9c1.7,49.6-11.3,97.1-36.7,137.1l155.3-156.5c28.8-29,50-65.2,57.9-105.2,3.6-18.3,5.2-37.3,4.5-56.5v-279.9h.2v-218.2h0c0,.1-127.3.1-127.3.1h0s-394,.2-394,.2c-19.3-.7-38.2.9-56.5,4.5-40,8-76.2,29.2-105.2,57.9l-156.5,155.3c39.9-25.4,87.5-38.4,137.1-36.7l329.5,4.8h0l-203.5,210.1c-19,19-39.8,35.8-62,50.2-28.5,18.6-59.4,33.3-91.7,43.8-23.2,6.2-47.3,9.7-71.8,9.7h-253.4c-19.6,0-38.7,4.5-56.1,12.8-13.4,6.4-25.8,14.9-36.4,25.5l-157.3,157.3h586.1Z"
+          />
+        </G>
+      </AnimatedSvg>
+    </View>
+  );
+};
+
+export default Loader;

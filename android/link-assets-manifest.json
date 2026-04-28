@@ -1,0 +1,153 @@
+{
+  "migIndex": 1,
+  "data": [
+    {
+      "path": "src/assets/fonts/Azonix.otf",
+      "sha1": "b8825c605434d572f5277be0283d5a9b2cde59e4"
+    },
+    {
+      "path": "src/assets/fonts/Gillies.ttf",
+      "sha1": "8e6134739da435b42a551f8233d3fb2110d1efd7"
+    },
+    {
+      "path": "src/assets/fonts/ObviouslyDemo-NarrowBlack.otf",
+      "sha1": "951cfece2a053cf48381d8f5696d25394a7439a6"
+    },
+    {
+      "path": "src/assets/fonts/ObviouslyNarrow-Black.otf",
+      "sha1": "27e569690518c806e107cfc27917ec9a587f0c42"
+    },
+    {
+      "path": "src/assets/fonts/OFL.txt",
+      "sha1": "9f27955a401cc9ea5ba3503027a4ea502c87e70c"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Black.ttf",
+      "sha1": "645e04c53c6b5b35bce654a811ebce16af8aa721"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-BlackItalic.ttf",
+      "sha1": "be4ef2aac7775a4b0179c0ecfce6cea8f7783f63"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Bold.ttf",
+      "sha1": "875cf0cecd647bcf22e79d633d868c1b1ec98dfa"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-BoldItalic.ttf",
+      "sha1": "6de8952ca08d27ee77f57347d2cef4b4e26aa78f"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-ExtraBold.ttf",
+      "sha1": "4b5c0750f073abd576413a0898d3b95adaf199c8"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-ExtraBoldItalic.ttf",
+      "sha1": "94d3ee3acdbd00e37a715a25f2b5237666b5b8a3"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-ExtraLight.ttf",
+      "sha1": "85af6582a7e6155917c605f9d3fed68c02b23b06"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-ExtraLightItalic.ttf",
+      "sha1": "6fa0418f91032680d2d8fe4843009f2c80faa61d"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Italic.ttf",
+      "sha1": "e2bfcd56016c3c915221ef1c5fc1a17b0776eb91"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Light.ttf",
+      "sha1": "e247a92158e112f8bf7b638c8d95381d66b00dbb"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-LightItalic.ttf",
+      "sha1": "f76102b361e705751a83b7b22fe954daf1f27dd4"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Medium.ttf",
+      "sha1": "283f21b44efbdbf276ba802be2d949a36bbc4233"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-MediumItalic.ttf",
+      "sha1": "b592c62fdf88c40cfd0f031bba6423b1d4430472"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Regular.ttf",
+      "sha1": "fdd3002e7d814ee47c1c1b8487c72c6bbb3a2d00"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-SemiBold.ttf",
+      "sha1": "8a4ace9392d06bcb7f8ea2f5169b07e4c383a90d"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-SemiBoldItalic.ttf",
+      "sha1": "0c8bed0a5942b2388d36b11c115685d9f01700b0"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-Thin.ttf",
+      "sha1": "09ba4dcd5509c8085bf88c665dcc51cbdfced27b"
+    },
+    {
+      "path": "src/assets/fonts/Poppins-ThinItalic.ttf",
+      "sha1": "fb8fccca21550e71135f92bbaf8a2e8a12c90465"
+    },
+    {
+      "path": "src/assets/fonts/READ FIRST.txt",
+      "sha1": "4ea1dc029230cedb74323dc478c8179cc9525093"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-Black.otf",
+      "sha1": "d92baad4dab9ca55bc72f1a8a0a6de72829e709f"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-BlackItalic.otf",
+      "sha1": "2fada5e2f31f7e2f252d458094603daca66f4a0a"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-Bold.otf",
+      "sha1": "57a9e1c24984708865f7d0c31a03773912fb975f"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-BoldItalic.otf",
+      "sha1": "c279f41805b46f030eb4a1d55ceaf7c4cacd1a39"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-Italic.otf",
+      "sha1": "1ee38a9969b628781bc30ed690f6571aca189451"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-Light.otf",
+      "sha1": "3b1b977f00db442bdf30f63603112e6e251b7dda"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-LightItalic.otf",
+      "sha1": "782b6239e9a537ffcd574fb26b69201b67b96dc2"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-Medium.otf",
+      "sha1": "704faccb5fff19f25c0b914d42d135ab75794a24"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-Medium.ttf",
+      "sha1": "e4539f4688c865204a879dc3253d3547f0444818"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-MediumItalic.otf",
+      "sha1": "89936e7345cfa18dadc048e3a9266947c7f12839"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-Regular.otf",
+      "sha1": "7dcb59994f2bee1a4ef1f6c079ba0e99b409878b"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-Regular.ttf",
+      "sha1": "bc605aa08468cfb9a40275a6386ada56c92a5bed"
+    },
+    {
+      "path": "src/assets/fonts/Satoshi-Variable.ttf",
+      "sha1": "d49872a745842f389bc9d24b73d0a3090fce50b1"
+    }
+  ]
+}

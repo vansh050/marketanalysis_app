@@ -1,0 +1,138 @@
+apply plugin: "com.android.application"
+apply plugin: "org.jetbrains.kotlin.android"
+apply plugin: "com.facebook.react"
+apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
+
+react {
+    autolinkLibrariesWithApp()
+}
+
+def enableProguardInReleaseBuilds = false
+def jscFlavor = 'org.webkit:android-jsc:+'
+
+android {
+    namespace "com.aq.marketanalysis"
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+
+    compileSdk rootProject.ext.compileSdkVersion
+    buildToolsVersion rootProject.ext.buildToolsVersion
+    ndkVersion rootProject.ext.ndkVersion
+
+    /**
+     * ✅ SINGLE source of ABI truth
+     * Removes x86 / x86_64 entirely
+     */
+    // splits {
+    //     abi {
+    //         enable true
+    //         reset()
+    //         include "arm64-v8a"
+    //         universalApk false
+    //     }
+    // }
+
+    defaultConfig {
+        applicationId "com.aq.marketanalysis"
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
+        versionCode 37
+        versionName "3.7.0"
+
+        missingDimensionStrategy "store", "play"
+        ndk {
+            abiFilters "arm64-v8a", "armeabi-v7a"
+        }
+    }
+
+    /**
+     * Required for modern JNI handling
+     */
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    packagingOptions {
+        pickFirst "lib/arm64-v8a/libc++_shared.so"
+        pickFirst "lib/x86_64/libc++_shared.so"
+        pickFirst "lib/x86/libc++_shared.so"
+    }
+
+    signingConfigs {
+        debug {
+            storeFile file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+
+        release {
+            if (project.hasProperty("MYAPP_UPLOAD_STORE_FILE")) {
+                storeFile file(MYAPP_UPLOAD_STORE_FILE)
+                storePassword MYAPP_UPLOAD_STORE_PASSWORD
+                keyAlias MYAPP_UPLOAD_KEY_ALIAS
+                keyPassword MYAPP_UPLOAD_KEY_PASSWORD
+                v1SigningEnabled true
+                v2SigningEnabled true
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
+        }
+
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled enableProguardInReleaseBuilds
+            proguardFiles(
+                getDefaultProguardFile("proguard-android.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+}
+
+// Force every library's generateCodegenArtifactsFromSchema to finish before
+// any :app CMake/NDK task runs. Without this, a clean assembleRelease races:
+// Android-autolinking.cmake references
+// node_modules/*/android/build/generated/source/codegen/jni/ dirs that
+// per-library codegen hasn't created yet, and cmake configure fails with
+// "add_subdirectory given source ... which is not an existing directory".
+//
+// The closure is lazy — Gradle resolves it at execution-graph construction,
+// by which point every subproject has been evaluated and its codegen task
+// has been registered. Eager findByName(...) from whenTaskAdded returns null
+// for most libraries and silently wires nothing.
+tasks.whenTaskAdded { task ->
+    if (task.name.startsWith("configureCMake") ||
+        task.name.startsWith("buildCMake") ||
+        task.name.startsWith("externalNativeBuild")) {
+        task.dependsOn({
+            rootProject.subprojects.findResults { sub ->
+                sub.tasks.findByName("generateCodegenArtifactsFromSchema")
+            }
+        })
+    }
+}
+
+dependencies {
+    implementation("com.facebook.react:react-android")
+    implementation project(":react-native-vector-icons")
+    implementation project(":react-native-config")
+
+    if (hermesEnabled.toBoolean()) {
+        implementation("com.facebook.react:hermes-android")
+    } else {
+        implementation jscFlavor
+    }
+}
+
+apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
+apply plugin: "com.google.gms.google-services"

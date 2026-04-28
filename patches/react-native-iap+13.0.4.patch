@@ -1,0 +1,25 @@
+diff --git a/node_modules/react-native-iap/ios/RNIapIosSk2.swift b/node_modules/react-native-iap/ios/RNIapIosSk2.swift
+index 1234567..abcdefg 100644
+--- a/node_modules/react-native-iap/ios/RNIapIosSk2.swift
++++ b/node_modules/react-native-iap/ios/RNIapIosSk2.swift
+@@ -1198,12 +1198,14 @@ public class RNIapIosSk2: RCTEventEmitter {
+                     case .verified(let appTransaction):
+                         var result: [String: Any] = [:]
+
+-                        // Add iOS 18.4+ properties
+-                        if #available(iOS 18.4, tvOS 18.4, *) {
+-                            result["appTransactionID"] = appTransaction.appTransactionID
+-                            result["originalPlatform"] = appTransaction.originalPlatform
+-                        }
+-
++                        // iOS 18.4+ properties commented out for Xcode 15.x compatibility
++                        // These properties require iOS 18.4 SDK which is only available in Xcode 16+
++                        // Uncomment when building with Xcode 16+:
++                        // if #available(iOS 18.4, tvOS 18.4, *) {
++                        //     result["appTransactionID"] = appTransaction.appTransactionID
++                        //     result["originalPlatform"] = appTransaction.originalPlatform
++                        // }
++
+                         // Add other AppTransaction properties
+                         result["originalAppVersion"] = appTransaction.originalAppVersion
+                         result["originalPurchaseDate"] = appTransaction.originalPurchaseDate.timeIntervalSince1970 * 1000

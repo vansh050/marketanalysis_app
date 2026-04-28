@@ -1,0 +1,95 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+
+    <application
+        android:name=".MainApplication"
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:theme="@style/AppTheme"
+        android:supportsRtl="true">
+
+        <meta-data
+            android:name="cashfree_subscription_flow_enable"
+            android:value="true"
+            tools:replace="android:value" />
+
+        <meta-data 
+            android:name="com.dieam.reactnativepushnotification.notification_foreground" 
+            android:value="true" />
+
+        <activity
+            android:name=".MainActivity"
+            android:label="@string/app_name"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="prod.alphaquark.in"
+                    android:pathPrefix="/subscriptions" />
+            </intent-filter>
+
+            <!-- Zerodha OAuth Callback -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="alphab2bapp"
+                    android:host="zerodha"
+                    android:pathPrefix="/callback" />
+            </intent-filter>
+
+            <!--
+                Android App Links intent-filter for broker OAuth callbacks.
+
+                When `autoVerify="true"` is set, Android fetches
+                https://app-links.alphaquark.in/.well-known/assetlinks.json
+                at install time and verifies this app's signing SHA-256 is
+                listed. If verified, every https link to
+                https://app-links.alphaquark.in/broker-callback is opened
+                directly in this activity WITHOUT the disambiguation chooser
+                — critical because broker OAuth carries secrets in the query
+                string and we can't afford for the user to pick a browser.
+
+                Verification status can be checked on-device with:
+                  adb shell pm get-app-links com.aq.marketanalysis
+                Look for "app-links.alphaquark.in: verified".
+
+                The assetlinks.json is served dynamically by
+                aq_backend_github (Routes/WellKnown/WellKnownRouter.js),
+                aggregating entries from every appadvisors doc with
+                appLinksEnabled=true across all advisor DBs. This app's
+                entry lives in the `prod` database.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" />
+                <data android:host="app-links.alphaquark.in" />
+                <data android:pathPrefix="/broker-callback" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

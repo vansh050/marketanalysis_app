@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "794163196580",
+    "project_id": "marketanalysisacademy-4e595",
+    "storage_bucket": "marketanalysisacademy-4e595.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:794163196580:android:06aff25f839f0e499f2c31",
+        "android_client_info": {
+          "package_name": "com.aq.marketanalysis"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "794163196580-f013am7jqo5b875k8co4gitb6udsq7c5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDvYkvL1mg8DrukV6j-wIf_1kOkO9mQh0U"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "794163196580-f013am7jqo5b875k8co4gitb6udsq7c5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
