@@ -1,5 +1,6 @@
 import ZamzamLogo from '../assets/AppLogo/logo.png';
 import AlphaQuarkLogo from '../assets/logo.png';
+import MarketAnalysisLogo from '../assets/AppLogo/logo.png';
 
 // Shared UI config — theme, colors, layout
 const sharedUIConfig = {
@@ -69,6 +70,42 @@ const APP_VARIANTS = {
   rgxresearch:   {...sharedUIConfig, subdomain: 'rgxresearch',     advisorRaCode: 'RGXRESEARCH'},
   arfs:          {...sharedUIConfig, subdomain: 'arfs',            advisorRaCode: 'ARFS'},
   magnus:        {...sharedUIConfig, subdomain: 'zamzamcapital',   advisorRaCode: 'ZAMZAMCAPITAL'},
+  marketanalysis: {
+    themeColor: '#2056DF',
+    logo: MarketAnalysisLogo,
+    toolbarlogo: MarketAnalysisLogo,
+    homeScreenLayout: 'layout1',
+    mainColor: '#0A0F1D',
+    secondaryColor: '#FFFFFF',
+    gradient1: '#1E9F40',
+    gradient2: '#2056DF',
+    placeholderText: '#9CA3AF',
+    CardborderWidth: 0,
+    cardElevation: 3,
+    cardverticalmargin: 3,
+    tabIconColor: '#FFFFFF',
+    bottomTabBorderTopWidth: 1,
+    bottomTabbg: '#0A0F1D',
+    selectedTabcolor: '#1E9F40',
+    basketcolor: '#2056DF',
+    basketsymbolbg: '#1843C0',
+    basket1: '#1E9F40',
+    basket2: '#17803A',
+    googleWebClientId: '794163196580-f013am7jqo5b875k8co4gitb6udsq7c5.apps.googleusercontent.com',
+    subdomain: 'marketanalysis',
+    advisorRaCode: 'MARKETANALYSIS',
+    paymentModal: {
+      headerBg: '#2056DF',
+      stepActiveColor: '#2056DF',
+      stepCompletedColor: '#1E9F40',
+      buttonPrimaryBg: '#2056DF',
+      buttonSecondaryBg: '#1E9F40',
+      accentColor: '#2056DF',
+      checkboxActiveColor: '#1E9F40',
+      linkColor: '#2056DF',
+      progressBarColor: '#1E9F40',
+    },
+  },
 
   EmptyStateUi: {
     backgroundColor: '#6B1400',
