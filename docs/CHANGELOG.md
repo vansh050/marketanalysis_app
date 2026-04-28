@@ -4,6 +4,65 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
 
+## [1.0.1] - 2026-04-28
+
+### Added — Release SHA-1 fingerprint registered in Firebase for Market Analysis Academy
+
+Added release keystore SHA-1 (`d5c63f3f5753224991876e8d4f0b437926fba16c`) to `android/app/google-services.json` for the `com.aq.marketanalysis` package, enabling Google Sign-In in release/production builds.
+
+### Backend — appadvisors and all_advisor_details documents created in MongoDB
+
+Created the missing `appadvisors` document in the `marketanalysis` MongoDB database and the corresponding `all_advisor_details` entry in the `common` database. These are required for the backend API (`/api/app-advisor/get?appSubdomain=marketanalysis`) to return the app theme/config, and for advisor RA code resolution during user signup.
+
+- Advisor RA code: `MARKETANALYSIS`
+- Theme color: `#2056DF`, main color `#0A0F1D`
+- Payment platform: Razorpay
+- Firebase project: `marketanalysisacademy-4e595`
+
+### Files
+- `android/app/google-services.json` — release SHA-1 added
+
+### Cross-repo (backend)
+- MongoDB `marketanalysis.appadvisors` — document created with full theme + apiKeys config
+- MongoDB `common.all_advisor_details` — document created with `advisor_ra_code: "MARKETANALYSIS"`
+
+---
+
+## [1.0.0] - 2026-04-26
+
+### Added — Initial Market Analysis Academy app (forked from AlphaB2B)
+
+White-labeled the AlphaB2B React Native app for Market Analysis Academy advisor:
+- Bundle ID: `com.aq.marketanalysis`, display name: "Market Analysis Academy"
+- Firebase project: `marketanalysisacademy-4e595` (Google Sign-In SHA-1 registered)
+- Brand colors: theme `#2056DF`, main `#0A0F1D`, gradient1 `#1E9F40`
+- Market Analysis Academy logo (1024×1024 blue M logo) applied to app icon (all densities) and in-app logo
+- Keystore: `marketanalysis-upload-key.keystore` (CN=Market Analysis Academy)
+- Config.js `marketanalysis` variant added with full color + payment modal theming
+- `APP_VARIANT=marketanalysis`, `REACT_APP_ADVISOR_TAG=marketanalysis`
+
+### Files
+- `app.json`, `package.json` — name: "MarketAnalysis", displayName: "Market Analysis Academy"
+- `android/app/build.gradle` — namespace + applicationId: `com.aq.marketanalysis`
+- `android/settings.gradle` — rootProject.name: "MarketAnalysis"
+- `android/app/src/main/res/values/strings.xml` — app_name: "Market Analysis Academy"
+- `android/app/src/main/java/com/aq/marketanalysis/MainActivity.kt` — new package
+- `android/app/src/main/java/com/aq/marketanalysis/MainApplication.kt` — new package
+- `android/app/google-services.json` — Firebase config for marketanalysisacademy-4e595
+- `ios/AlphaQuark/AppDelegate.mm` — moduleName: "MarketAnalysis"
+- `ios/AlphaQuark/Info.plist` — CFBundleDisplayName: "Market Analysis Academy"
+- `ios/AlphaQuark.xcodeproj/project.pbxproj` — bundle ID: com.aq.marketanalysis
+- `ios/GoogleService-Info.plist` — Firebase iOS config
+- `src/utils/Config.js` — `marketanalysis` variant added
+- `src/assets/AppLogo/logo.png`, `src/assets/logo.png` — Market Analysis Academy logo
+- `android/app/src/main/res/mipmap-*/ic_launcher*.png` — app icon (all 5 densities)
+- `ios/AlphaQuark/Images.xcassets/AppIcon.appiconset/` — iOS app icon (37 sizes)
+- `.env` — all env vars for marketanalysis advisor
+- `android/gradle.properties` — marketanalysis keystore config
+- `android/app/marketanalysis-upload-key.keystore` — release signing keystore
+
+---
+
 ## [3.9.30] - 2026-04-26
 
 ### Fixed — AliceBlue post-connect "Authentication Required" loop + place-order session-expired loop + dual-modal stack
