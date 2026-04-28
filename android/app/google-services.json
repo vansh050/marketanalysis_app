@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "794163196580-34k8l0jjndp3s56h3nocg2hfppomeojh.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aq.marketanalysis",
+            "certificate_hash": "b0c0e441e5a1dd32dd6d779e337910fd686292da"
+          }
+        },
+        {
           "client_id": "794163196580-f013am7jqo5b875k8co4gitb6udsq7c5.apps.googleusercontent.com",
           "client_type": 3
         }
@@ -29,6 +37,13 @@
             {
               "client_id": "794163196580-f013am7jqo5b875k8co4gitb6udsq7c5.apps.googleusercontent.com",
               "client_type": 3
+            },
+            {
+              "client_id": "794163196580-5aj9gberg81tvb6au2c4a5mrghusj7b6.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.aq.marketanalysis"
+              }
             }
           ]
         }
