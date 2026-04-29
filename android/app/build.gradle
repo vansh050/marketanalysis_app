@@ -39,8 +39,8 @@ android {
         applicationId "com.aq.marketanalysis"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 37
-        versionName "3.7.0"
+        versionCode 1
+        versionName "1.0.0"
 
         missingDimensionStrategy "store", "play"
         ndk {
