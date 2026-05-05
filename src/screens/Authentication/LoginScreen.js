@@ -76,6 +76,7 @@ const LoginScreen = () => {
   React.useEffect(() => {
     GoogleSignin.configure({
       webClientId: WEB_CLIENT_ID,
+      offlineAccess: true,
     });
     console.log('Google Sign-In configured with Web Client ID:', WEB_CLIENT_ID);
   }, []);
@@ -383,7 +384,7 @@ const LoginScreen = () => {
       });
 
       // User-friendly error differentiation
-      let userMessage = 'Google sign-in failed. Please try again.';
+      let userMessage = `Google sign-in failed [${error.code || 'no-code'}]: ${error.message || 'no-message'}`;
       const code = error.code || '';
       const msg = (error.message || '').toLowerCase();
 
@@ -404,6 +405,8 @@ const LoginScreen = () => {
         userMessage = 'This account has been disabled. Please contact support.';
       } else if (code === 'auth/too-many-requests') {
         userMessage = 'Too many attempts. Please try again later.';
+      } else if (code === 'auth/operation-not-allowed') {
+        userMessage = 'Google sign-in is not enabled on the server. Please contact support.';
       } else if (error.response?.status >= 500) {
         userMessage = 'Server error. Please try again in a moment.';
       } else if (error.response?.status === 401) {
