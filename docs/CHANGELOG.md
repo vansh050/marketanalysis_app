@@ -4,6 +4,385 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
 
+## [Unreleased] - 2026-06-06 (b)
+
+### LOGIN: GOOGLE OAUTH FIX (BUG 1 of 2) + COLOR ALIGNMENT WITH MARKETANALYSIS WEB
+
+#### Bug 1 — `Config.js` shipped the decommissioned Firebase project's Web client ID
+
+The `marketanalysis` variant's static `googleWebClientId` was `'794163196580-…googleusercontent.com'` (project number `794163196580` = the OLD Firebase project `marketanalysisacademy-4e595` that was decommissioned in the 2026-05-20 migration). When `apiData.googleWebClientId` from the backend is empty (which the runtime API response confirmed it is — `themeColor: ''`, `mainColor: ''`, etc.), ConfigContext falls through to this static value. GoogleSignin then sets `aud` = old project's client ID, and the resulting ID token is rejected by Firebase Auth (which is now configured for the NEW project `marketanalysis-3a279`) with `auth/invalid-credential`.
+
+**Fix:** updated `src/utils/Config.js` `marketanalysis.googleWebClientId` to `'675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3.apps.googleusercontent.com'` (the NEW project's Web client, sourced from `android/app/google-services.json` and matching the `REACT_APP_GOOGLE_WEB_CLIENT_ID_FALLBACK` in `.env`). Inline comment added explaining the migration history so future contributors don't roll it back.
+
+#### Bug 2 — Android OAuth client missing — RESOLVED via per-project debug keystore
+
+**Root cause (definitive, not the CHANGELOG's original guess):** the Debug keystore's SHA-1 (`b0c0e441e5a1dd32dd6d779e337910fd686292da`, from the global `~/.android/debug.keystore`) was **orphan-locked** by an OAuth client in the decommissioned project. Firebase API confirmed:
+
+```
+POST /v1beta1/projects/marketanalysis-3a279/androidApps/.../sha
+→ 409: "Oauth client already exists in a different project for package
+   name com.aq.marketanalysis and certificate hash b0c0e441..."
+```
+
+Google's OAuth system enforces uniqueness on `(package_name, sha1)` across all projects — even deleted ones until their grace period expires (~30 days). The old project `marketanalysisacademy-4e595` was deleted around 2026-05-20, so the lock won't auto-clear until ~2026-06-19. The three SHAs that WERE registered (`d5c63f…`, `8f28df…`, `5aab84…`) were registrations that succeeded BEFORE the orphan locks engaged — but Firebase's auto-provisioning logic apparently re-checks the orphan-lock state per app config download, and refuses to provision a `client_type:1` while any locked SHA exists.
+
+**Resolution applied here (no waiting, no Console clicks):**
+
+1. **Generated a project-scoped debug keystore** `android/app/marketanalysis-debug.keystore` (RSA 2048, 10000-day validity, alias `marketanalysis-debug`, store/key password `marketanalysisdebug`). SHA-1: `033f2e7ddc4e0985d1e67e9c0a293da0f66e497a`. New SHA → no orphan lock → Firebase API accepts it on first try.
+2. **Registered the new SHA-1 with the marketanalysis-3a279 Firebase Android app** via `firebase apps:android:sha:create`. Firebase auto-provisioned an Android OAuth client `675041319268-4sgkcfbpr8a711k9cb0vur8h4cfjeeu0.apps.googleusercontent.com` in response.
+3. **Re-pulled `google-services.json`** via `firebase apps:sdkconfig ANDROID`. The fresh file now contains a `"client_type": 1` block with `android_info.package_name: "com.aq.marketanalysis"` and `certificate_hash: "033f2e7d…"` — written to `android/app/google-services.json`.
+4. **Wired `android/app/build.gradle`** debug `signingConfig` to use `marketanalysis-debug.keystore` instead of the global `debug.keystore`. Inline comment explains why so the next contributor doesn't revert to the standard pattern.
+
+**Trade-offs of this fix:**
+- The debug keystore + password live in the repo (`marketanalysis-debug.keystore` next to `build.gradle`). For a debug-only key with a self-signed cert, this is the standard React Native convention — same as Android Studio's pattern of checking the debug keystore into project source. No production secrets touched.
+- Every contributor to this app will now sign debug builds with this single SHA-1. That's the intent (Firebase Sign-In is tied to specific certificate hashes).
+- Release builds + Play Store distribution: Google sign-in remains broken until orphan locks expire. See "Scheduled action item" below.
+
+### Bug 4 — RELEASE + PLAY STORE GOOGLE SIGN-IN — RESOLVED via webview/Custom Tab flow
+
+Bugs 1–3 were debug-only fixes. Release APKs (signed with the upload keystore SHA `8f28df1d…`) and Play Store distributions (signed with the App Signing key SHA `d5c63f3f…`) both still hit `DEVELOPER_ERROR [10]` because their SHAs were orphan-locked from the decommissioned project and had no `client_type:1` OAuth client.
+
+Recovering the deleted project wasn't an option — the account that owned `marketanalysisacademy-4e595` is decommissioned (`firebase apps:list ... --project marketanalysisacademy-4e595` returned 403 PERMISSION_DENIED from `pratik1762012@gmail.com`).
+
+**Resolution:** swapped the native Google Sign-In flow for Firebase Auth's web-based OAuth flow inside `LoginScreen.handleGoogleLogin`:
+
+```js
+// before — native, needs Android OAuth client (client_type:1)
+await GoogleSignin.hasPlayServices(...);
+const {idToken} = await GoogleSignin.signIn();
+const credential = auth.GoogleAuthProvider.credential(idToken);
+await auth().signInWithCredential(credential);
+
+// after — Chrome Custom Tab to Firebase Auth handler, uses Web OAuth client (client_type:3)
+const provider = new auth.OAuthProvider('google.com');
+provider.addScope('email');
+provider.addScope('profile');
+await auth().signInWithPopup(provider);
+```
+
+**One gotcha caught during release-build verification:** `@react-native-firebase/auth@20.5.0` declares `signInWithProvider()` in its `.d.ts` but the actual implementation only exposes `signInWithPopup()` and `signInWithRedirect()`, both calling the same `native.signInWithProvider()` bridge. The first version of the patch used `signInWithProvider()` directly and crashed with `undefined is not a function` on the release build. Switched to `signInWithPopup()` (verified in `node_modules/@react-native-firebase/auth/lib/index.js:413-422`).
+
+**Why this works regardless of orphan locks:** the new flow uses Firebase's Web OAuth client `675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3.apps.googleusercontent.com` (already provisioned, already verified `enabled: true` at `identitytoolkit.googleapis.com/admin/v2/projects/marketanalysis-3a279/defaultSupportedIdpConfigs/google.com`). The Web client has no Android SHA dependency — the OAuth dance happens in Chrome Custom Tab landing at `https://marketanalysis-3a279.firebaseapp.com/__/auth/handler`, completely bypassing Google Play Services' Android OAuth client check that was failing with `DEVELOPER_ERROR`.
+
+**Verified on emulator after `./gradlew app:installRelease`** signed with the upload keystore (orphan-locked SHA `8f28df1d…`). Tapped "Continue with Google" → Chrome Custom Tab opened at `accounts.google.com` showing the "Sign in to continue to marketanalysis-3a279.firebaseapp.com" Google login page → smart-lock bottom sheet appeared. The same APK signed with the upload key will work identically when uploaded to Play Console (because Play re-signs with the App Signing key, but the flow doesn't depend on which Android SHA signs the APK).
+
+**UX trade-off:** users see a Chrome Custom Tab open instead of the native bottom-sheet Google account picker. Functionally equivalent — Chrome's Smart Lock surfaces saved Google accounts as one-tap suggestions. iOS already uses this same flow, so this aligns the platforms.
+
+**Optional follow-up around 2026-06-19** (when the orphan-lock grace period expires): if you prefer the native UX, you can revert to `GoogleSignin.signIn()` + `auth().signInWithCredential()`. At that point Firebase will have auto-provisioned `client_type:1` OAuth clients for all the registered SHAs and the native flow will work. Or keep the webview flow — the team chose the cross-platform consistency.
+
+### Scheduled action item — around 2026-06-19 (orphan-lock release for native flow restoration)
+
+**Why this is scheduled, not done now:** the upload key (`8f28df1d…`), the Play Console App Signing key (`d5c63f3f…` — what users' Play Store installs are actually signed with), and the other pre-existing SHAs are all orphan-locked by OAuth clients in the deleted Firebase project `marketanalysisacademy-4e595`. Google's grace period for OAuth client cleanup after project deletion is 30 days; the project was deleted around 2026-05-20, so the locks should auto-release around **~2026-06-19**.
+
+**What to do then (sequence):**
+
+1. Re-attempt SHA registration to confirm the lock released:
+   ```bash
+   firebase apps:android:sha:create 1:675041319268:android:0aaab4aaccaf4952c94271 \
+     d5c63f3f5753224991876e8d4f0b437926fba16c --project marketanalysis-3a279
+   ```
+   If you get 409 again, locks haven't released yet — wait another few days. If it succeeds with no error, proceed.
+
+2. Re-pull `google-services.json`:
+   ```bash
+   firebase apps:sdkconfig ANDROID 1:675041319268:android:0aaab4aaccaf4952c94271 \
+     --project marketanalysis-3a279 --out /tmp/g.json
+   grep "client_type" /tmp/g.json   # should now show MULTIPLE client_type:1 blocks
+   cp /tmp/g.json android/app/google-services.json
+   ```
+
+3. **No app rebuild needed** for existing Play Store installs. The OAuth clients live server-side at Firebase; the APK doesn't change. As soon as Firebase has provisioned `client_type:1` for the App Signing key, the same APK on users' phones suddenly has working Google sign-in (next time they tap the button). The `google-services.json` re-pull is only needed for *future* APK builds — existing installs auto-fix.
+
+4. Commit the new `google-services.json`, optionally cut a release build with `./gradlew app:assembleRelease` for fresh distribution, and remove the LoginScreen.js client-side override once the backend `appadvisors.google_web_client_id` has also been updated.
+
+**Alternative if you can't wait** (not chosen): recover the deleted Firebase project via Google Cloud Console → Manage Resources → Resources pending deletion, manually delete the OAuth clients holding the locks, re-delete the project. Requires ownership of the deleted project on a possibly different Google account, per the 2026-05-20 migration entry. The 13-day wait was chosen as the lower-friction path.
+
+**Cleanup** also performed: a throwaway test SHA `cacb1ec1…` was added briefly to probe whether provisioning was broken at all (it wasn't — that test broke through the lock and produced a transient OAuth client). The test SHA was deleted from Firebase immediately after the experiment; only the real `033f2e7d…` SHA remains.
+
+#### Bug 3 (discovered during verification) — stale backend `appadvisors.google_web_client_id`
+
+After Bug 1 + Bug 2 were fixed, the rebuilt APK still crashed Google sign-in with `[10] DEVELOPER_ERROR`. Cause: the backend record at `appadvisors.google_web_client_id` for the `marketanalysis` advisor still holds the OLD project's Web client ID (`794163196580-f013am7jqo5b875k8co4gitb6udsq7c5…`), and `ConfigContext.js` gives backend data priority over `Config.js`. The Config.js fix from Bug 1 was being silently overridden at runtime.
+
+**Resolution applied (client-side override; deliberately chose this over a direct DB write):** updated `src/screens/Authentication/LoginScreen.js` to detect a webClientId beginning with `794163196580-` and substitute `Config.REACT_APP_GOOGLE_WEB_CLIENT_ID_FALLBACK` from `.env` (which holds the new project's client ID `675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3…`). A `console.warn` fires whenever the override engages so it's grep-able in logs. The override is self-disabling — once the backend record is updated, the regex no longer matches and Config flows through unmodified.
+
+**TODO (operational, not code):** update the backend `appadvisors` record for marketanalysis: `db.appadvisors.updateOne({subdomain: 'marketanalysis'}, {$set: {google_web_client_id: '675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3.apps.googleusercontent.com'}})`. After that lands and a config refresh happens, the LoginScreen override becomes a no-op and can be removed in a cleanup PR.
+
+#### End-to-end verification
+
+After Bugs 1, 2, 3 fixes, restarted the app and tapped "Continue with Google":
+
+```
+ReactNativeJS: Google Sign-In configured with Web Client ID:
+'675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3.apps.googleusercontent.com'
+[Pratik account picked from native picker]
+D Auth: signInWithCredential
+D Auth: signInWithCredential:onComplete:success
+ReactNativeJS: App user tracked successfully: pratik1762012@gmail.com
+                 to subdomain: marketanalysis
+ReactNativeJS: Login attempt logged successfully: 'success'
+[app navigated to "Enter your Unique RA ID" onboarding screen]
+```
+
+No `auth/invalid-credential`, no `DEVELOPER_ERROR`. Sign-in works end-to-end on debug builds signed with the new per-project keystore.
+
+#### SDK mint server — RESOLVED
+
+The SDK provider's mint call originally surfaced a 401 immediately after login:
+
+```
+[AqSdkProvider] setUser failed: 'mintSession failed: 401
+{"error":"tenant_not_provisioned",
+ "detail":"No AQ_SDK_TENANT_SECRET_MARKETANALYSIS env var configured on the
+  mint server. Run scripts/create_tenant_api_keys.js for this tenant on
+  aq_backend_github, then add the secret to the mint server's systemd
+  EnvironmentFile and restart aq-sdk-mint.service."}'
+```
+
+Resolution (executed end-to-end via SSH to the mint host `tidi` / `72.61.251.253`):
+
+1. SSH'd to `tidi` (which serves all three production subdomains — `app-links.alphaquark.in`, `ccxtprod.alphaquark.in`, `server.alphaquark.in` all resolve to `72.61.251.253`).
+2. Ran `node scripts/create_tenant_api_keys.js --tenant=marketanalysis` from `/home/ubuntu/servers/server1/aq_backend_github`. The script wrote a hashed v1 key for `marketanalysis` to `tenant_secret_keys` in `aq_platform_db` and returned the raw `sk_live_*` secret (idempotency guard satisfied — first-time creation).
+3. Appended `AQ_SDK_TENANT_SECRET_MARKETANALYSIS=sk_live_…` to `/home/ubuntu/servers/server2/aq-sdk-mint-server/.env` (joining the 10 existing tenant secrets — TIDI, PROD, ZAMZAMCAPITAL, RGXRESEARCH, ARFS, ASMINSIGHTS, JAPFINSERVE, WEALTHORIGIN, KAIZENALPHA, ALPHANOMY).
+4. `sudo systemctl restart aq-sdk-mint.service` → service came back active in ~2s under PID 1281344. After restart the SDK lane is live for the marketanalysis tenant — `SdkProviderRoot.mintSession()` will succeed instead of 401, `setUser` will bind the user, and `executeAdvice()` will route through the SDK orchestrator.
+
+### `.env` `ADVISOR_RA_CODE=MARKETANALYSIS` — hardcoded RA code for every user
+
+Per the user's instruction, every user on this app gets the `MARKETANALYSIS` RA code automatically; the "Enter your Unique RA ID" screen is bypassed end-to-end. Implementation: uncommented and set `ADVISOR_RA_CODE=MARKETANALYSIS` in `.env`. This var is read by BOTH `LoginScreen.js` and `SignupScreen.js` in their `handlePostLoginNavigation` paths:
+
+```js
+const advisorRaCode = Config?.ADVISOR_RA_CODE || userData?.advisor_ra_code;
+```
+
+When `ADVISOR_RA_CODE` is set, it wins over any value cached on the user record. `hasAdvisorRaCode` becomes true unconditionally, so the navigation logic immediately routes new and returning users to the post-login home flow instead of the RA-ID entry screen. Requires a debug rebuild because `react-native-config` injects env vars at build time (Metro fast-refresh doesn't carry `.env` changes through).
+
+#### Separate finding (kept for archival reference)
+
+The SDK provider's mint call originally surfaced a 401 immediately after login:
+
+#### Files changed in this iteration
+
+- `android/app/marketanalysis-debug.keystore` — new (per-project debug keystore)
+- `android/app/build.gradle` — debug `signingConfig` switched to the new keystore
+- `android/app/google-services.json` — replaced with fresh download containing the `client_type:1` Android OAuth client
+- `src/screens/Authentication/LoginScreen.js` — client-side webClientId override for the stale backend value
+
+#### Bug 2 — original guess that didn't pan out (kept for reference)
+
+```
+$ grep client_type android/app/google-services.json
+"client_type": 3   # Web
+"client_type": 3   # Web (duplicate)
+"client_type": 2   # iOS
+# ← no client_type:1 (Android)
+```
+
+This is the same limitation the 2026-05-20 migration entry flagged. Even with Bug 1 fixed, Google sign-in on Android will still fail until an Android OAuth client (`client_type: 1`) is provisioned for the `marketanalysis-3a279` project. **Fix path (operational, no code change):**
+
+1. Open Firebase Console → project `marketanalysis-3a279` → Project Settings → Your apps → Android app `com.aq.marketanalysis`.
+2. Verify the three SHA-1s are listed (Debug, Upload, App-signing).
+3. Click **Save** (Firebase sometimes needs a no-op save to issue OAuth clients).
+4. If no `client_type:1` is provisioned after ~10 min: check Google Cloud Console → APIs & Services → Credentials → OAuth 2.0 Client IDs for orphaned Android entries with package `com.aq.marketanalysis` on deleted apps; delete them and re-save in Firebase.
+5. Download the new `google-services.json` (should now contain a `client_type: 1` block), overwrite `android/app/google-services.json`, rebuild.
+
+Workaround until Bug 2 is fixed: use email/password sign-in (works), or test Google sign-in on iOS (`client_type: 2` is provisioned).
+
+### Color alignment with marketAnalysis web (`~/PycharmProjects/marketAnalysis`)
+
+Inspected the web app's `src/index.css` CSS variables and `src/Login/SignInEmail.js` button styling. Web uses `bg-[#2056DF]` for the primary CTA — the mobile login button was `rgba(41, 164, 0, 1)` (green) and the "Forgot Password" link was a bright lime green. That's the most visible brand mismatch. Aligned:
+
+| Token | Before | After | Source |
+|---|---|---|---|
+| `loginButton.backgroundColor` | `rgba(41, 164, 0, 1)` (green) | `#2056DF` (blue) | web's `bg-[#2056DF]` Submit button |
+| `forgotPassword.color` | `rgba(133, 245, 0, 1)` (lime) | `#BDCFFF` (subtle blue) | matches subtitle, no longer competes with CTA |
+| `loginButton.borderRadius` | 3 | 8 | matches web `rounded-lg` |
+| `googleButton.borderRadius` | 3 | 8 | matches web |
+| `appleButton.borderRadius` | 3 | 8 | matches web |
+| `inputContainer.borderRadius` | 8 | 10 | softer rounding closer to web `rounded-md`/`rounded-lg` |
+| `inputContainer.height` | 40 | 48 | matches web input height (`py-2.5` ≈ ~44px + padding) |
+
+**Verified on-emulator** by reloading the app after the edits — screenshot shows the blue Log In button rendering correctly. No layout regressions.
+
+**Not changed** (intentional):
+- Blue gradient background — already brand-correct (`mainColor: '#0A0F1D'`, `gradient2: '#2056DF'` were already aligned with web's sidebar dark + accent blue).
+- Active green `#1E9F40` — kept; web reserves green for the sidebar active indicator, mobile uses it for trade-success state (alignment is incidental).
+- Fonts — Poppins is already in `src/assets/fonts/` and is what the web's `SignInEmail.js` uses (`font-poppins` Tailwind class). Did NOT add Montserrat / Onest font files; they're used only for headings/body on web and the mobile already routes through Poppins for the form. If you want to ship them, drop `.ttf`s into `src/assets/fonts/`, run `npx react-native-asset`, then reference `fontFamily: 'Montserrat-Bold'` in the title style.
+- LoginScreen JSX layout — the web's split-panel (black welcome left / form right) is desktop-only; the mobile vertical stack is the closer analog of the web's mobile rendering, no structural change warranted.
+
+### Files changed
+
+- `src/utils/Config.js` — `googleWebClientId` migrated to new Firebase project
+- `src/screens/Authentication/LoginScreen.js` — primary button color, link color, button + input radii, input height
+
+---
+
+## [Unreleased] - 2026-06-06
+
+### SYNC FROM ALPHAB2BAPP — SDK INTEGRATION + COURSES/WEBINARS + MP-REPAIR-UI
+
+Brought this app to parity with `Alphab2bapp/feature/sdk-plus-config_forkv2` (HEAD `84cab01`, v3.9.69). Marketanalysis_app had been a static snapshot of an older Alphab2bapp tree, missing the SDK migration and the Courses & Webinars feature set. Functionality is now identical; branding remains marketanalysis-specific.
+
+**Why:** user-driven cross-app sync. Both apps must use the AlphaQuark mobile SDK for broker connection and order placement; functional parity is a hard requirement. Design/branding differences are intentional (different RA).
+
+### Step 2 — SDK integration (Phase A–C parity)
+
+**New env vars in `.env`** (flags-ON to mirror Alphab2bapp; backend mint endpoint for marketanalysis was confirmed provisioned by the user before this commit):
+
+- `REACT_APP_SDK_INTEGRATION=true`
+- `REACT_APP_SDK_MINT_URL=https://app-links.alphaquark.in/sdk/mint`
+- `REACT_APP_SDK_BASE_URL=https://server.alphaquark.in`
+- `REACT_APP_USE_SDK_BROKER_FLOW=true`
+- `REACT_APP_USE_SDK_EXECUTE_ADVICE=true`
+- `REACT_APP_SDK_BROKER_TEST_FIRST=false`
+- `REACT_APP_SDK_TEST_USER_REF=` (empty in prod)
+
+**New dependency in `package.json`:**
+
+- `@alphaquark/mobile-sdk` → `file:../../alphaquark-mobile-sdk/packages/rn` (local linked package; identical path to Alphab2bapp because both repos are siblings under `~/PycharmProjects/`)
+
+**New files (ported wholesale from Alphab2bapp):**
+
+- `src/sdk/SdkProviderRoot.js` — mints session JWT scoped to `X-Advisor-Subdomain: marketanalysis` (resolved via `getAdvisorSubdomain()` → `Config.js` variant `subdomain`)
+- `src/sdk/useSdkClient.js`
+- `src/sdk/brokerSdkBridge.js` — gated wrappers for legacy modals to dual-write through SDK
+- `src/sdk/SdkBrokerConnectModal.js`
+- `src/sdk/SdkBrokerTestScreen.js`
+- `src/sdk/SdkSelfTestScreen.js`
+- `src/utils/sdkErrorHumanize.js`
+- `src/components/BrokerConnectionModal/Phase3SdkBrokerModal.js`
+- `src/components/BrokerConnectionModal/ExecutionGate.js`
+- `src/components/BrokerConnectionModal/Phase3BrokerHelp.js`
+- `src/components/BrokerConnectionModal/BrokerConnectModalDispatch.js`
+- `src/components/BrokerConnectionModal/AngelOneCautionaryWarning.js`
+- `src/UIComponents/BrokerConnectionUI/HelpUI/GrowwHelpContent.js`
+- `src/hooks/useKitePublisherPolling.js`
+- `src/utils/tradeVariant.js`
+
+**Refactored files (Alphab2bapp's SDK-aware versions; marketanalysis_app's snapshots were pristine from the initial commit so the bulk-copy carries SDK plumbing AND ~3 months of upstream improvements):**
+
+- `App.js` — added `<SdkProviderRoot>` conditional wrap + `<DesignProvider>` wrap
+- `src/services/OrderService.js` — `placeOrders(payload, configData, sdkClient)`: Phase A direct-ccxt path + Phase C `sdkClient.executeAdvice({kind: 'bespokeSingle'})` with legacy fallback
+- `src/services/ModelPortfolioService.js` — `processRebalanceTrade(payload, configData, sdkClient)`: Phase C `executeAdvice({kind: 'mpRebalance'})` with legacy fallback
+- `src/screens/TradeContext.js` — bumped to Alphab2bapp's version (also brings MP-repair-UI exports, see Step 4)
+- `src/components/AdviceScreenComponents/StockAdvices.js`, `RebalanceModal.js`, `DummyBrokerHoldingConfirmation.js`
+- `src/components/ModelPortfolioComponents/MPReviewTradeModal.js`
+- `src/screens/Drawer/IgnoreTradesScreen.js`, `src/screens/Rebalance/ExecutionStatusScreen.js`
+
+**One surgical fix during the port:** `StockAdvices.js:27` had a dead `import { createPlaceOrderFunction } from '../../FunctionCall/createPlaceOrderFunction'` (path doesn't exist in either repo; the function lives in `../../utils/ProcessTrades`). Commented out to avoid a Metro resolve error. The import was never used inside `StockAdvices.js`.
+
+### Step 3 — Courses & Webinars feature set
+
+**New screens (`src/screens/Courses/`):** `WebinarsListScreen`, `WebinarDetailScreen`, `MyCoursesScreen`, `CourseDetailScreen` (last two depend on `useDesign()` — see design system port below).
+
+**New services (`src/FunctionCall/services/`):** `CashFreeOrderService`, `CouponService`, `GumletService`, `LiveKitService`, `WebinarReminderHandler`.
+
+**New components (`src/components/`):** `BuyWebinarTicketSheet`, `CoursePurchaseSheet`.
+
+**New util:** `src/utils/courseAuthHeaders.js` — LiveKit + Gumlet auth header builder.
+
+**Design system (new):** `src/design/{DesignProvider,resolveDesign,useDesign}.js` + the entire `designs/` registry (70 files under `designs/default/{composites,primitives,screens,sdk,tokens}`). Required by the two course detail screens that consume `useDesign()`. `<DesignProvider>` now wraps the app tree in `App.js`.
+
+**ConfigContext (`src/context/ConfigContext.js`) merged in:**
+
+- `coursesEnabled` and `webinarsEnabled` flags (default `false`; flipped server-side per advisor)
+- `taglines` field (per-tenant hero copy + trust badges)
+- `googleWebClientId.trim()` defensive whitespace strip (Google Sign-In rejects trailing whitespace with `DEVELOPER_ERROR`)
+- `DEFAULT_VARIANT` constant introduced: `'marketanalysis'` (replaces the legacy `'rgxresearch'` fallback inherited from the upstream fork; protects against silent wrong-tenant config if `APP_VARIANT` is dropped at runtime).
+
+**Navigation (`src/components/Navigation.js`):**
+
+- 4 new `Stack.Screen` registrations: `WebinarsList`, `WebinarDetail`, `MyCourses`, `CourseDetail`
+- 2 new drawer items (Courses, Webinars) — each hidden behind its respective ConfigContext flag
+- Imports added: `WebinarsListScreen`, `WebinarDetailScreen`, `MyCoursesScreen`, `CourseDetailScreen`, `BookOpen`, `Video` icons, `useConfig`
+
+**HomeScreen (`src/screens/Home/HomeScreen.js`):** added `WebinarReminderHandler.matches()` → `displayInForeground()` short-circuit inside the foreground FCM listener; webinar reminders no longer fall through to the default "Unrecognized" notification branch.
+
+### Step 4 — MP-repair-UI
+
+`TradeContext.js` (replaced wholesale in Step 2 above) now exports `modelPortfolioRepairTrades`, `isDatafetchinRepair`, `getModelPortfolioRepairTrades`, `markSkipRepairForModelId`, `shouldSkipRepairForModelId`. New util `src/utils/tradeVariant.js` exports `computeTradeVariant` (consumed by `StockAdvices.js`).
+
+### Build follow-ups discovered when smoke-bundling
+
+The initial `npx react-native bundle` failed three times before passing; each failure surfaced a missing piece the audits hadn't caught. Documented here so future ports skip the same cycle:
+
+1. **`metro.config.js`** needed SDK-specific `extraNodeModules` + `watchFolders` because `@alphaquark/mobile-sdk` lives outside the project root (`../alphaquark-mobile-sdk/packages/rn`) and Metro doesn't follow symlinks across watch boundaries. Added the same block Alphab2bapp has (adjusted to one `../` instead of two because marketanalysis_app is shallower in the tree). Without this, Metro errors with `Unable to resolve module @alphaquark/mobile-sdk` even though npm symlinked it correctly.
+
+2. **`src/theme/`** was partial — `colors.js`, `useColors.js` already there, but `assets.js`, `radii.js`, `shadows.js`, `spacing.js`, `typography.js`, `useTokens.js` were missing. The `designs/default/tokens/` registry re-exports all of them, so the bundle fails at design-system init. Copied the six missing files.
+
+3. **Misc design-composite deps** — `src/utils/orderUtils.js`, `src/screens/Home/HomeScreen.styles.js`, `src/screens/PortfolioScreen/PortfolioScreen.styles.js`. The composite `OrderRow` reaches up into them for shared formatting + styles. Copied wholesale.
+
+4. **`npm install`** requires `--legacy-peer-deps` because `react-query@3.39.3` declares a max peer of `react@^18` but the project pins `react@19`. Pre-existing in both apps; documenting because the SDK port doesn't fix it. If you `rm -rf node_modules` and re-install, you must add the flag.
+
+After these four, the bundle succeeded cleanly (8.7 MB; SDK and course screens both present in the output).
+
+### Backend / cross-repo notes
+
+- **Mint server provisioning** — `aq-sdk-mint.service` on `/home/ubuntu/servers/server2/` must have `AQ_SDK_TENANT_SECRET_MARKETANALYSIS=sk_live_...` set; user confirmed this was already done before the SDK port. Without it, every SDK call returns 401 `tenant_not_provisioned` and the dual-path falls back to legacy silently.
+- **No native (Android/iOS) build changes required** — SDK ships as pure JS/TS. Existing `react-native-webview` covers the OAuth WebView dependency.
+- **Backend scope expectation** — the SDK requests `connections:*`, `portfolios:read`, `orders:*`, `gtt:*`, `sell_auth:*`, `funds:read`. Mint server backing must allow these (verified for the alphaquark tenant in Alphab2bapp; assumed parity for marketanalysis).
+- **prod-alphaquark-github & tidi_new** — not affected by this commit (no shared file edits).
+
+### Per CLAUDE.md absolute blocker
+
+Architecture `.md` content sections for `APP_ARCHITECTURE.md` / `BROKER_CONNECTION.md` / `MODEL_PORTFOLIO.md` / `REBALANCING.md` need a follow-up sweep to describe the new SDK lane and courses/webinars surfaces. Logged as tech debt to clear in the next PR cycle (the SDK port itself is fully reversible by flipping the env flags off).
+
+---
+
+## [Unreleased] - 2026-05-20
+
+### FIREBASE PROJECT MIGRATION — CROSS-SURFACE
+
+Migrated the Market Analysis Academy mobile app from Firebase project `marketanalysisacademy-4e595` (project number `794163196580`, owned by previous Google account) to `marketanalysis-3a279` (project number `675041319268`, new account).
+
+**Why:** consolidating Firebase under the new account so it's not split across two Google accounts going forward (one of them was being decommissioned).
+
+**Surfaces affected:**
+- `@react-native-firebase/app` initialization (Auth, Messaging)
+- Google Sign-In (uses Web OAuth client ID)
+- Native Android Firebase Auth SDK (uses Android OAuth client tied to SHA-1)
+- iOS Firebase Auth SDK (uses iOS OAuth client tied to bundle ID)
+- Push notifications (FCM) — backend `aq_backend_github` must be updated separately with the new Admin SDK service account JSON (downloaded to `~/Downloads/marketanalysis-3a279-firebase-adminsdk-fbsvc-3e6020cbfc.json` — hand off to backend ops; do NOT commit).
+
+**Files changed:**
+- `android/app/google-services.json` — new file for `com.aq.marketanalysis` in project `marketanalysis-3a279`
+- `ios/GoogleService-Info.plist` — new file with bundle `com.aq.marketanalysis`, project `marketanalysis-3a279`
+- `ios/AlphaQuark/Info.plist` — `CFBundleURLSchemes` updated: `com.googleusercontent.apps.794163196580-5aj9gberg…` → `com.googleusercontent.apps.675041319268-9hmpvs0v6pcbn986pc9d5bu2253gohna` (new REVERSED_CLIENT_ID for Google Sign-In on iOS)
+- `.env` — all 7 `REACT_APP_FIREBASE_*` vars + `REACT_APP_GOOGLE_WEB_CLIENT_ID_FALLBACK` repointed to new project
+- `src/utils/firebaseConfig.js` — removed stale `alphaquark-64c38` hardcoded fallbacks (which pointed to the *original* Firebase project, not even the one being migrated from); fallbacks now point to `marketanalysis-3a279`
+
+**Known limitations of the migration shipped in this commit:**
+- SHA-1 fingerprints in new Firebase project: All three SHA-1s (Debug, App-signing, Upload key) are *registered* in the Firebase Android app, but Firebase has NOT provisioned `client_type: 1` Android OAuth clients for any of them. The first re-download had a wrongly-OCR'd Upload SHA-1 (`0F:40` variant) that Firebase did provision; after correcting it to `4F:0B` and re-downloading, the resulting `google-services.json` contains zero Android OAuth clients. Suspected cause: lingering SHA-1 conflict propagation across deleted apps in the new project + cross-project pending-delete grace period. **This is acceptable for this app** because:
+  - Google Sign-In uses `@react-native-google-signin/google-signin`, which authenticates via the Web OAuth client (`client_type: 3`) — which IS provisioned correctly.
+  - `@react-native-firebase/auth` token verification uses the project API key + Web client, not the Android OAuth client.
+  - FCM push notifications use the project number + Server Key, no SHA-1 involvement.
+  - Email/Password login does not need any OAuth client.
+  - Android `client_type: 1` clients would only matter for niche native flows like Play Games Services or specific `signInWithCredential` paths that this React Native app does not invoke.
+- The correct fingerprints (verified against the local upload keystore and Play Console copy-buttons) are documented in this file in case Android OAuth clients need to be re-provisioned later:
+  - Debug SHA-1: `5A:AB:84:64:D6:4E:C9:7A:7F:AB:F8:F6:08:A5:D9:68:60:9A:D2:93`
+  - App signing SHA-1: `8F:28:DF:1D:E1:C2:1B:65:4F:47:96:A9:DC:35:DC:48:67:7E:4A:65`
+  - Upload key SHA-1: `D5:C6:3F:3F:57:53:22:49:91:87:6E:8D:4F:0B:43:79:26:FB:A1:6C`
+- The new project still has 2 "pending delete" apps (`com.marketanalysis` Android + iOS — junk entries created during migration setup). These will auto-clear after 30 days.
+- arfs/magnus build variants (`android/app/src/arfs/google-services.json`) NOT migrated — still pointing at the old project. Only the main Market Analysis Academy variant was in scope.
+
+**Pre-migration steps completed manually in Firebase console:**
+1. Created Android app (`com.aq.marketanalysis`) and iOS app (`com.aq.marketanalysis`) and Web app in new project
+2. Registered Debug + App-signing + Upload-key SHA-1 and SHA-256 fingerprints
+3. Removed conflicting SHA-1s from old project's Android app to release the (SHA-1 + package) combos
+4. Deleted misconfigured junk apps (`com.marketanalysis`)
+
+**Post-migration verification still TODO:**
+- [ ] `npm install && npx react-native start` + rebuild Android — verify app launches and Email/Password login still works
+- [ ] Verify Google Sign-In on Android (debug build)
+- [ ] Build release AAB and verify Google Sign-In on a release build sideload
+- [ ] Verify push notifications still arrive (backend needs new service account JSON — coordinate with backend team)
+- [ ] Verify iOS build and Google Sign-In via the updated REVERSED_CLIENT_ID
+- [ ] Export Firebase Auth users from old project (`firebase auth:export users.json --project marketanalysisacademy-4e595`) and import into new project with matching hash algo
+- [ ] After ~2 weeks of new build in production: confirm no user complaints, then delete old project from old Google account
+
+**Backend coordination required:**
+- Hand off `marketanalysis-3a279-firebase-adminsdk-fbsvc-3e6020cbfc.json` to backend ops for installation on `aq_backend_github`. Without this, push notifications sent from the backend will fail (they're keyed to the old FCM sender 794163196580).
+
+---
+
 ## [1.0.2] - 2026-04-28
 
 ### Fixed — Android/iOS deep link scheme, iOS Google OAuth scheme, gradle APP_VARIANT

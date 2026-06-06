@@ -37,16 +37,85 @@ function getHeaders(configData) {
   };
 }
 
+const isSdkExecuteAdviceEnabled = () => {
+  const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
+  return v === 'true' || v === '1';
+};
+
 /**
  * Place regular orders via unified endpoint.
+ *
+ * Phase A trade-exec alignment (2026-05-01): now POSTs direct to ccxt-india
+ * /orders/process-trade. Falls back to legacy Node /api/process-trades/order-place
+ * on 5xx / network error. Fallback gated by REACT_APP_BESPOKE_DIRECT_CCXT_FALLBACK
+ * (default 'true'). Spec: docs/SDK_TRADE_EXECUTION_MIGRATION.md § Phase A.
+ *
+ * Phase C SDK path: when sdkClient is passed and REACT_APP_USE_SDK_EXECUTE_ADVICE
+ * is enabled, routes through sdkClient.executeAdvice({ kind: 'bespokeSingle' }).
+ * Falls back to legacy on SDK failure. Callers that are React components should
+ * pass useSdkClient() result as the third argument.
+ *
+ * Caller-facing return shape preserved: response.data has either
+ * `{results: [...]}` (direct-ccxt path) or `{response: [...]}` (fallback).
+ * Callers should read `response.results || response.response || []`.
  */
-export async function placeOrders(payload, configData) {
-  const response = await axios.post(
-    `${server.server.baseUrl}api/process-trades/order-place`,
-    payload,
-    {headers: getHeaders(configData), timeout: 120000},
-  );
-  return response.data;
+export async function placeOrders(payload, configData, sdkClient) {
+  const directCcxtUrl = `${server.ccxtServer.baseUrl}orders/process-trade`;
+  const legacyNodeUrl = `${server.server.baseUrl}api/process-trades/order-place`;
+  const fallbackEnabled = (Config.REACT_APP_BESPOKE_DIRECT_CCXT_FALLBACK || 'true') === 'true';
+  // Add per-trade clientTradeId for SDK Phase B-1 correlation precursor.
+  const enrichedPayload = {
+    ...payload,
+    trades: ((payload && payload.trades) || []).map(t => ({
+      ...t,
+      clientTradeId: t.clientTradeId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    })),
+  };
+
+  // SDK executeAdvice dual-path (Phase C). Service file — can't use hooks,
+  // so sdkClient must be passed by the caller. When the flag is on and the
+  // client is provided, route through the SDK orchestrator.
+  if (isSdkExecuteAdviceEnabled() && sdkClient) {
+    try {
+      const sdkResult = await sdkClient.executeAdvice({
+        kind: 'bespokeSingle',
+        clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        brokerName: payload.user_broker,
+        trade: enrichedPayload.trades[0],
+        adviceId: '',
+      });
+      const placementResults = (sdkResult?.rows || []).map(row => ({
+        ...row,
+        orderStatus: row.status,
+        tradingSymbol: row.symbol,
+      }));
+      console.log('[OrderService] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
+      return { results: placementResults };
+    } catch (sdkErr) {
+      console.error('[OrderService] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
+      // Fall through to legacy path below
+    }
+  }
+
+  try {
+    const response = await axios.post(directCcxtUrl, enrichedPayload, {
+      headers: getHeaders(configData),
+      timeout: 120000,
+    });
+    return response.data;
+  } catch (directErr) {
+    const status = directErr?.response?.status;
+    const isNetworkOr5xx = !status || status >= 500;
+    if (fallbackEnabled && isNetworkOr5xx) {
+      console.warn('[OrderService.placeOrders] direct-ccxt failed, falling back to legacy Node:', directErr?.message);
+      const response = await axios.post(legacyNodeUrl, enrichedPayload, {
+        headers: getHeaders(configData),
+        timeout: 120000,
+      });
+      return response.data;
+    }
+    throw directErr;
+  }
 }
 
 /**

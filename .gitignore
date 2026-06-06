@@ -30,6 +30,13 @@ local.properties
 .cxx/
 *.keystore
 !debug.keystore
+# 2026-06-06: per-project debug keystore (RSA, self-signed, 10000-day
+# validity, password "marketanalysisdebug"). Debug-only key, no
+# production secrets. Committed so its SHA-1 (033f2e7d…) — already
+# registered with Firebase — is what every contributor signs debug
+# builds with, enabling Google Sign-In on debug without depending on
+# the global ~/.android/debug.keystore. See docs/CHANGELOG.md Bug 2.
+!marketanalysis-debug.keystore
 
 # node.js
 node_modules/
@@ -68,3 +75,4 @@ replay_pid*.log
 
 # Test artifacts
 coverage/
+.claude/

@@ -49,6 +49,7 @@ import notifee, {
   AuthorizationStatus,
   AndroidStyle,
 } from '@notifee/react-native';
+import WebinarReminderHandler from '../../FunctionCall/services/WebinarReminderHandler';
 import { ActivityIndicator } from 'react-native';
 
 import server from '../../utils/serverConfig';
@@ -427,6 +428,17 @@ const HomeScreen = ({ }) => {
       }
 
       isNotificationTriggered.current = Date.now(); // ✅ Store last notification timestamp
+
+      // Webinar reminders (T-1hr / T-15min / T-1min push from
+      // CronLiveClassReminders) — data.type === 'live_class_reminder'.
+      // Render via notifee on our dedicated channel; skip the existing
+      // notificationType switch so we don't fall into the default
+      // "Unrecognized" warn branch.
+      if (WebinarReminderHandler.matches(remoteMessage)) {
+        await WebinarReminderHandler.displayInForeground(remoteMessage);
+        setTimeout(() => { isNotificationTriggered.current = false; }, 500);
+        return;
+      }
 
       handleNotification(remoteMessage);
 

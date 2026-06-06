@@ -71,7 +71,30 @@ const LoginScreen = () => {
   } = useTrade();
 
   // Configure Google Sign-In with correct Web client ID from google-services.json (client_type: 3)
-  const WEB_CLIENT_ID = config?.googleWebClientId || '892331696104-e26pu9iotqrjk1o6jq4ifd4e95fasil1.apps.googleusercontent.com';
+  // Resolution order:
+  //   1. config.googleWebClientId (from backend appadvisors.google_web_client_id)
+  //   2. hardcoded alphaquark fallback
+  // Stale-data override: if the backend record still points at the
+  // decommissioned Firebase project marketanalysisacademy-4e595
+  // (project number 794163196580, deleted ~2026-05-20), substitute
+  // REACT_APP_GOOGLE_WEB_CLIENT_ID_FALLBACK from .env — which holds
+  // the new project's client ID — so Google Sign-In doesn't get
+  // configured with an ID that no longer matches any provisioned
+  // OAuth client. This override self-disables the moment the backend
+  // record is corrected. See docs/CHANGELOG.md.
+  const _resolvedWebClientId =
+    config?.googleWebClientId ||
+    '892331696104-e26pu9iotqrjk1o6jq4ifd4e95fasil1.apps.googleusercontent.com';
+  const WEB_CLIENT_ID = /^794163196580-/.test(_resolvedWebClientId)
+    ? (Config?.REACT_APP_GOOGLE_WEB_CLIENT_ID_FALLBACK || _resolvedWebClientId)
+    : _resolvedWebClientId;
+  if (WEB_CLIENT_ID !== _resolvedWebClientId) {
+    console.warn(
+      '[LoginScreen] Backend googleWebClientId points at decommissioned ' +
+        'Firebase project (794163196580); using .env fallback override. ' +
+        'Remove this fallback once appadvisors.google_web_client_id is updated.',
+    );
+  }
 
   React.useEffect(() => {
     GoogleSignin.configure({
@@ -293,14 +316,40 @@ const LoginScreen = () => {
   const handleGoogleLogin = async () => {
     try {
       setErrorShow(false);
-      await GoogleSignin.hasPlayServices({showPlayServicesUpdateDialog: true});
-      const {idToken} = await GoogleSignin.signIn();
-
-      if (!idToken) throw new Error('No ID token returned');
-
-      const googleCredential = auth.GoogleAuthProvider.credential(idToken);
       setLoading(true);
-      const response = await auth().signInWithCredential(googleCredential);
+      // 2026-06-06: switched from the native Google Play Services flow
+      // (GoogleSignin.signIn() → auth().signInWithCredential()) to
+      // Firebase Auth's web-based OAuth flow via signInWithProvider.
+      // Reason: the native flow needs an Android OAuth client
+      // (client_type:1) bound to the APK's signing certificate SHA-1.
+      // For release / Play Store builds the relevant SHA is the Play
+      // App Signing key's (d5c63f…), which is orphan-locked by an
+      // OAuth client in the decommissioned Firebase project
+      // marketanalysisacademy-4e595. Until that lock auto-clears
+      // around 2026-06-19, native Google Sign-In returns DEVELOPER_ERROR
+      // on every release install. signInWithProvider() opens a Chrome
+      // Custom Tab → Firebase Auth handler → Google login page, so it
+      // uses the WEB OAuth client (675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3,
+      // already provisioned and working) and bypasses the Android SHA
+      // check entirely. Once the orphan lock expires we can revert to
+      // the native flow, or keep this one — both work. See
+      // docs/CHANGELOG.md.
+      const provider = new auth.OAuthProvider('google.com');
+      // Optional scopes — Firebase auto-includes openid/email/profile,
+      // explicitly add the standard pair to mirror what the native flow
+      // requested (compat with downstream consumers that read user.email
+      // and user.displayName).
+      provider.addScope('email');
+      provider.addScope('profile');
+      // @react-native-firebase/auth@20.5.0: the declared
+      // `signInWithProvider()` method is undefined at runtime — the
+      // module only exposes `signInWithPopup` and `signInWithRedirect`,
+      // both of which call the same `native.signInWithProvider()` bridge.
+      // Use `signInWithPopup` because on Android it opens a Chrome
+      // Custom Tab and returns the credential to the caller (vs.
+      // signInWithRedirect which navigates away). Verified in
+      // node_modules/@react-native-firebase/auth/lib/index.js:413-422.
+      const response = await auth().signInWithPopup(provider);
 
       if (response) {
         const user = response.user;
@@ -904,10 +953,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 8,
+    borderRadius: 10,
     marginBottom: 15,
     paddingHorizontal: 15,
-    height: 40,
+    height: 48,
   },
   inputIcon: {
     marginRight: 10,
@@ -919,16 +968,16 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   forgotPassword: {
-    color: 'rgba(133, 245, 0, 1)',
+    color: '#BDCFFF',
     textAlign: 'right',
     marginBottom: 20,
     fontSize: 12,
     fontFamily: 'Poppins-Medium',
   },
   loginButton: {
-    backgroundColor: 'rgba(41, 164, 0, 1)',
+    backgroundColor: '#2056DF',
     paddingVertical: 5,
-    borderRadius: 3,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
     height: 45,
@@ -960,7 +1009,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#FFFFFF',
     paddingVertical: 14,
-    borderRadius: 3,
+    borderRadius: 8,
     height: 45,
   },
   googleIcon: {
@@ -979,7 +1028,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#000000',
     paddingVertical: 14,
-    borderRadius: 3,
+    borderRadius: 8,
     height: 45,
     marginTop: 12,
   },

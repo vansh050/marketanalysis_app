@@ -25,6 +25,12 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import eventEmitter from '../../components/EventEmitter';
+import useSdkClient from '../../sdk/useSdkClient';
+
+const isSdkExecuteAdviceEnabled = () => {
+  const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
+  return v === 'true' || v === '1';
+};
 
 const getHeaders = () => ({
   'Content-Type': 'application/json',
@@ -51,6 +57,8 @@ const ExecutionStatusScreen = () => {
   } = route.params || {};
 
   const showAlert = useModalStore((state) => state.showAlert);
+  const sdkClient = useSdkClient();
+  const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
 
   // States: confirm, executing, done, error
   const [state, setState] = useState('confirm');
@@ -94,11 +102,40 @@ const ExecutionStatusScreen = () => {
         if (brokerCredentials.clientCode) body.clientCode = brokerCredentials.clientCode;
       }
 
-      const resp = await axios.post(
-        `${server.ccxtServer.baseUrl}rebalance/process-trade`,
-        body,
-        { headers: getHeaders(), timeout: 30000 },
-      );
+      // SDK executeAdvice dual-path (Phase C). When the flag is on and SDK
+      // client is available, route through the SDK orchestrator. Legacy
+      // direct-ccxt path stays below as fallback.
+      let resp;
+      if (sdkExecuteAdviceEnabled) {
+        try {
+          const sdkResult = await sdkClient.executeAdvice({
+            kind: 'mpRebalance',
+            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            brokerName: broker || 'DummyBroker',
+            modelId,
+            modelName,
+            uniqueId,
+            trades,
+          });
+          const mappedRows = (sdkResult?.rows || []).map(row => ({
+            ...row,
+            orderStatus: row.status,
+            tradingSymbol: row.symbol,
+          }));
+          resp = { data: { results: mappedRows } };
+          console.log('[ExecutionStatusScreen] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
+        } catch (sdkErr) {
+          console.error('[ExecutionStatusScreen] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
+          resp = null;
+        }
+      }
+      if (!resp) {
+        resp = await axios.post(
+          `${server.ccxtServer.baseUrl}rebalance/process-trade`,
+          body,
+          { headers: getHeaders(), timeout: 30000 },
+        );
+      }
 
       const data = resp.data?.data || resp.data;
       const orderResults = data?.results || data?.response || data?.order_results || [];
@@ -142,7 +179,7 @@ const ExecutionStatusScreen = () => {
       setErrorMsg(e.response?.data?.message || e.message || 'Order placement failed');
       setState('error');
     }
-  }, [orders, userEmail, broker, brokerCredentials, modelId, modelName, advisor, uniqueId, caPendingInfo, isDummyBroker]);
+  }, [orders, userEmail, broker, brokerCredentials, modelId, modelName, advisor, uniqueId, caPendingInfo, isDummyBroker, sdkExecuteAdviceEnabled, sdkClient]);
 
   const normalizeStatus = (raw) => {
     const s = (raw || '').toLowerCase();

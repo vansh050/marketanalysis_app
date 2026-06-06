@@ -12,10 +12,22 @@ export const useConfig = () => {
     return useContext(ConfigContext);
 };
 
+// DEFAULT_VARIANT is the static-config fallback when APP_VARIANT is unset
+// OR points at a variant key missing from APP_VARIANTS. For this app the
+// canonical variant is 'marketanalysis' — choosing it (instead of the legacy
+// 'rgxresearch' default inherited from the upstream Alphab2bapp fork) avoids
+// silently rendering the wrong tenant's logos / colors when something
+// upstream (env injection, OTA bundle stale, dev-build override) drops the
+// APP_VARIANT value. Fork this constant when re-using this codebase as a
+// different RA's app.
+const DEFAULT_VARIANT = 'marketanalysis';
+
 export const ConfigProvider = ({ children }) => {
-    const selectedVariant = Config?.APP_VARIANT || 'rgxresearch'; // Default to "rgxresearch" if not set
-    // Ensure the variant exists in APP_VARIANTS, otherwise use 'rgxresearch'
-    const validVariant = APP_VARIANTS[selectedVariant] ? selectedVariant : 'rgxresearch';
+    const selectedVariant = Config?.APP_VARIANT || DEFAULT_VARIANT;
+    // Ensure the variant exists in APP_VARIANTS, otherwise use DEFAULT_VARIANT
+    // (never let an unknown variant fall through to whichever key happens
+    // to be first in the map).
+    const validVariant = APP_VARIANTS[selectedVariant] ? selectedVariant : DEFAULT_VARIANT;
     const initialConfig = { ...APP_VARIANTS[validVariant], selectedVariant: validVariant };
     const [config, setConfig] = useState(initialConfig);
     const [loading, setLoading] = useState(true);
@@ -99,8 +111,16 @@ export const ConfigProvider = ({ children }) => {
 
                         // ============================================================================
                         // AUTHENTICATION
+                        // Backend (apiData) wins over the static Config.js fallback for
+                        // googleWebClientId. Defensive `.trim()` because the backend has been
+                        // observed returning the value with trailing whitespace, which Google
+                        // Sign-In rejects with DEVELOPER_ERROR if passed verbatim.
                         // ============================================================================
-                        googleWebClientId: apiData.googleWebClientId || initialConfig.googleWebClientId,
+                        googleWebClientId:
+                            (typeof apiData.googleWebClientId === 'string'
+                                ? apiData.googleWebClientId.trim()
+                                : apiData.googleWebClientId) ||
+                            initialConfig.googleWebClientId,
 
                         // ============================================================================
                         // DIGIO CONFIGURATION
@@ -136,6 +156,14 @@ export const ConfigProvider = ({ children }) => {
                         allowAfterHoursOrders: apiData.featureFlags?.allowAfterHoursOrders !== undefined
                             ? apiData.featureFlags.allowAfterHoursOrders
                             : (apiData.allowAfterHoursOrders !== undefined ? apiData.allowAfterHoursOrders : true),
+
+                        // Courses + Webinars per-advisor gates. Source of truth on
+                        // the server is AdvisorConfig.{courses_enabled,webinars_enabled}
+                        // surfaced as camelCase by /api/app-advisor/get's AdvisorConfig
+                        // lookup block (mirrors web's AppConfigContext default-false).
+                        // Drawer entries + webinar screens consume these.
+                        coursesEnabled:  apiData.coursesEnabled  ?? false,
+                        webinarsEnabled: apiData.webinarsEnabled ?? false,
 
                         // ============================================================================
                         // PAYMENT CONFIGURATION
@@ -231,6 +259,16 @@ export const ConfigProvider = ({ children }) => {
                         // full token catalog.
                         // ============================================================================
                         colorTokens: apiData.colorTokens || {},
+
+                        // ============================================================================
+                        // TENANT TAGLINES (optional advisor override)
+                        // Hero copy + trust badges shown on auth screens. Backend shape:
+                        //   { login: {brandSubtag, heroTitle, heroSubtitle, trustBadges},
+                        //     signup: {…}, home: {recommendationsSubtitle, …} }
+                        // Falls back to the hardcoded variant copy when a field is missing.
+                        // Compliance: any quantitative claim must be tenant-approved.
+                        // ============================================================================
+                        taglines: apiData.taglines || null,
                     };
 
                     console.log('✅ Using newConfig from API for APP_VARIANTS:', {

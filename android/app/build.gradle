@@ -64,11 +64,22 @@ android {
     }
 
     signingConfigs {
+        // 2026-06-06: switched the debug signing config from the global
+        // ~/.android/debug.keystore to a per-project keystore checked in
+        // alongside the app. Reason: the global debug key's SHA-1
+        // (b0c0e441…) was orphan-locked by an OAuth client in the
+        // decommissioned Firebase project marketanalysisacademy-4e595,
+        // so Firebase refused to provision an Android OAuth client for
+        // marketanalysis-3a279 — Google Sign-In failed with
+        // auth/invalid-credential on every debug build. The fresh
+        // keystore here (SHA-1 033f2e7d…) is registered with the new
+        // Firebase project and unblocks Google Sign-In on debug
+        // installs. See docs/CHANGELOG.md.
         debug {
-            storeFile file("debug.keystore")
-            storePassword "android"
-            keyAlias "androiddebugkey"
-            keyPassword "android"
+            storeFile file("marketanalysis-debug.keystore")
+            storePassword "marketanalysisdebug"
+            keyAlias "marketanalysis-debug"
+            keyPassword "marketanalysisdebug"
         }
 
         release {

@@ -103,10 +103,46 @@ export async function calculateRebalance(payload, configData) {
   return response.data;
 }
 
+const isSdkExecuteAdviceEnabled = () => {
+  const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
+  return v === 'true' || v === '1';
+};
+
 /**
  * Process rebalance trade.
+ *
+ * Phase C SDK path: when sdkClient is passed (third arg) and the
+ * REACT_APP_USE_SDK_EXECUTE_ADVICE flag is on, routes through
+ * sdkClient.executeAdvice({ kind: 'mpRebalance' }). Falls back to
+ * legacy on SDK failure. Service file — can't use hooks, so callers
+ * must pass useSdkClient() result explicitly.
  */
-export async function processRebalanceTrade(payload, configData) {
+export async function processRebalanceTrade(payload, configData, sdkClient) {
+  // SDK executeAdvice dual-path (Phase C).
+  if (isSdkExecuteAdviceEnabled() && sdkClient) {
+    try {
+      const sdkResult = await sdkClient.executeAdvice({
+        kind: 'mpRebalance',
+        clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        brokerName: payload.user_broker,
+        modelId: payload.model_id,
+        modelName: payload.modelName,
+        uniqueId: payload.unique_id,
+        trades: payload.trades || [],
+      });
+      const placementResults = (sdkResult?.rows || []).map(row => ({
+        ...row,
+        orderStatus: row.status,
+        tradingSymbol: row.symbol,
+      }));
+      console.log('[ModelPortfolioService] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
+      return { results: placementResults };
+    } catch (sdkErr) {
+      console.error('[ModelPortfolioService] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
+      // Fall through to legacy path below
+    }
+  }
+
   const response = await axios.post(
     `${server.ccxtServer.baseUrl}rebalance/process-trade`,
     payload,

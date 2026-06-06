@@ -154,6 +154,21 @@ export const TradeProvider = ({children}) => {
     useState([]);
   const [isDatafetchinMP, setIsDatafetchingMP] = useState(false);
 
+  // Repair-trades state — auto-fetched after MP strategies load.
+  // Each entry: { modelName, uniqueId, userBroker, failedTrades[], message, modelId }
+  // See docs/MODEL_PORTFOLIO_ARCHITECTURE.md § 6g (repair UI) and
+  // docs/WEB_MP_PARITY_TASKS.md § Task 4 for the contract.
+  const [modelPortfolioRepairTrades, setModelPortfolioRepairTrades] = useState(
+    [],
+  );
+  const [isDatafetchinRepair, setIsDatafetchingRepair] = useState(false);
+  // Bypass repair-mode shortcut on a card after the user explicitly clicks
+  // Accept on a fresh rebalance. Keyed by `model_Id` of the rebalance event;
+  // value is `true` when that card should ignore its repair entry for the
+  // remainder of the session. Mirrors web's `skipRepairRef` in
+  // prod-alphaquark-github/src/Home/ModelPortfolioSection/RebalanceCard.js:143.
+  const skipRepairForModelIdsRef = useRef({});
+
   const isValidSymbolExpiry = (symbol, exchange) => {
     // Only filter NFO and BFO exchanges
     if (exchange !== 'NFO' && exchange !== 'BFO') {
@@ -407,6 +422,14 @@ export const TradeProvider = ({children}) => {
         });
 
         setModelPortfolioStrategyfinal(response?.data?.subscribedPortfolios);
+
+        // Best-effort: fetch repair-trades alongside strategies so the
+        // RebalanceCard can flag any partial executions. Failures here MUST
+        // NOT block the strategy list — repair is a UI shortcut, not the
+        // source of truth. See docs/WEB_MP_PARITY_TASKS.md § Task 4.
+        getModelPortfolioRepairTrades(
+          response?.data?.subscribedPortfolios,
+        ).catch(() => {});
       } else {
         console.warn('TradeContext: User email or config data is not provided');
         console.log('TradeContext: userEmail:', userEmail);
@@ -431,6 +454,82 @@ export const TradeProvider = ({children}) => {
       setIsDatafetchingMP(false);
     }
   };
+
+  // Fetch repair-trades for all subscribed MP strategies. Result is stored
+  // in `modelPortfolioRepairTrades`; consumers (RebalanceCard) match by
+  // `modelId === rebalanceHistory[latest].model_Id`.
+  //
+  // Mirrors web's `getRebalanceRepair` in prod-alphaquark-github/
+  // src/Home/LivePortfolioSection/Home.js:364-393.
+  const getModelPortfolioRepairTrades = async portfolios => {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    const userEmail = user?.email;
+
+    if (!userEmail || !configData) return;
+    const list = Array.isArray(portfolios) ? portfolios : [];
+    if (list.length === 0) {
+      setModelPortfolioRepairTrades([]);
+      return;
+    }
+
+    const modelNames = list
+      .map(p => p?.model_name)
+      .filter(Boolean);
+    const advisor =
+      list[0]?.advisor ||
+      configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG;
+    const userBroker = broker || 'DummyBroker';
+
+    if (userBroker === 'DummyBroker') {
+      // Backend returns 404 for DummyBroker; skip the call.
+      setModelPortfolioRepairTrades([]);
+      return;
+    }
+
+    try {
+      setIsDatafetchingRepair(true);
+      const response = await axios.post(
+        `${server.ccxtServer.baseUrl}rebalance/get-repair`,
+        {modelName: modelNames, advisor, userEmail, userBroker},
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
+          },
+        },
+      );
+      setModelPortfolioRepairTrades(response?.data?.models || []);
+    } catch (error) {
+      // 404 = no documents needing repair → not an error
+      if (error?.response?.status !== 404) {
+        console.warn(
+          '[TradeContext] get-repair failed:',
+          error?.response?.data?.message || error.message,
+        );
+      }
+      setModelPortfolioRepairTrades([]);
+    } finally {
+      setIsDatafetchingRepair(false);
+    }
+  };
+
+  // Mark a model_Id as "skip repair shortcut" — called when the user
+  // explicitly accepts a fresh (non-repair) rebalance. Prevents the repair
+  // pre-population from re-engaging on a subsequent click for the same card.
+  const markSkipRepairForModelId = modelIdValue => {
+    if (!modelIdValue) return;
+    skipRepairForModelIdsRef.current[modelIdValue] = true;
+  };
+
+  // Read-only check used by RebalanceCard to decide whether to apply the
+  // repair shortcut on click.
+  const shouldSkipRepairForModelId = modelIdValue =>
+    !!skipRepairForModelIdsRef.current[modelIdValue];
 
   function logStockDetailsBySymbol(symbol, stockData) {
     const matchedStocks = stockData.filter(stock => stock.Symbol === symbol);
@@ -620,13 +719,30 @@ const getAllTrades = async () => {
 
         // BASKET TRADES: Have basketId and toTradeQty property
         if (trade.basketId && trade.hasOwnProperty('toTradeQty')) {
-          // Include basket trades if:
-          // 1. Status is 'recommend'
-          // 2. Date is within cutoff
-          // Note: We include even if toTradeQty is 0 for options baskets
+          // B-32 / B-36 / B-37 / B-27 (2026-05-19 mobile migration):
+          // Pre-fix this branch ONLY accepted status="recommend" — silently
+          // dropping partial / complete / rejected basket legs entirely
+          // from the customer's view. That broke the partial-fill recovery
+          // flow (B-10 retry can't fire on a leg the customer can't see)
+          // AND the "X already executed / Y previously rejected" banner
+          // (counts came from these legs).
+          //
+          // Now we admit every non-cancelled basket leg that's date-current.
+          // The downstream netBasketTrades + BasketTradeModal's actionable
+          // filter handle the render-table split (partial/recommend/rejected
+          // shown as actionable; complete shown in banner only).
+          if (tradeDate < cutoffDate) return acc;
+          if (trade?.cancel === true) return acc;
+          const status = (trade?.trade_place_status || '').toLowerCase();
           if (
-            trade?.trade_place_status === 'recommend' &&
-            tradeDate >= cutoffDate
+            status === 'recommend' ||
+            status === 'partial' ||
+            status === 'rejected' ||
+            status === 'failure' ||
+            status === 'complete' ||
+            status === 'executed' ||
+            status === 'success' ||
+            status === 'filled'
           ) {
             acc.recommended.push(trade);
           }
@@ -1008,7 +1124,14 @@ const getAllTrades = async () => {
     }
   };
 
-  const fetchBrokerStatusModal = async () => {
+  const fetchBrokerStatusModal = async (opts = {}) => {
+    // `silent: true` skips the post-fetch migration-modal trigger.
+    // Used by the app-start refresh (line ~1302) where popping
+    // "Reconnected to {broker}" is misleading — the broker may not
+    // actually be connected, may need re-auth, and the user did not
+    // just reconnect. Migration modal should only fire after an
+    // explicit reconnect action by the user. User-reported 2026-04-29.
+    const silent = opts.silent === true;
     if (!userEmail) return;
     try {
       const updatedUser = await getUserDeatils();
@@ -1067,7 +1190,7 @@ const getAllTrades = async () => {
               },
             },
           );
-          if (migrationRes.data?.data?.requiresMigration) {
+          if (migrationRes.data?.data?.requiresMigration && !silent) {
             setMigrationBroker(updatedUser.user_broker);
             // Delay so navigation.goBack() animation (~300ms) fully completes
             // before the bottom sheet slides up. Without this delay the sheet
@@ -1298,8 +1421,12 @@ const getAllTrades = async () => {
       console.log('✅ TradeContext: Config available, fetching user data...');
       getUserDeatils();
       getPlanList();
-      // Refresh broker status on app launch to ensure correct state on new devices
-      fetchBrokerStatusModal();
+      // Refresh broker status on app launch — silent mode so the
+      // migration modal doesn't pop "Reconnected to {broker}" at app
+      // start (misleading; broker may actually need re-auth and user
+      // didn't just reconnect). Migration modal only fires after an
+      // explicit user reconnect action.
+      fetchBrokerStatusModal({silent: true});
     } else {
       console.log(
         '⚠️ TradeContext: Waiting for config data before fetching user data...',
@@ -1493,6 +1620,12 @@ const getAllTrades = async () => {
         isDatafetching,
         getAllTrades,
         getModelPortfolioStrategyDetails,
+        // Repair UI — see docs/MODEL_PORTFOLIO_ARCHITECTURE.md § 6g
+        modelPortfolioRepairTrades,
+        isDatafetchinRepair,
+        getModelPortfolioRepairTrades,
+        markSkipRepairForModelId,
+        shouldSkipRepairForModelId,
         rejectedTrades,
         isDatafetchingvideos,
         ignoredTrades,

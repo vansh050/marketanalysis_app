@@ -15,8 +15,16 @@ import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
 import {useTrade} from '../../screens/TradeContext';
+import {useConfig} from '../../context/ConfigContext';
+import { computeTradeVariant } from '../../utils/tradeVariant';
 import Toast from 'react-native-toast-message';
 import portfolioEvents, {PORTFOLIO_EVENTS} from '../../utils/portfolioEvents';
+import useSdkClient from '../../sdk/useSdkClient';
+
+const isSdkExecuteAdviceEnabled = () => {
+  const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
+  return v === 'true' || v === '1';
+};
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
@@ -35,6 +43,10 @@ const DummyBrokerHoldingConfirmation = ({
   dummyBrokerCalculatedUniqueId,
 }) => {
   const {configData} = useTrade();
+  // For trade `variant` — see docs/APP_ARCHITECTURE.md § 4.5.2.
+  const { allowAfterHoursOrders } = useConfig() || {};
+  const sdkClient = useSdkClient();
+  const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
   const [loading, setLoading] = useState(false);
 
   const advisorTag = configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG;
@@ -71,10 +83,12 @@ const DummyBrokerHoldingConfirmation = ({
     setLoading(true);
 
     try {
+      // Trade variant per-trade — see docs/APP_ARCHITECTURE.md § 4.5.2.
+      const variant = computeTradeVariant(allowAfterHoursOrders);
       const getBasePayload = () => ({
         user_broker: 'DummyBroker',
         user_email: userEmail,
-        trades: stockDetails,
+        trades: stockDetails.map(s => ({ ...s, variant })),
         model_id: modelPortfolioModelId,
       });
 
@@ -123,7 +137,36 @@ const DummyBrokerHoldingConfirmation = ({
       };
 
       // Step 1: Process trade
-      const response = await axios.request(config);
+      // SDK executeAdvice dual-path (Phase C). When the flag is on and SDK
+      // client is available, route through the SDK orchestrator. Legacy
+      // direct-ccxt path stays below as fallback.
+      let response;
+      if (sdkExecuteAdviceEnabled) {
+        try {
+          const sdkResult = await sdkClient.executeAdvice({
+            kind: 'mpRebalance',
+            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            brokerName: 'DummyBroker',
+            modelId: modelPortfolioModelId,
+            modelName: payload.modelName,
+            uniqueId: payload.unique_id,
+            trades: payload.trades || [],
+          });
+          const mappedRows = (sdkResult?.rows || []).map(row => ({
+            ...row,
+            orderStatus: row.status,
+            tradingSymbol: row.symbol,
+          }));
+          response = { data: { results: mappedRows } };
+          console.log('[DummyBrokerHoldingConfirmation] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
+        } catch (sdkErr) {
+          console.error('[DummyBrokerHoldingConfirmation] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
+          response = null;
+        }
+      }
+      if (!response) {
+        response = await axios.request(config);
+      }
 
       // Step 2: Update subscriber execution status to 'executed' (matching prod)
       try {

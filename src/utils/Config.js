@@ -91,7 +91,16 @@ const APP_VARIANTS = {
     basketsymbolbg: '#1843C0',
     basket1: '#1E9F40',
     basket2: '#17803A',
-    googleWebClientId: '794163196580-f013am7jqo5b875k8co4gitb6udsq7c5.apps.googleusercontent.com',
+    // 2026-06-06: migrated from the decommissioned Firebase project
+    // 'marketanalysisacademy-4e595' (number 794163196580) to
+    // 'marketanalysis-3a279' (number 675041319268). The static fallback
+    // here must match the new project's Web OAuth client, otherwise the
+    // ID token GoogleSignin returns is signed for the wrong project and
+    // Firebase rejects signInWithCredential with auth/invalid-credential.
+    // (Bug 2 remains: google-services.json has no client_type:1 Android
+    // OAuth client provisioned for the new project — Firebase Console
+    // must re-save the Android app to issue one. See docs/CHANGELOG.md.)
+    googleWebClientId: '675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3.apps.googleusercontent.com',
     subdomain: 'marketanalysis',
     advisorRaCode: 'MARKETANALYSIS',
     paymentModal: {

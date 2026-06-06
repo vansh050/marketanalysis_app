@@ -1,72 +1,48 @@
 {
   "project_info": {
-    "project_number": "794163196580",
-    "project_id": "marketanalysisacademy-4e595",
-    "storage_bucket": "marketanalysisacademy-4e595.firebasestorage.app"
+    "project_number": "675041319268",
+    "project_id": "marketanalysis-3a279",
+    "storage_bucket": "marketanalysis-3a279.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:794163196580:android:06aff25f839f0e499f2c31",
+        "mobilesdk_app_id": "1:675041319268:android:0aaab4aaccaf4952c94271",
         "android_client_info": {
           "package_name": "com.aq.marketanalysis"
         }
       },
       "oauth_client": [
         {
-          "client_id": "794163196580-0acnpsj0m5su1084jrrk2l0u7nlrrks9.apps.googleusercontent.com",
+          "client_id": "675041319268-4sgkcfbpr8a711k9cb0vur8h4cfjeeu0.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {
             "package_name": "com.aq.marketanalysis",
-            "certificate_hash": "5aab8464d64ec97a7fabf8f608a5d968609ad293"
+            "certificate_hash": "033f2e7ddc4e0985d1e67e9c0a293da0f66e497a"
           }
         },
         {
-          "client_id": "794163196580-1ci4sfth16ddfr8heqiacrv877dd5p1f.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.aq.marketanalysis",
-            "certificate_hash": "d5c63f3f5753224991876e8d4f0b437926fba16c"
-          }
-        },
-        {
-          "client_id": "794163196580-34k8l0jjndp3s56h3nocg2hfppomeojh.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.aq.marketanalysis",
-            "certificate_hash": "b0c0e441e5a1dd32dd6d779e337910fd686292da"
-          }
-        },
-        {
-          "client_id": "794163196580-igl5opd0h1ik7gd47jk5j5p5uuch17g9.apps.googleusercontent.com",
-          "client_type": 1,
-          "android_info": {
-            "package_name": "com.aq.marketanalysis",
-            "certificate_hash": "8f28df1de1c21b654f4796a9dc35dc48677e4a65"
-          }
-        },
-        {
-          "client_id": "794163196580-f013am7jqo5b875k8co4gitb6udsq7c5.apps.googleusercontent.com",
+          "client_id": "675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "AIzaSyDvYkvL1mg8DrukV6j-wIf_1kOkO9mQh0U"
+          "current_key": "AIzaSyBHrvW-PBFlIhiHyuFBYKwTpcxp60-z9js"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "794163196580-f013am7jqo5b875k8co4gitb6udsq7c5.apps.googleusercontent.com",
+              "client_id": "675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3.apps.googleusercontent.com",
               "client_type": 3
             },
             {
-              "client_id": "794163196580-5aj9gberg81tvb6au2c4a5mrghusj7b6.apps.googleusercontent.com",
+              "client_id": "675041319268-252efoar16kmpljjv2tqig0l7t6ppadb.apps.googleusercontent.com",
               "client_type": 2,
               "ios_info": {
-                "bundle_id": "com.aq.marketanalysis"
+                "bundle_id": "com.marketanalysis"
               }
             }
           ]

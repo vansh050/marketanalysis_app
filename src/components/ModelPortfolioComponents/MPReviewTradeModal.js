@@ -33,10 +33,21 @@ import { detectTransientOrderWindowError } from '../../utils/rebalanceHelpers';
 import { validateBrokerSession } from '../../utils/brokerSessionUtils';
 import { validateStockExchanges, getPublisherWebViewBaseUrl, resolveZerodhaSymbol, applyKiteMarketProtection } from '../../utils/brokerPublisher';
 import useZerodhaSymbolMap from '../../hooks/useZerodhaSymbolMap';
+import useKitePublisherPolling from '../../hooks/useKitePublisherPolling';
 import { convertResponse } from '../../utils/tradeUtils';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import moment from 'moment';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import { useConfig } from '../../context/ConfigContext';
+import { computeTradeVariant } from '../../utils/tradeVariant';
+import useSdkClient from '../../sdk/useSdkClient';
+import portfolioEvents, { PORTFOLIO_EVENTS } from '../../utils/portfolioEvents';
+
+const isSdkExecuteAdviceEnabled = () => {
+  const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
+  return v === 'true' || v === '1';
+};
+
 const MPReviewTradeModal = ({
   visible,
   onCloseReviewTrade,
@@ -66,9 +77,19 @@ const MPReviewTradeModal = ({
   setShowOtherBrokerModel,
   isReturningFromOtherBrokerModal,
   setIsReturningFromOtherBrokerModal,
+  // Optional — sibling setter for the outgoing trade list at submit
+  // time (used by RecommendationSuccessModal to recover the trade
+  // `variant` per row when ccxt-india doesn't echo it). See
+  // utils/tradeVariant.js § resolveResultVariant.
+  setLastSubmittedTrades,
 }) => {
   const {configData} = useTrade();
   const openBrokerModal = useModalStore(state => state.openModal);
+  // For trade `variant` computation at submit. See
+  // docs/APP_ARCHITECTURE.md § 4.5.2 Trade variant field.
+  const { allowAfterHoursOrders } = useConfig() || {};
+  const sdkClient = useSdkClient();
+  const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
   console.log('MPBROKER:', broker);
   const {width} = useWindowDimensions();
 
@@ -297,6 +318,7 @@ const MPReviewTradeModal = ({
 
     setLoading(true);
 
+    try {
     // Pre-order: validate exchange information
     const hasExchangeEmpty = stockDetails.some((item) => item.exchange === ' ');
     if (hasExchangeEmpty) {
@@ -327,14 +349,19 @@ const MPReviewTradeModal = ({
       return;
     }
 
+    // Trade variant tagged on every per-trade object — see
+    // docs/APP_ARCHITECTURE.md § 4.5.2 Trade variant field. Display-only.
+    const variant = computeTradeVariant(allowAfterHoursOrders);
+    const tradesWithVariant = stockDetails.map(s => ({ ...s, variant }));
+
     const getBasePayload = () => ({
       modelName: strategyDetails?.model_name,
       advisor: strategyDetails?.advisor,
-      model_id: latestRebalance.model_Id,
+      model_id: latestRebalance?.model_Id,
       unique_id: calculatedPortfolioData?.uniqueId,
       user_broker: broker,
       user_email: userEmail,
-      trades: stockDetails,
+      trades: tradesWithVariant,
     });
 
     const getBrokerSpecificPayload = () => {
@@ -402,8 +429,36 @@ const MPReviewTradeModal = ({
       }
     };
 
-    try {
-      const response = await axios.request(config);
+    // SDK executeAdvice dual-path (Phase C) — main broker path.
+      // When the SDK is enabled, try the orchestrator first. On failure,
+      // fall through to legacy. SDK result wrapped to match response shape.
+      let response;
+      if (sdkExecuteAdviceEnabled) {
+        try {
+          const sdkResult = await sdkClient.executeAdvice({
+            kind: 'mpRebalance',
+            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            brokerName: broker,
+            modelId: latestRebalance?.model_Id,
+            modelName: strategyDetails?.model_name,
+            uniqueId: calculatedPortfolioData?.uniqueId,
+            trades: payload.trades,
+          });
+          const mappedRows = (sdkResult?.rows || []).map(row => ({
+            ...row,
+            orderStatus: row.status,
+            tradingSymbol: row.symbol,
+          }));
+          response = { data: { results: mappedRows } };
+          console.log('[MPReviewTradeModal] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
+        } catch (sdkErr) {
+          console.error('[MPReviewTradeModal] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
+          response = null;
+        }
+      }
+      if (!response) {
+        response = await axios.request(config);
+      }
       console.log('[OrderPlacement] API Response full:', JSON.stringify(response.data));
       console.log('[OrderPlacement] Results:', response.data.results);
       const checkData = response?.data?.results;
@@ -462,6 +517,9 @@ const MPReviewTradeModal = ({
 
       const results = checkData;
       setOrderPlacementResponse(results);
+      // Outgoing trade list (variant-tagged) — fallback source for the
+      // success modal's `variant` lookups.
+      setLastSubmittedTrades?.(tradesWithVariant);
 
       // 2. Always call model-portfolio-db-update first (before EDIS checks)
       const updateData = {
@@ -585,7 +643,22 @@ const MPReviewTradeModal = ({
       }
       setLoading(false);
 
-      // 7. Refresh rebalance data to reflect current DB state
+      // 7. Notify portfolio listeners (MPCard / RebalanceAdvices / AfterSubscriptionScreen)
+      //    that an MP rebalance just executed so they re-fetch holdings/order-book.
+      //    Mirrors the bespoke RebalanceModal emit pattern (RebalanceModal.js:949-957).
+      const mpModelName = strategyDetails?.model_name || strategyDetails?.modelName;
+      portfolioEvents.emit(PORTFOLIO_EVENTS.HOLDINGS_REFRESH, {
+        userEmail,
+        modelName: mpModelName,
+        broker,
+      });
+      portfolioEvents.emit(PORTFOLIO_EVENTS.REBALANCE_EXECUTED, {
+        userEmail,
+        modelName: mpModelName,
+        broker,
+      });
+
+      // 8. Refresh rebalance data to reflect current DB state
       if (typeof calculateRebalance === 'function') {
         calculateRebalance();
       }
@@ -644,6 +717,7 @@ const MPReviewTradeModal = ({
       }
 
       // Fallback: Build synthetic rejected response from stockDetails for the modal
+      const syntheticVariant = computeTradeVariant(allowAfterHoursOrders);
       const syntheticResponse = stockDetails.map(stock => ({
         symbol: stock.tradingSymbol,
         tradingSymbol: stock.tradingSymbol,
@@ -655,8 +729,10 @@ const MPReviewTradeModal = ({
         orderPlacement: 'failed',
         orderStatusMessage: errorMessage,
         message_aq: errorMessage,
+        variant: syntheticVariant,
       }));
       setOrderPlacementResponse(syntheticResponse);
+      setLastSubmittedTrades?.(syntheticResponse);
       setOpenSucessModal(true);
       onCloseReviewTrade();
     }
@@ -685,6 +761,28 @@ const MPReviewTradeModal = ({
   const [showKitePublisher, setShowKitePublisher] = useState(false);
   const [publisherBasketItems, setPublisherBasketItems] = useState([]);
 
+  // Publisher order-book polling fallback for Kite Publisher WebView
+  // callback misses. Canonical implementation lives in
+  // `src/hooks/useKitePublisherPolling.js` — see
+  // docs/REBALANCING.md § Kite Publisher polling fallback. Three known
+  // scenarios where the WebView intercept silently fails:
+  // cross-domain 302 loss on some Android WebView versions, OS-suspended
+  // WebView when the user backgrounds to complete authentication in the
+  // Kite app, and AsyncStorage hydration races. When the hook detects
+  // new orders OR times out, it drives the same state transition that
+  // the WebView navigation handler below would drive, so the downstream
+  // `checkZerodhaStatus` runs identically through both channels.
+  const { start: startKitePolling, stop: stopKitePolling } = useKitePublisherPolling({
+    broker,
+    brokerCreds: { clientCode, apiKey, jwtToken, secretKey, sid, serverId },
+    configData,
+    onPublisherSettled: () => {
+      setWebView(false);
+      setZerodhaStatus('success');
+      setZerodhaRequestType('basket');
+    },
+  });
+
   const handleWebViewNavigationStateChange = newNavState => {
     // Handle navigation state changes, e.g., success/failure redirects
     const {url} = newNavState;
@@ -693,6 +791,10 @@ const MPReviewTradeModal = ({
     // Check for Kite redirect patterns after successful order placement
     if (url.includes('success') || url.includes('completed') || url.includes('basket/success')) {
       console.log('[ZerodhaPublisher] Success redirect detected - orders placed in Kite');
+      // Stop polling here too so it doesn't double-fire. The hook's
+      // stop() flips its internal processed flag — any in-flight poll
+      // tick will short-circuit instead of running onPublisherSettled.
+      stopKitePolling();
       setZerodhaStatus('success');
       setZerodhaRequestType('basket');
       setWebView(false); // Close WebView
@@ -845,14 +947,24 @@ const MPReviewTradeModal = ({
       return;
     }
 
+    // Tag `variant` on every per-trade object BEFORE the AsyncStorage write.
+    // The REST path at L353 tags `tradesWithVariant` for ccxt's process-trade
+    // call; the Zerodha publisher path needs the same tagging so the field
+    // survives the AsyncStorage round-trip and lands in the record-orders
+    // payload at L1141 → backend persists variant alongside the rest of the
+    // order in model_portfolio_user. Variant is display-only per
+    // docs/APP_ARCHITECTURE.md § 4.5.2 Trade variant field.
+    const zerodhaVariant = computeTradeVariant(allowAfterHoursOrders);
+    const zerodhaTrades = stockDetails.map(s => ({ ...s, variant: zerodhaVariant }));
+
     try {
       // Clear the existing value
       await AsyncStorage.removeItem(storageKey);
 
-      // Set the new value
-      await AsyncStorage.setItem(storageKey, JSON.stringify(stockDetails));
+      // Set the new value (variant-tagged)
+      await AsyncStorage.setItem(storageKey, JSON.stringify(zerodhaTrades));
 
-      console.log('[ZerodhaPublisher] Stored stock details:', stockDetails);
+      console.log('[ZerodhaPublisher] Stored stock details:', zerodhaTrades);
     } catch (error) {
       console.error('[ZerodhaPublisher] Error storing stock details:', error);
     }
@@ -906,7 +1018,10 @@ const MPReviewTradeModal = ({
       const res = await axios.post(
         `${server.server.baseUrl}api/zerodha/model-portfolio/update-reco-with-zerodha-model-pf`,
         {
-          stockDetails: stockDetails,
+          // Send variant-tagged trades so the DB record carries the same
+          // AMO/REGULAR tag the AsyncStorage write does — keeps the two
+          // persistence layers consistent.
+          stockDetails: zerodhaTrades,
           leaving_datetime: currentISTDateTime,
           email: userEmail,
           trade_given_by: strategyDetails?.advisor || configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG,
@@ -954,6 +1069,9 @@ const MPReviewTradeModal = ({
       const htmlContent = generateHtmlForm(basket, apiKey);
       setHtmlContent(htmlContent);
       setWebView(true);
+      // Start client-side order-book polling as the WebView-callback-missed
+      // fallback. See docs/REBALANCING.md § Kite Publisher polling fallback.
+      startKitePolling();
       setLoading(false);
     } catch (error) {
       console.error('[ZerodhaPublisher] Failed to update trade recommendation:', error);
@@ -1038,6 +1156,11 @@ const MPReviewTradeModal = ({
   };
 
   const checkZerodhaStatus = async () => {
+    // Stop the publisher polling — either the WebView callback fired or
+    // polling already settled. Idempotent: if polling already stopped,
+    // this is a no-op.
+    stopKitePolling();
+
     await fetchData();
 
     console.log('[ZerodhaPublisher] checkZerodhaStatus - Status:', zerodhaStatus, 'Type:', zerodhaRequestType);
@@ -1214,6 +1337,28 @@ const MPReviewTradeModal = ({
       onCloseReviewTrade();
       setLoading(false);
 
+      // Notify portfolio listeners (MPCard / RebalanceAdvices /
+      // AfterSubscriptionScreen) that an MP rebalance just executed so they
+      // re-fetch holdings/order-book. Mirrors the REST-path emit at L649-658
+      // and the Fyers-publisher emit at L1613-1620 — without this, the MP
+      // Zerodha publisher success path was the only success branch in this
+      // file that didn't fire the portfolio refresh events, leaving the
+      // holdings widgets stale until next manual refresh. Also fires on
+      // the synthetic "Unknown" response below (record-orders HTTP failure)
+      // since orders may still have placed in Kite. RebalanceModal does the
+      // same emit pattern for its Zerodha publisher path at L969-977.
+      const mpModelNameZerodha = strategyDetails?.model_name || strategyDetails?.modelName;
+      portfolioEvents.emit(PORTFOLIO_EVENTS.HOLDINGS_REFRESH, {
+        userEmail,
+        modelName: mpModelNameZerodha,
+        broker: 'Zerodha',
+      });
+      portfolioEvents.emit(PORTFOLIO_EVENTS.REBALANCE_EXECUTED, {
+        userEmail,
+        modelName: mpModelNameZerodha,
+        broker: 'Zerodha',
+      });
+
       // Refresh rebalance data to reflect current DB state
       if (typeof calculateRebalance === 'function') {
         calculateRebalance();
@@ -1292,7 +1437,10 @@ const MPReviewTradeModal = ({
         console.warn('[FyersPublisher] update-reco failed (non-critical):', recoErr);
       }
 
-      // Place orders via Fyers API through process-trade
+      // Place orders via Fyers API through process-trade.
+      // Variant tagged per-trade — see docs/APP_ARCHITECTURE.md § 4.5.2.
+      const fyersVariant = computeTradeVariant(allowAfterHoursOrders);
+      const fyersTrades = stockDetails.map(s => ({ ...s, variant: fyersVariant }));
       const payload = {
         clientId: clientCode,
         accessToken: jwtToken,
@@ -1303,14 +1451,41 @@ const MPReviewTradeModal = ({
         model_id: latestRebalance?.model_Id,
         unique_id: calculatedPortfolioData?.uniqueId,
         returnDateTime: istDatetime,
-        trades: stockDetails,
+        trades: fyersTrades,
       };
 
-      const response = await axios.post(
-        `${server.ccxtServer.baseUrl}rebalance/process-trade`,
-        payload,
-        { headers: requestHeaders, timeout: 120000 },
-      );
+      // SDK executeAdvice dual-path (Phase C) — Fyers publisher path.
+      let response;
+      if (sdkExecuteAdviceEnabled) {
+        try {
+          const sdkResult = await sdkClient.executeAdvice({
+            kind: 'mpRebalance',
+            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            brokerName: 'Fyers',
+            modelId: latestRebalance?.model_Id,
+            modelName: strategyDetails?.model_name,
+            uniqueId: calculatedPortfolioData?.uniqueId,
+            trades: fyersTrades,
+          });
+          const mappedRows = (sdkResult?.rows || []).map(row => ({
+            ...row,
+            orderStatus: row.status,
+            tradingSymbol: row.symbol,
+          }));
+          response = { data: { results: mappedRows } };
+          console.log('[MPReviewTradeModal] SDK executeAdvice (Fyers) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
+        } catch (sdkErr) {
+          console.error('[MPReviewTradeModal] SDK executeAdvice (Fyers) failed, falling back to legacy:', sdkErr?.message);
+          response = null;
+        }
+      }
+      if (!response) {
+        response = await axios.post(
+          `${server.ccxtServer.baseUrl}rebalance/process-trade`,
+          payload,
+          { headers: requestHeaders, timeout: 120000 },
+        );
+      }
 
       const checkData = response?.data?.results;
 
@@ -1490,7 +1665,20 @@ const MPReviewTradeModal = ({
       }
       setLoading(false);
 
-      // 8. Refresh rebalance data to reflect current DB state
+      // 8. Notify portfolio listeners — Fyers publisher success path.
+      const mpModelNameFyers = strategyDetails?.model_name || strategyDetails?.modelName;
+      portfolioEvents.emit(PORTFOLIO_EVENTS.HOLDINGS_REFRESH, {
+        userEmail,
+        modelName: mpModelNameFyers,
+        broker: 'Fyers',
+      });
+      portfolioEvents.emit(PORTFOLIO_EVENTS.REBALANCE_EXECUTED, {
+        userEmail,
+        modelName: mpModelNameFyers,
+        broker: 'Fyers',
+      });
+
+      // 9. Refresh rebalance data to reflect current DB state
       if (typeof calculateRebalance === 'function') {
         calculateRebalance();
       }
