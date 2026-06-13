@@ -12,6 +12,11 @@ import { useTrade } from '../../screens/TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 const HDFCconnectModal = ({
   isVisible,
@@ -23,6 +28,7 @@ const HDFCconnectModal = ({
 }) => {
   const { configData } = useTrade();
   const showAlert = useModalStore((state) => state.showAlert);
+  const sdkBridge = useSdkBridge();
   const [apiKey, setApiKey] = useState('');
   const [secretKey, setSecretKey] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -194,6 +200,15 @@ const HDFCconnectModal = ({
         .then(response => {
           console.log('[HDFC] Broker connection saved successfully');
 
+          // SDK pilot dual-write — see brokerSdkBridge.js.
+          if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+            sdkDualWriteSafely(
+              sdkConnectBroker(sdkBridge.client, 'Hdfc Securities', brokerData),
+              'Hdfc Securities',
+              'connect',
+            );
+          }
+
           // Update model portfolio (non-critical)
           try {
             axios.request({
@@ -210,15 +225,45 @@ const HDFCconnectModal = ({
             console.warn('[HDFC] Model portfolio update failed (non-critical):', err);
           }
 
-          fetchBrokerStatusModal();
-          eventEmitter.emit('refreshEvent', { source: 'HDFC Securities broker connection' });
-          showAlert('success', 'Connected Successfully', 'Your HDFC broker has been connected successfully!');
           onClose();
           setShowBrokerModal(false);
+          // Wrap post-success steps so a downstream throw doesn't bubble
+          // to the outer .catch and get rewritten as "Connection Error".
+          // See KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
+          // § Broker-connect post-success hygiene.
+          (async () => {
+            try {
+              const result = await fetchBrokerStatusModal();
+              eventEmitter.emit('refreshEvent', { source: 'HDFC Securities broker connection' });
+              if (!result?.migrationWillShow) {
+                showAlert('success', 'Connected Successfully', 'Your HDFC broker has been connected successfully!');
+              }
+            } catch (postSuccessErr) {
+              console.warn(
+                '[Hdfc Securities] post-success step threw (connection IS saved DB-side):',
+                postSuccessErr?.message || postSuccessErr,
+              );
+            }
+          })();
         })
         .catch(error => {
           console.error('[HDFC] connect-broker error:', error);
-          showAlert('error', 'Connection Error', 'Failed to save HDFC connection. Please try again.');
+          const isHttpError = !!error?.response;
+          const rawMessage =
+            error.response?.data?.message ||
+            error.response?.data?.details ||
+            '';
+          let alertTitle = 'Connection Error';
+          let alertBody;
+          if (isHttpError) {
+            alertBody =
+              rawMessage || 'Failed to save HDFC connection. Please try again.';
+          } else {
+            alertTitle = 'Connection Issue';
+            alertBody =
+              'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+          }
+          showAlert('error', alertTitle, alertBody);
         });
     }
   };

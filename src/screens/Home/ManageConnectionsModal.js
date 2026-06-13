@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
+import Toast from 'react-native-toast-message';
 import server from '../../utils/serverConfig';
 import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
@@ -22,6 +23,7 @@ import { registerCallback } from '../../utils/brokerAuth';
 import {
   handleSmartReauth,
   flipPrimaryBroker,
+  markBrokerExpired,
 } from '../../utils/reauthHelpers';
 import { isBrokerSessionExpired } from '../../utils/brokerStateUtils';
 
@@ -54,6 +56,7 @@ const ManageConnectionsModal = ({
 }) => {
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState([]);
+  const fetchingRef = React.useRef(false);
   const [removing, setRemoving] = useState(null);
   const [switching, setSwitching] = useState(null);
   const [reauthing, setReauthing] = useState(null);
@@ -76,8 +79,8 @@ const ManageConnectionsModal = ({
   const userEmail = user?.email;
 
   const fetchConnections = async () => {
-    if (!userEmail) return;
-
+    if (!userEmail || fetchingRef.current) return;
+    fetchingRef.current = true;
     setLoading(true);
     try {
       // Use main backend (aq_backend_github) which stores broker connections
@@ -119,12 +122,16 @@ const ManageConnectionsModal = ({
       Alert.alert('Error', 'Failed to load connections');
     } finally {
       setLoading(false);
+      fetchingRef.current = false;
     }
   };
 
   useEffect(() => {
     if (visible && userEmail) {
       fetchConnections();
+    }
+    if (!visible) {
+      fetchingRef.current = false;
     }
   }, [visible, userEmail]);
 
@@ -229,6 +236,15 @@ const ManageConnectionsModal = ({
       // web subscription.js:161 (setPrimaryBrokerRequest).
       await flipPrimaryBroker(brokerName, userEmail, configData);
 
+      // Step 1b: Mark broker as `status=expired` so UI shows "Re-auth
+      // needed" until the subsequent OAuth/credentials flow succeeds.
+      // The per-broker connect-broker route will overwrite to 'connected'
+      // on success; on failure / back-out the expired state correctly
+      // sticks. Without this, brokers with future-dated token_expire
+      // (e.g. AliceBlue's hardcoded +24h) lingered as "Connected" even
+      // after a failed reconnect.
+      await markBrokerExpired(brokerName, userEmail, configData);
+
       // Step 2: Try the smart credential-reauth path (Upstox/ICICI/HDFC/
       // Motilal/Fyers). It hits /reauth-url, decrypts stored creds, and
       // opens the per-broker modal with a reauthConfig payload so the
@@ -240,6 +256,28 @@ const ManageConnectionsModal = ({
         configData,
         brokerConnectRedirectURL,
       });
+
+      if (result.handled && result.silent) {
+        // Groww silent refresh — backend regenerated the session token
+        // from stored Base32 seed; no per-broker modal needed at all.
+        // Refresh broker status + close ManageConnections; show a
+        // success toast.
+        console.log('[ManageConnections] silent refresh OK:', brokerName);
+        try {
+          if (typeof Toast?.show === 'function') {
+            Toast.show({
+              type: 'success',
+              text1: `${brokerName} reconnected`,
+              text2: 'Session refreshed using saved credentials.',
+              visibilityTime: 3000,
+            });
+          }
+        } catch (_) {}
+        // Tell parent to refresh broker status (no modal to open).
+        onReconnect?.(brokerName, null, null);
+        onClose?.();
+        return;
+      }
 
       if (result.handled) {
         // Credential broker — hand dispatch to parent, don't openModal

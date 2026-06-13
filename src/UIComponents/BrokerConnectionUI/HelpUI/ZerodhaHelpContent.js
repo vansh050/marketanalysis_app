@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
 import YoutubePlayer from "react-native-youtube-iframe";
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -10,7 +10,7 @@ const ZerodhaHelpContent = ({ expanded, onExpandChange }) => {
 
   return (
     <View>
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 20 }}>
+      <View style={[styles.container, { paddingBottom: 20 }]}>
         <View style={styles.videoBox}>
           <YoutubePlayer
             height={screenHeight * 0.24}
@@ -75,7 +75,7 @@ const ZerodhaHelpContent = ({ expanded, onExpandChange }) => {
             </View>
           </>
         )}
-      </ScrollView>
+      </View>
     </View>
   );
 };

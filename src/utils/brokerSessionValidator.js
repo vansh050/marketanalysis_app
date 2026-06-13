@@ -57,8 +57,8 @@ export function classifyFundsResponse(funds, brokerStatus, broker) {
   if (!funds) {
     return {
       ok: false,
-      reason: 'TOKEN_EXPIRED',
-      message: `${broker} did not return funds. Please reconnect.`,
+      reason: 'TRANSIENT',
+      message: `${broker} funds unavailable. You can still place orders.`,
       funds: null,
     };
   }

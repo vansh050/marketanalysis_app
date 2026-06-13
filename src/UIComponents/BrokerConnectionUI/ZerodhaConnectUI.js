@@ -33,6 +33,10 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 import { useTrade } from '../../screens/TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {
+  useSdkBridge,
+  sdkExchangeBrokerToken,
+} from '../../sdk/brokerSdkBridge';
 
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 
@@ -49,6 +53,7 @@ const ZerodhaConnectUI = ({
   const hasProcessedCallback = useRef(false);
   const { configData } = useTrade();
   const showAlert = useModalStore((state) => state.showAlert);
+  const sdkBridge = useSdkBridge();
 
   const auth = getAuth();
   const user = auth.currentUser;
@@ -152,6 +157,50 @@ const ZerodhaConnectUI = ({
       setIsLoading(true);
       const zerodhaApiKey = configData?.config?.REACT_APP_ZERODHA_API_KEY || Config?.REACT_APP_ZERODHA_API_KEY;
 
+      // SDK pilot single-path swap — when REACT_APP_SDK_INTEGRATION=true,
+      // route through /sdk/v1/connections/Zerodha/exchange-token. The
+      // backend does gen-access-token + persistence in one round trip,
+      // so we cannot dual-write here (Zerodha's requestToken is a
+      // single-use OAuth code; calling gen-access-token twice fails the
+      // second time with "Token is invalid or has expired"). When the
+      // bridge isn't ready (flag off, or token mint pending), the
+      // legacy two-step (gen-access-token then save) below runs as
+      // the canonical path.
+      if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+        try {
+          await sdkExchangeBrokerToken(sdkBridge.client, 'Zerodha', {
+            requestToken,
+            apiKey: zerodhaApiKey,
+          });
+          console.log('[Zerodha] SDK exchange-token persisted broker connection');
+          setIsLoading(false);
+          // Wrap post-success steps so a downstream throw (e.g. event
+          // emit or onConnectionSuccess listener) doesn't bubble to the
+          // outer catch and get rewritten as "Connection Error". See
+          // KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
+          // § Broker-connect post-success hygiene.
+          try {
+            if (onConnectionSuccess) {
+              onConnectionSuccess();
+            }
+            showAlert('success', 'Connected Successfully', 'Your Zerodha broker has been connected successfully!');
+          } catch (postSuccessErr) {
+            console.warn(
+              '[Zerodha] post-success step threw (connection IS saved DB-side):',
+              postSuccessErr?.message || postSuccessErr,
+            );
+          }
+          return;
+        } catch (sdkErr) {
+          // Fall through to legacy. Token may already have been spent
+          // by the failed SDK request — the legacy gen-access-token
+          // call below will then return "invalid token" and the user
+          // will retry. This is the same failure mode as a network
+          // blip on the legacy path; surface a clear message.
+          console.warn('[Zerodha] SDK exchange-token failed, falling back to legacy:', sdkErr?.message || sdkErr);
+        }
+      }
+
       // Get user's MongoDB _id
       const userDetails = await fetchUserDetails();
       if (!userDetails || !userDetails._id) {
@@ -189,15 +238,41 @@ const ZerodhaConnectUI = ({
 
       // Success!
       setShowWebView(false);
-      showAlert('success', 'Connected Successfully', 'Your Zerodha broker has been connected successfully!');
-      if (onConnectionSuccess) {
-        onConnectionSuccess();
-      }
       onClose();
+      // Wrap post-success steps so a downstream throw doesn't bubble to
+      // the outer catch and get rewritten as "Connection Error". See
+      // KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
+      // § Broker-connect post-success hygiene.
+      try {
+        showAlert('success', 'Connected Successfully', 'Your Zerodha broker has been connected successfully!');
+        if (onConnectionSuccess) {
+          onConnectionSuccess();
+        }
+      } catch (postSuccessErr) {
+        console.warn(
+          '[Zerodha] post-success step threw (connection IS saved DB-side):',
+          postSuccessErr?.message || postSuccessErr,
+        );
+      }
     } catch (error) {
       console.error('[ZerodhaConnectUI] OAuth callback processing failed:', error);
       setShowWebView(false);
-      showAlert('error', 'Connection Error', error.response?.data?.msg || error.message || 'Failed to complete Zerodha connection. Please try again.');
+      const isHttpError = !!error?.response;
+      const rawMessage =
+        error.response?.data?.msg ||
+        error.response?.data?.message ||
+        error.message;
+      let alertTitle = 'Connection Error';
+      let alertBody;
+      if (isHttpError) {
+        alertBody =
+          rawMessage || 'Failed to complete Zerodha connection. Please try again.';
+      } else {
+        alertTitle = 'Connection Issue';
+        alertBody =
+          'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+      }
+      showAlert('error', alertTitle, alertBody);
     } finally {
       setIsLoading(false);
     }

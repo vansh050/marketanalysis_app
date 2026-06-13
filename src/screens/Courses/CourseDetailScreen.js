@@ -29,6 +29,7 @@ import {
   Alert,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { getAuth, onAuthStateChanged } from '@react-native-firebase/auth';
 import { useConfig } from '../../context/ConfigContext';
 import { useDesign } from '../../design/useDesign';
 import gumletService from '../../FunctionCall/services/GumletService';
@@ -101,6 +102,18 @@ export default function CourseDetailScreen() {
   const [playbackError, setPlaybackError] = useState('');
   const [playbackLoading, setPlaybackLoading] = useState(false);
   const [purchaseOpen, setPurchaseOpen] = useState(false);
+  // Enrollment state — flipped true by fetchClientCourseDetails when the
+  // user has an active CourseClientList row within the validity window.
+  // Without this query the CTA stays as "Get free access" / "Enroll now"
+  // forever, even after the user successfully enrolled. Mirrors web
+  // courseDetailsPage.js `isPurchased`.
+  const [isPurchased, setIsPurchased] = useState(false);
+  const [user, setUser] = useState(() => getAuth().currentUser);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(getAuth(), (u) => setUser(u));
+    return () => { if (unsub) unsub(); };
+  }, []);
 
   const fetchCourse = useCallback(async () => {
     if (!courseId) { setError('Missing courseId'); setLoading(false); return; }
@@ -125,6 +138,34 @@ export default function CourseDetailScreen() {
 
   useEffect(() => { fetchCourse(); }, [fetchCourse]);
 
+  // Enrollment lookup — mirrors web courseDetailsPage.fetchClientCourseDetails.
+  // 404 = not enrolled (expected). Anything else: stay un-purchased.
+  const fetchClientCourse = useCallback(async () => {
+    const userEmail = user?.email;
+    if (!userEmail || !course?._id) return;
+    try {
+      const res = await gumletService.getClientCourseDetails(userEmail, course._id);
+      const data = res?.data;
+      if (!data) { setIsPurchased(false); return; }
+      const today = new Date();
+      const start = data?.course?.startDate ? new Date(data.course.startDate) : null;
+      const end = data?.course?.endDate ? new Date(data.course.endDate) : null;
+      const active = (!start || today >= start) && (!end || today <= end);
+      setIsPurchased(!!active);
+      // Once enrolled, expand every module so the user lands on a
+      // browseable curriculum (parity with web courseDetailsPage:530).
+      if (active && Array.isArray(course?.modules)) {
+        setOpenModuleIds(new Set(course.modules.map((m) => m._id)));
+      }
+    } catch (e) {
+      // 404 = no enrollment row → un-purchased. Any other failure: stay
+      // un-purchased; the user can still tap "Get free access" to enroll.
+      setIsPurchased(false);
+    }
+  }, [user?.email, course?._id, course?.modules]);
+
+  useEffect(() => { fetchClientCourse(); }, [fetchClientCourse]);
+
   const toggleModule = (moduleId) => {
     setOpenModuleIds((prev) => {
       const next = new Set(prev);
@@ -134,11 +175,22 @@ export default function CourseDetailScreen() {
   };
 
   const handleLessonPress = useCallback(async (lesson) => {
-    if (lesson.type === 'live') {
-      Alert.alert(
-        'Live class',
-        'Live sessions open from the Webinars page ~10 minutes before start.',
-      );
+    // Live lesson — bypass the VOD playback-token path and open the
+    // per-lesson WebinarDetail screen. That screen owns the
+    // pre-live countdown, the LiveRoom join flow, and the post-end
+    // replay messaging (parity with web courseDetailsPage.js:83 — web
+    // sets `selectedLesson` and renders <LiveRoom /> inline; mobile
+    // routes to its dedicated WebinarDetailScreen instead since the
+    // course screen doesn't host a LiveRoom slot today). The previous
+    // behaviour — a generic "Live class" Alert for every live lesson
+    // — meant every webinar inside the auto-managed Webinars
+    // container felt identical and unclickable.
+    //
+    // Exception: if the live session has been promoted to VOD
+    // (gumletAssetId set), play it inline as a regular VOD instead —
+    // the live is over and the replay is what the viewer wants.
+    if (lesson.type === 'live' && !lesson.gumletAssetId) {
+      navigation.navigate('WebinarDetail', { lessonId: lesson._id });
       return;
     }
     if (lesson.status !== 'ready' && !lesson.isPreview) {
@@ -224,11 +276,23 @@ export default function CourseDetailScreen() {
             )}
           </View>
           <TouchableOpacity
-            onPress={() => setPurchaseOpen(true)}
-            style={[styles.enrollBtn, { backgroundColor: accent }]}
+            onPress={() => {
+              if (isPurchased) return;
+              setPurchaseOpen(true);
+            }}
+            disabled={isPurchased}
+            activeOpacity={isPurchased ? 1 : 0.7}
+            style={[
+              styles.enrollBtn,
+              { backgroundColor: isPurchased ? '#9ca3af' : accent },
+            ]}
           >
             <Text style={styles.enrollBtnText}>
-              {Number(course.price) > 0 ? 'Enroll now' : 'Get free access'}
+              {isPurchased
+                ? 'Purchased'
+                : Number(course.price) > 0
+                  ? 'Enroll now'
+                  : 'Get free access'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -292,6 +356,11 @@ export default function CourseDetailScreen() {
         // course payload, but the playback-token retry below picks up
         // the new enrollment when the user taps the lesson again).
         fetchCourse();
+        // Re-query the per-user enrollment so the CTA flips to
+        // "Purchased". Without this the same "Get free access" /
+        // "Enroll now" stays put even after a successful enrollment
+        // write.
+        fetchClientCourse();
         // If a lesson was already active and stuck on a 403, clear the
         // error so the next tap re-runs getPlaybackToken.
         if (playbackError) {

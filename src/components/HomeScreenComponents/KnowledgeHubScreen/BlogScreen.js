@@ -1,63 +1,21 @@
-// screens/BlogsScreen.js
-import React from "react";
-import {
-  SafeAreaView,
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-} from "react-native";
-import { ArrowLeft } from "lucide-react-native";
-import KnowledgeHub from "../KnowledgeHub";
+/**
+ * BlogScreen — container (Phase G batch 3, 2026-05-02)
+ *
+ * Thin wrapper. Renders presentation resolved from `screens.BlogScreen`.
+ */
 
-const BlogsScreen = ({ navigation, route }) => {
-  return (
-    <SafeAreaView style={styles.container}>
+import React from 'react';
+import { useComponent } from '../../../design/useDesign';
 
+const BlogScreen = ({ navigation, route }) => {
+    const Presentation = useComponent('screens.BlogScreen');
 
-      <View style={styles.content}>
-        <KnowledgeHub navigation={navigation} type="full" initialTab="Blogs" />
-      </View>
-    </SafeAreaView>
-  );
+    return (
+        <Presentation
+            viewModel={{ navigation }}
+            actions={{}}
+        />
+    );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#FFFFFF",
-  },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F0F0F0",
-  },
-  backButton: {
-    padding: 8,
-    marginRight: 12,
-  },
-  headerContent: {
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#1A1A1A",
-    fontFamily: "Poppins-SemiBold",
-    marginBottom: 2,
-  },
-  headerSubtitle: {
-    fontSize: 12,
-    color: "#6B7280",
-    fontFamily: "Poppins-Regular",
-  },
-  content: {
-    flex: 1,
-    backgroundColor: "#F9F9F9",
-  },
-});
-// Same styles as VideosScreen
-export default BlogsScreen;
+export default BlogScreen;

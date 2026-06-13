@@ -44,10 +44,18 @@ import {getAdvisorSubdomain} from '../../utils/variantHelper';
 import {useTrade} from '../../screens/TradeContext';
 import {convertResponse} from '../../utils/tradeUtils';
 import {useConfig} from '../../context/ConfigContext';
+import { computeTradeVariant } from '../../utils/tradeVariant';
 import moment from 'moment';
 import { isOrderSuccess, isOrderRejected } from '../../utils/orderStatusUtils';
 import { validateBrokerSession } from '../../utils/brokerSessionUtils';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import useSdkClient from '../../sdk/useSdkClient';
+
+const isSdkExecuteAdviceEnabled = () => {
+  const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
+  return v === 'true' || v === '1';
+};
+
 const {height: screenHeight} = Dimensions.get('window');
 
 const UserStrategySubscribeModal = ({
@@ -77,6 +85,10 @@ const UserStrategySubscribeModal = ({
   const {configData, userDetails} = useTrade();
   const openBrokerModal = useModalStore(state => state.openModal);
   const appConfig = useConfig();
+  // For trade `variant` — see docs/APP_ARCHITECTURE.md § 4.5.2.
+  const allowAfterHoursOrders = appConfig?.allowAfterHoursOrders;
+  const sdkClient = useSdkClient();
+  const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
   const mainColor = appConfig?.mainColor || '#000';
   const [loading, setLoading] = useState(false);
   const [confirmOrder, setConfirmOrder] = useState(false);
@@ -213,18 +225,94 @@ const UserStrategySubscribeModal = ({
       setOpenTokenExpireModel(true);
       setCalculateLoading(false);
     } else {
-      // EDIS pre-flight check for brokers that require manual sell authorization
-      const edisCheckBrokers = ['AliceBlue', 'IIFL Securities', 'ICICI Direct', 'Upstox', 'Kotak', 'Hdfc Securities', 'Motilal Oswal', 'Groww'];
-      if (edisCheckBrokers.includes(broker) && !userDetails?.is_authorized_for_sell) {
-        const hasSellOrders = latestRebalance?.adviceEntries?.some(
-          entry => entry.transactionType === 'SELL',
-        );
-        if (hasSellOrders) {
+      // EDIS pre-flight check for SELL initial allocations.
+      //
+      // DDPI-priority semantics (per `docs/SELL_AUTH_ARCHITECTURE.md`):
+      //   - Zerodha + Angel One have cheap server-cached DDPI flags
+      //     (`ddpi_status` / `ddpi_enabled`). DDPI active ⇒ user can
+      //     sell freely; never block. Pre-block only when BOTH flags
+      //     fail.
+      //   - Dhan + Fyers + 8 portal-side brokers either have no
+      //     persistent DDPI flag in our schema (Fyers + portal-side)
+      //     or use a per-day per-holding live API (Dhan) that this
+      //     modal does not pre-fetch. Per user direction 2026-05-03
+      //     and CONTRACT § 6 / Phase D `requireSellAuth` design,
+      //     we prefer OPTIMISTIC PLACEMENT for these — let the trade
+      //     reach the broker; on rejection, surface EDIS UX. The
+      //     stored `is_authorized_for_sell` flag is too lossy to
+      //     gate on for these brokers (a user with permanent DDPI
+      //     at the broker portal would be falsely blocked on
+      //     day-rollover before our flag flips).
+      //
+      // What this gate STILL enforces:
+      //   - Zerodha: DDPI status OR session-TPIN flag.
+      //   - Angel One: persistent DDPI OR session-TPIN flag.
+      //   - 8 portal-side brokers: existing `is_authorized_for_sell`
+      //     check (pre-existing pattern in this modal — kept until
+      //     Phase D `requireSellAuth` unifies the gate; doc-updated
+      //     to call out the over-aggressive behavior).
+      //   - Dhan + Fyers: NO PRE-BLOCK. Trade attempts; rejection
+      //     surfaces via the placeOrder error path.
+      //
+      // Phase C orchestrator (`executeAdvice` calling `requireSellAuth`
+      // internally) replaces this gate with a unified
+      // optimistic-then-cascade pattern where the SDK handles both
+      // the live-check brokers AND the post-rejection EDIS UX.
+      //
+      // Audit refs: `docs/SDK_ORCHESTRATION_AUDIT.md` § Pass 2 /
+      // Suspected defect #1 (the 4-broker matrix), § 8.tidi (Flutter's
+      // unified DdpiAuthPage as the SDK template).
+      const hasSellOrders = latestRebalance?.adviceEntries?.some(
+        entry => entry.transactionType === 'SELL',
+      );
+
+      if (hasSellOrders) {
+        let needsEdisAuth = false;
+        let edisMessage = 'Please authorize your stocks for selling at your broker portal before placing sell orders.';
+
+        if (broker === 'Zerodha') {
+          // Zerodha: DDPI persisted by `ddpi_status` ∈ {physical, ddpi}
+          // (live check via `/zerodha/save-ddpi-status` populates this);
+          // OR session-TPIN flag. Either ⇒ proceed.
+          const canSellZerodha = userDetails?.is_authorized_for_sell ||
+            ['physical', 'ddpi'].includes(userDetails?.ddpi_status);
+          if (!canSellZerodha) {
+            needsEdisAuth = true;
+            edisMessage = 'Please authorize DDPI in Kite Web before placing sell orders.';
+          }
+        } else if (broker === 'Angel One') {
+          // Angel One: persistent DDPI (`ddpi_enabled`, populated by
+          // `/angelone/verify-dis` live check) OR session-TPIN flag.
+          if (!userDetails?.ddpi_enabled && !userDetails?.is_authorized_for_sell) {
+            needsEdisAuth = true;
+            edisMessage = 'Please authorize TPIN/DIS in SmartAPI before placing sell orders.';
+          }
+        } else if (
+          ['AliceBlue', 'IIFL Securities', 'ICICI Direct', 'Upstox',
+            'Kotak', 'Hdfc Securities', 'Motilal Oswal', 'Groww'].includes(broker) &&
+          !userDetails?.is_authorized_for_sell
+        ) {
+          // Portal-side EDIS brokers — no in-app DDPI/TPIN flow.
+          // KEPT for backward-compatibility with prior edisCheckBrokers
+          // Toast pattern. Acknowledged over-aggressive per
+          // user direction 2026-05-03 (a user with permanent DDPI
+          // at the broker portal would be falsely blocked here);
+          // Phase D `requireSellAuth` softens this to optimistic
+          // placement once the post-rejection EDIS cascade ships.
+          needsEdisAuth = true;
+        }
+        // NOTE: Dhan + Fyers intentionally NOT pre-blocked.
+        // Optimistic placement — trade goes through; if broker
+        // rejects with EDIS error, the existing placeOrder error
+        // path surfaces a Toast. Phase D unifies the post-rejection
+        // EDIS UX with `<SellAuthGate>` widget.
+
+        if (needsEdisAuth) {
           setCalculateLoading(false);
           Toast.show({
             type: 'error',
             text1: 'Authorization Required',
-            text2: 'Please authorize your stocks for selling at your broker portal before placing sell orders.',
+            text2: edisMessage,
             visibilityTime: 5000,
           });
           return;
@@ -432,6 +520,8 @@ const UserStrategySubscribeModal = ({
       }
 
       // Place orders via Fyers API through process-trade
+      // Trade variant per-trade — see docs/APP_ARCHITECTURE.md § 4.5.2.
+      const fyersVariant = computeTradeVariant(allowAfterHoursOrders);
       const payload = {
         clientId: clientCode,
         accessToken: jwtToken,
@@ -442,14 +532,42 @@ const UserStrategySubscribeModal = ({
         model_id: latestRebalance?.model_Id,
         unique_id: calculatedPortfolioData?.uniqueId,
         returnDateTime: istDatetime,
-        trades: stockDetails,
+        trades: stockDetails.map(s => ({ ...s, variant: fyersVariant })),
       };
 
-      const response = await axios.post(
-        `${server.ccxtServer.baseUrl}rebalance/process-trade`,
-        payload,
-        { headers: requestHeaders, timeout: 120000 },
-      );
+      // SDK executeAdvice dual-path (Phase C) — Fyers initial allocation.
+      let response;
+      if (sdkExecuteAdviceEnabled) {
+        try {
+          const sdkResult = await sdkClient.executeAdvice({
+            kind: 'mpInitialAllocation',
+            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            brokerName: 'Fyers',
+            modelId: latestRebalance?.model_Id,
+            modelName: strategyDetails?.model_name,
+            uniqueId: calculatedPortfolioData?.uniqueId,
+            trades: payload.trades,
+            subscriptionId: latestRebalance?._id || '',
+          });
+          const mappedRows = (sdkResult?.rows || []).map(row => ({
+            ...row,
+            orderStatus: row.status,
+            tradingSymbol: row.symbol,
+          }));
+          response = { data: { results: mappedRows } };
+          console.log('[UserStrategySubscribeModal] SDK executeAdvice (Fyers) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
+        } catch (sdkErr) {
+          console.error('[UserStrategySubscribeModal] SDK executeAdvice (Fyers) failed, falling back to legacy:', sdkErr?.message);
+          response = null;
+        }
+      }
+      if (!response) {
+        response = await axios.post(
+          `${server.ccxtServer.baseUrl}rebalance/process-trade`,
+          payload,
+          { headers: requestHeaders, timeout: 120000 },
+        );
+      }
 
       const checkData = response?.data?.results;
 
@@ -597,8 +715,12 @@ const UserStrategySubscribeModal = ({
     }
   };
 
-  const placeOrder = () => {
+  const placeOrder = async () => {
     setLoading(true);
+    // Trade variant per-trade — see docs/APP_ARCHITECTURE.md § 4.5.2.
+    const variant = computeTradeVariant(allowAfterHoursOrders);
+    const tradesWithVariant = stockDetails.map(s => ({ ...s, variant }));
+
     const getBasePayload = () => ({
       modelName: strategyDetails?.model_name,
       advisor: strategyDetails?.advisor,
@@ -606,7 +728,7 @@ const UserStrategySubscribeModal = ({
       unique_id: calculatedPortfolioData?.uniqueId,
       user_broker: broker,
       user_email: userEmail,
-      trades: stockDetails,
+      trades: tradesWithVariant,
     });
 
     const getBrokerSpecificPayload = () => {
@@ -690,8 +812,33 @@ const UserStrategySubscribeModal = ({
       },
     };
 
-    axios
-      .request(config)
+    // SDK executeAdvice dual-path (Phase C) — main broker initial allocation.
+    let sdkResponse = null;
+    if (sdkExecuteAdviceEnabled) {
+      try {
+        const sdkResult = await sdkClient.executeAdvice({
+          kind: 'mpInitialAllocation',
+          clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          brokerName: broker,
+          modelId: latestRebalance?.model_Id,
+          modelName: strategyDetails?.model_name,
+          uniqueId: calculatedPortfolioData?.uniqueId,
+          trades: payload.trades,
+          subscriptionId: latestRebalance?._id || '',
+        });
+        const mappedRows = (sdkResult?.rows || []).map(row => ({
+          ...row,
+          orderStatus: row.status,
+          tradingSymbol: row.symbol,
+        }));
+        sdkResponse = { data: { results: mappedRows } };
+        console.log('[UserStrategySubscribeModal] SDK executeAdvice (main) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
+      } catch (sdkErr) {
+        console.error('[UserStrategySubscribeModal] SDK executeAdvice (main) failed, falling back to legacy:', sdkErr?.message);
+      }
+    }
+
+    (sdkResponse ? Promise.resolve(sdkResponse) : axios.request(config))
       .then(response => {
         // Handle session expired - broker needs reconnection
         if (response?.data?.sessionExpired) {
@@ -819,9 +966,17 @@ const UserStrategySubscribeModal = ({
   };
   const zerodhaApiKey = configData?.config?.REACT_APP_ZERODHA_API_KEY;
   const handleZerodhaRedirect = async () => {
-    console.log('THos caalled', stockDetails);
+    // Tag `variant` once at the top of the function. Used for the
+    // `update-reco-with-zerodha-model-pf` call below AND injected into the
+    // `filteredStockDetails` shape written to AsyncStorage — without this
+    // tag, the field is dropped by the explicit field-by-field mapping at
+    // the .then() handler. See docs/APP_ARCHITECTURE.md § 4.5.2 Trade
+    // variant field.
+    const zerodhaVariant = computeTradeVariant(allowAfterHoursOrders);
+    const zerodhaTrades = (stockDetails || []).map(s => ({ ...s, variant: zerodhaVariant }));
+    console.log('THos caalled', zerodhaTrades);
     try {
-      console.log('This is called', stockDetails);
+      console.log('This is called', zerodhaTrades);
       await AsyncStorage.removeItem('stockDetailsZerodhaOrder');
       await AsyncStorage.removeItem('zerodhaAdditionalPayload');
       AsyncStorage.setItem(
@@ -900,7 +1055,7 @@ const UserStrategySubscribeModal = ({
             },
           },
           {
-            stockDetails: stockDetails,
+            stockDetails: zerodhaTrades,
             leaving_datetime: currentISTDateTime,
             email: userEmail,
             trade_given_by: configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG || 'AlphaQuark',
@@ -922,6 +1077,11 @@ const UserStrategySubscribeModal = ({
             priority: detail.Priority,
             tradeId: detail.tradeId,
             user_broker: 'Zerodha', // Manually adding this field
+            // Preserve variant through the field-by-field mapping. The
+            // backend may or may not echo it on the response (depending on
+            // whether `update-reco-with-zerodha-model-pf` persists it); if
+            // it doesn't, fall back to the submit-time computation.
+            variant: detail.variant || zerodhaVariant,
           }));
 
           setLoading(false);
@@ -1057,7 +1217,36 @@ const UserStrategySubscribeModal = ({
         };
         // Use await instead of .then()
         console.log('Data that we send:', data);
-        const response = await axios.request(config);
+
+        // SDK executeAdvice dual-path (Phase C) — Zerodha publisher path.
+        let response;
+        if (sdkExecuteAdviceEnabled) {
+          try {
+            const sdkResult = await sdkClient.executeAdvice({
+              kind: 'mpInitialAllocation',
+              clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              brokerName: zerodhaAdditionalPayload.broker || 'Zerodha',
+              modelId: zerodhaAdditionalPayload.model_id,
+              modelName: zerodhaAdditionalPayload.modelName,
+              uniqueId: zerodhaAdditionalPayload.unique_id,
+              trades: zerodhaStockDetails,
+              subscriptionId: latestRebalance?._id || '',
+            });
+            const mappedRows = (sdkResult?.rows || []).map(row => ({
+              ...row,
+              orderStatus: row.status,
+              tradingSymbol: row.symbol,
+            }));
+            response = { data: { results: mappedRows } };
+            console.log('[UserStrategySubscribeModal] SDK executeAdvice (Zerodha) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
+          } catch (sdkErr) {
+            console.error('[UserStrategySubscribeModal] SDK executeAdvice (Zerodha) failed, falling back to legacy:', sdkErr?.message);
+            response = null;
+          }
+        }
+        if (!response) {
+          response = await axios.request(config);
+        }
 
         // Handle session expired - broker needs reconnection
         if (response?.data?.sessionExpired) {

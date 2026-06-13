@@ -90,6 +90,8 @@ import FyersConnect from './FyersConnect';
 import KotakModal from './KotakModal';
 import GrowwConnectModal from './GrowwConnectModal';
 import AxisConnectModal from './AxisConnectModal';
+import ArihantConnectModal from './ArihantConnectModal';
+import DefinEdgeConnectModal from './DefinEdgeConnectModal';
 
 // SDK modal (all brokers when flag on, except re-auth)
 import Phase3SdkBrokerModal from './Phase3SdkBrokerModal';
@@ -151,6 +153,11 @@ const normalizeBrokerKey = (raw) => {
   if (trimmed === 'IIFL Securities') return 'IIFL';
   if (trimmed === 'Aliceblue') return 'AliceBlue';
   if (trimmed === 'AngleOne') return 'Angel One';
+  // New (2026-06-09 web parity). Mobile display tile keys are
+  // 'Arihant Capital' and 'DefinEdge Securities' to match the
+  // user_broker / connected_brokers slot names the backend uses.
+  if (trimmed === 'DefinEdge' || trimmed === 'Definedge') return 'DefinEdge Securities';
+  if (trimmed === 'Arihant') return 'Arihant Capital';
   return trimmed;
 };
 
@@ -217,6 +224,10 @@ const renderLegacyModal = (key, commonProps) => {
       return <AxisConnectModal {...commonProps} />;
     case 'IIFL':
       return <IIFLModal {...commonProps} />;
+    case 'Arihant Capital':
+      return <ArihantConnectModal {...commonProps} />;
+    case 'DefinEdge Securities':
+      return <DefinEdgeConnectModal {...commonProps} />;
     default:
       return null;
   }

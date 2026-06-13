@@ -286,6 +286,10 @@ const styles = StyleSheet.create({
     padding: 4,
     borderRadius: 5,
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
     elevation: 4,
   },
   headerRow: {
@@ -382,6 +386,10 @@ const styles = StyleSheet.create({
   content: {paddingBottom: 20},
   toggleIconContainer: {
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
     elevation: 3,
     borderRadius: 20,
     alignItems: 'center',

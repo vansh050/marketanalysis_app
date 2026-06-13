@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, Dimensions } from 'rea
 import LinearGradient from 'react-native-linear-gradient';
 import { useGstConfig } from '../../context/GstConfigContext';
 import { withGst, gstLabel } from '../../utils/gstHelpers';
+import BrandLogo from '../BrandLogo';
 
 const { width } = Dimensions.get('window');
 
@@ -71,7 +72,13 @@ const PlanCard = ({ data, type, onSubscribe, onMoreDetails }) => {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Image source={require('../../assets/logo.png')} style={styles.logo} />
+        {/*
+          BrandLogo: alphanomy variant gets the JS-drawn gradient mark
+          (no PNG asset needed); other variants render the legacy
+          AlphaQuark logo.png via Image. Avoids the AlphaQuark logo
+          leaking onto every Plan card on the alphanomy fork.
+        */}
+        <BrandLogo source={require('../../assets/logo.png')} size={30} style={styles.logo} />
         <Text style={nameStyle}>{data?.name}</Text>
         <View style={[styles.tagContainer, tagContainerStyle]}>
           <Text style={tagTextStyle}>{data?.planType === 'onetime' ? 'One Time' : 'Recurring'}</Text>

@@ -72,27 +72,6 @@ export async function completeSubscriptionService({
           : "365",
     });
 
-    await sendNotifications({
-      email: user,
-      phoneNumber: mobileNumber,
-      countryCode: countryCode || "+91",
-      panNumber,
-      planDetails: {
-        isRenewal: false,
-        duration:
-          specificPlan?.duration === null
-            ? getDurationInDays(data?.subscription?.payment_frequency)
-            : specificPlan?.duration || "30",
-        name: specificPlan?.name,
-        amount: specificPlan?.amount,
-      },
-      userName: name,
-      advisorName: whiteLabelText,
-      tradingPlatform: "supported-broker",
-      data,
-      telegramId,
-    });
-
     const newSubscription = {
       startDate: new Date(),
       plan: formattedName || "",

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
 import Config from 'react-native-config';
 import YoutubePlayer from "react-native-youtube-iframe";
 import LinkifiedUrl from './LinkifiedUrl';
@@ -13,7 +13,7 @@ const DhanHelpContent = ({expanded, onExpandChange }) => {
 
   return (
     <View>
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 0 }}>
+    <View style={styles.container}>
       <View style={styles.videoBox}>
         <YoutubePlayer
           height={screenHeight * 0.24}
@@ -52,7 +52,7 @@ const DhanHelpContent = ({expanded, onExpandChange }) => {
         </>
       )}
    
-    </ScrollView>
+    </View>
   
     </View>
 

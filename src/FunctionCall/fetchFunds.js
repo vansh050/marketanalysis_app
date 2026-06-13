@@ -133,6 +133,27 @@ export const fetchFunds = async (
       });
       url = `${server.ccxtServer.baseUrl}axis/funds`;
       break;
+    case 'Arihant Capital':
+      // Parity with web (handled at ccxt layer — see backend
+      // /arihant/funds). Same envelope as Axis.
+      if (!jwtToken) return;
+      data = JSON.stringify({
+        accessToken: jwtToken,
+        userId: clientCode,
+        userEmail,
+      });
+      url = `${server.ccxtServer.baseUrl}arihant/funds`;
+      break;
+    case 'DefinEdge Securities':
+      if (!jwtToken) return;
+      data = JSON.stringify({
+        apiSessionKey: jwtToken,
+        accessToken: jwtToken,
+        actid: clientCode,
+        userEmail,
+      });
+      url = `${server.ccxtServer.baseUrl}definedge/funds`;
+      break;
     default:
       return; // If the broker is not recognized
   }

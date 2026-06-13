@@ -45,7 +45,6 @@ import Config from 'react-native-config';
 import { CFPaymentGatewayService } from 'react-native-cashfree-pg-sdk';
 import {
   CFDropCheckoutPayment,
-  CFEnvironment,
   CFPaymentComponentBuilder,
   CFPaymentModes,
   CFSession,
@@ -54,6 +53,10 @@ import {
 import couponService from '../FunctionCall/services/CouponService';
 import cashfreeOrderService from '../FunctionCall/services/CashFreeOrderService';
 import gumletService from '../FunctionCall/services/GumletService';
+import {
+  getCashfreeEnvironment,
+  friendlyPaymentError,
+} from '../utils/cashfreeEnv';
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
@@ -114,8 +117,76 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
         planId: course._id,
         amount: basePrice,
       });
-      setAppliedCoupon(data);
-      setCouponMsg(`Coupon applied — you save ₹${(Number(data.discountAmount || data.discount || 0)).toLocaleString()}`);
+      // BE response shape is not contractually pinned. Derive the discount
+      // through a priority chain (BE finalAmount → BE discountAmount → manual
+      // compute from discountType/discountValue/maxDiscountAmount). Without
+      // this, a 30% coupon whose BE response carries only the raw coupon doc
+      // shape (discountType + discountValue) would render as ₹0 saved.
+      // Ported from web parity commit 9c23d97f.
+      const orderAmt = Number(basePrice) || 0;
+      const numOrNull = (v) => {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      const couponDoc = data?.coupon || data || {};
+      const beFinal = numOrNull(data?.finalAmount ?? data?.final_amount ?? data?.payableAmount);
+      const beDiscount = numOrNull(data?.discountAmount ?? data?.discount_amount ?? data?.discount);
+
+      let discountAmount = null;
+      let finalAmount = null;
+
+      if (beFinal !== null && beDiscount !== null) {
+        finalAmount = beFinal;
+        discountAmount = beDiscount;
+      } else if (beFinal !== null) {
+        finalAmount = beFinal;
+        discountAmount = Math.max(0, orderAmt - beFinal);
+      } else if (beDiscount !== null) {
+        discountAmount = beDiscount;
+        finalAmount = Math.max(0, orderAmt - beDiscount);
+      } else {
+        const discountType = couponDoc?.discountType || couponDoc?.type;
+        const discountValue = numOrNull(couponDoc?.discountValue ?? couponDoc?.value);
+        const maxDiscount = numOrNull(couponDoc?.maxDiscountAmount);
+        if (discountType === 'percentage' && discountValue !== null) {
+          let d = (orderAmt * discountValue) / 100;
+          if (maxDiscount !== null && d > maxDiscount) d = maxDiscount;
+          discountAmount = d;
+          finalAmount = Math.max(0, orderAmt - d);
+        } else if (discountType === 'fixed' && discountValue !== null) {
+          discountAmount = Math.min(discountValue, orderAmt);
+          finalAmount = Math.max(0, orderAmt - discountAmount);
+        }
+      }
+
+      // Refuse silent 100%-off unless the source actually says it's a 100%
+      // discount.
+      const looksLike100Percent =
+        couponDoc?.discountType === 'percentage' && Number(couponDoc?.discountValue) >= 100;
+      const finalIsZeroByDesign =
+        finalAmount === 0 && (orderAmt === 0 || looksLike100Percent);
+
+      if (
+        finalAmount === null ||
+        discountAmount === null ||
+        finalAmount < 0 ||
+        discountAmount < 0 ||
+        (finalAmount === 0 && !finalIsZeroByDesign)
+      ) {
+        setAppliedCoupon(null);
+        setCouponMsg(
+          "We couldn't determine the discount for this coupon. Please refresh, retry, or contact support.",
+        );
+        return;
+      }
+
+      setAppliedCoupon({
+        ...data,
+        couponId: data?.couponId || data?._id || couponDoc?._id || undefined,
+        discountAmount,
+        finalAmount,
+      });
+      setCouponMsg(`Coupon applied — you save ₹${discountAmount.toLocaleString()}`);
     } catch (e) {
       setAppliedCoupon(null);
       setCouponMsg(e?.message || 'Coupon invalid');
@@ -226,12 +297,14 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
       return;
     }
 
-    // Pre-payment row (matches web pattern; webhook safety net keys off this)
-    await writePreOrPostEnrollment({
-      orderId: beforePaymentOrderId,
-      paymentStatus: 'pending',
-      paymentMode: 'Cashfree',
-    });
+    // Do NOT pre-write the enrollment here. The earlier pre-payment call
+    // created a CourseClientList row that BE accepted as enrolled — so a
+    // user who opened the QR modal and closed it without paying still
+    // appeared purchased. Authoritative enrollment is now written exactly
+    // once, in the post-payment SUCCESS branch below. The CashFree webhook
+    // + reconciliation cron (via order_tags.courseId on the order) remain
+    // the server-side safety net for FE write failures.
+    // Ported from web parity commit 7af384a6.
 
     handledRef.current = false;
 
@@ -281,6 +354,8 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
           setPhase('form');
           return;
         }
+        // Install-source rejection can also surface as an onError event
+        // on some SDK builds. Translate before showing.
         // Webhook-race window: give the server a chance to mark the order SUCCESS.
         try {
           const status = await cashfreeOrderService.getOrderStatus(cashfreeOrderId);
@@ -303,14 +378,14 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
             return;
           }
         } catch {}
-        setErrorMsg(error?.message || 'Payment failed');
+        setErrorMsg(friendlyPaymentError(error, 'Payment failed'));
         setPhase('form');
       },
     });
 
     CFPaymentGatewayService.setEventSubscriber({ onReceivedEvent: () => {} });
 
-    const cfEnvironment = Config.REACT_APP_ENV === 'production' ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
+    const cfEnvironment = getCashfreeEnvironment();
     const session = new CFSession(paymentSessionId, cashfreeOrderId, cfEnvironment);
     const paymentModes = new CFPaymentComponentBuilder()
       .add(CFPaymentModes.CARD)
@@ -332,7 +407,11 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
       CFPaymentGatewayService.doPayment(dropPayment);
     } catch (e) {
       teardownSdk();
-      setErrorMsg(e?.message || 'Could not open payment');
+      // CashFree's install-source check fires here for sideloaded APKs.
+      // friendlyPaymentError() rewrites that specific message into
+      // something the user can act on; everything else falls through
+      // to the raw SDK message.
+      setErrorMsg(friendlyPaymentError(e, 'Could not open payment'));
       setPhase('form');
     }
   }

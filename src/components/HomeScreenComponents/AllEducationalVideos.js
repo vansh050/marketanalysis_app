@@ -3,10 +3,12 @@ import { View, Text, FlatList, Image, StyleSheet, TouchableOpacity, Modal,Dimens
 import YoutubePlayer from 'react-native-youtube-iframe';
 import axios from 'axios';
 import { XIcon } from 'lucide-react-native';
+import Config from 'react-native-config';
 
-// YouTube API Key and Channel ID
-const API_KEY = 'AIzaSyCnsA2NAIZ2XeXDFcGC9BHNO1KUeV7U5Ck';  // Replace with your YouTube API key
-const CHANNEL_ID = 'UCmzr8eYNcUvJjiaRgvruV8A';    // Replace with the desired YouTube channel ID
+// YouTube API Key + Channel ID. Both come from .env (gitignored). The
+// hardcoded fallback was removed after a key leaked to git history.
+const API_KEY = Config.REACT_APP_YOUTUBE_API_KEY;
+const CHANNEL_ID = Config.REACT_APP_YOUTUBE_CHANNEL_ID;
 const { width, height } = Dimensions.get('window');
 const AllEducationalVideos = () => {
   const [videos, setVideos] = useState([]);
@@ -169,6 +171,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
+    elevation: 3,
 
   },
   videoThumbnail: {

@@ -13,6 +13,11 @@ import {
   Platform,
 } from 'react-native';
 import {NavigationContainer, useNavigation, useNavigationState, useRoute} from '@react-navigation/native';
+import SdkSelfTestScreen from '../sdk/SdkSelfTestScreen';
+import SdkBrokerTestScreen from '../sdk/SdkBrokerTestScreen';
+import {isSdkIntegrationEnabled} from '../sdk/SdkProviderRoot';
+// `Config` is imported below from '../utils/safeConfig' for the rest
+// of this file — re-use that one for SDK env vars.
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
 import {
@@ -28,14 +33,12 @@ import {
 } from '@react-navigation/drawer'; // Import Drawer Navigator
 import {
   FolderClock,
-  BookmarkPlus,
   LogOut,
   Shield,
   FileText,
   DollarSign,
   Activity,
   History,
-  Notebook,
   Newspaper,
   Briefcase,
   XIcon,
@@ -46,6 +49,8 @@ import {
   Home,
   ChevronRight,
   AlignEndHorizontal,
+  Clipboard,
+  User,
   Video,
   BookOpen,
 } from 'lucide-react-native';
@@ -70,6 +75,8 @@ import OrderScreen from '../screens/Home/OrderScreen';
 import WatchlistScreen from '../screens/Home/WatchlistScreen';
 import WishSearch from '../screens/Home/WishSearch';
 import CustomToolbar from './CustomToolbar';
+import NatificationServiceNav from './NatificationServiceNav';
+import {useConfig} from '../context/ConfigContext';
 import HistoryScreen from '../screens/Home/HistoryScreen';
 import AdviceScreen from '../screens/Home/HomeScreen';
 import PaymentHistoryScreen from '../screens/Drawer/PaymentHistoryScreen';
@@ -93,10 +100,6 @@ import {useModal} from '../components/ModalContext';
 import ModelPortfolioScreen from '../screens/Drawer/ModelPortfolioScreen';
 import MPPerformanceScreen from '../screens/Drawer/MPPerformanceScreen';
 import ResearchReportScreen from '../screens/Home/ResearchReportScreen';
-import WebinarsListScreen from '../screens/Courses/WebinarsListScreen';
-import WebinarDetailScreen from '../screens/Courses/WebinarDetailScreen';
-import MyCoursesScreen from '../screens/Courses/MyCoursesScreen';
-import CourseDetailScreen from '../screens/Courses/CourseDetailScreen';
 import PushNotificationScreen from '../screens/Home/PushNotificationScreen';
 import TradePnLScreen from '../screens/Home/TradePnLScreen';
 
@@ -109,7 +112,6 @@ import MySubscriptionsScreen from '../screens/Home/MySubscriptionsScreen';
 import NewsScreen from '../screens/Home/NewsScreen/NewsScreen';
 import SplashScreen from './SplashScreen';
 import {useTrade} from '../screens/TradeContext';
-import {useConfig} from '../context/ConfigContext';
 import Config from '../utils/safeConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
 import APP_VARIANTS from '../utils/Config';
@@ -124,6 +126,10 @@ import AccountSettingsScreen from '../screens/Home/AccountSettingsScreen';
 import KnowledgeHub from './HomeScreenComponents/KnowledgeHub';
 import BespokePerformanceScreen from '../screens/Drawer/BespokePerformanceScreen';
 import ChangeAdvisor from '../screens/AccountSettingScreen/ChangeAdvisor';
+import WebinarsListScreen from '../screens/Courses/WebinarsListScreen';
+import WebinarDetailScreen from '../screens/Courses/WebinarDetailScreen';
+import MyCoursesScreen from '../screens/Courses/MyCoursesScreen';
+import CourseDetailScreen from '../screens/Courses/CourseDetailScreen';
 import BrokerSelectionScreen from '../screens/Broker/BrokerSelectionScreen';
 import BrokerAuthScreen from '../screens/Broker/BrokerAuthScreen';
 import BrokerCredentialScreen from '../screens/Broker/BrokerCredentialScreen';
@@ -180,19 +186,22 @@ const {
   tabIconColor,
 } = APP_VARIANTS[validVariant];
 const CustomTabBarIcon = ({name, focused}) => {
+  // Bottom-nav icons mirror the alphanomy-improved.html mockup's app
+  // chrome: house / file / briefcase / clipboard / user. The legacy
+  // mapping (Notebook / BookmarkPlus / Newspaper) predates the rebrand.
   let IconComponent;
   if (name === 'Home') {
     IconComponent = Home;
   } else if (name === 'More') {
-    IconComponent = BookmarkPlus;
+    IconComponent = User;
   } else if (name === 'Orders') {
-    IconComponent = Notebook;
+    IconComponent = FileText;
   } else if (name === 'Portfolio') {
     IconComponent = Briefcase;
   } else if (name === 'News') {
     IconComponent = Newspaper;
   } else if (name === 'Plans') {
-    IconComponent = Newspaper;
+    IconComponent = Clipboard;
   }
   return (
     <View
@@ -231,6 +240,8 @@ const CustomTabBarIcon = ({name, focused}) => {
     </View>
   );
 };
+
+const PlansTabWrapper = () => <ModelPortfolioScreen type="tab" />;
 
 const MainTabNavigator = () => {
   const {
@@ -354,9 +365,18 @@ if (state.routes[state.index]?.state) {
 
 const currentKey = currentTabRoute?.key || "";
 const currentName = currentTabRoute?.name || "";
+  // Variant-gated chrome: the legacy CustomToolbar (greeting + cart + bell +
+  // avatar + ticker strip) wraps every tab screen in the default variant.
+  // Variants that ship their own in-screen header (e.g. alphanomy's _AppHeader
+  // helper used by HomeScreen / OrderScreen / ModelPortfolioScreen) suppress
+  // it to avoid the duplicate-header look. Tenants who want the legacy
+  // chrome simply leave DESIGN_VARIANT unset (or set it to "default").
+  const showLegacyToolbar =
+    !Config?.DESIGN_VARIANT || Config.DESIGN_VARIANT === 'default';
+
   return (
     <SafeAreaView style={{flex: 1}}>
-      <CustomToolbar currentRoute={currentName} />
+      {showLegacyToolbar && <CustomToolbar currentRoute={currentName} />}
       <Tab.Navigator
         initialRouteName="Home"
         screenOptions={({route}) => ({
@@ -410,9 +430,9 @@ const currentName = currentTabRoute?.name || "";
           <Tab.Screen
             key="plans-screen"
             name="Plans"
-            options={{headerShown: false}}>
-            {() => <ModelPortfolioScreen type="tab" />}
-          </Tab.Screen>
+            options={{headerShown: false}}
+            component={PlansTabWrapper}
+          />
         )}
         <Tab.Screen
           name="More"
@@ -469,8 +489,6 @@ const currentName = currentTabRoute?.name || "";
 const CustomDrawerContent = props => {
   const {configData} = useTrade();
   const appConfig = useConfig();
-  // Per-advisor gates surfaced via ConfigContext (default false). The drawer
-  // entries below for Courses + Webinars hide entirely when these are off.
   const coursesEnabled = !!appConfig?.coursesEnabled;
   const webinarsEnabled = !!appConfig?.webinarsEnabled;
   const navigation = useNavigation();
@@ -479,6 +497,10 @@ const CustomDrawerContent = props => {
   const [imageUrl, setImageUrl] = useState('');
   const [currentStep, setCurrentStep] = useState(0);
   const isDrawerOpen = useDrawerStatus(); // Use hook to determine drawer status
+  const wasEverOpenedRef = useRef(false);
+  if (isDrawerOpen === 'open') {
+    wasEverOpenedRef.current = true;
+  }
   useEffect(() => {
     if (auth.currentUser) {
       setUserEmail(auth.currentUser.email);
@@ -625,6 +647,15 @@ const CustomDrawerContent = props => {
       </TouchableOpacity>
     );
   };
+
+  // Defer rendering the drawer body until the drawer has actually been
+  // opened at least once. React Navigation v7's drawer panel is mounted
+  // even while "closed" and on iOS the off-screen translate can take one
+  // frame to settle — without this guard, the menu flashes visibly on
+  // top of the home tab right after login (`navigation.replace('Home')`).
+  if (!wasEverOpenedRef.current && isDrawerOpen !== 'open') {
+    return null;
+  }
 
   return (
     <LinearGradient
@@ -867,10 +898,11 @@ const CustomDrawerContent = props => {
             )}
           />
 
-          {/* Courses / Webinars — per-advisor gated. Backend field
-              AdvisorConfig.{courses_enabled,webinars_enabled} surfaces as
-              camelCase via /api/app-advisor/get and lands in ConfigContext.
-              Entries hide entirely when the flag is off. */}
+          {/* Courses (2026-05-24) — viewer-only catalog. Gated per-advisor
+              by AppConfigContext.coursesEnabled (mirrors web's
+              AppConfigContext default-false → AdvisorConfig.courses_enabled).
+              Routes resolve to the root Stack.Screen registered in Phase
+              2e; entries hide entirely when the flag is off. */}
           {coursesEnabled && (
             <CustomDrawerItem
               label="Courses"
@@ -1017,16 +1049,25 @@ screenOptions={{
 }
 
 const DrawerNavigator = () => {
+  const {width: windowWidth, height: windowHeight} = Dimensions.get('window');
   return (
     <Drawer.Navigator
       drawerContent={props => <CustomDrawerContent {...props} />}
+      defaultStatus="closed"
       screenOptions={{
-        swipeEnabled: false,
+        // D17 (web-parity): the right drawer was unreachable (swipeEnabled:false + no
+        // openDrawer() caller), so parity surfaces dropped into it (PaymentHistory /
+        // MPPerformance) couldn't be found. Re-enabled via right-edge swipe. Watch for
+        // gesture conflicts with horizontal scroll/tab views (the likely original reason
+        // it was off); the HomeScreen NBA card (P3) remains the primary discovery path.
+        // See docs/WEB_PARITY_MIGRATION_2026-06.md §5.1 (D17).
+        swipeEnabled: true,
+        swipeEdgeWidth: 40,
         drawerPosition: 'right',
         drawerStyle: {
-          backgroundColor: 'red',
-          width: '100%',
-          height: '100%',
+          backgroundColor: 'transparent',
+          width: windowWidth,
+          height: windowHeight,
         },
         drawerLabelStyle: {
           fontSize: 18,
@@ -1087,16 +1128,45 @@ const Navigation = ({userEmail, isAuthenticated}) => {
   const [initialRoute, setInitialRoute] = useState('Login');
   useWebSocketInitializer();
 
+  // SDK integration test flag — when true, the app boots straight into
+  // SdkBrokerTest so QA can hit each pilot broker without traversing
+  // login + drawer. Off by default (Splash → Login → Home).
+  const sdkBrokerTestFirst =
+    isSdkIntegrationEnabled() &&
+    String(Config?.REACT_APP_SDK_BROKER_TEST_FIRST || '').toLowerCase() === 'true';
+
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      ref={(nav) => {
+        // Expose the imperative navigator to index.js so notification-tap
+        // handlers (FCM background + cold-start + notifee tap events) can
+        // deep-link. Without this hookup, NatificationServiceNav.navigate
+        // silently no-ops with "Navigator is not defined yet."
+        if (nav) NatificationServiceNav.setTopLevelNavigator(nav);
+      }}
+    >
       <Stack.Navigator
-        initialRouteName="Splash"
+        initialRouteName={sdkBrokerTestFirst ? 'SdkBrokerTest' : 'Splash'}
         screenOptions={{headerShown: false, animation: 'none'}}>
         <Stack.Screen
           name="Splash"
           component={SplashScreen}
           options={{headerShown: false}}
         />
+        {isSdkIntegrationEnabled() ? (
+          <>
+            <Stack.Screen
+              name="SdkSelfTest"
+              component={SdkSelfTestScreen}
+              options={{headerShown: true, title: 'SDK self-test'}}
+            />
+            <Stack.Screen
+              name="SdkBrokerTest"
+              component={SdkBrokerTestScreen}
+              options={{headerShown: true, title: 'SDK Broker test'}}
+            />
+          </>
+        ) : null}
         <Stack.Screen
           name="Login"
           component={LoginScreen}

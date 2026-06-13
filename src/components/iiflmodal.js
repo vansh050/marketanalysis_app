@@ -20,6 +20,12 @@ import Config from 'react-native-config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {useTrade} from '../screens/TradeContext';
 import {getAdvisorSubdomain} from '../utils/variantHelper';
+import server from '../utils/serverConfig';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../sdk/brokerSdkBridge';
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 const commonHeight = screenHeight * 0.06;
@@ -27,6 +33,7 @@ const commonWidth = '100%';
 
 const IIFLModal = ({isVisible, onClose, fetchBrokerStatusModal}) => {
   const {configData} = useTrade();
+  const sdkBridge = useSdkBridge();
   const [authUrl, setAuthUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const webViewRef = useRef(null); // Reference for the WebView
@@ -117,27 +124,67 @@ const IIFLModal = ({isVisible, onClose, fetchBrokerStatusModal}) => {
       AsyncStorage.setItem('iiflAccessToken', accessToken);
       AsyncStorage.setItem('iiflClientCode', clientId);
 
-      Toast.show({
-        type: 'success',
-        text1: 'Successfully connected to IIFL',
-      });
-      // Re-hydrate funds + brokerStatus in TradeContext so the next
-      // pre-trade check doesn't re-fire the reconnect modal with stale
-      // pre-reconnect state. Same pattern every other broker modal
-      // uses on connect-success — IIFL was the lone holdout.
-      if (typeof fetchBrokerStatusModal === 'function') {
-        try {
-          fetchBrokerStatusModal();
-        } catch (e) {
-          console.warn('[IIFL] fetchBrokerStatusModal failed:', e?.message);
-        }
+      // SDK pilot dual-write — see brokerSdkBridge.js. IIFL persists
+      // session info via AsyncStorage on this client (the actual
+      // broker save lives upstream in ccxt-india's /iifl/login/client),
+      // so the SDK call mirrors that persistence to MongoDB via
+      // /sdk/v1/connections/IIFL Securities/connect for parity with
+      // every other broker.
+      if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+        sdkDualWriteSafely(
+          sdkConnectBroker(sdkBridge.client, 'IIFL Securities', {
+            user_broker: 'IIFL Securities',
+            clientCode: clientId,
+            jwtToken: accessToken,
+          }),
+          'IIFL Securities',
+          'connect',
+        );
       }
+
       onClose(); // Close the modal after success
+      // Wrap post-success steps so a downstream throw doesn't bubble to
+      // the outer catch and get rewritten as "Failed to connect with
+      // IIFL". See KotakModal.js (commit 172767d) and
+      // BROKER_CONNECTION.md § Broker-connect post-success hygiene.
+      try {
+        Toast.show({
+          type: 'success',
+          text1: 'Successfully connected to IIFL',
+        });
+        // Re-hydrate funds + brokerStatus in TradeContext so the next
+        // pre-trade check doesn't re-fire the reconnect modal with stale
+        // pre-reconnect state. Same pattern every other broker modal
+        // uses on connect-success — IIFL was the lone holdout.
+        if (typeof fetchBrokerStatusModal === 'function') {
+          fetchBrokerStatusModal();
+        }
+      } catch (postSuccessErr) {
+        console.warn(
+          '[IIFL Securities] post-success step threw (connection IS saved DB-side):',
+          postSuccessErr?.message || postSuccessErr,
+        );
+      }
     } catch (error) {
       console.error('IIFL Login failed:', error);
+      const isHttpError = !!error?.response;
+      const upstreamMsg =
+        error?.response?.data?.message ||
+        error?.response?.data?.details ||
+        error?.message;
+      let text1 = 'Failed to connect with IIFL';
+      let text2;
+      if (isHttpError) {
+        text2 = upstreamMsg;
+      } else {
+        text1 = 'Connection Issue';
+        text2 =
+          'Network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+      }
       Toast.show({
         type: 'error',
-        text1: 'Failed to connect with IIFL',
+        text1,
+        text2,
       });
     } finally {
       setIsLoading(false);

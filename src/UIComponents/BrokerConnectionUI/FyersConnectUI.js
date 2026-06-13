@@ -256,6 +256,10 @@ const styles = StyleSheet.create({
     padding: 4,
     borderRadius: 5,
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.10,
+    shadowRadius: 2,
     elevation: 2,
   },
   headerTitle: {
@@ -293,6 +297,10 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 3,
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.10,
+    shadowRadius: 2,
     elevation: 2,
   },
   bottomContainer: {

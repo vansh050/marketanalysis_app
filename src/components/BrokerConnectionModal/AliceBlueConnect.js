@@ -9,6 +9,11 @@ import {useTrade} from '../../screens/TradeContext';
 import {getAdvisorSubdomain} from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {
+  useSdkBridge,
+  sdkExchangeBrokerToken,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 // Route through CCXT backend (matching web's handleAliceBlueConnect) so origin
 // is stored in MongoDB for multi-site callback routing. The CCXT server
@@ -49,6 +54,7 @@ const AliceBlueConnect = ({
   const {configData} = useTrade();
   const showAlert = useModalStore(state => state.showAlert);
   const hasProcessedCallback = useRef(false);
+  const sdkBridge = useSdkBridge();
 
   const [loading, setLoading] = useState(false);
 
@@ -178,6 +184,22 @@ const AliceBlueConnect = ({
         '[AliceBlue] Broker connected successfully, updating model portfolio...',
       );
 
+      // SDK pilot dual-write — see brokerSdkBridge.js. AliceBlue's
+      // OAuth callback yields jwtToken + clientCode; the SDK route
+      // /sdk/v1/connections/AliceBlue/exchange-token accepts this same
+      // shape (backend dispatches to the same persistence path used by
+      // /api/user/connect-broker).
+      if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+        sdkDualWriteSafely(
+          sdkExchangeBrokerToken(sdkBridge.client, 'AliceBlue', {
+            access_token: accessToken,
+            client_id: clientId,
+          }),
+          'AliceBlue',
+          'exchange-token',
+        );
+      }
+
       // Update model portfolio (non-critical)
       try {
         await axios.request({
@@ -202,33 +224,55 @@ const AliceBlueConnect = ({
       // (if any) doesn't stack underneath a stale OAuth modal.
       onClose();
       setShowBrokerModal(false);
-      eventEmitter.emit('refreshEvent', {
-        source: 'AliceBlue broker connection',
-      });
-      // Await the migration check so we don't fire the redundant
-      // "Connected Successfully" alert when the migration sheet
-      // (which itself says "Reconnected to AliceBlue — your holdings
-      // are already set up") will surface as the success indicator.
-      // Production 2026-04-26: dual-modal stacking — alert + migration
-      // sheet both visible at the same time, with the migration sheet
-      // not blocking navigation, letting the user tap "Rebalance" while
-      // both were open.
-      const result = await fetchBrokerStatusModal();
-      if (!result?.migrationWillShow) {
-        showAlert(
-          'success',
-          'Connected Successfully',
-          'Your AliceBlue broker has been connected successfully!',
+      // Wrap post-success steps so a downstream throw doesn't bubble to
+      // the outer catch and get rewritten as "Connection Error". See
+      // KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
+      // § Broker-connect post-success hygiene.
+      try {
+        eventEmitter.emit('refreshEvent', {
+          source: 'AliceBlue broker connection',
+        });
+        // Await the migration check so we don't fire the redundant
+        // "Connected Successfully" alert when the migration sheet
+        // (which itself says "Reconnected to AliceBlue — your holdings
+        // are already set up") will surface as the success indicator.
+        // Production 2026-04-26: dual-modal stacking — alert + migration
+        // sheet both visible at the same time, with the migration sheet
+        // not blocking navigation, letting the user tap "Rebalance" while
+        // both were open.
+        const result = await fetchBrokerStatusModal();
+        if (!result?.migrationWillShow) {
+          showAlert(
+            'success',
+            'Connected Successfully',
+            'Your AliceBlue broker has been connected successfully!',
+          );
+        }
+      } catch (postSuccessErr) {
+        console.warn(
+          '[AliceBlue] post-success step threw (connection IS saved DB-side):',
+          postSuccessErr?.message || postSuccessErr,
         );
       }
     } catch (error) {
       console.error('[AliceBlue] Connection error:', error);
       setLoading(false);
-      showAlert(
-        'error',
-        'Connection Error',
-        'Failed to connect AliceBlue. Please try again.',
-      );
+      const isHttpError = !!error?.response;
+      const rawMessage =
+        error.response?.data?.message ||
+        error.response?.data?.details ||
+        '';
+      let alertTitle = 'Connection Error';
+      let alertBody;
+      if (isHttpError) {
+        alertBody =
+          rawMessage || 'Failed to connect AliceBlue. Please try again.';
+      } else {
+        alertTitle = 'Connection Issue';
+        alertBody =
+          'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+      }
+      showAlert('error', alertTitle, alertBody);
     }
   };
 

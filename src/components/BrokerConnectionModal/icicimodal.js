@@ -12,6 +12,11 @@ import { useTrade } from '../../screens/TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 const ICICIUPModal = ({
   isVisible,
@@ -23,6 +28,7 @@ const ICICIUPModal = ({
 }) => {
   const { configData } = useTrade();
   const showAlert = useModalStore((state) => state.showAlert);
+  const sdkBridge = useSdkBridge();
   const [apiKey, setApiKey] = useState('');
   const [secretKey, setSecretKey] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -124,11 +130,26 @@ const ICICIUPModal = ({
       console.warn('[ICICI] Model portfolio update failed (non-critical):', err);
     }
 
-    fetchBrokerStatusModal?.();
-    eventEmitter.emit('refreshEvent', { source: 'ICICI Direct broker connection' });
-    showAlert('success', 'Connected Successfully', 'Your ICICI Direct broker has been connected successfully!');
     onClose();
     setShowBrokerModal?.(false);
+    // Wrap post-success steps so a downstream throw doesn't bubble to
+    // the outer .catch and get rewritten as "Connection Failed". See
+    // KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
+    // § Broker-connect post-success hygiene.
+    (async () => {
+      try {
+        const result = await fetchBrokerStatusModal?.();
+        eventEmitter.emit('refreshEvent', { source: 'ICICI Direct broker connection' });
+        if (!result?.migrationWillShow) {
+          showAlert('success', 'Connected Successfully', 'Your ICICI Direct broker has been connected successfully!');
+        }
+      } catch (postSuccessErr) {
+        console.warn(
+          '[ICICI Direct] post-success step threw (connection IS saved DB-side):',
+          postSuccessErr?.message || postSuccessErr,
+        );
+      }
+    })();
   };
 
   // WebView interception — mirrors StockRecommendation.js:connectIciciDirect.
@@ -182,15 +203,24 @@ const ICICIUPModal = ({
           showAlert('error', 'Connection Failed', 'ICICI did not return a session token. Please try again.');
           return null;
         }
+        const iciciBrokerData = {
+          uid: userDetails._id,
+          user_broker: 'ICICI Direct',
+          jwtToken: sessionToken,
+          apiKey: checkValidApiAnSecret(apiKey),
+          secretKey: checkValidApiAnSecret(secretKey),
+        };
+        // SDK pilot dual-write — see brokerSdkBridge.js.
+        if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+          sdkDualWriteSafely(
+            sdkConnectBroker(sdkBridge.client, 'ICICI Direct', iciciBrokerData),
+            'ICICI Direct',
+            'connect',
+          );
+        }
         return axios.put(
           `${server.server.baseUrl}api/user/connect-broker`,
-          JSON.stringify({
-            uid: userDetails._id,
-            user_broker: 'ICICI Direct',
-            jwtToken: sessionToken,
-            apiKey: checkValidApiAnSecret(apiKey),
-            secretKey: checkValidApiAnSecret(secretKey),
-          }),
+          JSON.stringify(iciciBrokerData),
           {
             headers: {
               'Content-Type': 'application/json',
@@ -205,7 +235,22 @@ const ICICIUPModal = ({
       })
       .catch(err => {
         console.error('[ICICI] session exchange error:', err);
-        showAlert('error', 'Connection Failed', 'Failed to connect ICICI Direct. Please try again.');
+        const isHttpError = !!err?.response;
+        const rawMessage =
+          err.response?.data?.message ||
+          err.response?.data?.details ||
+          '';
+        let alertTitle = 'Connection Failed';
+        let alertBody;
+        if (isHttpError) {
+          alertBody =
+            rawMessage || 'Failed to connect ICICI Direct. Please try again.';
+        } else {
+          alertTitle = 'Connection Issue';
+          alertBody =
+            'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+        }
+        showAlert('error', alertTitle, alertBody);
       });
   };
 

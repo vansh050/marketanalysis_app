@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
 import Config from 'react-native-config';
 import YoutubePlayer from "react-native-youtube-iframe";
 import server from '../../../utils/serverConfig';
@@ -18,7 +18,7 @@ const ICICIHelpContent = ({expanded, onExpandChange }) => {
 
   return (
     <View>
-    <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 20 }}>
+    <View style={[styles.container, { paddingBottom: 20 }]}>
       <View style={styles.videoBox}>
         <YoutubePlayer
           height={screenHeight * 0.24}
@@ -51,7 +51,7 @@ const ICICIHelpContent = ({expanded, onExpandChange }) => {
         </>
       )}
    
-    </ScrollView>
+    </View>
   
     </View>
 

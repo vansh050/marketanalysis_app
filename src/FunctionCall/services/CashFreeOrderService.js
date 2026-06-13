@@ -25,6 +25,7 @@ import axios from 'axios';
 import Config from 'react-native-config';
 import server from '../../utils/serverConfig';
 import { getPublicHeaders } from '../../utils/courseAuthHeaders';
+import { validateChargeableAmount } from '../../utils/validateChargeableAmount';
 
 const BASE = `${server.server.baseUrl}api/cashfree`;
 
@@ -39,6 +40,16 @@ class CashFreeOrderService {
    * (for the post-payment status check + addClientCourse stamp).
    */
   async createCourseOrder({ amount, customerId, user_email, mobileNumber, pan, course, name, userId }) {
+    // P4 (web-parity D10): block a ₹0 (100%-coupon) order before it reaches the
+    // gateway — the gateway succeeds at ₹0 and the buyer is entitled without paying.
+    // Shared guard, identical to the subscription path. See WEB_PARITY_MIGRATION §5.3.
+    const guard = validateChargeableAmount(amount);
+    if (!guard.ok) {
+      const err = new Error(guard.message);
+      err.code = guard.reason;
+      err.blockedByGuard = true;
+      throw err;
+    }
     const res = await axios.post(
       `${BASE}/admin-token-purchase`,
       {

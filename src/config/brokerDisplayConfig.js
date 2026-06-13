@@ -11,11 +11,11 @@
  */
 
 export const brokerDisplayConfig = [
-  // {
-  //   name: 'AngelOne',
-  //   key: 'Angel One',
-  //   logo: require('../assets/AngleLogo.png'),
-  // },
+  {
+    name: 'AngelOne',
+    key: 'Angel One',
+    logo: require('../assets/AngleLogo.png'),
+  },
   {
     name: 'Zerodha',
     key: 'Zerodha',
@@ -70,6 +70,21 @@ export const brokerDisplayConfig = [
     name: 'Axis Securities',
     key: 'Axis Securities',
     logo: require('../assets/axis.png'),
+  },
+  {
+    name: 'IIFL Securities',
+    key: 'IIFL',
+    logo: require('../assets/iifl.png'),
+  },
+  {
+    name: 'Arihant Capital',
+    key: 'Arihant Capital',
+    logo: require('../assets/arihant.png'),
+  },
+  {
+    name: 'DefinEdge',
+    key: 'DefinEdge Securities',
+    logo: require('../assets/definedge.png'),
   },
 ];
 

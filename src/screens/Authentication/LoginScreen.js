@@ -1,1073 +1,484 @@
-import React, {useState} from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  StyleSheet,
-  TouchableOpacity,
-  ActivityIndicator,
-  Keyboard,
-  TouchableWithoutFeedback,
-  StatusBar,
-  KeyboardAvoidingView,
-  Platform,
-  Image,
-} from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
+/**
+ * LoginScreen — container (Phase F batch 2, 2026-05-01)
+ *
+ * Owns the entire auth orchestration. Handlers preserved as-is from the
+ * pre-migration file:
+ *   - signInWithEmail (Firebase email auth + getUser/createUser + tracking
+ *     + handlePostLoginNavigation)
+ *   - handleGoogleLogin (GoogleSignin + Firebase credential exchange +
+ *     backend create/get + tracking + handlePostLoginNavigation)
+ *   - handleAppleLogin (appleAuth + Firebase credential exchange +
+ *     completeAppleSignIn helper)
+ *   - completeAppleSignIn (backend create/get + tracking + nav)
+ *   - handlePostLoginNavigation (3-path orchestrator: auto-resolve advisor,
+ *     fallback to RA details, direct to Home)
+ *
+ * Renders presentation resolved from `screens.LoginScreen`.
+ */
+
+import React, { useCallback, useState } from 'react';
+import { Keyboard, Platform } from 'react-native';
 import auth from '@react-native-firebase/auth';
 import Config from 'react-native-config';
-import {useNavigation, useFocusEffect} from '@react-navigation/native';
-import {GoogleSignin} from '@react-native-google-signin/google-signin';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import appleAuth from '@invertase/react-native-apple-authentication';
 import axios from 'axios';
 import server from '../../utils/serverConfig';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import moment from 'moment';
-import {useTrade} from '../TradeContext';
-import {generateToken} from '../../utils/SecurityTokenManager';
-import Toast from 'react-native-toast-message';
-import {Mail, Lock, Eye} from 'lucide-react-native';
-import {SvgUri} from 'react-native-svg';
-import APP_VARIANTS from '../../utils/Config';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
-import {useConfig} from '../../context/ConfigContext';
+import { useTrade } from '../TradeContext';
+import { generateToken } from '../../utils/SecurityTokenManager';
+import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import { useConfig } from '../../context/ConfigContext';
+import { useComponent } from '../../design/useDesign';
 
-// Import storage utilities
 import {
-  storeLoginData,
-  checkAndFetchAdvisorConfig,
-  setUserData,
-  updateRACodeAndConfig,
-  tryResolveAdvisor,
+    storeLoginData,
+    checkAndFetchAdvisorConfig,
+    setUserData,
+    updateRACodeAndConfig,
+    tryResolveAdvisor,
 } from '../../utils/storageUtils';
 import {
-  logLoginAttempt,
-  trackAppUser,
+    logLoginAttempt,
+    trackAppUser,
 } from '../../FunctionCall/services/LoginLoggingService';
 
-const Glogo = require('../../assets/GLogo.png');
-const AlphaQuarkLogo = require('../../assets/logo.png');
-
 const LoginScreen = () => {
-  // Get logo and theme from database via ConfigContext
-  const config = useConfig();
-  const {logo: LogoComponent, themeColor, configLoading} = config;
+    const config = useConfig();
+    const { logo: LogoComponent, configLoading } = config || {};
 
-  console.log('LoginScreen config logo:', LogoComponent);
-  console.log('LoginScreen logo type:', typeof LogoComponent);
+    const { reloadConfigData, setIsProfileCompleted, getAllTrades, getModelPortfolioStrategyDetails } = useTrade();
 
-  const {reloadConfigData} = useTrade();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [errorShow, setErrorShow] = useState(false);
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const navigation = useNavigation();
-  const {
-    setIsProfileCompleted,
-    getAllTrades,
-    getModelPortfolioStrategyDetails,
-  } = useTrade();
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+    const [errorShow, setErrorShow] = useState(false);
+    const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+    const navigation = useNavigation();
 
-  // Configure Google Sign-In with correct Web client ID from google-services.json (client_type: 3)
-  // Resolution order:
-  //   1. config.googleWebClientId (from backend appadvisors.google_web_client_id)
-  //   2. hardcoded alphaquark fallback
-  // Stale-data override: if the backend record still points at the
-  // decommissioned Firebase project marketanalysisacademy-4e595
-  // (project number 794163196580, deleted ~2026-05-20), substitute
-  // REACT_APP_GOOGLE_WEB_CLIENT_ID_FALLBACK from .env — which holds
-  // the new project's client ID — so Google Sign-In doesn't get
-  // configured with an ID that no longer matches any provisioned
-  // OAuth client. This override self-disables the moment the backend
-  // record is corrected. See docs/CHANGELOG.md.
-  const _resolvedWebClientId =
-    config?.googleWebClientId ||
-    '892331696104-e26pu9iotqrjk1o6jq4ifd4e95fasil1.apps.googleusercontent.com';
-  const WEB_CLIENT_ID = /^794163196580-/.test(_resolvedWebClientId)
-    ? (Config?.REACT_APP_GOOGLE_WEB_CLIENT_ID_FALLBACK || _resolvedWebClientId)
-    : _resolvedWebClientId;
-  if (WEB_CLIENT_ID !== _resolvedWebClientId) {
-    console.warn(
-      '[LoginScreen] Backend googleWebClientId points at decommissioned ' +
-        'Firebase project (794163196580); using .env fallback override. ' +
-        'Remove this fallback once appadvisors.google_web_client_id is updated.',
-    );
-  }
-
-  React.useEffect(() => {
-    GoogleSignin.configure({
-      webClientId: WEB_CLIENT_ID,
-      offlineAccess: true,
-    });
-    console.log('Google Sign-In configured with Web Client ID:', WEB_CLIENT_ID);
-  }, []);
-
-  // Navigation handler - store data and navigate
-  const handlePostLoginNavigation = async (userDetails, userEmail) => {
-    try {
-      const userData = userDetails.data?.User;
-      const advisorRaCode = Config?.ADVISOR_RA_CODE || userData?.advisor_ra_code;
-      const hasAdvisorRaCode = !!advisorRaCode;
-
-      setIsProfileCompleted(hasAdvisorRaCode);
-      await storeLoginTime();
-
-      if (!hasAdvisorRaCode) {
-        await setUserData({
-          email: userEmail,
-          profileCompleted: false,
-          ...userData,
-        });
-
-        // Try to auto-resolve advisor from central mapping
-        const resolveResult = await tryResolveAdvisor(userEmail);
-        if (resolveResult.resolved) {
-          console.log('🎯 Auto-resolved advisor for login:', resolveResult.advisor_ra_code);
-          const configResult = await updateRACodeAndConfig(
-            resolveResult.advisor_ra_code,
-            userEmail,
-          );
-          if (configResult.success) {
-            await reloadConfigData();
-            getAllTrades().catch(err => console.error('Trade load error:', err));
-            getModelPortfolioStrategyDetails().catch(err => console.error('Portfolio load error:', err));
-            navigation.replace('Home');
-            return;
-          }
+    React.useEffect(() => {
+        if (config?.googleWebClientId) {
+            GoogleSignin.configure({
+                webClientId: config.googleWebClientId,
+                // iOS GoogleSignIn needs the project's OWN client ID (NOT the web
+                // client ID) or GIDSignIn raises an NSException and crashes on
+                // signIn(). Sourced per-tenant from config.googleIosClientId
+                // (backend appadvisors.googleIosClientId or the variant's
+                // googleIosClientId). Omitted when unset — a harmless no-op on
+                // Android and for tenants without an iOS build.
+                ...(config.googleIosClientId
+                    ? { iosClientId: config.googleIosClientId }
+                    : {}),
+            });
         }
+    }, [config?.googleWebClientId]);
 
-        navigation.replace('SignUpRADetails', {userEmail});
-        return;
-      }
-
-      // Check if advisorConfig came inline from consolidated endpoint
-      const inlineConfig = userDetails.data?.advisorConfig;
-
-      if (inlineConfig) {
-        // Fast path: config returned inline with getUser response
-        await storeLoginData({
-          raCode: advisorRaCode,
-          userData: {email: userEmail, advisor_ra_code: advisorRaCode, profileCompleted: true, ...userData},
-          advisorConfig: inlineConfig,
-        });
-      } else {
-        // Fallback: old server without consolidated endpoint — fetch config separately
-        await setUserData({
-          email: userEmail,
-          advisor_ra_code: advisorRaCode,
-          profileCompleted: true,
-          ...userData,
-        });
-        const configResult = await checkAndFetchAdvisorConfig(advisorRaCode);
-        if (!configResult.success && configResult.advisorExists === false) {
-          navigation.replace('SignUpRADetails', {userEmail});
-          return;
-        }
-      }
-
-      // Reload config for UI
-      await reloadConfigData();
-
-      // Load home data in background (don't wait)
-      getAllTrades().catch(err => console.error('Trade load error:', err));
-      getModelPortfolioStrategyDetails().catch(err => console.error('Portfolio load error:', err));
-
-      navigation.replace('Home');
-    } catch (error) {
-      console.error('Login error:', error);
-      navigation.replace('Home');
-    }
-  };
-
-  const signInWithEmail = async () => {
-    setLoading(true);
-    setErrorShow(false);
-
-    const trimmedEmail = email.trim();
-
-    if (!trimmedEmail || !password) {
-      setError('Email and password are required');
-      setErrorShow(true);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      // Step 1: Firebase auth
-      const response = await auth().signInWithEmailAndPassword(trimmedEmail, password);
-      const user = response.user;
-
-      if (user) {
-        // Step 2: Get user details
-        let userDetails = null;
-
+    const storeLoginTime = async () => {
         try {
-          const getResponse = await axios.get(
-            `${server.server.baseUrl}api/user/getUser/${trimmedEmail}?includeAdvisorConfig=true`,
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': getAdvisorSubdomain(),
-                'aq-encrypted-key': generateToken(
-                  Config.REACT_APP_AQ_KEYS,
-                  Config.REACT_APP_AQ_SECRET,
-                ),
-              },
-              timeout: 10000,
-            },
-          );
-          userDetails = getResponse;
-        } catch (getUserError) {
-          console.log('User does not exist, creating...');
-
-          // Create user
-          await axios.post(
-            `${server.server.baseUrl}api/user/`,
-            {
-              email: user.email,
-              name: user.displayName || 'New User',
-              firebaseId: user.uid,
-            },
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': getAdvisorSubdomain(),
-                'aq-encrypted-key': generateToken(
-                  Config.REACT_APP_AQ_KEYS,
-                  Config.REACT_APP_AQ_SECRET,
-                ),
-              },
-              timeout: 10000,
-            },
-          );
-
-          // Return minimal user data to avoid second API call
-          userDetails = {
-            data: {
-              User: {
-                email: user.email,
-                name: user.displayName || 'New User',
-              },
-            },
-          };
+            const now = moment().toISOString();
+            await AsyncStorage.setItem('lastActiveTime', now);
+        } catch (e) {
+            console.error('❌ Error storing login time:', e);
         }
+    };
 
-        // Log successful login (fire-and-forget) - use subdomain from config
-        // Try multiple possible locations for the subdomain
-        const advisorSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
-        trackAppUser({
-          email: trimmedEmail,
-          firebase_id: user.uid,
-          name: user.displayName,
-          login_method: 'email',
-          advisor_subdomain: advisorSubdomain,
-        });
-        logLoginAttempt({
-          email: trimmedEmail,
-          firebase_id: user.uid,
-          status: 'success',
-          login_method: 'email',
-          advisor_subdomain: advisorSubdomain,
-        });
+    const handlePostLoginNavigation = async (userDetails, userEmail) => {
+        try {
+            const userData = userDetails.data?.User;
+            const advisorRaCode = Config?.ADVISOR_RA_CODE || userData?.advisor_ra_code;
+            const hasAdvisorRaCode = !!advisorRaCode;
 
-        // Navigate with handlePostLoginNavigation
-        await handlePostLoginNavigation(userDetails, trimmedEmail);
-      }
-    } catch (error) {
-      console.error('Login error:', error.code, error.message);
+            setIsProfileCompleted(hasAdvisorRaCode);
+            await storeLoginTime();
 
-      // Log failed login attempt (fire-and-forget) - use subdomain from config
-      const failedAdvisorSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
-      logLoginAttempt({
-        email: trimmedEmail,
-        status: 'failed',
-        login_method: 'email',
-        failure_reason: error.code?.includes('auth/') ? 'firebase_error' : 'api_error',
-        error_message: error.message,
-        error_code: error.code,
-        advisor_subdomain: failedAdvisorSubdomain,
-      });
+            if (!hasAdvisorRaCode) {
+                await setUserData({ email: userEmail, profileCompleted: false, ...userData });
 
-      // Show user-friendly error messages instead of raw Firebase errors
-      let userMessage = 'Something went wrong. Please try again.';
-      if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
-        userMessage = 'Invalid email or password. Please check your credentials and try again.';
-      } else if (error.code === 'auth/user-not-found') {
-        userMessage = 'No account found with this email. Please sign up first.';
-      } else if (error.code === 'auth/invalid-email') {
-        userMessage = 'Please enter a valid email address.';
-      } else if (error.code === 'auth/too-many-requests') {
-        userMessage = 'Too many failed attempts. Please try again later.';
-      } else if (error.code === 'auth/user-disabled') {
-        userMessage = 'This account has been disabled. Please contact support.';
-      } else if (error.code === 'auth/network-request-failed') {
-        userMessage = 'Network error. Please check your internet connection.';
-      }
+                const resolveResult = await tryResolveAdvisor(userEmail);
+                if (resolveResult.resolved) {
+                    const configResult = await updateRACodeAndConfig(resolveResult.advisor_ra_code, userEmail);
+                    if (configResult.success) {
+                        await reloadConfigData();
+                        getAllTrades().catch((err) => console.error('Trade load error:', err));
+                        getModelPortfolioStrategyDetails().catch((err) => console.error('Portfolio load error:', err));
+                        navigation.replace('Home');
+                        return;
+                    }
+                }
 
-      setError(userMessage);
-      setErrorShow(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+                navigation.replace('SignUpRADetails', { userEmail });
+                return;
+            }
 
-  const handleGoogleLogin = async () => {
-    try {
-      setErrorShow(false);
-      setLoading(true);
-      // 2026-06-06: switched from the native Google Play Services flow
-      // (GoogleSignin.signIn() → auth().signInWithCredential()) to
-      // Firebase Auth's web-based OAuth flow via signInWithProvider.
-      // Reason: the native flow needs an Android OAuth client
-      // (client_type:1) bound to the APK's signing certificate SHA-1.
-      // For release / Play Store builds the relevant SHA is the Play
-      // App Signing key's (d5c63f…), which is orphan-locked by an
-      // OAuth client in the decommissioned Firebase project
-      // marketanalysisacademy-4e595. Until that lock auto-clears
-      // around 2026-06-19, native Google Sign-In returns DEVELOPER_ERROR
-      // on every release install. signInWithProvider() opens a Chrome
-      // Custom Tab → Firebase Auth handler → Google login page, so it
-      // uses the WEB OAuth client (675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3,
-      // already provisioned and working) and bypasses the Android SHA
-      // check entirely. Once the orphan lock expires we can revert to
-      // the native flow, or keep this one — both work. See
-      // docs/CHANGELOG.md.
-      const provider = new auth.OAuthProvider('google.com');
-      // Optional scopes — Firebase auto-includes openid/email/profile,
-      // explicitly add the standard pair to mirror what the native flow
-      // requested (compat with downstream consumers that read user.email
-      // and user.displayName).
-      provider.addScope('email');
-      provider.addScope('profile');
-      // @react-native-firebase/auth@20.5.0: the declared
-      // `signInWithProvider()` method is undefined at runtime — the
-      // module only exposes `signInWithPopup` and `signInWithRedirect`,
-      // both of which call the same `native.signInWithProvider()` bridge.
-      // Use `signInWithPopup` because on Android it opens a Chrome
-      // Custom Tab and returns the credential to the caller (vs.
-      // signInWithRedirect which navigates away). Verified in
-      // node_modules/@react-native-firebase/auth/lib/index.js:413-422.
-      const response = await auth().signInWithPopup(provider);
+            const inlineConfig = userDetails.data?.advisorConfig;
+            if (inlineConfig) {
+                await storeLoginData({
+                    raCode: advisorRaCode,
+                    userData: { email: userEmail, advisor_ra_code: advisorRaCode, profileCompleted: true, ...userData },
+                    advisorConfig: inlineConfig,
+                });
+            } else {
+                await setUserData({
+                    email: userEmail,
+                    advisor_ra_code: advisorRaCode,
+                    profileCompleted: true,
+                    ...userData,
+                });
+                const configResult = await checkAndFetchAdvisorConfig(advisorRaCode);
+                if (!configResult.success && configResult.advisorExists === false) {
+                    navigation.replace('SignUpRADetails', { userEmail });
+                    return;
+                }
+            }
 
-      if (response) {
-        const user = response.user;
-
-        await axios.post(
-          `${server.server.baseUrl}api/user/`,
-          {
-            email: user.email,
-            name: user.displayName,
-            imageUrl: user.photoURL,
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': getAdvisorSubdomain(),
-              'aq-encrypted-key': generateToken(
-                Config.REACT_APP_AQ_KEYS,
-                Config.REACT_APP_AQ_SECRET,
-              ),
-            },
-          },
-        );
-
-        const userDetails = await axios.get(
-          `${server.server.baseUrl}api/user/getUser/${user.email}?includeAdvisorConfig=true`,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': getAdvisorSubdomain(),
-              'aq-encrypted-key': generateToken(
-                Config.REACT_APP_AQ_KEYS,
-                Config.REACT_APP_AQ_SECRET,
-              ),
-            },
-          },
-        );
-
-        // Log successful Google login (fire-and-forget) - use subdomain from config
-        const googleAdvisorSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
-        trackAppUser({
-          email: user.email,
-          firebase_id: user.uid,
-          name: user.displayName,
-          login_method: 'google',
-          advisor_subdomain: googleAdvisorSubdomain,
-        });
-        logLoginAttempt({
-          email: user.email,
-          firebase_id: user.uid,
-          status: 'success',
-          login_method: 'google',
-          advisor_subdomain: googleAdvisorSubdomain,
-        });
-
-        await handlePostLoginNavigation(userDetails, user.email);
-      }
-    } catch (error) {
-      console.error('❌ Google login error:', error.code, error.message, error);
-
-      // User cancelled — silent return, no error shown
-      // Google Sign-In returns 'SIGN_IN_CANCELLED' on iOS and '12501' on Android
-      if (
-        error.code === 'SIGN_IN_CANCELLED' ||
-        error.code === '12501' ||
-        error.message?.toLowerCase().includes('cancel')
-      ) {
-        setLoading(false);
-        return;
-      }
-
-      // Log failed Google login attempt (fire-and-forget) - use subdomain from config
-      const failedGoogleAdvisorSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
-      logLoginAttempt({
-        email: 'unknown',
-        status: 'failed',
-        login_method: 'google',
-        failure_reason: 'google_auth_error',
-        error_message: error.message,
-        error_code: error.code,
-        advisor_subdomain: failedGoogleAdvisorSubdomain,
-      });
-
-      // User-friendly error differentiation
-      let userMessage = `Google sign-in failed [${error.code || 'no-code'}]: ${error.message || 'no-message'}`;
-      const code = error.code || '';
-      const msg = (error.message || '').toLowerCase();
-
-      if (
-        code === 'auth/network-request-failed' ||
-        code === 'PLAY_SERVICES_NOT_AVAILABLE' ||
-        msg.includes('network') ||
-        msg.includes('socket') ||
-        msg.includes('econnrefused') ||
-        msg.includes('unable to resolve host')
-      ) {
-        userMessage = 'No internet connection. Please check your network and try again.';
-      } else if (msg.includes('timeout') || msg.includes('timed out')) {
-        userMessage = 'Connection timed out. Please try again.';
-      } else if (code === 'auth/account-exists-with-different-credential') {
-        userMessage = 'An account with this email already exists. Please sign in with your original method.';
-      } else if (code === 'auth/user-disabled') {
-        userMessage = 'This account has been disabled. Please contact support.';
-      } else if (code === 'auth/too-many-requests') {
-        userMessage = 'Too many attempts. Please try again later.';
-      } else if (code === 'auth/operation-not-allowed') {
-        userMessage = 'Google sign-in is not enabled on the server. Please contact support.';
-      } else if (error.response?.status >= 500) {
-        userMessage = 'Server error. Please try again in a moment.';
-      } else if (error.response?.status === 401) {
-        userMessage = 'Authentication failed. Please try again.';
-      }
-
-      setError(userMessage);
-      setErrorShow(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Apple Sign-In handler
-  const handleAppleLogin = async () => {
-    // Only available on iOS
-    if (Platform.OS !== 'ios') {
-      return;
-    }
-
-    try {
-      setErrorShow(false);
-      setLoading(true);
-
-      // Perform Apple Sign-In request
-      const appleAuthRequestResponse = await appleAuth.performRequest({
-        requestedOperation: appleAuth.Operation.LOGIN,
-        requestedScopes: [appleAuth.Scope.EMAIL, appleAuth.Scope.FULL_NAME],
-      });
-
-      // Get credential state to ensure user is authenticated
-      const credentialState = await appleAuth.getCredentialStateForUser(
-        appleAuthRequestResponse.user,
-      );
-
-      if (credentialState !== appleAuth.State.AUTHORIZED) {
-        throw new Error('Apple Sign-In was not authorized');
-      }
-
-      const {identityToken, nonce, fullName, email} = appleAuthRequestResponse;
-
-      if (!identityToken) {
-        throw new Error('Apple Sign-In failed - no identity token returned');
-      }
-
-      // Create Firebase credential from Apple identity token
-      const appleCredential = auth.AppleAuthProvider.credential(
-        identityToken,
-        nonce,
-      );
-
-      // Sign in to Firebase with the Apple credential
-      const response = await auth().signInWithCredential(appleCredential);
-
-      if (response) {
-        const user = response.user;
-
-        // Apple may hide the email on subsequent logins
-        // Use email from Apple response, or from Firebase user, or navigate to email collection
-        let userEmail = email || user.email;
-
-        // If no email available, navigate to email collection screen
-        if (!userEmail) {
-          setLoading(false);
-          navigation.navigate('EmailScreenAppleLogin', {
-            onSubmit: async collectedEmail => {
-              if (collectedEmail) {
-                await completeAppleSignIn(user, collectedEmail, fullName);
-              }
-            },
-          });
-          return;
+            await reloadConfigData();
+            getAllTrades().catch((err) => console.error('Trade load error:', err));
+            getModelPortfolioStrategyDetails().catch((err) => console.error('Portfolio load error:', err));
+            navigation.replace('Home');
+        } catch (e) {
+            console.error('Login error:', e);
+            navigation.replace('Home');
         }
+    };
 
-        await completeAppleSignIn(user, userEmail, fullName);
-      }
-    } catch (error) {
-      console.error('Apple login error:', error);
+    const signInWithEmail = useCallback(async () => {
+        setLoading(true);
+        setErrorShow(false);
+        const trimmedEmail = email.trim();
+        if (!trimmedEmail || !password) {
+            setError('Email and password are required');
+            setErrorShow(true);
+            setLoading(false);
+            return;
+        }
+        try {
+            const response = await auth().signInWithEmailAndPassword(trimmedEmail, password);
+            const user = response.user;
+            if (user) {
+                let userDetails = null;
+                try {
+                    userDetails = await axios.get(
+                        `${server.server.baseUrl}api/user/getUser/${trimmedEmail}?includeAdvisorConfig=true`,
+                        {
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                                'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+                            },
+                            timeout: 10000,
+                        },
+                    );
+                } catch {
+                    await axios.post(
+                        `${server.server.baseUrl}api/user/`,
+                        { email: user.email, name: user.displayName || 'New User', firebaseId: user.uid },
+                        {
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                                'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+                            },
+                            timeout: 10000,
+                        },
+                    );
+                    userDetails = { data: { User: { email: user.email, name: user.displayName || 'New User' } } };
+                }
 
-      // Don't show error if user cancelled
-      if (error.code === appleAuth.Error.CANCELED) {
-        console.log('User cancelled Apple Sign-In');
-        setLoading(false);
-        return;
-      }
+                const advisorSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
+                trackAppUser({ email: trimmedEmail, firebase_id: user.uid, name: user.displayName, login_method: 'email', advisor_subdomain: advisorSubdomain });
+                logLoginAttempt({ email: trimmedEmail, firebase_id: user.uid, status: 'success', login_method: 'email', advisor_subdomain: advisorSubdomain });
 
-      // Log failed Apple login attempt
-      const failedAppleAdvisorSubdomain =
-        config?.subdomain || config?.advisorRaCode?.toLowerCase();
-      logLoginAttempt({
-        email: 'unknown',
-        status: 'failed',
-        login_method: 'apple',
-        failure_reason: 'apple_auth_error',
-        error_message: error.message,
-        error_code: error.code,
-        advisor_subdomain: failedAppleAdvisorSubdomain,
-      });
+                await handlePostLoginNavigation(userDetails, trimmedEmail);
+            }
+        } catch (e) {
+            console.error('Login error:', e.code, e.message);
+            const failedSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
+            logLoginAttempt({
+                email: trimmedEmail,
+                status: 'failed',
+                login_method: 'email',
+                failure_reason: e.code?.includes('auth/') ? 'firebase_error' : 'api_error',
+                error_message: e.message,
+                error_code: e.code,
+                advisor_subdomain: failedSubdomain,
+            });
 
-      // User-friendly error differentiation
-      let userMessage = 'Apple sign-in failed. Please try again.';
-      const code = error.code || '';
-      const msg = (error.message || '').toLowerCase();
+            let userMessage = 'Something went wrong. Please try again.';
+            if (e.code === 'auth/invalid-credential' || e.code === 'auth/wrong-password') {
+                userMessage = 'Invalid email or password. Please check your credentials and try again.';
+            } else if (e.code === 'auth/user-not-found') {
+                userMessage = 'No account found with this email. Please sign up first.';
+            } else if (e.code === 'auth/invalid-email') {
+                userMessage = 'Please enter a valid email address.';
+            } else if (e.code === 'auth/too-many-requests') {
+                userMessage = 'Too many failed attempts. Please try again later.';
+            } else if (e.code === 'auth/user-disabled') {
+                userMessage = 'This account has been disabled. Please contact support.';
+            } else if (e.code === 'auth/network-request-failed') {
+                userMessage = 'Network error. Please check your internet connection.';
+            }
+            setError(userMessage);
+            setErrorShow(true);
+        } finally {
+            setLoading(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [email, password]);
 
-      if (
-        code === 'auth/network-request-failed' ||
-        msg.includes('network') ||
-        msg.includes('socket') ||
-        msg.includes('econnrefused') ||
-        msg.includes('unable to resolve host')
-      ) {
-        userMessage = 'No internet connection. Please check your network and try again.';
-      } else if (msg.includes('timeout') || msg.includes('timed out')) {
-        userMessage = 'Connection timed out. Please try again.';
-      } else if (code === 'auth/account-exists-with-different-credential') {
-        userMessage = 'An account with this email already exists. Please sign in with your original method.';
-      } else if (code === 'auth/user-disabled') {
-        userMessage = 'This account has been disabled. Please contact support.';
-      } else if (error.response?.status >= 500) {
-        userMessage = 'Server error. Please try again in a moment.';
-      } else if (error.response?.status === 401) {
-        userMessage = 'Authentication failed. Please try again.';
-      }
+    const handleGoogleLogin = useCallback(async () => {
+        try {
+            setErrorShow(false);
+            await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+            const { idToken } = await GoogleSignin.signIn();
+            if (!idToken) throw new Error('No ID token returned');
 
-      setError(userMessage);
-      setErrorShow(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+            const googleCredential = auth.GoogleAuthProvider.credential(idToken);
+            setLoading(true);
+            const response = await auth().signInWithCredential(googleCredential);
 
-  // Helper function to complete Apple Sign-In after getting email
-  const completeAppleSignIn = async (user, userEmail, fullName) => {
-    try {
-      setLoading(true);
+            if (response) {
+                const user = response.user;
+                await axios.post(
+                    `${server.server.baseUrl}api/user/`,
+                    { email: user.email, name: user.displayName, imageUrl: user.photoURL },
+                    {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                            'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+                        },
+                    },
+                );
 
-      // Construct display name from Apple's fullName object
-      let displayName = user.displayName;
-      if (!displayName && fullName) {
-        const nameParts = [fullName.givenName, fullName.familyName].filter(
-          Boolean,
-        );
-        displayName = nameParts.join(' ') || 'Apple User';
-      }
-      displayName = displayName || 'Apple User';
+                const userDetails = await axios.get(
+                    `${server.server.baseUrl}api/user/getUser/${user.email}?includeAdvisorConfig=true`,
+                    {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                            'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+                        },
+                    },
+                );
 
-      // Create or update user in backend
-      await axios.post(
-        `${server.server.baseUrl}api/user/`,
-        {
-          email: userEmail,
-          name: displayName,
-          imageUrl: user.photoURL || null,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': getAdvisorSubdomain(),
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
-          },
-        },
-      );
+                const subdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
+                trackAppUser({ email: user.email, firebase_id: user.uid, name: user.displayName, login_method: 'google', advisor_subdomain: subdomain });
+                logLoginAttempt({ email: user.email, firebase_id: user.uid, status: 'success', login_method: 'google', advisor_subdomain: subdomain });
 
-      // Get user details from backend
-      const userDetails = await axios.get(
-        `${server.server.baseUrl}api/user/getUser/${userEmail}?includeAdvisorConfig=true`,
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': getAdvisorSubdomain(),
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
-          },
-        },
-      );
+                await handlePostLoginNavigation(userDetails, user.email);
+            }
+        } catch (e) {
+            console.error('❌ Google login error:', e.code, e.message);
+            if (e.code === 'SIGN_IN_CANCELLED' || e.code === '12501' || e.message?.toLowerCase().includes('cancel')) {
+                setLoading(false);
+                return;
+            }
 
-      // Log successful Apple login
-      const appleAdvisorSubdomain =
-        config?.subdomain || config?.advisorRaCode?.toLowerCase();
-      trackAppUser({
-        email: userEmail,
-        firebase_id: user.uid,
-        name: displayName,
-        login_method: 'apple',
-        advisor_subdomain: appleAdvisorSubdomain,
-      });
-      logLoginAttempt({
-        email: userEmail,
-        firebase_id: user.uid,
-        status: 'success',
-        login_method: 'apple',
-        advisor_subdomain: appleAdvisorSubdomain,
-      });
+            const failedSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
+            logLoginAttempt({
+                email: 'unknown',
+                status: 'failed',
+                login_method: 'google',
+                failure_reason: 'google_auth_error',
+                error_message: e.message,
+                error_code: e.code,
+                advisor_subdomain: failedSubdomain,
+            });
 
-      await handlePostLoginNavigation(userDetails, userEmail);
-    } catch (error) {
-      console.error('Error completing Apple Sign-In:', error);
-      setError(error.message || 'Failed to complete sign in');
-      setErrorShow(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+            let userMessage = 'Google sign-in failed. Please try again.';
+            const code = e.code || '';
+            const msg = (e.message || '').toLowerCase();
+            if (code === 'auth/network-request-failed' || code === 'PLAY_SERVICES_NOT_AVAILABLE' || msg.includes('network') || msg.includes('socket') || msg.includes('econnrefused') || msg.includes('unable to resolve host')) {
+                userMessage = 'No internet connection. Please check your network and try again.';
+            } else if (msg.includes('timeout') || msg.includes('timed out')) {
+                userMessage = 'Connection timed out. Please try again.';
+            } else if (code === 'auth/account-exists-with-different-credential') {
+                userMessage = 'An account with this email already exists. Please sign in with your original method.';
+            } else if (code === 'auth/user-disabled') {
+                userMessage = 'This account has been disabled. Please contact support.';
+            } else if (code === 'auth/too-many-requests') {
+                userMessage = 'Too many attempts. Please try again later.';
+            } else if (e.response?.status >= 500) {
+                userMessage = 'Server error. Please try again in a moment.';
+            } else if (e.response?.status === 401) {
+                userMessage = 'Authentication failed. Please try again.';
+            }
+            setError(userMessage);
+            setErrorShow(true);
+        } finally {
+            setLoading(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 
-  const storeLoginTime = async () => {
-    try {
-      const now = moment().toISOString();
-      await AsyncStorage.setItem('lastActiveTime', now);
-      // console.log('⏰ Login time stored:', now);
-    } catch (error) {
-      console.error('❌ Error storing login time:', error);
-    }
-  };
+    const completeAppleSignIn = async (user, userEmail, fullName) => {
+        try {
+            setLoading(true);
+            let displayName = user.displayName;
+            if (!displayName && fullName) {
+                const nameParts = [fullName.givenName, fullName.familyName].filter(Boolean);
+                displayName = nameParts.join(' ') || 'Apple User';
+            }
+            displayName = displayName || 'Apple User';
 
-  const dismissKeyboard = () => {
-    setErrorShow(false);
-    Keyboard.dismiss();
-  };
+            await axios.post(
+                `${server.server.baseUrl}api/user/`,
+                { email: userEmail, name: displayName, imageUrl: user.photoURL || null },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                        'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+                    },
+                },
+            );
 
-  useFocusEffect(
-    React.useCallback(() => {
-      return () => setErrorShow(false);
-    }, []),
-  );
+            const userDetails = await axios.get(
+                `${server.server.baseUrl}api/user/getUser/${userEmail}?includeAdvisorConfig=true`,
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                        'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+                    },
+                },
+            );
 
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={{flex: 1}}>
-      <TouchableWithoutFeedback onPress={dismissKeyboard}>
-        <LinearGradient
-          colors={['rgba(0, 38, 81, 1)', 'rgba(0, 86, 183, 1)']}
-          start={{x: 0, y: 0}}
-          end={{x: 1, y: 1}}
-          style={styles.container}>
-          <View style={styles.container}>
-            <StatusBar barStyle="light-content" />
+            const subdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
+            trackAppUser({ email: userEmail, firebase_id: user.uid, name: displayName, login_method: 'apple', advisor_subdomain: subdomain });
+            logLoginAttempt({ email: userEmail, firebase_id: user.uid, status: 'success', login_method: 'apple', advisor_subdomain: subdomain });
 
-            {/* Decorative background circles */}
-            <View style={[styles.backgroundCircleabove, styles.circleOne]} />
-            <View style={[styles.backgroundCircle, styles.circleFour]} />
-            <View style={[styles.backgroundCircle, styles.circleTwo]} />
-            <View style={[styles.backgroundCircle, styles.circleThree]} />
+            await handlePostLoginNavigation(userDetails, userEmail);
+        } catch (e) {
+            console.error('Error completing Apple Sign-In:', e);
+            setError(e.message || 'Failed to complete sign in');
+            setErrorShow(true);
+        } finally {
+            setLoading(false);
+        }
+    };
 
-            <View style={styles.content}>
-              <View style={styles.logoContainer}>
-                {configLoading ? (
-                  <View style={styles.logo} />
-                ) : LogoComponent && typeof LogoComponent === 'function' ? (
-                  <LogoComponent style={styles.logo} />
-                ) : LogoComponent && typeof LogoComponent === 'string' && LogoComponent.endsWith('.svg') ? (
-                  <SvgUri
-                    uri={LogoComponent}
-                    width={styles.logo.width}
-                    height={styles.logo.height}
-                  />
-                ) : LogoComponent && typeof LogoComponent === 'string' ? (
-                  <Image
-                    source={{uri: LogoComponent}}
-                    style={styles.logo}
-                    resizeMode="contain"
-                  />
-                ) : LogoComponent && typeof LogoComponent === 'object' && LogoComponent.uri ? (
-                  <Image
-                    source={{uri: LogoComponent.uri}}
-                    style={styles.logo}
-                    resizeMode="contain"
-                  />
-                ) : LogoComponent && typeof LogoComponent === 'object' ? (
-                  <Image
-                    source={LogoComponent}
-                    style={styles.logo}
-                    resizeMode="contain"
-                  />
-                ) : (
-                  <Image
-                    source={AlphaQuarkLogo}
-                    style={styles.logo}
-                    resizeMode="contain"
-                  />
-                )}
+    const handleAppleLogin = useCallback(async () => {
+        if (Platform.OS !== 'ios') return;
+        try {
+            setErrorShow(false);
+            setLoading(true);
+            const appleAuthRequestResponse = await appleAuth.performRequest({
+                requestedOperation: appleAuth.Operation.LOGIN,
+                requestedScopes: [appleAuth.Scope.EMAIL, appleAuth.Scope.FULL_NAME],
+            });
+            const credentialState = await appleAuth.getCredentialStateForUser(appleAuthRequestResponse.user);
+            if (credentialState !== appleAuth.State.AUTHORIZED) {
+                throw new Error('Apple Sign-In was not authorized');
+            }
+            const { identityToken, nonce, fullName, email: appleEmail } = appleAuthRequestResponse;
+            if (!identityToken) throw new Error('Apple Sign-In failed - no identity token returned');
 
-                <Text style={styles.logoText}>
-                  {Config?.REACT_APP_WHITE_LABEL_TEXT}
-                </Text>
-              </View>
+            const appleCredential = auth.AppleAuthProvider.credential(identityToken, nonce);
+            const response = await auth().signInWithCredential(appleCredential);
 
-              <View
-                style={{
-                  alignContent: 'flex-start',
-                  alignItems: 'flex-start',
-                  alignSelf: 'flex-start',
-                }}>
-                <Text style={styles.title}>
-                  Your {Config?.REACT_APP_WHITE_LABEL_TEXT} Universe Awaits
-                </Text>
-                <View style={styles.underline} />
-              </View>
-              <Text style={styles.subtitle}>
-                Its only takes a minute to create your account
-              </Text>
+            if (response) {
+                const user = response.user;
+                let userEmail = appleEmail || user.email;
+                if (!userEmail) {
+                    setLoading(false);
+                    navigation.navigate('EmailScreenAppleLogin', {
+                        onSubmit: async (collectedEmail) => {
+                            if (collectedEmail) await completeAppleSignIn(user, collectedEmail, fullName);
+                        },
+                    });
+                    return;
+                }
+                await completeAppleSignIn(user, userEmail, fullName);
+            }
+        } catch (e) {
+            console.error('Apple login error:', e);
+            if (e.code === appleAuth.Error.CANCELED) {
+                setLoading(false);
+                return;
+            }
+            const failedSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
+            logLoginAttempt({
+                email: 'unknown',
+                status: 'failed',
+                login_method: 'apple',
+                failure_reason: 'apple_auth_error',
+                error_message: e.message,
+                error_code: e.code,
+                advisor_subdomain: failedSubdomain,
+            });
 
-              <View style={styles.inputContainer}>
-                <Mail
-                  color="rgba(100, 199, 59, 1)"
-                  size={16}
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Email address"
-                  placeholderTextColor="#9E9E9E"
-                  value={email}
-                  onChangeText={text => setEmail(text.toLowerCase())}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                />
-              </View>
+            let userMessage = 'Apple sign-in failed. Please try again.';
+            const code = e.code || '';
+            const msg = (e.message || '').toLowerCase();
+            if (code === 'auth/network-request-failed' || msg.includes('network') || msg.includes('socket') || msg.includes('econnrefused') || msg.includes('unable to resolve host')) {
+                userMessage = 'No internet connection. Please check your network and try again.';
+            } else if (msg.includes('timeout') || msg.includes('timed out')) {
+                userMessage = 'Connection timed out. Please try again.';
+            } else if (code === 'auth/account-exists-with-different-credential') {
+                userMessage = 'An account with this email already exists. Please sign in with your original method.';
+            } else if (code === 'auth/user-disabled') {
+                userMessage = 'This account has been disabled. Please contact support.';
+            } else if (e.response?.status >= 500) {
+                userMessage = 'Server error. Please try again in a moment.';
+            } else if (e.response?.status === 401) {
+                userMessage = 'Authentication failed. Please try again.';
+            }
+            setError(userMessage);
+            setErrorShow(true);
+        } finally {
+            setLoading(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [navigation]);
 
-              <View style={styles.inputContainer}>
-                <Lock
-                  color="rgba(100, 199, 59, 1)"
-                  size={16}
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder="Password"
-                  placeholderTextColor="#9E9E9E"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={!isPasswordVisible}
-                />
-                <TouchableOpacity
-                  onPress={() => setIsPasswordVisible(!isPasswordVisible)}>
-                  <Eye color="#9E9E9E" size={20} />
-                </TouchableOpacity>
-              </View>
+    const dismissKeyboard = useCallback(() => {
+        setErrorShow(false);
+        Keyboard.dismiss();
+    }, []);
 
-              <TouchableOpacity
-                onPress={() => navigation.navigate('ResetPassword')}>
-                <Text style={styles.forgotPassword}>Forgot Password?</Text>
-              </TouchableOpacity>
+    useFocusEffect(
+        React.useCallback(() => {
+            return () => setErrorShow(false);
+        }, []),
+    );
 
-              {loading && (
-                <ActivityIndicator
-                  size="large"
-                  color="#FFFFFF"
-                  style={styles.loader}
-                />
-              )}
-              {errorShow && <Text style={styles.errorText}>{error}</Text>}
+    const Presentation = useComponent('screens.LoginScreen');
 
-              <TouchableOpacity
-                style={styles.loginButton}
-                onPress={signInWithEmail}
-                disabled={loading}>
-                <Text style={styles.loginButtonText}>Log In</Text>
-              </TouchableOpacity>
-
-              <View style={styles.orContainer}>
-                <View style={styles.orLine} />
-                <Text style={styles.orText}>OR</Text>
-                <View style={styles.orLine} />
-              </View>
-
-              <TouchableOpacity
-                style={styles.googleButton}
-                onPress={handleGoogleLogin}
-                disabled={loading}>
-                <Image source={Glogo} style={styles.googleIcon} />
-                <Text style={styles.googleButtonText}>
-                  Continue With Google
-                </Text>
-              </TouchableOpacity>
-
-              {/* Apple Sign-In Button - iOS only */}
-              {Platform.OS === 'ios' && (
-                <TouchableOpacity
-                  style={styles.appleButton}
-                  onPress={handleAppleLogin}
-                  disabled={loading}>
-                  <Text style={styles.appleIcon}></Text>
-                  <Text style={styles.appleButtonText}>
-                    Continue With Apple
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <View style={styles.signupContainer}>
-              <Text style={styles.signupText}>Don't have an account? </Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Signup')}>
-                <Text style={styles.signupLink}>Sign Up</Text>
-              </TouchableOpacity>
-            </View>
-            <Toast />
-          </View>
-        </LinearGradient>
-      </TouchableWithoutFeedback>
-    </KeyboardAvoidingView>
-  );
+    return (
+        <Presentation
+            viewModel={{
+                email,
+                password,
+                isPasswordVisible,
+                error,
+                errorShow,
+                isLoading: loading,
+                logoComponent: LogoComponent,
+                configLoading,
+                whiteLabelText: Config?.REACT_APP_WHITE_LABEL_TEXT,
+                showAppleButton: Platform.OS === 'ios',
+                // Variant-facing tagline overrides — alphanomy reads these
+                // to swap its built-in tenant copy. See
+                // src/context/ConfigContext.js § TENANT TAGLINES for the shape.
+                taglines: config?.taglines?.login || null,
+            }}
+            actions={{
+                onEmailChange: setEmail,
+                onPasswordChange: setPassword,
+                onPasswordVisibilityToggle: () => setIsPasswordVisible((p) => !p),
+                onLogin: signInWithEmail,
+                onGoogleLogin: handleGoogleLogin,
+                onAppleLogin: handleAppleLogin,
+                onForgotPassword: () => navigation.navigate('ResetPassword'),
+                onNavigateToSignup: () => navigation.navigate('Signup'),
+                dismissKeyboard,
+            }}
+        />
+    );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  backgroundCircle: {
-    position: 'absolute',
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-    borderRadius: 500,
-  },
-  backgroundCircleabove: {
-    position: 'absolute',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-    borderRadius: 500,
-  },
-  circleOne: {
-    width: 350,
-    height: 350,
-    top: -80,
-    right: -80,
-  },
-  circleFour: {
-    width: 300,
-    height: 300,
-    top: -80,
-    right: -80,
-  },
-  circleTwo: {
-    width: 250,
-    height: 250,
-    bottom: -50,
-    left: -50,
-  },
-  circleThree: {
-    width: 250,
-    height: 250,
-    bottom: -100,
-    left: -100,
-  },
-  content: {
-    paddingTop: 50,
-    paddingHorizontal: 20,
-  },
-  logoContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 30,
-  },
-  logo: {
-    width: 40,
-    height: 40,
-    marginRight: 8,
-  },
-  logoText: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#fff',
-    letterSpacing: 1.5,
-    fontFamily: Platform.select({
-      ios: 'Azonix',
-      android: 'Azonix',
-      default: 'System',
-    }),
-  },
-  title: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontFamily: 'Poppins-SemiBold',
-    textAlign: 'left',
-  },
-  underline: {
-    height: 2,
-    width: '100%',
-    backgroundColor: '#0D47A1',
-    marginTop: 4,
-    alignSelf: 'center',
-  },
-  subtitle: {
-    color: '#BDCFFF',
-    fontSize: 12,
-    textAlign: 'left',
-    marginBottom: 35,
-  },
-  inputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
-    marginBottom: 15,
-    paddingHorizontal: 15,
-    height: 48,
-  },
-  inputIcon: {
-    marginRight: 10,
-  },
-  input: {
-    flex: 1,
-    height: '100%',
-    color: '#000',
-    fontSize: 13,
-  },
-  forgotPassword: {
-    color: '#BDCFFF',
-    textAlign: 'right',
-    marginBottom: 20,
-    fontSize: 12,
-    fontFamily: 'Poppins-Medium',
-  },
-  loginButton: {
-    backgroundColor: '#2056DF',
-    paddingVertical: 5,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 45,
-  },
-  loginButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-  },
-  orContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 25,
-  },
-  orLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  orText: {
-    color: '#BDCFFF',
-    marginHorizontal: 15,
-    fontSize: 14,
-  },
-  googleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
-    paddingVertical: 14,
-    borderRadius: 8,
-    height: 45,
-  },
-  googleIcon: {
-    width: 22,
-    height: 22,
-    marginRight: 15,
-  },
-  googleButtonText: {
-    color: '#333333',
-    fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-  },
-  appleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#000000',
-    paddingVertical: 14,
-    borderRadius: 8,
-    height: 45,
-    marginTop: 12,
-  },
-  appleIcon: {
-    fontSize: 18,
-    color: '#FFFFFF',
-    marginRight: 10,
-  },
-  appleButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-  },
-  signupContainer: {
-    marginBottom: 20,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  signupText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-  },
-  signupLink: {
-    color: '#85F500',
-    fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-    marginLeft: 5,
-  },
-  errorText: {
-    color: '#FF6B6B',
-    textAlign: 'center',
-    marginBottom: 10,
-    fontSize: 14,
-  },
-  loader: {
-    marginVertical: 10,
-  },
-});
 
 export default LoginScreen;

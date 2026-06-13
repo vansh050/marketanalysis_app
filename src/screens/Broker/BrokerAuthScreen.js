@@ -14,6 +14,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   Alert,
+  Platform,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
@@ -92,9 +93,21 @@ const BrokerAuthScreen = () => {
         }
 
         case 'angelone': {
-          const nonce = await registerCallback('angelone', '/stock-recommendation');
+          // Mirror prod-alphaquark-github commit 741d8412 — open
+          // ccxt-relay URL with redirect_url embedded so SmartAPI can
+          // disambiguate between multiple Apps registered against the
+          // platform's shared Trading credential. Without redirect_url
+          // SmartAPI returns 'Invalid URL' even with a valid api_key.
           const apiKey = Config.REACT_APP_ANGEL_ONE_API_KEY;
-          return `https://smartapi.angelbroking.com/publisher-login?api_key=${apiKey}&state=${nonce}`;
+          const ccxtUrl = server.ccxtServer.baseUrl;
+          const domainList = String(Config?.REACT_APP_DOMAIN || '').split(',');
+          const webOrigin = (domainList[0] || 'https://prod.alphaquark.in').trim();
+          const origin = encodeURIComponent(webOrigin);
+          const returnPath = encodeURIComponent('stock-recommendation');
+          const legacyRedirect = encodeURIComponent(
+            'https://alphaquark.in/api/deploy/broker/callback',
+          );
+          return `${ccxtUrl}angelone/login-url?apiKey=${apiKey}&origin=${origin}&returnPath=${returnPath}&redirectUrl=${legacyRedirect}`;
         }
 
         case 'groww': {
@@ -345,9 +358,28 @@ const BrokerAuthScreen = () => {
           }
           return true;
         }}
-        javaScriptEnabled
-        domStorageEnabled
-        startInLoadingState
+        // Mirror AngelOneConnectUI's WebView config verbatim — that
+        // config is production-proven for SmartAPI publisher-login.
+        // Cookies + Chrome user-agent + originWhitelist are needed for
+        // SmartAPI to maintain session through publisher-login →
+        // callback redirect. Without these the WebView either renders
+        // an "Invalid URL" page or the chromium renderer crashes.
+        nestedScrollEnabled={true}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+        startInLoadingState={true}
+        cacheEnabled={true}
+        sharedCookiesEnabled={true}
+        thirdPartyCookiesEnabled={true}
+        scrollEnabled={true}
+        originWhitelist={['*']}
+        mixedContentMode="compatibility"
+        setSupportMultipleWindows={false}
+        userAgent={
+          Platform.OS === 'android'
+            ? 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36'
+            : 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile Safari/604.1'
+        }
         renderLoading={() => (
           <ActivityIndicator style={styles.webviewLoading} size="large" color="#1A237E" />
         )}

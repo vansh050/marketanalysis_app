@@ -12,25 +12,70 @@ export const useConfig = () => {
     return useContext(ConfigContext);
 };
 
-// DEFAULT_VARIANT is the static-config fallback when APP_VARIANT is unset
-// OR points at a variant key missing from APP_VARIANTS. For this app the
-// canonical variant is 'marketanalysis' — choosing it (instead of the legacy
-// 'rgxresearch' default inherited from the upstream Alphab2bapp fork) avoids
-// silently rendering the wrong tenant's logos / colors when something
-// upstream (env injection, OTA bundle stale, dev-build override) drops the
-// APP_VARIANT value. Fork this constant when re-using this codebase as a
-// different RA's app.
-const DEFAULT_VARIANT = 'marketanalysis';
+// Default variant used when APP_VARIANT is missing or unknown. Was
+// 'rgxresearch' historically — but rgxresearch falls through to
+// sharedUIConfig, whose logo / theme is ZamZam-branded (sharedUIConfig
+// was originally the ZamZam variant config; logo file
+// `src/assets/AppLogo/logo.png` is byte-identical to
+// `src/assets/AppLogo/Zamzam.png`). On AlphaQuark builds we MUST NOT
+// silently degrade to ZamZam branding when the env var fails to
+// resolve (gradle missed the .env, react-native-config not linked,
+// dev build bundling stale config, etc.). 'alphaquark' is a safer
+// default for this codebase since the variant explicitly declares
+// AlphaQuarkLogo. White-label tenants who deploy this app from their
+// own fork should change DEFAULT_VARIANT to their own variant key.
+const DEFAULT_VARIANT = 'alphaquark';
 
 export const ConfigProvider = ({ children }) => {
     const selectedVariant = Config?.APP_VARIANT || DEFAULT_VARIANT;
-    // Ensure the variant exists in APP_VARIANTS, otherwise use DEFAULT_VARIANT
-    // (never let an unknown variant fall through to whichever key happens
-    // to be first in the map).
+    // Ensure the variant exists in APP_VARIANTS; otherwise fall back
+    // to DEFAULT_VARIANT (alphaquark) — never to a variant whose
+    // sharedUIConfig contains foreign branding.
     const validVariant = APP_VARIANTS[selectedVariant] ? selectedVariant : DEFAULT_VARIANT;
+    if (!Config?.APP_VARIANT) {
+        // Loud warning so a missing env var is visible during dev /
+        // staging builds rather than silently picking the default.
+        // eslint-disable-next-line no-console
+        console.warn(
+            '[ConfigContext] APP_VARIANT not set in .env — defaulting to',
+            DEFAULT_VARIANT,
+            '. If this is a non-AlphaQuark tenant build, set APP_VARIANT explicitly.',
+        );
+    }
     const initialConfig = { ...APP_VARIANTS[validVariant], selectedVariant: validVariant };
     const [config, setConfig] = useState(initialConfig);
     const [loading, setLoading] = useState(true);
+
+    // 2026-05-07: hydrate the theme/branding from AsyncStorage on
+    // mount BEFORE the API fetch runs. This way if the API call fails
+    // on a relaunch (intermittent network, server slow, DNS hiccup),
+    // the UI still renders with the last-known-good production theme
+    // from cache instead of falling back to the bare static
+    // APP_VARIANTS defaults — those defaults are intentionally
+    // generic (`gradient1/2: '#F0F0F0'`, `placeholderText: '#FFFFFF'`)
+    // and produce a near-blank washed-out home screen for any
+    // production tenant whose theme has been loaded before.
+    //
+    // The fresh API response in fetchConfig below still wins the
+    // moment it lands; this only affects the first-paint window.
+    useEffect(() => {
+        const hydrateFromCache = async () => {
+            try {
+                const cachedJson = await AsyncStorage.getItem('@app:configThemeCache');
+                if (!cachedJson) return;
+                const cached = JSON.parse(cachedJson);
+                // Only adopt cache for the SAME variant to avoid
+                // showing tenant A's theme briefly to tenant B's
+                // build (e.g. dev switching between APP_VARIANTs).
+                if (cached?.selectedVariant && cached.selectedVariant !== validVariant) return;
+                console.log('[ConfigContext] hydrated theme from AsyncStorage cache');
+                setConfig(prev => ({ ...prev, ...cached }));
+            } catch (e) {
+                console.warn('[ConfigContext] hydrateFromCache error:', e?.message);
+            }
+        };
+        hydrateFromCache();
+    }, [validVariant]);
 
     useEffect(() => {
         const fetchConfig = async () => {
@@ -59,7 +104,41 @@ export const ConfigProvider = ({ children }) => {
                     'aq-encrypted-key': headers['aq-encrypted-key'] ? 'SET' : 'MISSING',
                 });
 
+                // D3 (docs/WEB_PARITY_MIGRATION_2026-06.md §4.1): the RIA / NBA /
+                // Portfolio-Health / Transition flags are NOT in /api/app-advisor/get —
+                // they live in advisor_config and are served by /api/admin/frontend-config
+                // (no admin auth; reads the advisor from the X-Advisor-Subdomain header,
+                // which `headers` already carries). Kick it off BEFORE awaiting the main
+                // config so the two fetches run in PARALLEL (no serial cold-start cost).
+                // Never throws — a failure leaves every new flag at its default (false).
+                const parityFlagsPromise = (async () => {
+                    try {
+                        // HARD timeout: this fetch must NEVER block the advisor
+                        // branding/config from applying. If frontend-config is slow or
+                        // hangs, bail fast and leave the parity flags at default-OFF —
+                        // the main app-advisor/get config (theme, logo, gradients) still
+                        // applies. (Without this, a stalled flags call would leave the UI
+                        // on bare defaults: red #ff0000 accent + missing logo.)
+                        const ff = await axios.get(`${baseUrl}api/admin/frontend-config`, {
+                            headers,
+                            timeout: 6000,
+                        });
+                        const d = ff?.data?.data || ff?.data || {};
+                        return {
+                            riaBillingEnabled:       d.riaBillingEnabled === true,
+                            nbaHomeEnabled:          d.nbaHomeEnabled === true,
+                            portfolioHealthEnabled:  d.portfolioHealthEnabled === true,
+                            transitionEngineEnabled: d.transitionEngineEnabled === true,
+                            portfolioHealth:         d.portfolioHealth || undefined,
+                        };
+                    } catch (e) {
+                        console.warn('[ConfigContext] frontend-config flags unavailable, defaulting OFF:', e?.message);
+                        return {};
+                    }
+                })();
+
                 const response = await axios.get(apiUrl, { headers });
+                const parityFlags = await parityFlagsPromise;
 
                 console.log('API Response:', response.data);
 
@@ -113,14 +192,25 @@ export const ConfigProvider = ({ children }) => {
                         // AUTHENTICATION
                         // Backend (apiData) wins over the static Config.js fallback for
                         // googleWebClientId. Defensive `.trim()` because the backend has been
-                        // observed returning the value with trailing whitespace, which Google
-                        // Sign-In rejects with DEVELOPER_ERROR if passed verbatim.
+                        // observed returning the value with trailing whitespace
+                        // (`'713385591555-…googleusercontent.com '`), which Google Sign-In
+                        // rejects with DEVELOPER_ERROR if passed verbatim.
                         // ============================================================================
                         googleWebClientId:
                             (typeof apiData.googleWebClientId === 'string'
                                 ? apiData.googleWebClientId.trim()
                                 : apiData.googleWebClientId) ||
                             initialConfig.googleWebClientId,
+
+                        // iOS-only Google Sign-In client ID (per-tenant Firebase
+                        // project). Same backend-over-variant precedence + defensive
+                        // .trim() as googleWebClientId. Consumed by Login/LogOutScreen;
+                        // only applied on iOS (undefined is a harmless no-op elsewhere).
+                        googleIosClientId:
+                            (typeof apiData.googleIosClientId === 'string'
+                                ? apiData.googleIosClientId.trim()
+                                : apiData.googleIosClientId) ||
+                            initialConfig.googleIosClientId,
 
                         // ============================================================================
                         // DIGIO CONFIGURATION
@@ -164,6 +254,19 @@ export const ConfigProvider = ({ children }) => {
                         // Drawer entries + webinar screens consume these.
                         coursesEnabled:  apiData.coursesEnabled  ?? false,
                         webinarsEnabled: apiData.webinarsEnabled ?? false,
+
+                        // RIA AUM-billing / NBA / Portfolio-Health / Transition per-advisor
+                        // gates (D3). Source of truth: advisor_config.{aum_billing.enabled,
+                        // nba_home_enabled, portfolio_health_enabled, transition_engine_enabled,
+                        // portfolio_health}, served by /api/admin/frontend-config (fetched in
+                        // parallel above → `parityFlags`). Default OFF — nothing renders until
+                        // an advisor opts in from supportAQ (AdvisorConfigPage). Toggles already
+                        // exist there for nba/health/transition.
+                        riaBillingEnabled:       parityFlags.riaBillingEnabled       ?? false,
+                        nbaHomeEnabled:          parityFlags.nbaHomeEnabled          ?? false,
+                        portfolioHealthEnabled:  parityFlags.portfolioHealthEnabled  ?? false,
+                        transitionEngineEnabled: parityFlags.transitionEngineEnabled ?? false,
+                        portfolioHealth:         parityFlags.portfolioHealth         ?? undefined,
 
                         // ============================================================================
                         // PAYMENT CONFIGURATION
@@ -262,13 +365,48 @@ export const ConfigProvider = ({ children }) => {
 
                         // ============================================================================
                         // TENANT TAGLINES (optional advisor override)
-                        // Hero copy + trust badges shown on auth screens. Backend shape:
-                        //   { login: {brandSubtag, heroTitle, heroSubtitle, trustBadges},
-                        //     signup: {…}, home: {recommendationsSubtitle, …} }
-                        // Falls back to the hardcoded variant copy when a field is missing.
-                        // Compliance: any quantitative claim must be tenant-approved.
                         // ============================================================================
+                        // Hero copy + trust badges shown on auth screens. The alphanomy
+                        // variant reads these to override its built-in tenant copy
+                        // ("Folios · Research", "Your Alpha, Engineered.", "SEBI Registered",
+                        // etc.) — see designs/alphanomy/screens/LoginScreen.js +
+                        // SignupScreen.js. Falls back to the hardcoded variant copy when
+                        // a field is missing.
+                        //
+                        // Backend shape (`appadvisors.taglines`):
+                        //   {
+                        //     login: {
+                        //       brandSubtag,   // string — sub-tag under brand name
+                        //       heroTitle,     // string — main hero heading (allows \n)
+                        //       heroSubtitle,  // string — supporting copy
+                        //       trustBadges,   // [{ icon: 'check'|'shield'|...,  label: string }]
+                        //     },
+                        //     signup: {
+                        //       brandSubtag,
+                        //       heroTitle,
+                        //       heroSubtitle,    // careful with claims like "50,000+ investors"
+                        //                        // — legal/compliance review per tenant
+                        //     },
+                        //     home: {
+                        //       recommendationsSubtitle,    // string — under "Recommendations" section
+                        //       modelPortfoliosSubtitle,    // string — under "Model Portfolios" section
+                        //       bespokePlansSubtitle,       // string — under "Top Bespoke Plans" section
+                        //     }
+                        //   }
+                        //
+                        // Compliance note: any quantitative claim (investor counts, returns,
+                        // performance numbers) must be tenant-approved before going live.
+                        // Surfacing taglines via backend lets legal vary copy per tenant
+                        // without a code change.
                         taglines: apiData.taglines || null,
+
+                        // ============================================================================
+                        // APP UPDATE — set this field in MongoDB to trigger the update modal
+                        // db.appadvisors.updateOne({subdomain:'<tenant>'},{$set:{latestAppVersion:'1.0.5'}})
+                        // Consumed by AppUpdateChecker (UpdateAppModal) as the authoritative
+                        // version; falls back to Play Store / App Store scraping when null.
+                        // ============================================================================
+                        latestAppVersion: apiData.latestAppVersion || null,
                     };
 
                     console.log('✅ Using newConfig from API for APP_VARIANTS:', {
@@ -281,6 +419,7 @@ export const ConfigProvider = ({ children }) => {
                         homeScreenLayout: newConfig.homeScreenLayout,
                         // Authentication
                         googleWebClientId: newConfig.googleWebClientId,
+                        googleIosClientId: newConfig.googleIosClientId,
                         // Digio Config
                         digioCheck: newConfig.digioCheck,
                         digioEnabled: newConfig.digioEnabled,
@@ -306,6 +445,14 @@ export const ConfigProvider = ({ children }) => {
                                     REACT_APP_BROKER_CONNECT_REDIRECT_URL: newConfig.REACT_APP_BROKER_CONNECT_REDIRECT_URL,
                                     REACT_APP_ANGEL_ONE_API_KEY: newConfig.REACT_APP_ANGEL_ONE_API_KEY,
                                     REACT_APP_ZERODHA_API_KEY: newConfig.REACT_APP_ZERODHA_API_KEY,
+                                    // D3 / Codex T5: persist the parity flags into the same
+                                    // AsyncStorage blob TradeContext reads, so useConfig() and
+                                    // configData never disagree on a gate.
+                                    riaBillingEnabled: newConfig.riaBillingEnabled,
+                                    nbaHomeEnabled: newConfig.nbaHomeEnabled,
+                                    portfolioHealthEnabled: newConfig.portfolioHealthEnabled,
+                                    transitionEngineEnabled: newConfig.transitionEngineEnabled,
+                                    portfolioHealth: newConfig.portfolioHealth,
                                 },
                             };
                             await AsyncStorage.setItem('@app:advisorConfig', JSON.stringify(updatedStored));

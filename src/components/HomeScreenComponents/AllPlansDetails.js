@@ -75,7 +75,12 @@ const AllPlanDetails = ({ type }) => {
           },
         }
       );
-      setAllStrategy(response.data.data);
+      // Hide draft (unpublished) plans — matches web parity:
+      // src/Home/PricingSection/PricingPage.js filters `!plan.draft` on
+      // every plan-list fetch. Without this, a plan that an advisor flips
+      // to draft on the dashboard keeps showing in the app.
+      const published = (response.data.data || []).filter(plan => !plan?.draft);
+      setAllStrategy(published);
     } catch (error) {
       console.error('❌ [AllPlansDetails] Error:', error);
       console.error('❌ [AllPlansDetails] Error response:', error.response?.data);
@@ -100,7 +105,9 @@ const AllPlanDetails = ({ type }) => {
           },
         }
       );
-      setAllBespoke(response.data.data);
+      // Hide draft plans (see comment in getAllStrategy above).
+      const published = (response.data.data || []).filter(plan => !plan?.draft);
+      setAllBespoke(published);
     } catch (error) {
       console.log(error);
     } finally {

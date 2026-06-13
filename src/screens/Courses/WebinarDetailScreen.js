@@ -88,6 +88,20 @@ export default function WebinarDetailScreen() {
     try {
       const d = await liveKitService.getPublicWebinar(lessonId);
       setData(d);
+      // Backend returns isEnrolled=true when the signed-in caller already
+      // has a per-lesson registration. Flip into join mode so a returning
+      // registrant doesn't get prompted to re-register (matches web's
+      // WebinarDetailPage behaviour). When isEnrolled=false (e.g. the
+      // user signed out + back in as a different account), clear any
+      // stale session state — otherwise the warn box would persist
+      // pointing at the OLD purchaseEmail.
+      if (d?.isEnrolled) {
+        setShowJoinFlow(true);
+        if (d.enrolledEmail) setPurchaseEmail(d.enrolledEmail);
+      } else {
+        setShowJoinFlow(false);
+        setPurchaseEmail('');
+      }
     } catch (e) {
       setError(e?.response?.data?.message || e?.message || 'Could not load webinar');
     } finally {
@@ -95,7 +109,10 @@ export default function WebinarDetailScreen() {
     }
   }, [lessonId]);
 
-  useEffect(() => { fetchPublic(); }, [fetchPublic]);
+  // Re-fetch when sign-in state flips — the /public endpoint only returns
+  // isEnrolled when a Firebase Bearer is attached, so a fresh sign-in (or
+  // a sign-out) needs a re-query.
+  useEffect(() => { fetchPublic(); }, [fetchPublic, user?.uid]);
 
   const handlePurchased = useCallback((res) => {
     setBuyOpen(false);
@@ -226,8 +243,23 @@ export default function WebinarDetailScreen() {
               {user && emailMismatch && (
                 <View style={styles.warnBox}>
                   <Text style={styles.warnText}>
-                    You're signed in as {user.email} but registered as {purchaseEmail}. Sign out and sign in with the registered email to join.
+                    You're signed in as {user.email} but registered as {purchaseEmail}. Either sign out and sign in with the registered email, or register again with this account below.
                   </Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      // Clear the stale purchase state so handlePurchased
+                      // can land cleanly, then reopen the sheet — it will
+                      // pre-fill + lock the email to user.email.
+                      setPurchaseEmail('');
+                      setShowJoinFlow(false);
+                      setBuyOpen(true);
+                    }}
+                    style={[styles.warnCta, { borderColor: accent }]}
+                  >
+                    <Text style={[styles.warnCtaText, { color: accent }]}>
+                      Register with this account instead
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               )}
               {user && !emailMismatch && (
@@ -290,6 +322,8 @@ const styles = StyleSheet.create({
   signInLink: { marginTop: 6, fontWeight: '600' },
   warnBox: { backgroundColor: '#fef3c7', borderColor: '#fde68a', borderWidth: 1, borderRadius: 8, padding: 12 },
   warnText: { color: '#92400e', fontSize: 12 },
+  warnCta: { marginTop: 10, alignSelf: 'flex-start', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 6, borderWidth: 1, backgroundColor: '#ffffff' },
+  warnCtaText: { fontSize: 12, fontWeight: '600' },
   liveRoomPlaceholder: { padding: 16, backgroundColor: '#f3f4f6', borderRadius: 8, alignItems: 'center' },
   liveRoomPlaceholderText: { color: '#374151', fontSize: 13, textAlign: 'center' },
   notAvailableBox: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#f9fafb', padding: 24 },

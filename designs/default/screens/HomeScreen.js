@@ -28,6 +28,12 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
+// Web-parity (P3/P2): NBA action banner + status strip, and the Portfolio Health
+// launcher. Both self-gated (nbaHomeEnabled / portfolioHealthEnabled) → render null
+// by default, so this header is inert until an advisor opts in.
+import NbaBanner from '../composites/NbaBanner';
+import PortfolioHealthSheet from '../composites/PortfolioHealthSheet';
+import ProvisionalBanner from '../composites/ProvisionalBanner';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import { ArrowLeft, XIcon } from 'lucide-react-native';
 import Icon1 from 'react-native-vector-icons/Fontisto';
@@ -328,6 +334,13 @@ const HomeScreenPresentation = ({ home }) => {
                         }
                         nestedScrollEnabled={true}
                         keyExtractor={item => item.key}
+                        ListHeaderComponent={
+                            <>
+                                <ProvisionalBanner />
+                                <NbaBanner />
+                                <PortfolioHealthSheet />
+                            </>
+                        }
                         style={{ zIndex: 11, paddingLeft: 0 }}
                         refreshControl={
                             <RefreshControl

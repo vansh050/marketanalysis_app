@@ -15,6 +15,11 @@ import { useConfig } from '../../context/ConfigContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -29,6 +34,7 @@ const UpstoxModal = ({
   const { configData } = useTrade();
   const freshConfig = useConfig();
   const showAlert = useModalStore((state) => state.showAlert);
+  const sdkBridge = useSdkBridge();
   const [apiKey, setApiKey] = useState('');
   const [secretKey, setSecretKey] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -316,6 +322,15 @@ const UpstoxModal = ({
           console.log('[Upstox] Broker connection saved successfully');
           setIsLoading(false);
 
+          // SDK pilot dual-write — see brokerSdkBridge.js.
+          if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+            sdkDualWriteSafely(
+              sdkConnectBroker(sdkBridge.client, 'Upstox', brokerData),
+              'Upstox',
+              'connect',
+            );
+          }
+
           // Update model portfolio with broker information
           try {
             axios.request({
@@ -338,16 +353,46 @@ const UpstoxModal = ({
             console.warn('[Upstox] Model portfolio update failed (non-critical):', modelPortfolioError);
           }
 
-          fetchBrokerStatusModal();
-          eventEmitter.emit('refreshEvent', { source: 'Upstox broker connection' });
-          showAlert('success', 'Connected Successfully', 'Your Upstox broker has been connected successfully!');
           onClose();
           setShowBrokerModal(false);
+          // Wrap post-success steps so a downstream throw doesn't bubble
+          // to the outer .catch and get rewritten as "Connection Error".
+          // See KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
+          // § Broker-connect post-success hygiene.
+          (async () => {
+            try {
+              const result = await fetchBrokerStatusModal();
+              eventEmitter.emit('refreshEvent', { source: 'Upstox broker connection' });
+              if (!result?.migrationWillShow) {
+                showAlert('success', 'Connected Successfully', 'Your Upstox broker has been connected successfully!');
+              }
+            } catch (postSuccessErr) {
+              console.warn(
+                '[Upstox] post-success step threw (connection IS saved DB-side):',
+                postSuccessErr?.message || postSuccessErr,
+              );
+            }
+          })();
         })
         .catch(error => {
           console.error('[Upstox] connect-broker error:', error);
           setIsLoading(false);
-          showAlert('error', 'Connection Error', 'Failed to save Upstox connection. Please try again.');
+          const isHttpError = !!error?.response;
+          const rawMessage =
+            error.response?.data?.message ||
+            error.response?.data?.details ||
+            '';
+          let alertTitle = 'Connection Error';
+          let alertBody;
+          if (isHttpError) {
+            alertBody =
+              rawMessage || 'Failed to save Upstox connection. Please try again.';
+          } else {
+            alertTitle = 'Connection Issue';
+            alertBody =
+              'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+          }
+          showAlert('error', alertTitle, alertBody);
         });
     }
   };

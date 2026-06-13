@@ -154,11 +154,18 @@ const MPPerformanceScreen = ({ viewModel, actions, slots }) => {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Redesigned layout (2026-06-11): the header sits at its natural height
+          at the top, and the tab area fills the REMAINING space via flex.
+          Previously this was a <ScrollView contentContainerStyle={{flex:1}}>
+          (forces one non-scrolling viewport) wrapping a tabViewContainer with
+          height: ScreenHeight (full viewport) — which squeezed the header to a
+          ~0 sliver and pushed the back button off-screen. No nested ScrollView,
+          so no VirtualizedList-nesting warning either. */}
       <View style={{ flex: 1 }}>
-        <View style={{ flexDirection: 'column' }}>
+        <View style={{ flexDirection: 'column', flex: 1 }}>
           <View>
             <View>
-              <View style={styles.container}>
+              <View style={{ width: screenWidth }}>
                 <TouchableOpacity activeOpacity={1}>
                   <LinearGradient
                     colors={[gradient1, gradient2]}
@@ -468,7 +475,7 @@ const styles = StyleSheet.create({
   rebalanceLabel: { fontSize: 12, fontFamily: 'Poppins-Regular', color: '#FFFFFF' },
   rebalanceDate: { fontSize: 12, color: '#fff', fontFamily: 'Poppins-Regular' },
   rebalanceFrequency: { fontSize: 12, color: '#fff', fontFamily: 'Poppins-Regular' },
-  tabViewContainer: { flex: 1, height: ScreenHeight, width: screenWidth, paddingHorizontal: 0, marginTop: 10 },
+  tabViewContainer: { flex: 1, width: screenWidth, paddingHorizontal: 0, marginTop: 10 },
   bottomBar: { alignContent: 'center', alignItems: 'center', alignSelf: 'center', elevation: 20, shadowColor: 'grey' },
   bottomBarInner: { flexDirection: 'row', alignContent: 'center', alignItems: 'center', alignSelf: 'center' },
   investButton: { margin: 10, borderRadius: 5, flex: 1, height: 45, justifyContent: 'center', alignSelf: 'center' },

@@ -31,16 +31,7 @@ import {classifyFundsResponse} from '../../utils/brokerSessionValidator';
 import Toast from 'react-native-toast-message';
 import BrokerSelectionModal from '../BrokerSelectionModal';
 
-import ICICIUPModal from '../BrokerConnectionModal/icicimodal';
-import UpstoxModal from '../BrokerConnectionModal/upstoxModal';
-import AngleOneBookingModal from '../BrokerConnectionModal/AngleoneBookingModal';
-import ZerodhaConnectModal from '../BrokerConnectionModal/ZerodhaConnectModal';
-import HDFCconnectModal from '../BrokerConnectionModal/HDFCconnectModal';
-import DhanConnectModal from '../BrokerConnectionModal/DhanConnectModal';
-import KotakModal from '../BrokerConnectionModal/KotakModal';
-import IIFLModal from '../iiflmodal';
-import AliceBlueConnect from '../BrokerConnectionModal/AliceBlueConnect';
-import FyersConnect from '../BrokerConnectionModal/FyersConnect';
+import BrokerConnectModalDispatch from '../BrokerConnectionModal/BrokerConnectModalDispatch';
 import {useTrade} from '../../screens/TradeContext';
 import RebalanceModal from './RebalanceModal';
 import RecommendationSuccessModal from '../ModelPortfolioComponents/RecommendationSuccessModal';
@@ -74,6 +65,10 @@ const RebalanceAdvices = React.memo(({userEmail, orderscreen, type}) => {
     userDetails,
     getUserDeatils,
     configData,
+    modelPortfolioRepairTrades,
+    getModelPortfolioRepairTrades,
+    markSkipRepairForModelId,
+    shouldSkipRepairForModelId,
   } = useTrade();
 
   const clientCode = userDetails && userDetails.clientCode;
@@ -148,6 +143,12 @@ const RebalanceAdvices = React.memo(({userEmail, orderscreen, type}) => {
   const modelNames = modelPortfolioStrategy?.map(item => item?.model_name);
 
   const [OrderPlacementResponse, setOrderPlacementResponse] = useState(null);
+  // Outgoing trade list captured at submit time — used as the fallback
+  // source for `variant` lookups on the rebalance/MP lane (ccxt-india's
+  // rebalance/process-trade does not echo variant back). RebalanceModal
+  // sets this alongside the response. See utils/tradeVariant.js
+  // § resolveResultVariant + docs/APP_ARCHITECTURE.md § 4.5.2.
+  const [lastSubmittedTrades, setLastSubmittedTrades] = useState(null);
 
   const [tradeType, setTradeType] = useState({
     allSell: false,
@@ -155,46 +156,20 @@ const RebalanceAdvices = React.memo(({userEmail, orderscreen, type}) => {
     isMixed: false,
   });
 
-  const [modelPortfolioRepairTrades, setModelPortfolioRepairTrades] = useState(
-    [],
-  );
+  // modelPortfolioRepairTrades now sourced from TradeContext (auto-fetched
+  // alongside getModelPortfolioStrategyDetails). Local fetch / state removed
+  // 2026-05-11. The `getRebalanceRepair` shim below preserves the prop
+  // contract that downstream callers (RebalanceModal, DummyBrokerHoldingConfirmation)
+  // still use to refresh after a successful execution. See
+  // docs/MODEL_PORTFOLIO_ARCHITECTURE.md § 6g.
   const getRebalanceRepair = () => {
-    let repairData = JSON.stringify({
-      modelName: modelNames,
-      advisor: modelPortfolioStrategy[0]['advisor'],
-      userEmail: userEmail,
-      userBroker: broker,
-    });
-    let config2 = {
-      method: 'post',
-      url: `${server.ccxtServer.baseUrl}rebalance/get-repair`,
-
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-        'aq-encrypted-key': generateToken(
-          Config.REACT_APP_AQ_KEYS,
-          Config.REACT_APP_AQ_SECRET,
-        ),
-      },
-
-      data: repairData,
-    };
-    axios
-      .request(config2)
-      .then(response => {
-        setModelPortfolioRepairTrades(response.data.models);
-      })
-      .catch(error => {
-        console.log(error);
-      });
-  };
-  // console.log("Broker value being sent:", broker);
-  useEffect(() => {
-    if (modelPortfolioStrategy.length !== 0) {
-      getRebalanceRepair();
+    if (typeof getModelPortfolioRepairTrades === 'function') {
+      getModelPortfolioRepairTrades(modelPortfolioStrategy).catch(() => {});
     }
-  }, [modelPortfolioStrategy]);
+  };
+  // No-op setter — context owns the state now. Callsites that still call
+  // `setModelPortfolioRepairTrades(...)` (none today) would write to a void.
+  const setModelPortfolioRepairTrades = () => {};
 
   const zerodhaApiKey = configData?.config?.REACT_APP_ZERODHA_API_KEY;
   // zerodha start
@@ -256,12 +231,69 @@ const RebalanceAdvices = React.memo(({userEmail, orderscreen, type}) => {
 
     if (!latest) return null;
 
-    // Find execution for this user AND current broker
-    const userExecution = latest?.subscriberExecutions?.find(
-      execution =>
-        execution?.user_email === userEmail &&
-        (!broker || execution?.user_broker === broker),
+    // 3-tier execution matching (mirrors tidi RebalanceStatusService
+    // _matchExecution). Pre-2026-05-04 this was a single find() that
+    // required BOTH user_email AND user_broker to match — switching
+    // broker made the pending rebalance invisible.
+    //
+    //   Tier 1: exact (email + current broker)
+    //   Tier 2: DummyBroker fallback (markAsExecuted always writes
+    //           DummyBroker — covers users who executed before
+    //           connecting a real broker)
+    //   Tier 3: any email match (the entry exists but was written
+    //           with a different broker — still pending for this user)
+    //
+    // Special case: if Tier 1 finds a toExecute entry but Tier 2
+    // shows executed, use Tier 2 — the portfolio is already aligned
+    // from a prior DummyBroker execution.
+    const executions = (latest?.subscriberExecutions || []).filter(
+      e => e?.user_email === userEmail,
     );
+    let userExecution = null;
+    if (executions.length > 0) {
+      const brokerMatch = executions.find(e => e?.user_broker === broker);
+      const dummyMatch = executions.find(
+        e => e?.user_broker === 'DummyBroker',
+      );
+      const anyMatch = executions[0];
+
+      if (brokerMatch) {
+        // Tier 1 found — but check DummyBroker override
+        const bStatus = (brokerMatch.status || '').toLowerCase();
+        if (
+          (bStatus === 'toexecute' || bStatus === '') &&
+          dummyMatch &&
+          (dummyMatch.status || '').toLowerCase() === 'executed'
+        ) {
+          userExecution = dummyMatch;
+        } else {
+          userExecution = brokerMatch;
+        }
+      } else if (dummyMatch) {
+        // Tier 2
+        userExecution = dummyMatch;
+      } else {
+        // Tier 3 — entry exists but for a DIFFERENT real broker.
+        // Executed on broker A does NOT mean executed on broker B
+        // (different broker = different holdings/positions). So:
+        //   - If the other broker's status is "executed", treat
+        //     current broker as fresh toExecute (user needs to
+        //     rebalance on THIS broker too).
+        //   - If the other broker's status is "toExecute"/"pending"/
+        //     "partial", pass it through — the rebalance is pending
+        //     regardless of which broker it was written against.
+        const otherStatus = (anyMatch?.status || '').toLowerCase();
+        if (otherStatus === 'executed') {
+          userExecution = {
+            ...anyMatch,
+            status: 'toExecute',
+            user_broker: broker,
+          };
+        } else {
+          userExecution = anyMatch;
+        }
+      }
+    }
 
     return {userExecution, latest, matchingPortfolioItem};
   };
@@ -317,9 +349,9 @@ const RebalanceAdvices = React.memo(({userEmail, orderscreen, type}) => {
   const handleAcceptRebalanceWithoutBroker = async () => {
     console.log('Continue without broker - saving preference, then showing holdings (Step 2)');
     setStoreModalName(storeModalName);
+    setLoading(true);
 
     try {
-      // Step 1: Save no-broker preference (matching web connectBroker.js)
       await axios.put(
         `${server.ccxtServer.baseUrl}comms/no-broker-required/save`,
         {
@@ -338,14 +370,9 @@ const RebalanceAdvices = React.memo(({userEmail, orderscreen, type}) => {
         },
       );
 
-      // Step 2: Close broker modal, set non-broker flag
-      setBrokerModel(false);
       setSelectNonBroker(true);
-
-      // Step 3: Refresh user details so broker becomes DummyBroker
       await getUserDeatils();
-
-      // Step 4: Fetch current holdings and show MPStatusModal (matching web)
+      setBrokerModel(false);
       await fetchHoldingsAndShowStatus();
     } catch (error) {
       console.error('Continue without broker error:', error.message);
@@ -353,6 +380,8 @@ const RebalanceAdvices = React.memo(({userEmail, orderscreen, type}) => {
         console.error('Response:', error.response.status, error.response.data);
       }
       setBrokerModel(false);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -361,19 +390,18 @@ const RebalanceAdvices = React.memo(({userEmail, orderscreen, type}) => {
   const handleBrokerConnectedContinue = async () => {
     console.log('Broker connected - refreshing user, then showing holdings (Step 2)');
     setStoreModalName(storeModalName);
+    setLoading(true);
 
     try {
-      setBrokerModel(false);
-
-      // Refresh user details to pick up the newly connected broker
       await getUserDeatils();
       await getAllFunds();
-
-      // Fetch holdings and show MPStatusModal
+      setBrokerModel(false);
       await fetchHoldingsAndShowStatus();
     } catch (error) {
       console.error('Broker connected continue error:', error.message);
       setBrokerModel(false);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -713,10 +741,8 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
         visibilityTime: 4500,
         position: 'bottom',
       });
-      setLoading(false);
-      return;
     }
-    if (!_fundsPreflight.ok) {
+    if (!_fundsPreflight.ok && _fundsPreflight.reason !== 'TRANSIENT') {
       setOpenTokenExpireModel(true);
       setLoading(false);
     } else if ((matchingFailedTrades ? "repair" : null) && userExecution?.status !== "toExecute") {
@@ -979,6 +1005,7 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
           setBrokerModel={setBrokerModel}
           setOpenSucessModal={setOpenSucessModal}
           setOrderPlacementResponse={setOrderPlacementResponse}
+          setLastSubmittedTrades={setLastSubmittedTrades}
           modelPortfolioModelId={modelPortfolioModelId}
           setOpenTokenExpireModel={setOpenTokenExpireModel}
           modelPortfolioRepairTrades={modelPortfolioRepairTrades}
@@ -1009,11 +1036,21 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
           setOpenSucessModal={setOpenSucessModal}
           orderPlacementResponse={OrderPlacementResponse}
           currentBroker={broker}
+          // Fallback source for `variant` lookups on the rebalance/MP lane.
+          originalStockDetails={lastSubmittedTrades}
+          // 2026-05-07: model context required by the per-row "Mark
+          // as Placed" inline editor for FAILURE rows. Backend looks
+          // up the rebalanceHistory entry by modelId + userEmail.
+          userEmail={userEmail}
+          modelId={modelPortfolioModelId}
+          modelName={storeModalName}
+          uniqueId={calculatedPortfolioData?.uniqueId}
         />
       )}
 
       {showIIFLModal && (
-        <IIFLModal
+        <BrokerConnectModalDispatch
+          brokerName="IIFL"
           isVisible={showIIFLModal}
           onClose={() => setShowIIFLModal(false)}
           setShowBrokerModal={setOpenTokenExpireModel}
@@ -1022,18 +1059,19 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
       )}
 
       {showICICIUPModal && (
-        <ICICIUPModal
+        <BrokerConnectModalDispatch
+          brokerName="ICICI"
           isVisible={showICICIUPModal}
-          showICICIUPModal={showICICIUPModal}
-          setShowICICIUPModal={setShowICICIUPModal}
           onClose={() => setShowICICIUPModal(false)}
+          setShowICICIUPModal={setShowICICIUPModal}
           setShowBrokerModal={setOpenTokenExpireModel}
           fetchBrokerStatusModal={fetchBrokerStatusModal}
         />
       )}
 
       {showupstoxModal && (
-        <UpstoxModal
+        <BrokerConnectModalDispatch
+          brokerName="Upstox"
           isVisible={showupstoxModal}
           onClose={() => setShowupstoxModal(false)}
           setShowupstoxModal={setShowupstoxModal}
@@ -1043,7 +1081,8 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
       )}
 
       {showangleoneModal && (
-        <AngleOneBookingModal
+        <BrokerConnectModalDispatch
+          brokerName="Angel One"
           isVisible={showangleoneModal}
           onClose={() => setShowangleoneModal(false)}
           setShowangleoneModal={setShowangleoneModal}
@@ -1053,7 +1092,8 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
       )}
 
       {showzerodhamodal && (
-        <ZerodhaConnectModal
+        <BrokerConnectModalDispatch
+          brokerName="Zerodha"
           isVisible={showzerodhamodal}
           onClose={() => setShowzerodhaModal(false)}
           setShowzerodhaModal={setShowzerodhaModal}
@@ -1063,7 +1103,8 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
       )}
 
       {showhdfcModal && (
-        <HDFCconnectModal
+        <BrokerConnectModalDispatch
+          brokerName="HDFC"
           isVisible={showhdfcModal}
           onClose={() => setShowhdfcModal(false)}
           setShowhdfcModal={setShowhdfcModal}
@@ -1073,7 +1114,8 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
       )}
 
       {showDhanModal && (
-        <DhanConnectModal
+        <BrokerConnectModalDispatch
+          brokerName="Dhan"
           isVisible={showDhanModal}
           onClose={() => setShowDhanModal(false)}
           setShowDhanModal={setShowDhanModal}
@@ -1083,29 +1125,30 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
       )}
 
       {showAliceblueModal && (
-        <AliceBlueConnect
+        <BrokerConnectModalDispatch
+          brokerName="AliceBlue"
           isVisible={showAliceblueModal}
-          showAliceblueModal={showAliceblueModal}
-          setShowAliceblueModal={setShowAliceblueModal}
           onClose={() => setShowAliceblueModal(false)}
+          setShowAliceblueModal={setShowAliceblueModal}
           setShowBrokerModal={setOpenTokenExpireModel}
           fetchBrokerStatusModal={fetchBrokerStatusModal}
         />
       )}
 
       {showFyersModal && (
-        <FyersConnect
+        <BrokerConnectModalDispatch
+          brokerName="Fyers"
           isVisible={showFyersModal}
-          showFyersModal={showFyersModal}
-          setShowFyersModal={setShowFyersModal}
           onClose={() => setShowFyersModal(false)}
+          setShowFyersModal={setShowFyersModal}
           setShowBrokerModal={setOpenTokenExpireModel}
           fetchBrokerStatusModal={fetchBrokerStatusModal}
         />
       )}
 
       {showKotakModal && (
-        <KotakModal
+        <BrokerConnectModalDispatch
+          brokerName="Kotak"
           isVisible={showKotakModal}
           onClose={() => setShowKotakModal(false)}
           setShowKotakModal={setShowKotakModal}

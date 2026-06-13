@@ -24,6 +24,11 @@ import Toast from 'react-native-toast-message';
 import eventEmitter from '../EventEmitter';
 import {useTrade} from '../../screens/TradeContext';
 import CrossPlatformOverlay from '../CrossPlatformOverlay';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 const AxisConnectModal = ({
   isVisible,
@@ -31,6 +36,7 @@ const AxisConnectModal = ({
   fetchBrokerStatusModal,
 }) => {
   const {configData} = useTrade();
+  const sdkBridge = useSdkBridge();
   const auth = getAuth();
   const userEmail = auth.currentUser?.email;
   const [userDetails, setUserDetails] = useState(null);
@@ -69,18 +75,35 @@ const AxisConnectModal = ({
   };
 
   // Must be the per-advisor URL registered with Axis SSO (same URL
-  // web uses — Axis's `ssoId` callback lands there). No `.env`
-  // fallback: the bundled `app-links.alphaquark.in/broker-callback`
-  // default is NOT registered in any advisor's Axis SSO config, so
-  // sending it silently fails. Empty → `handleAxisLogin` shows the
-  // "Failed to get login URL from Axis Securities" toast instead of
-  // hitting Axis with a bad redirectUrl.
+  // web uses — Axis's `ssoId` callback lands there). Resolution order:
+  //   1. Per-advisor backend override (configData.config) — authoritative.
+  //   2. .env REACT_APP_BROKER_CONNECT_REDIRECT_URL — current default
+  //      `https://prod.alphaquark.in/stock-recommendation` matches the
+  //      legacy callback URL all OAuth brokers use, including Axis SSO
+  //      registration for the platform advisors. This fallback was
+  //      previously omitted because the env briefly held
+  //      `app-links.alphaquark.in/broker-callback` (commit f9f5d0f
+  //      Groww App Links) which was NOT registered with Axis SSO.
+  //      Reverted to the canonical URL on 2026-04-23, so the env
+  //      fallback is now safe.
   const brokerConnectRedirectURL =
-    configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL || '';
+    configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL ||
+    Config.REACT_APP_BROKER_CONNECT_REDIRECT_URL ||
+    '';
 
   const handleAxisLogin = async () => {
     setLoading(true);
     try {
+      if (!brokerConnectRedirectURL) {
+        Toast.show({
+          type: 'error',
+          text1: 'Axis redirect URL not configured',
+          text2:
+            'No REACT_APP_BROKER_CONNECT_REDIRECT_URL — contact support.',
+          visibilityTime: 6000,
+        });
+        return;
+      }
       const response = await axios.post(
         `${server.ccxtServer.baseUrl}axis/login-url`,
         {redirectUrl: brokerConnectRedirectURL},
@@ -92,18 +115,45 @@ const AxisConnectModal = ({
         setLoginUrl(url);
         setShowWebView(true);
       } else {
+        // Surface the actual upstream error if present. ccxt-india's
+        // /axis/login-url returns 200 with `{error, status}` for some
+        // failure modes (e.g. Axis env mismatch).
+        const upstreamMsg =
+          response.data?.error ||
+          response.data?.message ||
+          'Empty redirect URL from Axis backend';
         Toast.show({
           type: 'error',
           text1: 'Failed to get login URL from Axis Securities',
-          visibilityTime: 5000,
+          text2: String(upstreamMsg),
+          visibilityTime: 6000,
         });
       }
     } catch (error) {
+      // Surface the actual error body so user (and we) can diagnose
+      // whether it's redirectUrl validation (400), Axis SSO backend
+      // failure (500), or network. Previously the toast was just
+      // "Failed to initiate Axis login. Please try again." which
+      // hides whether the redirectUrl was wrong or whether it was an
+      // upstream Axis bug.
       console.error('Axis login-url error:', error);
+      const status = error?.response?.status;
+      const body = error?.response?.data;
+      const upstreamMsg =
+        body?.error || body?.message || error?.message || 'Network or app error';
+      let text1 = 'Failed to initiate Axis login';
+      if (status === 400) {
+        text1 = 'Axis Securities — invalid redirect URL';
+      } else if (status === 500 || status === 502) {
+        text1 = 'Axis Securities upstream error';
+      } else if (!status) {
+        text1 = 'Connection Issue';
+      }
       Toast.show({
         type: 'error',
-        text1: 'Failed to initiate Axis login. Please try again.',
-        visibilityTime: 5000,
+        text1,
+        text2: status ? `${status}: ${upstreamMsg}` : String(upstreamMsg),
+        visibilityTime: 6000,
       });
     } finally {
       setLoading(false);
@@ -182,8 +232,73 @@ const AxisConnectModal = ({
       if (!data || typeof data !== 'object') {
         throw new Error('Invalid response from Axis Securities');
       }
-      const authToken = data.authToken?.token || data.authToken || data.token;
-      const refreshToken = data.refreshToken?.token || data.refreshToken || '';
+      // Upstream error envelope detection. Axis SSO returns a 200 with
+      // an `error: {code, error, stackTrace}` body when the backend
+      // rejects the request (observed live: code 1083 / "failed to
+      // type cast user id" from sso/model.go:326). Without this guard,
+      // the next block reports "Missing auth token from Axis SSO
+      // response" — accurate but misleading; the actual cause is the
+      // upstream rejection. Surface that to the user so they (and
+      // support) know to investigate ccxt-india's /axis/callback or
+      // Axis's SSO service rather than retrying client-side.
+      if (data.error && typeof data.error === 'object') {
+        const upstreamCode = data.error.code || 'unknown';
+        const upstreamMsg = data.error.error || data.error.message || 'Upstream rejected the request';
+        throw new Error(
+          `Axis Securities SSO error ${upstreamCode}: ${upstreamMsg}`,
+        );
+      }
+      // Axis returns the auth token under a wider set of paths than
+      // we initially captured — re-auth in particular can wrap it
+      // inside a `tokens` / `metadata` / `result` envelope. Walk all
+      // known shapes before giving up. If none match, log the
+      // top-level keys + truncated response so we can grow this
+      // fallback list when a new shape surfaces.
+      const authToken =
+        data.authToken?.token ||
+        data.authToken ||
+        data.token ||
+        data.access_token ||
+        data.accessToken ||
+        data.tokens?.authToken?.token ||
+        data.tokens?.authToken ||
+        data.tokens?.access_token ||
+        data.metadata?.authToken?.token ||
+        data.metadata?.authToken ||
+        data.metadata?.tokens?.authToken ||
+        data.result?.authToken?.token ||
+        data.result?.authToken ||
+        data.result?.token;
+      const refreshToken =
+        data.refreshToken?.token ||
+        data.refreshToken ||
+        data.refresh_token ||
+        data.tokens?.refreshToken?.token ||
+        data.tokens?.refreshToken ||
+        data.tokens?.refresh_token ||
+        data.metadata?.refreshToken?.token ||
+        data.metadata?.refreshToken ||
+        data.result?.refreshToken?.token ||
+        data.result?.refreshToken ||
+        '';
+      if (!authToken) {
+        // Diagnostic — surface what the response actually looked like
+        // so we can extend the fallback list above.
+        const preview = (() => {
+          try {
+            const s = JSON.stringify(data);
+            return s.length > 600 ? s.slice(0, 600) + '…' : s;
+          } catch {
+            return '[unstringifiable]';
+          }
+        })();
+        console.warn(
+          '[Axis] callback response missing authToken. Top-level keys:',
+          Object.keys(data || {}),
+          'preview:',
+          preview,
+        );
+      }
       // Re-auth path for returning users: Axis sometimes omits the
       // accounts[] array entirely because the subAccountId is
       // invariant across re-auths. Fall back to (a) top-level
@@ -223,18 +338,28 @@ const AxisConnectModal = ({
             existingAxisCode ? 'existing' : 'unknown'),
       );
 
+      const axisBrokerData = {
+        uid: userId,
+        user_broker: 'Axis Securities',
+        clientCode: subAccountId,
+        jwtToken: authToken,
+        secretKey: refreshToken,
+      };
       // Save broker connection
       await axios.put(
         `${server.server.baseUrl}api/user/connect-broker`,
-        {
-          uid: userId,
-          user_broker: 'Axis Securities',
-          clientCode: subAccountId,
-          jwtToken: authToken,
-          secretKey: refreshToken,
-        },
+        axisBrokerData,
         {headers: requestHeaders},
       );
+
+      // SDK pilot dual-write — see brokerSdkBridge.js.
+      if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+        sdkDualWriteSafely(
+          sdkConnectBroker(sdkBridge.client, 'Axis Securities', axisBrokerData),
+          'Axis Securities',
+          'connect',
+        );
+      }
 
       // Update model portfolio broker (non-critical)
       try {
@@ -247,22 +372,61 @@ const AxisConnectModal = ({
         console.warn('Model portfolio broker update failed:', mpErr);
       }
 
-      Toast.show({
-        type: 'success',
-        text1: 'Axis Securities connected successfully!',
-        visibilityTime: 3000,
-      });
-
-      fetchBrokerStatusModal?.();
-      eventEmitter.emit('refreshEvent', {source: 'Axis broker connection'});
       onClose();
+      // Wrap post-success steps so a downstream throw doesn't bubble to
+      // the outer catch and surface as "Failed to connect Axis
+      // Securities". See KotakModal.js (commit 172767d) and
+      // BROKER_CONNECTION.md § Broker-connect post-success hygiene.
+      try {
+        Toast.show({
+          type: 'success',
+          text1: 'Axis Securities connected successfully!',
+          visibilityTime: 3000,
+        });
+
+        await fetchBrokerStatusModal?.();
+        eventEmitter.emit('refreshEvent', {source: 'Axis broker connection'});
+      } catch (postSuccessErr) {
+        console.warn(
+          '[Axis Securities] post-success step threw (connection IS saved DB-side):',
+          postSuccessErr?.message || postSuccessErr,
+        );
+      }
     } catch (error) {
       console.error('Axis callback error:', error);
+      // Preserve Axis's existing 1083-envelope handling (the throw above
+      // already carries the upstream code/message in error.message).
+      // For HTTP errors, prefer the structured upstream body that
+      // ccxt-india's /axis/callback returns (502 + {error, upstream:
+      // {code, message}, status}) per ccxt commit c66e0daa.
+      const isHttpError = !!error?.response;
+      const body = error?.response?.data;
+      const upstreamCode = body?.upstream?.code;
+      const upstreamUpMsg = body?.upstream?.message;
+      const bodyError = body?.error || body?.message;
+      // Compose the most informative message we can.
+      const upstreamMsg = upstreamCode
+        ? `Axis SSO error ${upstreamCode}: ${upstreamUpMsg || bodyError}`
+        : bodyError || error.message;
+      let text1 = 'Failed to connect Axis Securities';
+      let text2 = upstreamMsg;
+      if (!isHttpError && !/Axis Securities SSO error/.test(error.message || '')) {
+        text1 = 'Connection Issue';
+        text2 =
+          'Network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+      } else if (upstreamCode === '1083') {
+        // Documented Axis upstream bug. Tell the user this is on
+        // Axis's side (sso/model.go:326 type-cast bug) — retrying
+        // won't help; needs Axis support contact.
+        text1 = 'Axis Securities — temporary SSO issue';
+        text2 =
+          `Axis SSO returned error ${upstreamCode}. Their server is rejecting the SSO ID — please retry in a few minutes or contact support.`;
+      }
       Toast.show({
         type: 'error',
-        text1: 'Failed to connect Axis Securities',
-        text2: error?.response?.data?.message || error.message,
-        visibilityTime: 5000,
+        text1,
+        text2,
+        visibilityTime: 6000,
       });
     } finally {
       setLoading(false);

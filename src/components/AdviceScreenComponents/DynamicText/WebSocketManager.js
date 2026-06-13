@@ -13,6 +13,7 @@ const WebSocketManager = (() => {
   let configData = null;
   let userEmail = null;
   let connectingPromise = null; // Guard against concurrent connect() calls
+  let connectResolve = null;   // Stored so connect_error can resolve stale Promise
 
   const baseWsUrl = server.websocket.baseUrl;
 
@@ -51,6 +52,7 @@ const WebSocketManager = (() => {
             if (connectingPromise) return connectingPromise;
 
             connectingPromise = new Promise((resolve) => {
+              connectResolve = resolve;
               // Clean up any stale socket before creating a new one
               if (socket) {
                 try { socket.removeAllListeners(); socket.disconnect(); } catch(e) {}
@@ -75,13 +77,21 @@ const WebSocketManager = (() => {
 
                 setTimeout(() => {
                   connectingPromise = null;
-                  resolve();
+                  const r = connectResolve;
+                  connectResolve = null;
+                  if (r) r();
                 }, 200);
               });
 
               socket.on("connect_error", () => {
-                // Allow next connect() call to retry
+                // Resolve stale Promise so any awaiting subscribeToAllSymbols
+                // callers unblock and can still POST to subscribe-array (HTTP,
+                // not socket-dependent). They'll be picked up by resubscribeAll
+                // on the next successful reconnect.
                 connectingPromise = null;
+                const r = connectResolve;
+                connectResolve = null;
+                if (r) r();
               });
 
               socket.on("ltp_update", (data) => {
@@ -154,6 +164,9 @@ const WebSocketManager = (() => {
             }
 
             if (!subscribedSymbols.has(symbol)) {
+              // Track immediately so resubscribeAll() picks this up on any
+              // reconnect even if the subscribe-array POST below hasn't fired yet.
+              subscribedSymbols.set(symbol, exchange);
               this.subscribeToAllSymbols([{ symbol, exchange }]);
             }
           },

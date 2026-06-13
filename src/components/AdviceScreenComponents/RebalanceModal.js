@@ -558,21 +558,38 @@ const RebalanceModal = ({
 
   const rawStockDetails = convertResponse(dataArray, broker);
 
-  // Filter out SELL actions for stocks not in user's holdings (matching web heldSymbols filter)
+  // SELLs in the rebalance response are already netted by the backend against
+  // the user's actual holdings (resultant_of_net_and_holding), so any SELL the
+  // backend emits is a real exit of a held position. The previous client-side
+  // filter required an EXACT match on the FULL symbol (incl. -EQ/-BE/-SM
+  // suffix), which SILENTLY dropped a SELL whenever the held symbol's
+  // exchange-series suffix differed (e.g. holdings stored as "GTLINFRA-EQ" vs
+  // a post-series-migration "GTLINFRA-BE" sell). Silently hiding an exit is
+  // the worst failure mode — the backend still executes the SELL, but the
+  // user never reviews it. We now keep ALL backend SELLs and only LOG (never
+  // drop) when a sell's BASE symbol isn't found in holdings, for
+  // observability. Ported from web parity commit 344b7766.
   const stockDetails = (() => {
     const userHoldings = calculatedPortfolioData?.userHoldings || calculatedPortfolioData?.user_net_pf_model;
     if (!Array.isArray(userHoldings) || userHoldings.length === 0) return rawStockDetails;
-    const heldSymbols = new Set();
+    const baseSym = (s) => (s || '').toUpperCase().split('-')[0];
+    const heldBaseSymbols = new Set();
     userHoldings.forEach(h => {
       const sym = h?.symbol || h?.tradingSymbol || '';
       const qty = h?.quantity || h?.qty || 0;
-      if (sym && qty > 0) heldSymbols.add(sym.toUpperCase());
+      if (sym && qty > 0) heldBaseSymbols.add(baseSym(sym));
     });
-    if (heldSymbols.size === 0) return rawStockDetails;
-    return rawStockDetails.filter(item => {
-      if ((item.transactionType || '').toUpperCase() !== 'SELL') return true;
-      return heldSymbols.has((item.tradingSymbol || item.symbol || '').toUpperCase());
+    if (heldBaseSymbols.size === 0) return rawStockDetails;
+    rawStockDetails.forEach(item => {
+      if ((item.transactionType || '').toUpperCase() !== 'SELL') return;
+      const sym = item.tradingSymbol || item.symbol || '';
+      if (!heldBaseSymbols.has(baseSym(sym))) {
+        console.warn(
+          `[RebalanceModal] SELL ${sym} not matched in current holdings (base-symbol) — showing anyway; backend nets sells against holdings.`,
+        );
+      }
     });
+    return rawStockDetails;
   })();
 
   // --- Zerodha Publisher Flow Functions ---
@@ -2961,6 +2978,10 @@ const styles = StyleSheet.create({
   modalContainer: {
     backgroundColor: '#fff',
     maxHeight: screenHeight,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
     elevation: 5,
     flex: 1,
   },

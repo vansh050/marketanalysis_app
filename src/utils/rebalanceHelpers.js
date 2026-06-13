@@ -179,6 +179,63 @@ export function isLowAllowedBalanceError(message) {
 }
 
 /**
+ * Classify a single rejected order row as "cautionary listing" — NSE GSM,
+ * cautionary-listing restriction, similar message texts. NARROWER than the
+ * backend's `classification: 'RESTRICTED_SCRIP'` umbrella; cautionary
+ * listing has user-facing guidance specific to the cautionary phrasing
+ * (place via broker app manually). Other restricted-scrip categories
+ * (Motilal 100073, illiquidity, ASM/T2T) need different user guidance.
+ *
+ * Used by:
+ *   - RecommendationSuccessModal banner classifier (post-execution).
+ *   - RebalanceCard / repair-mode rows (pre-execution warning chip).
+ *
+ * @param {Object} item - One result row with orderStatusMessage / message_aq / message
+ * @returns {boolean}
+ */
+export function isCautionaryListingMessage(item) {
+  if (!item) return false;
+  const message = (
+    item?.orderStatusMessage ||
+    item?.message_aq ||
+    item?.message ||
+    ''
+  ).toLowerCase();
+  return message.includes('cautionary') && message.includes('listing');
+}
+
+/**
+ * Classify a single rejected order row as "insufficient funds".
+ *
+ * Prefer the backend `classification: 'LOW_FUNDS'` envelope (ccxt-india
+ * message_map.py ships this for Angel One AB4036 / Axis ERR_NO_3_IN_1
+ * with shortFallFlag=BUY_FUND / broker-specific shortfall variants).
+ * Fall back to message-text matching for older backend deploys or
+ * broker paths that bypass the classifier.
+ *
+ * Phrasings observed:
+ *   Angel One    — "rejected due to Insufficient Funds. Available funds - Rs. X . You require Rs. Y"
+ *   Zerodha      — "Insufficient margin"
+ *   Upstox/Fyers — "Insufficient balance"
+ *
+ * @param {Object} item - One result row
+ * @returns {boolean}
+ */
+export function isInsufficientFundsMessage(item) {
+  if (!item) return false;
+  if (item?.classification === 'LOW_FUNDS') return true;
+  const msg = (
+    item?.orderStatusMessage || item?.message_aq || item?.message || ''
+  ).toLowerCase();
+  return (
+    msg.includes('insufficient fund') ||
+    msg.includes('low fund') ||
+    msg.includes('insufficient margin') ||
+    msg.includes('insufficient balance')
+  );
+}
+
+/**
  * Check if an error message indicates portfolio value is below subscription
  * amount ("less than required minimum"). This is a WARNING, not a blocker —
  * the backend may still return buy/sell trades with the available amount.
@@ -334,6 +391,29 @@ export function buildBrokerPayloadFields(
     case 'Axis Securities':
       return {
         accessToken: credentials.jwtToken,
+      };
+
+    case 'Arihant Capital':
+      // Arihant TradeBridge — apiKey is the appId (encrypted at rest);
+      // accessToken is the verify-otp Bearer; userId = Arihant userId
+      // stored in clientCode. Parity with web rebalanceHelpers.js § 389.
+      return {
+        apiKey: decrypt(credentials.apiKey),
+        accessToken: credentials.jwtToken,
+        userId: credentials.clientCode,
+      };
+
+    case 'DefinEdge Securities':
+      // DefinEdge INTEGRATE — apiKey = api_token (encrypted at rest);
+      // secretKey = api_secret (encrypted at rest); jwtToken =
+      // api_session_key (raw, NOT Bearer); clientCode = actid (UCC).
+      // Parity with web rebalanceHelpers.js § 399.
+      return {
+        apiKey: decrypt(credentials.apiKey),
+        apiSecret: decrypt(credentials.secretKey),
+        apiSessionKey: credentials.jwtToken,
+        accessToken: credentials.jwtToken,
+        actid: credentials.clientCode,
       };
 
     default:

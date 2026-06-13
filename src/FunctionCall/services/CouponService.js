@@ -38,11 +38,54 @@ class CouponService {
       params: { couponCode, planId, amount },
       headers: getPublicHeaders(),
     });
-    if (!res.data?.success) {
-      throw new Error(res.data?.message || 'Coupon invalid');
+    const data = res.data || {};
+    // Response-shape tolerance (web-parity P4): different coupon backends flag
+    // success as `success` / `valid` / presence of a coupon object. Treat any of
+    // them as valid so a working coupon isn't rejected on a field-name mismatch.
+    const ok =
+      data.success === true ||
+      data.valid === true ||
+      Boolean(data.coupon || data.couponData || data.discount_type);
+    if (!ok) {
+      throw new Error(data.message || 'Coupon invalid');
     }
-    return res.data;
+    // Normalize the discount → finalAmount defensively. This is the fix for the
+    // web "30%-coupon was charging ₹0" leak: never let a percentage coupon collapse
+    // the charge to 0 because a flat-amount field was missing. The caller then runs
+    // validateChargeableAmount(finalAmount) before the gateway.
+    const normalized = normalizeDiscount(data, amount);
+    return { ...data, ...normalized };
   }
+}
+
+// Compute { discountAmount, finalAmount } from whatever discount shape the server
+// returns (percentage vs flat, varied field names), clamped to [0, base].
+function normalizeDiscount(data, baseAmount) {
+  const base = Number(baseAmount) || 0;
+  const type = String(
+    data.discount_type || data.coupon_discount_type || data.type || '',
+  ).toLowerCase();
+  const value = Number(
+    data.discount_value ?? data.coupon_discount_value ?? data.value ?? 0,
+  );
+  // Prefer an explicit server-computed final/discount if present and sane.
+  const serverFinal = Number(
+    data.final_amount ?? data.finalAmount ?? data.payable_amount ?? NaN,
+  );
+  let discountAmount;
+  if (type.includes('percent') || type === '%') {
+    discountAmount = (base * value) / 100;
+  } else if (value > 0) {
+    discountAmount = value; // flat
+  } else {
+    discountAmount = base - (Number.isNaN(serverFinal) ? base : serverFinal);
+  }
+  discountAmount = Math.max(0, Math.min(base, Number(discountAmount) || 0));
+  let finalAmount = Number.isNaN(serverFinal)
+    ? base - discountAmount
+    : serverFinal;
+  finalAmount = Math.max(0, finalAmount);
+  return { discountAmount, finalAmount };
 }
 
 export default new CouponService();

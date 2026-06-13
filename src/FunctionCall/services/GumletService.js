@@ -80,6 +80,27 @@ class GumletService {
     );
     return res.data;
   }
+
+  /**
+   * Returns the caller's enrollment row in a specific course (or null
+   * if not enrolled). Server contract:
+   *   200 → { success: true, data: { course: { startDate, endDate, ... }, modules, ... } }
+   *   404 → enrollment row not found (caller is NOT enrolled).
+   * Header-only — no Firebase Bearer required. Mirrors web's
+   * `GumletService.getClientCourseDetails(userEmail, courseId)` exactly.
+   *
+   * Used by CourseDetailScreen to flip the "Get free access" / "Enroll now"
+   * CTA to "Purchased" once the user has an active enrollment — without
+   * this query the button stays in the un-purchased state forever, even
+   * after a successful free-enroll write.
+   */
+  async getClientCourseDetails(userEmail, courseId) {
+    const res = await axios.get(`${BASE}/client-course/details`, {
+      headers: getPublicHeaders(),
+      params: { userEmail, courseId },
+    });
+    return res.data;
+  }
 }
 
 export default new GumletService();

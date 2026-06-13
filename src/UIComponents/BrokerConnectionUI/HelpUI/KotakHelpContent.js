@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, ScrollView, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
 import Config from 'react-native-config';
 import YoutubePlayer from "react-native-youtube-iframe";
 import LinkifiedUrl from './LinkifiedUrl';
@@ -13,7 +13,7 @@ const KotakHelpContent = ({ expanded, onExpandChange }) => {
 
   return (
     <View>
-      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 20 }}>
+      <View style={[styles.container, { paddingBottom: 20 }]}>
         <View style={styles.videoBox}>
           <YoutubePlayer
             height={screenHeight * 0.24}
@@ -23,9 +23,17 @@ const KotakHelpContent = ({ expanded, onExpandChange }) => {
           />
         </View>
         <Text style={styles.title}>Steps to Obtain API Credentials for Kotak Neo:</Text>
+
+        <Text style={styles.overview}>
+          One-time setup. Steps 1–3 happen on Kotak's website; Step 4 is back
+          here in this app. Heads up: in Step 1 Kotak emails your API-portal
+          login — it can take up to 30 minutes, so you may need to pause and
+          come back once it arrives.
+        </Text>
+
         <View style={styles.content}>
 
-          <Text style={styles.instruction}>Step 1: Getting NEO trade API access</Text>
+          <Text style={styles.stepHeader}>Step 1: Get Neo Trade API access</Text>
 
           {/* Substep i */}
           <Text style={styles.instruction1}>
@@ -47,7 +55,13 @@ const KotakHelpContent = ({ expanded, onExpandChange }) => {
           <>
           
           <Text style={styles.instruction1}>
-            Login with your mobile number and register for Kotak Neo Trade API. Enter your Client ID, email, and contact number, then click "Submit." You'll receive your User ID, password, and Neo Finkey via email within 30 minutes.
+            Login with your mobile number and register for Kotak Neo Trade API. Enter your Client ID, email, and contact number, then click "Submit."
+          </Text>
+
+          <Text style={styles.checkpoint}>
+            ⏳ Now wait for Kotak's email — it contains your User ID, password,
+            and Neo Finkey (arrives within ~30 min). You need it for Step 2, so
+            pause here until it's in your inbox.
           </Text>
 
           {/* Substep iii */}
@@ -60,7 +74,7 @@ const KotakHelpContent = ({ expanded, onExpandChange }) => {
           </View>
 
           {/* STEP 2 */}
-          <Text style={styles.instruction}>Step 2: Setting API access - Getting consumer key and consumer secret keys</Text>
+          <Text style={styles.stepHeader}>Step 2: Get your Consumer Key & Secret</Text>
 
           <Text style={styles.instruction1}>
             (i) Log In to the Kotak API Portal:
@@ -87,7 +101,7 @@ const KotakHelpContent = ({ expanded, onExpandChange }) => {
           </Text>
 
           {/* STEP 3 */}
-          <Text style={styles.instruction}>Step 3: TOTP Registration</Text>
+          <Text style={styles.stepHeader}>Step 3: Register TOTP (Authenticator)</Text>
 
           <Text style={styles.instruction1}>
             (i) Go to:
@@ -102,19 +116,15 @@ const KotakHelpContent = ({ expanded, onExpandChange }) => {
           </Text>
 
           {/* STEP 4 */}
-          <Text style={styles.instruction}>Step 4: Linking account to Kotak NEO Apis</Text>
+          <Text style={styles.stepHeader}>Step 4: Link your account (back in this app)</Text>
 
           <Text style={styles.instruction1}>
-            (i) Go to broker settings in your app, select Kotak, and input Unique Client Code, Consumer Key & Secret obtained earlier, and your MPIN.
-          </Text>
-
-          <Text style={styles.instruction1}>
-            (ii) You'll need to provide TOTP from Authenticator app while linking.
+            Return to this screen and fill the fields below: your Unique Client Code (UCC), the Consumer Key & Secret from Step 2, your MPIN, and the current TOTP from your Authenticator app (Step 3). Then tap Connect.
           </Text>
           </>
         )}
 
-      </ScrollView>
+      </View>
 
     </View>
 
@@ -136,6 +146,16 @@ const styles = StyleSheet.create({
     color: "#222",
     marginBottom: 9,
   },
+  overview: {
+    fontSize: 12,
+    color: "#374151",
+    lineHeight: 18,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 12,
+    fontFamily: 'Poppins-Regular',
+  },
   instruction1: {
     fontSize: 12,
     color: "black",
@@ -146,6 +166,29 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#222",
     marginBottom: 8,
+  },
+  // Distinct, scannable step header — bug-80: the old `instruction` style
+  // (14px, same dark grey as body) made the 4 step headers blend into the
+  // sub-steps, so the long Kotak guide read as an undifferentiated wall.
+  stepHeader: {
+    fontSize: 15,
+    fontFamily: 'Poppins-SemiBold',
+    fontWeight: '700',
+    color: "#0F3D8C",
+    marginTop: 16,
+    marginBottom: 6,
+  },
+  checkpoint: {
+    fontSize: 12,
+    color: "#92400E",
+    lineHeight: 18,
+    backgroundColor: "#FFFBEB",
+    borderColor: "#FDE68A",
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginVertical: 6,
+    fontFamily: 'Poppins-Regular',
   },
   link: {
     color: "#1890FF",

@@ -34,3 +34,20 @@ export async function getAuthedHeaders() {
     Authorization: `Bearer ${idToken}`,
   };
 }
+
+// Soft-auth variant — attaches a Firebase Bearer when the caller is
+// signed in, falls through to the public header pair otherwise. Used by
+// /webinars/:lessonId/purchase and /webinars/purchase-status/:orderId,
+// which require Bearer + caller.email == body.userEmail as of backend
+// commit c8512b9 (2026-05-30).
+export async function getOptionalAuthHeaders() {
+  const headers = getPublicHeaders();
+  try {
+    const user = getAuth().currentUser;
+    if (user) {
+      const idToken = await user.getIdToken(false);
+      headers.Authorization = `Bearer ${idToken}`;
+    }
+  } catch (_) { /* anonymous fallback */ }
+  return headers;
+}

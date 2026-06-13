@@ -44,21 +44,66 @@ const ModifyInvestment = ({
     const [totalAmount, setTotalAmount] = useState(0);
     const hasFetchedSubscriptionData = useRef(false);
     const [subscriptionAmount, setSubscriptionAmount] = useState(null);
+    const [pnlData, setPnlData] = useState(null);
+    const [pnlLoading, setPnlLoading] = useState(false);
+    const [includePnl, setIncludePnl] = useState(false);
+
     useEffect(() => {
       setPortfolioAmount(amount);
       console.log("User Broker:", strategyDetails);
     }, [amount]);
+
+    useEffect(() => {
+      if (modifyInvestmentModal && strategyDetails?.model_name) {
+        setPnlLoading(true);
+        axios.get(
+          `${server.ccxtServer.baseUrl}rebalance/user-portfolio/latest/${encodeURIComponent(userEmail)}/${encodeURIComponent(strategyDetails.model_name)}`,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+              'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+            },
+          }
+        ).then(resp => {
+          const data = resp.data?.data;
+          if (data) {
+            const netPf = data.user_net_pf_model;
+            const latest = Array.isArray(netPf) && netPf.length > 0 ? netPf[netPf.length - 1] : null;
+            const invested = parseFloat(latest?.subscriptionAmount || amount || 0);
+            const holdings = latest?.stocks || [];
+            const currentVal = holdings.reduce((sum, h) => {
+              return sum + (parseFloat(h.qty || 0) * parseFloat(h.ltp || h.lastLtp || h.price || 0));
+            }, 0);
+            const grossPnl = currentVal - invested;
+            const tradeCount = holdings.length * 2;
+            const estCosts = tradeCount > 0
+              ? (tradeCount * 20) + (currentVal * 0.001) + (currentVal * 0.0000297) + (tradeCount * 20 * 0.18)
+              : 0;
+            setPnlData({
+              invested: Math.round(invested * 100) / 100,
+              currentValue: Math.round(currentVal * 100) / 100,
+              grossPnl: Math.round(grossPnl * 100) / 100,
+              estimatedCosts: Math.round(estCosts * 100) / 100,
+              netPnl: Math.round((grossPnl - estCosts) * 100) / 100,
+            });
+          }
+        }).catch(() => setPnlData(null))
+        .finally(() => setPnlLoading(false));
+      }
+    }, [modifyInvestmentModal, strategyDetails?.model_name]);
   
 
 
     const modifyInvestmentModalPortfolio = () => {
       setSubscriptionAmountLoading(true);
-      const submitAmount = selectedOption === "topup" ? totalAmount : Number(portfolioAmount);
+      const pnlAdjustment = includePnl && pnlData ? pnlData.netPnl : 0;
+      const submitAmount = (selectedOption === "topup" ? totalAmount : Number(portfolioAmount)) + pnlAdjustment;
 
       let data2 = JSON.stringify({
         userEmail: userEmail,
         model: strategyDetails?.model_name,
-        advisor: strategyDetails?.advisor,
+        advisor: configData?.config?.REACT_APP_HEADER_NAME,
         model_id: latestRebalance.model_Id,
         userBroker: userBroker ? userBroker : "DummyBroker",
         subscriptionAmountRaw: [
@@ -292,10 +337,40 @@ const ModifyInvestment = ({
             <Text style={styles.detailValue}>₹{amount}</Text>
           </View>
 
+          {/* PnL Display */}
+          {pnlLoading ? (
+            <ActivityIndicator size="small" style={{marginVertical: 8}} />
+          ) : pnlData ? (
+            <View style={{marginVertical: 8}}>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Portfolio Value</Text>
+                <Text style={[styles.detailValue, {color: '#16a34a'}]}>₹{pnlData.currentValue?.toLocaleString('en-IN')}</Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>P&L (net of costs)</Text>
+                <Text style={[styles.detailValue, {color: pnlData.netPnl >= 0 ? '#16a34a' : '#ef4444'}]}>
+                  {pnlData.netPnl >= 0 ? '+' : ''}₹{Math.abs(pnlData.netPnl)?.toLocaleString('en-IN')}
+                </Text>
+              </View>
+              <Text style={{fontSize: 11, color: '#9CA3AF', marginTop: 2, paddingHorizontal: 4}}>
+                Gross: ₹{pnlData.grossPnl?.toLocaleString('en-IN')} | Costs: ₹{pnlData.estimatedCosts?.toLocaleString('en-IN')}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setIncludePnl(!includePnl)}
+                style={{flexDirection: 'row', alignItems: 'center', marginTop: 8, padding: 10, backgroundColor: includePnl ? '#f0fdf4' : '#f9fafb', borderRadius: 8, borderWidth: 1, borderColor: includePnl ? '#86efac' : '#e5e7eb'}}
+              >
+                <Text style={{flex: 1, fontSize: 13, color: '#4b5563'}}>Include P&L in {selectedOption === 'topup' ? 'top-up' : 'new amount'}</Text>
+                <View style={{width: 20, height: 20, borderRadius: 4, borderWidth: 2, justifyContent: 'center', alignItems: 'center', ...(includePnl ? {backgroundColor: '#16a34a', borderColor: '#16a34a'} : {borderColor: '#d1d5db'})}}>
+                  {includePnl && <Text style={{color: '#fff', fontSize: 12, fontWeight: '700'}}>✓</Text>}
+                </View>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
           {selectedOption === "topup" && portfolioAmount ? (
             <View style={styles.detailRow}>
-              <Text style={styles.detailLabel}>Total after Top-up</Text>
-              <Text style={styles.detailValue}>₹{totalAmount}</Text>
+              <Text style={styles.detailLabel}>Total after Top-up{includePnl && pnlData ? ' (incl. P&L)' : ''}</Text>
+              <Text style={styles.detailValue}>₹{(totalAmount + (includePnl && pnlData ? pnlData.netPnl : 0)).toLocaleString('en-IN')}</Text>
             </View>
           ) : null}
 

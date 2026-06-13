@@ -24,69 +24,17 @@ import {generateToken} from '../../utils/SecurityTokenManager';
 import {useTrade} from '../TradeContext';
 import {useConfig} from '../../context/ConfigContext';
 import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {
+  getSubscriptionStatus,
+  ACCEPTABLE_DATE_FORMATS,
+} from '../../utils/subscriptionStatus';
 
 const {width: screenWidth} = Dimensions.get('window');
 const Alpha100 = require('../../assets/alpha-100.png');
 
-const ACCEPTABLE_DATE_FORMATS = [
-  'D MMM YYYY, HH:mm:ss',
-  'YYYY-MM-DDTHH:mm:ss.SSSZ',
-];
-
-const normalizeGroupName = name => {
-  if (!name) return '';
-  return name
-    .toLowerCase()
-    .replace(/%20/g, ' ')
-    .replace(/\s+/g, '_')
-    .trim();
-};
-
-const getSubscriptionStatus = (planName, subscriptions) => {
-  if (!subscriptions || subscriptions.length === 0) return {status: 'none'};
-
-  const normalizedPlan = normalizeGroupName(planName);
-  const matchingPlanSubs = subscriptions.filter(
-    sub => {
-      const nSub = normalizeGroupName(sub?.plan);
-      return nSub === normalizedPlan || nSub.includes(normalizedPlan) || normalizedPlan.includes(nSub);
-    },
-  );
-  if (matchingPlanSubs.length === 0) return {status: 'none'};
-
-  const activeSubscriptions = matchingPlanSubs.filter(
-    sub => sub?.status !== 'deleted',
-  );
-  if (activeSubscriptions.length === 0) return {status: 'none'};
-
-  const neverExpiringSubscriptions = activeSubscriptions.filter(
-    sub => sub.expiry === null,
-  );
-  if (neverExpiringSubscriptions.length > 0) {
-    return {status: 'active', expiry: null, subscription: neverExpiringSubscriptions[0]};
-  }
-
-  const validSubscriptions = activeSubscriptions.filter(sub =>
-    sub.expiry
-      ? moment(sub.expiry, ACCEPTABLE_DATE_FORMATS, true).isValid()
-      : false,
-  );
-  if (validSubscriptions.length === 0) return {status: 'none'};
-
-  const latestSub = validSubscriptions.sort(
-    (a, b) =>
-      moment(b.expiry, ACCEPTABLE_DATE_FORMATS) -
-      moment(a.expiry, ACCEPTABLE_DATE_FORMATS),
-  )[0];
-
-  const expiryDate = moment(latestSub?.expiry, ACCEPTABLE_DATE_FORMATS);
-  const today = moment();
-  const daysLeft = expiryDate.diff(today, 'days');
-
-  if (daysLeft < 0) return {status: 'expired', expiry: latestSub.expiry, subscription: latestSub};
-  if (daysLeft <= 7) return {status: 'renew', expiry: latestSub.expiry, daysLeft, subscription: latestSub};
-  return {status: 'active', expiry: latestSub.expiry, daysLeft, subscription: latestSub};
-};
+// getSubscriptionStatus + ACCEPTABLE_DATE_FORMATS now come from
+// src/utils/subscriptionStatus.js — single source of truth shared with
+// MPPerformanceScreen and BespokePerformanceScreen.
 
 const MySubscriptionsScreen = () => {
   const {configData} = useTrade();
@@ -181,28 +129,16 @@ const MySubscriptionsScreen = () => {
     setRefreshing(false);
   }, [userEmail]);
 
-  // Filter plans with active subscriptions
-  // Primary: use the subscription field the backend attaches per-plan
-  // Fallback: match against subscriptionData from user profile
+  // Filter plans with active subscriptions — single source of truth is
+  // `getSubscriptionStatus` (which now consults clientData.groups +
+  // subscriptions, matching web's IPOCard.hasActiveSubscription). The
+  // previous `plan.subscription` shortcut was wrong: the backend
+  // attaches that field with a default expiry on EVERY plan in the
+  // catalog (the plan's own validity, not the user's subscription
+  // window), so the filter accepted every plan and the screen showed
+  // 6 MPs all "Active". 2026-06-09 user report.
   const subscribedPlans = allPlans.filter(plan => {
-    // Check backend-attached subscription first
-    if (plan?.subscription) {
-      const sub = plan.subscription;
-      if (sub.status === 'deleted') return false;
-      if (sub.expiry === null) return true;
-      if (sub.expiry) {
-        const expiryDate = moment(sub.expiry, ACCEPTABLE_DATE_FORMATS);
-        if (expiryDate.isValid()) {
-          const daysLeft = expiryDate.diff(moment(), 'days');
-          return daysLeft >= 0; // active or renew
-        }
-      }
-    }
-    // Fallback to name matching
-    const subStatus = getSubscriptionStatus(
-      plan?.name,
-      subscriptionData?.subscriptions,
-    );
+    const subStatus = getSubscriptionStatus(plan?.name, subscriptionData);
     return subStatus.status === 'active' || subStatus.status === 'renew';
   });
 
@@ -219,10 +155,7 @@ const MySubscriptionsScreen = () => {
   };
 
   const renderSubscriptionCard = ({item: plan}) => {
-    const subStatus = getSubscriptionStatus(
-      plan?.name,
-      subscriptionData?.subscriptions,
-    );
+    const subStatus = getSubscriptionStatus(plan?.name, subscriptionData);
     const expiryFormatted = subStatus.expiry
       ? moment(subStatus.expiry, ACCEPTABLE_DATE_FORMATS).format('DD MMM YYYY')
       : 'Never';

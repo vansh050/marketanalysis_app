@@ -16,36 +16,39 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import semver from 'semver';
 
 const STORAGE_KEY = '@app_update_dismissed';
-const DISMISS_DURATION_HOURS = 48; // Show again after 48 hours if dismissed
+const DISMISS_DURATION_HOURS = 48;
 
-// Get package/bundle ID dynamically
 const getPackageId = () => DeviceInfo.getBundleId();
 
-// Generate store URLs dynamically
 const getPlayStoreUrl = () =>
   `https://play.google.com/store/apps/details?id=${getPackageId()}`;
 
 const getAppStoreUrl = () =>
   `https://apps.apple.com/app/id${getPackageId()}`;
 
-// Utility function to check for app updates
-export const checkForAppUpdate = async () => {
+// serverVersion: version string from backend config (e.g. "1.0.4").
+// When provided, skips Play Store scraping — which is unreliable because
+// react-native-version-check scrapes Play Store HTML and silently returns
+// null whenever Google changes their page structure. Backend-controlled
+// version is the authoritative source; Play Store scraping is the fallback.
+export const checkForAppUpdate = async (serverVersion) => {
   try {
     const currentVersion = DeviceInfo.getVersion();
-    const packageId = getPackageId();
-    let latestVersion;
+    let latestVersion = serverVersion || null;
 
-    if (Platform.OS === 'android') {
-      latestVersion = await VersionCheck.getLatestVersion({
-        provider: 'playStore',
-        packageName: packageId,
-      });
-    } else {
-      latestVersion = await VersionCheck.getLatestVersion({
-        provider: 'appStore',
-        packageName: packageId,
-        country: 'in', // Change to your primary market country code
-      });
+    if (!latestVersion) {
+      if (Platform.OS === 'android') {
+        latestVersion = await VersionCheck.getLatestVersion({
+          provider: 'playStore',
+          packageName: getPackageId(),
+        });
+      } else {
+        latestVersion = await VersionCheck.getLatestVersion({
+          provider: 'appStore',
+          packageName: getPackageId(),
+          country: 'in',
+        });
+      }
     }
 
     if (latestVersion && semver.valid(currentVersion) && semver.valid(latestVersion)) {
@@ -62,12 +65,10 @@ export const checkForAppUpdate = async () => {
   }
 };
 
-// Check if user recently dismissed the update prompt
 const shouldShowUpdatePrompt = async () => {
   try {
     const dismissedData = await AsyncStorage.getItem(STORAGE_KEY);
     if (!dismissedData) return true;
-
     const {timestamp} = JSON.parse(dismissedData);
     const hoursSinceDismissed = (Date.now() - timestamp) / (1000 * 60 * 60);
     return hoursSinceDismissed >= DISMISS_DURATION_HOURS;
@@ -76,7 +77,6 @@ const shouldShowUpdatePrompt = async () => {
   }
 };
 
-// Save dismiss timestamp
 const saveDismissTimestamp = async () => {
   try {
     await AsyncStorage.setItem(
@@ -88,11 +88,12 @@ const saveDismissTimestamp = async () => {
   }
 };
 
-const UpdateAppModal = ({visible, onClose}) => {
+// serverVersion prop: when provided, the component uses the backend-supplied
+// version instead of scraping the Play Store. Pass config.latestAppVersion here.
+const UpdateAppModal = ({visible, onClose, serverVersion}) => {
   const [showModal, setShowModal] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
 
-  // Get dynamic config from API
   const config = useConfig();
   const gradientStart = config?.gradient2 || '#0076FB';
   const gradientEnd = config?.gradient1 || '#002651';
@@ -101,19 +102,17 @@ const UpdateAppModal = ({visible, onClose}) => {
     const shouldShow = await shouldShowUpdatePrompt();
     if (!shouldShow) return;
 
-    const result = await checkForAppUpdate();
+    const result = await checkForAppUpdate(serverVersion);
     if (result.updateAvailable) {
       setLatestVersion(result.latestVersion);
       setShowModal(true);
     }
-  }, []);
+  }, [serverVersion]);
 
   useEffect(() => {
-    // If controlled externally via visible prop
     if (visible !== undefined) {
       setShowModal(visible);
     } else {
-      // Auto-check on mount if not controlled
       checkUpdate();
     }
   }, [visible, checkUpdate]);
@@ -158,6 +157,14 @@ const UpdateAppModal = ({visible, onClose}) => {
       </View>
     </Modal>
   );
+};
+
+// Placed inside ConfigProvider in App.js so it can read latestAppVersion
+// from the backend config. Defined as a named export so App.js can import
+// it separately from the default UpdateAppModal.
+export const AppUpdateChecker = () => {
+  const config = useConfig();
+  return <UpdateAppModal serverVersion={config?.latestAppVersion} />;
 };
 
 const styles = StyleSheet.create({

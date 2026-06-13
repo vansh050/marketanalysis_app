@@ -3,6 +3,7 @@ import {View, Image, StyleSheet, Dimensions} from 'react-native';
 import ProgressBar from 'react-native-progress-bar-horizontal';
 import Config from 'react-native-config';
 import AlphaQuarkLogo from '../assets/logo.png';
+import useTokens from '../theme/useTokens';
 import auth from '@react-native-firebase/auth';
 import axios from 'axios';
 import {useNavigation} from '@react-navigation/native';
@@ -20,6 +21,7 @@ export default function SplashScreen() {
 
   // Get logo from database via ConfigContext
   const config = useConfig();
+  const tokens = useTokens();
   const {logo: LogoComponent, themeColor, configLoading} = config;
 
   console.log('SplashScreen config logo:', LogoComponent);
@@ -138,6 +140,13 @@ export default function SplashScreen() {
     <View style={styles.container}>
       {/* Logo Section - Wait for config to load before showing logo */}
       <View style={styles.logoContainer}>
+        {/*
+          Logo cascade: advisor-provided logo (URL/SVG/require) wins; when
+          none is set the final branch falls back to the variant's brand-mark
+          asset token (default = AlphaQuark, alphanomy = its own PNG via
+          designs/alphanomy/tokens/assets.js). No variant name is hardcoded
+          here — see docs/DESIGN_SYSTEM_ARCHITECTURE.md § Variant assets.
+        */}
         {configLoading ? (
           // Show nothing or a placeholder while config is loading
           <View style={{width: 150, height: 150}} />
@@ -166,7 +175,7 @@ export default function SplashScreen() {
           />
         ) : (
           <Image
-            source={AlphaQuarkLogo}
+            source={tokens?.assets?.logoPng || AlphaQuarkLogo}
             style={{width: 150, height: 150, resizeMode: 'contain'}}
           />
         )}

@@ -523,20 +523,15 @@ async function completeSubscription(props, paymentDetails) {
     setPaymentSuccess(true);
     setRefresh((prev) => !prev);
 
-    // Send notifications (email and WhatsApp)
-    try {
-      await sendNotifications(props);
-    } catch (notificationError) {
-      console.error("Notifications failed:", notificationError);
-      // Continue execution - notification failure shouldn't stop the process
-    }
+    // Invoice + notifications handled by addClientToGroupSubscription below.
+    // Removed sendNotifications() — was producing duplicate invoices.
 
     const newSubscription = {
       subId: uuid.v4().slice(0, 10),
       startDate: FormatDateTime(new Date()),
-      plan: formattedName || "", // Assuming the response contains a plan
-      capital: data.subscription.capital || 0, // Assuming the response contains capital
-      charges: data.subscription.amount || 0, // Assuming the response contains charges
+      plan: formattedName || "",
+      capital: data.subscription.capital || 0,
+      charges: data.subscription.amount || 0,
       invoice: data.subscription.razorpay_subscription_id || "", // Assuming the response contains invoice
       expiry: FormatDateTime(new Date(data.expiry)), // Assuming the response contains expiry date
     };
@@ -897,13 +892,8 @@ async function completeSinglePayment(props, paymentDetails) {
     });
     setPaymentSuccess(true);
 
-    // Send notifications
-    try {
-      await sendNotifications(props);
-    } catch (notificationError) {
-      console.error("Notifications failed:", notificationError);
-      // Continue execution - notification failure shouldn't stop the process
-    }
+    // Invoice + notifications handled by handleClientUpdate.
+    // Removed sendNotifications() — was producing duplicate invoices.
 
     if (strategyDetails) {
       let data2 = JSON.stringify({

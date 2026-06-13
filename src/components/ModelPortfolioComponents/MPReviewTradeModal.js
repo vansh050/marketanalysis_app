@@ -2211,6 +2211,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 10,
     height: screenHeight / 1.8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.18,
+    shadowRadius: 5,
     elevation: 5,
   },
   horizontal: {

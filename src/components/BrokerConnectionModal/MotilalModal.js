@@ -12,6 +12,11 @@ import { useTrade } from '../../screens/TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const commonHeight = screenHeight * 0.06;
@@ -26,6 +31,7 @@ const MotilalModal = ({
 }) => {
   const { configData } = useTrade();
   const showAlert = useModalStore((state) => state.showAlert);
+  const sdkBridge = useSdkBridge();
   const [apiKey, setApiKey] = useState('');
   const [clientCode, setClientCode] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -219,6 +225,15 @@ const MotilalModal = ({
         .then(response => {
           console.log('[Motilal] Broker connection saved successfully');
 
+          // SDK pilot dual-write — see brokerSdkBridge.js.
+          if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+            sdkDualWriteSafely(
+              sdkConnectBroker(sdkBridge.client, 'Motilal Oswal', brokerData),
+              'Motilal Oswal',
+              'connect',
+            );
+          }
+
           // Update model portfolio (non-critical)
           try {
             axios.request({
@@ -235,15 +250,46 @@ const MotilalModal = ({
             console.warn('[Motilal] Model portfolio update failed (non-critical):', err);
           }
 
-          fetchBrokerStatusModal();
-          eventEmitter.emit('refreshEvent', { source: 'Motilal Oswal broker connection' });
-          showAlert('success', 'Connected Successfully', 'Your Motilal Oswal broker has been connected successfully!');
           onClose();
           setShowBrokerModal(false);
+          // Wrap post-success steps so a downstream throw doesn't bubble
+          // to the outer .catch and get rewritten as "Connection Error".
+          // See KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
+          // § Broker-connect post-success hygiene.
+          (async () => {
+            try {
+              const result = await fetchBrokerStatusModal();
+              eventEmitter.emit('refreshEvent', { source: 'Motilal Oswal broker connection' });
+              if (!result?.migrationWillShow) {
+                showAlert('success', 'Connected Successfully', 'Your Motilal Oswal broker has been connected successfully!');
+              }
+            } catch (postSuccessErr) {
+              console.warn(
+                '[Motilal Oswal] post-success step threw (connection IS saved DB-side):',
+                postSuccessErr?.message || postSuccessErr,
+              );
+            }
+          })();
         })
         .catch(error => {
           console.error('[Motilal] connect-broker error:', error);
-          showAlert('error', 'Connection Error', 'Failed to save Motilal Oswal connection. Please try again.');
+          const isHttpError = !!error?.response;
+          const rawMessage =
+            error.response?.data?.message ||
+            error.response?.data?.details ||
+            '';
+          let alertTitle = 'Connection Error';
+          let alertBody;
+          if (isHttpError) {
+            alertBody =
+              rawMessage ||
+              'Failed to save Motilal Oswal connection. Please try again.';
+          } else {
+            alertTitle = 'Connection Issue';
+            alertBody =
+              'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+          }
+          showAlert('error', alertTitle, alertBody);
         });
     }
   };

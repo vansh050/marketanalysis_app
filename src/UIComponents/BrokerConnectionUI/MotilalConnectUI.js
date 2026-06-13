@@ -34,6 +34,74 @@ const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 const commonHeight = 40;
 
 /**
+ * Motilal in-page error watcher (port of tidi_new
+ * `_kMotilalErrorWatcher`).
+ *
+ * Motilal's hosted login page renders certain server-side errors INTO
+ * the page DOM (no navigation, no WebView error event, no HTTP error)
+ * as plain text in red:
+ *
+ *   - "Authorization is Invalid In Header Parameter"
+ *   - "MO1007 Two Factor Authentication Failed" / "MO1007"
+ *   - "Two Factor Authentication Failed"
+ *
+ * All three surface the same root cause documented at the top of this
+ * file and CHANGELOG `[3.9.24]`: Motilal binds OTP + page-side session
+ * cookie + apikey-derived `Authorization` header to a SINGLE page-load,
+ * and any reload (DNS retry, RESEND OTP press the page re-renders, app
+ * background/foreground cycle) rotates the server session. Existing
+ * onError / onLoadEnd hooks miss it because the error is rendered
+ * IN-PAGE — Motilal's submit endpoint returns 200 with the error text
+ * painted into the response HTML.
+ *
+ * This watcher polls `document.body.innerText` every 750ms; on the
+ * first hit it `window.ReactNativeWebView.postMessage()`s the parent
+ * RN component so the host can surface the existing post-load error
+ * UI ("Restart connection" CTA + 30s connect-cooldown still applies).
+ *
+ * Idempotent via `window.__aqMotilalWatcher`; stops polling after one
+ * hit so we don't spam the bridge.
+ */
+const _kMotilalErrorWatcher = `
+(function () {
+  if (window.__aqMotilalWatcher) return;
+  window.__aqMotilalWatcher = true;
+
+  var ERROR_PATTERNS = [
+    /Authorization is Invalid In Header Parameter/i,
+    /MO1007/i,
+    /Two Factor Authentication Failed/i,
+  ];
+  var fired = false;
+
+  function check() {
+    if (fired) return;
+    var t = '';
+    try { t = (document.body && document.body.innerText) || ''; } catch (e) { return; }
+    for (var i = 0; i < ERROR_PATTERNS.length; i++) {
+      if (ERROR_PATTERNS[i].test(t)) {
+        fired = true;
+        try {
+          if (window.ReactNativeWebView && window.ReactNativeWebView.postMessage) {
+            window.ReactNativeWebView.postMessage('motilal_session_rotated');
+          }
+        } catch (e) {}
+        clearInterval(handle);
+        return;
+      }
+    }
+  }
+
+  var handle = setInterval(check, 750);
+  // Stop polling after 5 min — by then the user has either submitted
+  // successfully (page navigates to callback URL) or moved on.
+  setTimeout(function () { clearInterval(handle); }, 5 * 60 * 1000);
+  console.log('[AQ] Motilal in-page error watcher armed');
+  true; // RN injectedJavaScript requires the script to evaluate to a truthy value on Android
+})();
+`;
+
+/**
  * Internal WebView wrapper with explicit error handling + single retry.
  *
  * Why this exists: `invest.motilaloswal.com` has only an A record (no
@@ -129,6 +197,32 @@ const MotilalWebViewWithRetry = ({authUrl, handleWebViewNavigationStateChange, o
           sharedCookiesEnabled
           originWhitelist={['*']}
           mixedContentMode="compatibility"
+          // Inject the Motilal in-page error watcher on every navigation.
+          // RN's `injectedJavaScript` injects ONCE on initial load;
+          // `injectedJavaScriptForMainFrameOnly={false}` plus
+          // `injectedJavaScriptBeforeContentLoaded` is the modern combo,
+          // but the watcher is idempotent (window.__aqMotilalWatcher
+          // guard) so plain `injectedJavaScript` is enough — first
+          // navigation wins and the IIFE early-returns on subsequent
+          // injections triggered by the WebView's internal page-finish
+          // hooks.
+          injectedJavaScript={_kMotilalErrorWatcher}
+          onMessage={(event) => {
+            const msg = event?.nativeEvent?.data;
+            if (msg === 'motilal_session_rotated') {
+              console.log('[Motilal][WebView] in-page error detected → surfacing Restart UI');
+              // Reuse the existing post-load error path. The string
+              // here is what the user sees in the red banner; it
+              // explains WHY they should Restart (rather than retry).
+              setPostLoadError({
+                description:
+                  "Motilal's login session has rotated. The OTP you entered " +
+                  'is no longer valid. Tap Restart and wait at least 30 ' +
+                  'seconds before tapping Connect again.',
+                code: 'MOTILAL_SESSION_ROTATED',
+              });
+            }
+          }}
           userAgent={
             Platform.OS === 'android'
               ? 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36'
@@ -523,6 +617,10 @@ const styles = StyleSheet.create({
     padding: 4,
     borderRadius: 5,
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
     elevation: 4,
   },
   headerRow: {
@@ -562,6 +660,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 20,
     padding: 3,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
     elevation: 3,
   },
   inputCard: {

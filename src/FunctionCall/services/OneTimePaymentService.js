@@ -80,24 +80,6 @@ export async function completeOneTimePayment({
     countryCode: countryCode || "+91",
   });
 
-  await sendNotifications({
-    email: user,
-    phoneNumber: mobileNumber,
-    countryCode: countryCode || "+91",
-    panNumber,
-    planDetails: {
-      isRenewal: false,
-      duration: specificPlan?.duration || "30",
-      name: specificPlan?.name,
-      amount: specificPlan?.amount,
-    },
-    userName: name,
-    advisorName: whiteLabelText,
-    tradingPlatform: "supported-broker",
-    data,
-    telegramId,
-  });
-
   await addClientToGroupSubscription({
     specificPlan,
     name,

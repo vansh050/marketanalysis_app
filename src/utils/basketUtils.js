@@ -200,18 +200,46 @@ export function netBasketTrades(trades) {
       t.cancel !== true,
   );
 
+  // B-32 (2026-05-19 mobile migration): partial-fill legs (status="partial")
+  // must NEVER be netted out — the broker has already filled some quantity
+  // AND the remaining is in-flight / needs retry. Pre-B-32 these legs
+  // silently disappeared from BasketTradeModal whenever at least one
+  // recommend trade existed alongside them: recommendTrades filter
+  // excluded "partial", and consolidatedClosures gate (recommendTrades.length
+  // === 0) also skipped them.
+  //
+  // Collected separately and appended to the return array UNCHANGED — no
+  // netting, no quantity rewrite — they keep their own Quantity / filledQty
+  // / remainingQty fields so the partial-fill UI badge and B-10 retry-sizing
+  // both keep working.
+  const partialFillTrades = trades.filter(t => {
+    const status = (t.trade_place_status || '').toLowerCase();
+    return status === 'partial' && t.cancel !== true;
+  });
+
+  // B-36 (2026-05-19 mobile migration): terminal-complete legs (status=
+  // "complete" / "executed" / "success" / "filled") also need to flow
+  // through the return. Pre-B-36 they fell into NO bucket and were silently
+  // dropped — so any "X already executed" banner counted zero even when 3
+  // of 4 legs were filled. Returned UNCHANGED — no netting, no quantity
+  // rewrite. Caller's render filter decides whether to show them or hide
+  // from the actionable list.
+  const completedTrades = trades.filter(t => {
+    const status = (t.trade_place_status || '').toLowerCase();
+    return ['complete', 'executed', 'success', 'filled'].includes(status)
+      && t.cancel !== true
+      && !t.partial_fill; // don't double-bucket if also flagged partial
+  });
+
   const closurePositions = trades.filter(t => {
-    const isRecommend =
-      t.trade_place_status === 'recommend' ||
-      t.trade_place_status === 'RECOMMEND';
-    const isRejectedOrFailed =
-      t.trade_place_status === 'rejected' ||
-      t.trade_place_status === 'REJECTED' ||
-      t.trade_place_status === 'FAILURE';
+    const status = (t.trade_place_status || '').toLowerCase();
+    const isRecommend = status === 'recommend';
+    const isPartial = status === 'partial'; // B-32: don't double-count as closure
+    const isRejectedOrFailed = status === 'rejected' || status === 'failure';
     const hasToTradeQty =
       t.toTradeQty !== undefined && t.toTradeQty !== null && t.toTradeQty !== 0;
     const hasClosureStatus = t.closurestatus && t.closurestatus !== '';
-    return (hasClosureStatus || (hasToTradeQty && !isRecommend)) && !isRejectedOrFailed;
+    return (hasClosureStatus || (hasToTradeQty && !isRecommend && !isPartial)) && !isRejectedOrFailed;
   });
 
   const rejectedFailedTradesRaw = trades.filter(
@@ -259,7 +287,9 @@ export function netBasketTrades(trades) {
   }
 
   if (recommendTrades.length === 0) {
-    return [...consolidatedClosures, ...rejectedFailedTrades];
+    // B-32 + B-36: partial-fill + completed legs flow through alongside
+    // closures + rejects. Caller's render filter decides what to show.
+    return [...partialFillTrades, ...completedTrades, ...consolidatedClosures, ...rejectedFailedTrades];
   }
 
   const symbolGroups = {};
@@ -327,5 +357,9 @@ export function netBasketTrades(trades) {
     }
   });
 
-  return [...nettedTrades, ...consolidatedClosures, ...rejectedFailedTrades];
+  // B-32 + B-36: partial-fill + completed legs prepended so they flow
+  // through to BasketTradeModal. Caller's actionableTrades filter does
+  // the render-table split (partial/recommend = shown; completed = banner
+  // count only).
+  return [...partialFillTrades, ...completedTrades, ...nettedTrades, ...consolidatedClosures, ...rejectedFailedTrades];
 }

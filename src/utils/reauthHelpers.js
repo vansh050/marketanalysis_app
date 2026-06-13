@@ -17,7 +17,7 @@ import useModalStore from '../GlobalUIModals/modalStore';
 // Brokers where the backend can regenerate a login URL from stored
 // credentials. Other brokers must go through the full per-broker modal
 // (OAuth partner flow for Zerodha/Angel/Dhan/AliceBlue/Axis, TOTP form
-// for Kotak, fresh creds for Groww).
+// for Kotak).
 export const CREDENTIAL_REAUTH_BROKERS = new Set([
   'ICICI Direct',
   'Upstox',
@@ -26,6 +26,12 @@ export const CREDENTIAL_REAUTH_BROKERS = new Set([
   'HDFC Securities',
   'Fyers',
 ]);
+
+// Brokers that support silent refresh — backend regenerates the broker
+// session token from stored credentials with NO user interaction
+// required. Today: Groww (uses stored Base32 TOTP seed via
+// /api/groww/refresh-token to mint fresh JWT every reconnect).
+export const SILENT_REFRESH_BROKERS = new Set(['Groww']);
 
 // Backend broker name → ModalManager switch key. Must stay in sync with
 // ModalManager.js and ManageConnectionsModal.BROKER_MODAL_KEY_MAP.
@@ -66,6 +72,39 @@ export const flipPrimaryBroker = async (brokerName, userEmail, configData) => {
   } catch (err) {
     console.warn(
       `[reauthHelpers] flipPrimaryBroker(${brokerName}) failed:`,
+      err?.message,
+    );
+  }
+};
+
+/**
+ * Mark a broker's connected_brokers[] entry as `status='expired'` on
+ * the backend. Called when the user taps "Reconnect" — the act of
+ * tapping reconnect IS the user's signal that the current session is
+ * bad and needs refresh. UI then shows "Re-auth needed" / "Session
+ * Expired" badge.
+ *
+ * If the subsequent OAuth (or credentials) flow succeeds, the
+ * per-broker connect-broker route will overwrite status back to
+ * 'connected'. If the user backs out of the OAuth step, status stays
+ * 'expired' and the UI correctly reflects the state instead of
+ * lingering on "Connected" with a stale token_expire.
+ *
+ * Was previously missing — user reported 2026-04-29 that AliceBlue
+ * still showed "Connected" after a backed-out reconnect attempt.
+ */
+export const markBrokerExpired = async (brokerName, userEmail, configData) => {
+  try {
+    await axios.put(
+      `${server.server.baseUrl}api/user/brokers/${encodeURIComponent(
+        brokerName,
+      )}/status`,
+      { email: userEmail, status: 'expired' },
+      { headers: buildHeaders(configData) },
+    );
+  } catch (err) {
+    console.warn(
+      `[reauthHelpers] markBrokerExpired(${brokerName}) failed:`,
       err?.message,
     );
   }
@@ -113,6 +152,45 @@ const fetchReauthUrl = async (
  *
  * @returns { handled: boolean, reason?: string }
  */
+/**
+ * Silent refresh path for brokers where the backend can regenerate the
+ * session token from stored credentials with NO user interaction.
+ * Today: Groww. POSTs /api/<broker>/refresh-token, expects 2xx on
+ * success. Returns { ok: boolean, message?: string }.
+ */
+export const performSilentRefresh = async ({
+  brokerName,
+  userEmail,
+  userDetails,
+  configData,
+}) => {
+  if (!SILENT_REFRESH_BROKERS.has(brokerName)) {
+    return { ok: false, reason: 'not-silent-refresh-broker' };
+  }
+  try {
+    const uid = userDetails?._id;
+    const slug = brokerName === 'Groww' ? 'groww' : brokerName.toLowerCase();
+    const response = await axios.post(
+      `${server.server.baseUrl}api/${slug}/refresh-token`,
+      { uid, user_email: userEmail },
+      { headers: buildHeaders(configData) },
+    );
+    return {
+      ok: response.status >= 200 && response.status < 300,
+      message: response.data?.message,
+    };
+  } catch (err) {
+    console.warn(
+      `[reauthHelpers] performSilentRefresh(${brokerName}) failed:`,
+      err?.response?.data?.message || err?.message,
+    );
+    return {
+      ok: false,
+      message: err?.response?.data?.message || err?.message,
+    };
+  }
+};
+
 export const handleSmartReauth = async ({
   brokerName,
   userEmail,
@@ -120,6 +198,28 @@ export const handleSmartReauth = async ({
   configData,
   brokerConnectRedirectURL,
 }) => {
+  // Silent refresh path — Groww. Backend uses stored Base32 TOTP seed
+  // to mint a fresh JWT; no user interaction required. On success the
+  // caller closes ManageConnectionsModal without opening any per-broker
+  // modal at all.
+  if (SILENT_REFRESH_BROKERS.has(brokerName)) {
+    console.log('[smartReauth]', brokerName, '→ trying silent refresh');
+    const result = await performSilentRefresh({
+      brokerName,
+      userEmail,
+      userDetails,
+      configData,
+    });
+    if (result.ok) {
+      console.log('[smartReauth]', brokerName, '→ silent refresh OK');
+      return { handled: true, silent: true, brokerName };
+    }
+    // Silent refresh failed — fall through to legacy modal so user can
+    // re-paste fresh JWT + Base32 seed (e.g. seed got revoked at broker).
+    console.log('[smartReauth]', brokerName, '→ silent refresh failed, fallback');
+    return { handled: false, reason: 'silent-refresh-failed' };
+  }
+
   // Non-credential brokers — let caller open the modal normally
   if (!CREDENTIAL_REAUTH_BROKERS.has(brokerName)) {
     console.log('[smartReauth]', brokerName, '→ not-credential-broker (fallback)');

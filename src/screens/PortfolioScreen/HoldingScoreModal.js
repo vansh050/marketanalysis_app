@@ -11,9 +11,12 @@ const screenWidth = Dimensions.get('window').width;
 import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
 const screenHeight = Dimensions.get('window').height;
-// YouTube API Key and Channel ID
-const API_KEY = 'AIzaSyCnsA2NAIZ2XeXDFcGC9BHNO1KUeV7U5Ck';  // Replace with your YouTube API key
-const CHANNEL_ID = 'UCmzr8eYNcUvJjiaRgvruV8A';    // Replace with the desired YouTube channel ID
+// YouTube API Key + Channel ID. Both come from .env (gitignored). The
+// hardcoded fallback was removed after a key leaked to git history; a
+// missing env var surfaces as a YouTube 400 from this component rather
+// than silently using a stale tenant key.
+const API_KEY = Config.REACT_APP_YOUTUBE_API_KEY;
+const CHANNEL_ID = Config.REACT_APP_YOUTUBE_CHANNEL_ID;
 
 const  HoldingScoreModal = ({modalVisible,scoreSymbol,setModalVisible}) => {
     const {configData}=useTrade();

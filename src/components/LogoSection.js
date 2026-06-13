@@ -4,16 +4,22 @@ import {View, Text, Image, StyleSheet, Dimensions} from 'react-native';
 import Config from '../utils/safeConfig';
 import {useConfig} from '../context/ConfigContext';
 import APP_VARIANTS from '../utils/Config';
+import useTokens from '../theme/useTokens';
 const screenWidth = Dimensions.get('window').width;
 
 const LogoSection = () => {
   const config = useConfig();
+  const tokens = useTokens();
   const selectedVariant = Config?.APP_VARIANT || 'rgxresearch';
   const validVariant = APP_VARIANTS[selectedVariant] ? selectedVariant : 'rgxresearch';
   const fallbackConfig = APP_VARIANTS[validVariant] || {};
 
-  // Use config from context, fallback to static config if not available
-  const logo = config?.logo || fallbackConfig.logo;
+  // Advisor-provided logo (URL / require / SVG fn) wins. When absent — e.g.
+  // the alphanomy variant nulls out `logo`/`toolbarlogo` so it never leaks
+  // the AlphaQuark/Zamzam PNG — fall back to the variant's brand-mark asset
+  // token (default = AlphaQuark logo, alphanomy = its own PNG). No variant
+  // name hardcoded here. See docs/DESIGN_SYSTEM_ARCHITECTURE.md § Variant assets.
+  const logo = config?.logo || fallbackConfig.logo || tokens?.assets?.logoPng;
   const themeColor = config?.themeColor || fallbackConfig.themeColor;
   const appName = Config.REACT_APP_WHITE_LABEL_TEXT;
 

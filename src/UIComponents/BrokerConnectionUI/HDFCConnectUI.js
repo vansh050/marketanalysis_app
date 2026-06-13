@@ -273,6 +273,10 @@ const styles = StyleSheet.create({
     padding: 4,
     borderRadius: 5,
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.10,
+    shadowRadius: 2,
     elevation: 2,
   },
   headerTitle: {
@@ -306,6 +310,10 @@ const styles = StyleSheet.create({
   toggleText: {fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#0056B7'},
   toggleIconContainer: {
     backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 3,
     elevation: 3,
     borderRadius: 20,
     alignItems: 'center',

@@ -23,6 +23,7 @@ import ReviewTradeModal from '../ReviewTradeModal';
 import moment from 'moment';
 import Toast from 'react-native-toast-message';
 import IsMarketHours from '../../utils/isMarketHours';
+import { computeTradeVariant } from '../../utils/tradeVariant';
 import { isOrderSuccess, isOrderRejected } from '../../utils/orderStatusUtils';
 import { validateBrokerSession } from '../../utils/brokerSessionUtils';
 import { validateStockExchanges, applyKiteMarketProtection, resolveZerodhaSymbol } from '../../utils/brokerPublisher';
@@ -48,24 +49,20 @@ import {OtherBrokerModel} from '../DdpiModal';
 import CryptoJS from 'react-native-crypto-js';
 import Config from 'react-native-config';
 import { useConfig } from '../../context/ConfigContext';
-import ICICIUPModal from '../BrokerConnectionModal/icicimodal';
-import UpstoxModal from '../BrokerConnectionModal/upstoxModal';
-import AngleOneBookingModal from '../BrokerConnectionModal/AngleoneBookingModal';
-import ZerodhaConnectModal from '../BrokerConnectionModal/ZerodhaConnectModal';
-import HDFCconnectModal from '../BrokerConnectionModal/HDFCconnectModal';
-import DhanConnectModal from '../BrokerConnectionModal/DhanConnectModal';
-import KotakModal from '../BrokerConnectionModal/KotakModal';
-import IIFLModal from '../iiflmodal';
-import AliceBlueConnect from '../BrokerConnectionModal/AliceBlueConnect';
-import FyersConnect from '../BrokerConnectionModal/FyersConnect';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useModal} from '../ModalContext';
-import MotilalModal from '../BrokerConnectionModal/MotilalModal';
 import {getAdvisorSubdomain} from '../utils/variantHelper';
 import BrokerSelectionModal from '../BrokerSelectionModal';
 import TotalAmountTextRebalance from './DynamicText/totalAmountRebalance';
 import CartFullAmountText from './DynamicText/CartFullAmountText';
 import TotalAmountText from './DynamicText/totalAmount';
+import useSdkClient from '../../sdk/useSdkClient';
+
+const isSdkExecuteAdviceEnabled = () => {
+  const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
+  return v === 'true' || v === '1';
+};
+
 const AddToCartModal = ({
   isVisible,
   onClose,
@@ -87,6 +84,9 @@ const AddToCartModal = ({
     brokerStatus,
     configData,
   } = useTrade();
+
+  const sdkClient = useSdkClient();
+  const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
 
   // Get dynamic config from API
   const config = useConfig();
@@ -274,6 +274,12 @@ const AddToCartModal = ({
   const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
   //fetching edis status for AngleOne
 
+  const ccxtHeaders = {
+    'Content-Type': 'application/json',
+    'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+    'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+  };
+
   const verifyEdis = async () => {
     try {
       const response = await axios.post(
@@ -283,6 +289,7 @@ const AddToCartModal = ({
           jwtToken: userDetails.jwtToken,
           userEmail: userDetails?.email,
         },
+        { headers: ccxtHeaders },
       );
       setEdisStatus(response.data);
       console.log('AngleOne response', response.data);
@@ -299,6 +306,7 @@ const AddToCartModal = ({
           clientId: clientCode,
           accessToken: userDetails.jwtToken,
         },
+        { headers: ccxtHeaders },
       );
       console.log('Dhan Reponse', response.data);
       setDhanEdisStatus(response.data);
@@ -404,11 +412,21 @@ const AddToCartModal = ({
         visibilityTime: 4500,
         position: 'bottom',
       });
-      return;
     }
-    const isFundsEmpty = !_fundsPreflight.ok && _fundsPreflight.reason !== 'NOT_CONNECTED';
+    const isFundsEmpty = !_fundsPreflight.ok && _fundsPreflight.reason !== 'NOT_CONNECTED' && _fundsPreflight.reason !== 'TRANSIENT';
 
     const currentBrokerRejectedCount = await getRejectedCount();
+
+    const cartHasEquityDeliverySells = cartItems.some(item => {
+      const txnType = String(item.transactionType || item.TransactionType || '').toUpperCase();
+      if (txnType !== 'SELL') return false;
+      const exchange = String(item.exchange || item.Exchange || '').toUpperCase();
+      const productType = String(item.productType || item.ProductType || 'CNC').toUpperCase();
+      if (['NFO', 'BFO', 'MCX'].includes(exchange)) return false;
+      if (['MIS', 'NRML', 'CARRYFORWARD'].includes(productType)) return false;
+      return true;
+    });
+
     if (currentBroker === 'Zerodha') {
       if (isFundsEmpty) {
         setOpenTokenExpireModel(true);
@@ -417,40 +435,40 @@ const AddToCartModal = ({
         setBrokerModel(true);
         return;
       }
-      // If not funds empty, proceed with Zerodha-specific logic
       if (allBuy) {
         setOpenReviewTrade(true);
-      } else if (tradeType?.allSell || tradeType?.isMixed) {
-        // Handle DDPI modal logic for SELL or mixed trades
+      } else if ((tradeType?.allSell || tradeType?.isMixed) && cartHasEquityDeliverySells) {
         if (
           ['consent', 'physical', 'ddpi'].includes(userDetails?.ddpi_status)
         ) {
-          setShowDdpiModal(false); // Hide DDPI Modal
-          setOpenReviewTrade(true); // Proceed with Zerodha modal
+          setShowDdpiModal(false);
+          setOpenReviewTrade(true);
         } else {
-          setShowDdpiModal(true); // Show DDPI Modal for invalid or missing status
-          setOpenReviewTrade(false); // Ensure Zerodha modal is closed
+          setShowDdpiModal(true);
+          setOpenReviewTrade(false);
         }
       } else {
         setOpenReviewTrade(true);
       }
     } else if (currentBroker === 'Angel One') {
       if (edisStatus && edisStatus.edis === true) {
-        setOpenReviewTrade(true); // Open review trade modal for all cases
+        setOpenReviewTrade(true);
       } else if (
         edisStatus &&
         edisStatus.edis === false &&
-        (allSell || isMixed)
+        (allSell || isMixed) &&
+        cartHasEquityDeliverySells
       ) {
-        setShowAngleOneTpinModel(true); // Show TPIN modal for invalid edis
+        setShowAngleOneTpinModel(true);
       } else {
         setOpenReviewTrade(true);
       }
     } else if (currentBroker === 'Dhan') {
       if (dhanEdisStatus && dhanEdisStatus?.data?.every((h) => h.edis === true)) {
-        setOpenReviewTrade(true); // All holdings authorized, proceed
+        setOpenReviewTrade(true);
       } else if (
         (allSell || isMixed) &&
+        cartHasEquityDeliverySells &&
         dhanEdisStatus?.data?.some((h) => h.edis === false)
       ) {
         setShowDhanTpinModel(true);
@@ -654,8 +672,12 @@ const AddToCartModal = ({
     setLoading(true);
 
     const getOrderPayload = () => {
+      // Trade variant — `"AMO" | "REGULAR"`. Tagged on every per-trade
+      // object at submit. See docs/APP_ARCHITECTURE.md § 4.5.2 Trade
+      // variant field. Display-only — no behavioural change.
+      const variant = computeTradeVariant(allowAfterHoursOrders);
       return {
-        trades: cartItems,
+        trades: cartItems.map(item => ({ ...item, variant })),
         user_broker: broker,
         user_email: userEmail,
         accessToken: jwtToken,
@@ -724,9 +746,11 @@ const AddToCartModal = ({
       (await AsyncStorage.getItem(rejectedKey)) || '0',
     );
 
-    const allFNO = cartItems.every(
-      item => item.exchange === 'NFO' || item.exchange === 'BFO',
-    );
+    const allFNO = cartItems.every(item => {
+      const exchange = String(item.exchange || item.Exchange || '').toUpperCase();
+      const productType = String(item.productType || item.ProductType || 'CNC').toUpperCase();
+      return ['NFO', 'BFO', 'MCX'].includes(exchange) || ['MIS', 'NRML', 'CARRYFORWARD'].includes(productType);
+    });
     console.log('i am here broooo---', allFNO);
     if (!allFNO) {
       if (!isReturningFromOtherBrokerModal && specialBrokers.includes(broker)) {
@@ -750,32 +774,84 @@ const AddToCartModal = ({
     }
 
     try {
-      const response = await axios.request({
-        method: 'post',
-        url: `${server.server.baseUrl}api/process-trades/order-place`,
-        timeout: 120000,
+      // Phase A trade-exec alignment (2026-05-01): cart placements now POST
+      // direct to ccxt-india /orders/process-trade. Legacy Node fallback gated
+      // by REACT_APP_BESPOKE_DIRECT_CCXT_FALLBACK (default 'true'). Spec:
+      // docs/SDK_TRADE_EXECUTION_MIGRATION.md § Phase A.
+      const directCcxtUrl = `${server.ccxtServer.baseUrl}orders/process-trade`;
+      const legacyNodeUrl = `${server.server.baseUrl}api/process-trades/order-place`;
+      const fallbackEnabled = (Config.REACT_APP_BESPOKE_DIRECT_CCXT_FALLBACK || 'true') === 'true';
+      const placeOrderHeaders = {
+        'Content-Type': 'application/json',
+        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+        'aq-encrypted-key': generateToken(
+          Config.REACT_APP_AQ_KEYS,
+          Config.REACT_APP_AQ_SECRET,
+        ),
+      };
+      const basePayload = getOrderPayload();
+      const payloadWithClientIds = {
+        ...basePayload,
+        trades: (basePayload.trades || []).map((t) => ({
+          ...t,
+          clientTradeId: t.clientTradeId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        })),
+      };
+      let response;
+      let placementResults;
 
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-          'aq-encrypted-key': generateToken(
-            Config.REACT_APP_AQ_KEYS,
-            Config.REACT_APP_AQ_SECRET,
-          ),
-        },
+      if (sdkExecuteAdviceEnabled) {
+        try {
+          const sdkResp = await sdkClient.placeOrders({
+            trades: payloadWithClientIds.trades,
+            brokerName: broker,
+          });
+          placementResults = sdkResp?.results || [];
+          console.log('[AddtoCartModal] SDK placeOrders result:', placementResults.length, 'rows');
+        } catch (sdkErr) {
+          console.error('[AddtoCartModal] SDK placeOrders failed, falling back to legacy:', sdkErr?.message);
+          placementResults = null;
+        }
+      }
 
-        data: JSON.stringify(getOrderPayload()),
-      });
+      if (!placementResults) {
+        try {
+          response = await axios.request({
+            method: 'post',
+            url: directCcxtUrl,
+            timeout: 120000,
+            headers: placeOrderHeaders,
+            data: JSON.stringify(payloadWithClientIds),
+          });
+          placementResults = response.data?.results || [];
+        } catch (directErr) {
+          const status = directErr?.response?.status;
+          const isNetworkOr5xx = !status || status >= 500;
+          if (fallbackEnabled && isNetworkOr5xx) {
+            console.warn('[AddtoCartModal.placeOrder] direct-ccxt failed, falling back to legacy Node:', directErr?.message);
+            response = await axios.request({
+              method: 'post',
+              url: legacyNodeUrl,
+              timeout: 120000,
+              headers: placeOrderHeaders,
+              data: JSON.stringify(payloadWithClientIds),
+            });
+            placementResults = response.data?.response || [];
+          } else {
+            throw directErr;
+          }
+        }
+      }
 
       setLoading(false);
 
       // setOpenSucessModal(true);
-      console.log('respoiiinsi:', response.data.response);
-      setOrderPlacementResponse(response.data.response);
+      console.log('respoiiinsi:', placementResults);
+      setOrderPlacementResponse(placementResults);
       // setShowAfterPlaceOrderDdpiModal(true)
       // Calculate the rejected sell count from the response
 
-      const rejectedSellCount = response.data.response.reduce(
+      const rejectedSellCount = (placementResults || []).reduce(
         (count, order) => {
           return isOrderRejected(order?.orderStatus) &&
             order.transactionType === 'SELL'
@@ -785,7 +861,7 @@ const AddToCartModal = ({
         0,
       );
 
-      const successCount = response.data.response.reduce((count, order) => {
+      const successCount = (placementResults || []).reduce((count, order) => {
         return isOrderSuccess(order?.orderStatus) &&
           (order.transactionType === 'SELL' || tradeType.isMixed)
           ? count + 1
@@ -793,7 +869,7 @@ const AddToCartModal = ({
       }, 0);
 
       // Check for CDSL/EDIS/TPIN error messages in rejected orders
-      const hasCdslError = response.data.response.some((order) => {
+      const hasCdslError = (placementResults || []).some((order) => {
         const msg = (order?.orderStatusMessage || order?.message_aq || order?.message || "").toLowerCase();
         return msg.includes("cdsl") || msg.includes("edis") || msg.includes("tpin") || msg.includes("validate qty");
       });
@@ -837,11 +913,10 @@ const AddToCartModal = ({
         }
       } else if (
         (allSell || isMixed) &&
+        !allFNO &&
         rejectedSellCount >= 1 &&
         successCount === 0
       ) {
-        // Don't gate on is_authorized_for_sell or edisStatus flags —
-        // they can be stale. Always show broker-specific TPIN modal on rejection.
         console.log('Setting TPIN modal to true for', broker);
         setOpenSucessModal(false);
         setOpenReviewTrade(false);
@@ -855,13 +930,13 @@ const AddToCartModal = ({
         } else if (broker === 'Zerodha') {
           setShowDdpiModal && setShowDdpiModal(true);
         } else {
-          setOrderPlacementResponse(response.data.response);
+          setOrderPlacementResponse(placementResults);
           setOpenSucessModal(true);
         }
         return;
       } else {
         console.log('Setting openSuccessModal to true');
-        setOrderPlacementResponse(response.data.response);
+        setOrderPlacementResponse(placementResults);
         setOpenSucessModal(true);
       }
       setOpenReviewTrade(false);
@@ -904,9 +979,7 @@ const AddToCartModal = ({
           'There was an issue in placing the trade, please try again after sometime or contact your advisor';
       }
 
-      // Trigger broker-specific TPIN modals for sell order failures
-      // Don't gate on is_authorized_for_sell — EDIS expires per-session
-      if (allSell || isMixed) {
+      if ((allSell || isMixed) && !allFNO) {
         if (broker === 'Dhan') {
           setShowDhanTpinModel(true);
           setOpenReviewTrade(false);
@@ -1214,6 +1287,7 @@ const AddToCartModal = ({
               accessToken: userDetails.jwtToken,
               userEmail: userDetails.email,
             },
+            { headers: ccxtHeaders },
           );
           setZerodhaDdpiStatus(response.data);
         } catch (error) {
@@ -1235,6 +1309,7 @@ const AddToCartModal = ({
               userEmail: userDetails.email,
               edis: userDetails.edis,
             },
+            { headers: ccxtHeaders },
           );
           setZerodhaDdpiStatus(response.data);
         } catch (error) {
@@ -1388,6 +1463,10 @@ const AddToCartModal = ({
           setOpenSucessModal={setOpenSucessModal}
           orderPlacementResponse={orderPlacementResponse}
           currentBroker={broker}
+          // Outgoing trades — fallback source for `variant` lookups when
+          // the response item doesn't carry the field (rebalance/MP lane).
+          // See utils/tradeVariant.js § resolveResultVariant.
+          originalStockDetails={cartItems}
         />
       )}
 

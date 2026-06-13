@@ -260,10 +260,30 @@ function mapKiteOrderType(orderType) {
 
 /**
  * Map product type to Kite SDK format.
+ *
+ * B-28 (2026-05-18 web → 2026-05-19 mobile migration): F&O legs
+ * (exchange NFO/BFO) MUST use NRML for overnight positions or MIS for
+ * intraday — Kite hard-rejects CNC on F&O. Pre-B-28 this mapper
+ * defaulted F&O CARRYFORWARD basket entries to "CNC" because it didn't
+ * know about exchange context; result was Kite silently rejecting every
+ * F&O basket leg with "Invalid product type for exchange".
+ *
+ * The exchange parameter is optional for back-compat — callers that
+ * don't pass it (existing equity flows) get the legacy mapping; the
+ * derivatives basket caller passes exchange so we branch correctly.
  */
-function mapKiteProductType(productType) {
-  if (!productType) return 'CNC';
+function mapKiteProductType(productType, exchange) {
+  const isFnO =
+    typeof exchange === 'string' &&
+    (exchange.toUpperCase() === 'NFO' || exchange.toUpperCase() === 'BFO');
+  if (!productType) return isFnO ? 'NRML' : 'CNC';
   const upper = productType.toUpperCase();
+  if (isFnO) {
+    // F&O segment — Kite only accepts NRML / MIS here.
+    if (upper === 'INTRADAY' || upper === 'MIS') return 'MIS';
+    // CARRYFORWARD / DELIVERY / NRML / MARGIN all → NRML overnight.
+    return 'NRML';
+  }
   if (upper === 'DELIVERY' || upper === 'CNC') return 'CNC';
   if (upper === 'INTRADAY' || upper === 'MIS') return 'MIS';
   if (upper === 'BO') return 'BO';
@@ -272,27 +292,43 @@ function mapKiteProductType(productType) {
 }
 
 /**
- * Round a price to the nearest valid Kite LIMIT tick. Kite rejects LIMIT
- * orders whose price isn't on a valid increment for the price bucket:
+ * Round a price to the nearest valid LIMIT tick.
  *
- *   price < ₹500       → tick ₹0.10
- *   ₹500 ≤ price ≤ ₹5000 → tick ₹0.20
- *   price > ₹5000      → tick ₹0.50
+ * B-35a (2026-05-19 mobile migration): 3-band safety schedule per Pratik,
+ * strictly coarser than the actual NSE/NFO exchange tick (0.05 for most
+ * scrips), trading a tiny amount of price precision for guaranteed
+ * tick-validity across every broker's quirks:
  *
- * Without this, `applyKiteMarketProtection` produces e.g. `1.45 * 1.01 = 1.4645`
- * and Kite responds with "invalid price" for the basket item (and silently
- * drops it in some cases). Call this on the limit price only — the LTP
- * itself is reported verbatim.
+ *   price ≤ ₹1000           → tick ₹0.10
+ *   ₹1000 < price ≤ ₹4000   → tick ₹0.50
+ *   price > ₹4000           → tick ₹1.00
+ *
+ * Pre-B-35a used 0.10/0.20/0.50 buckets which could produce LIMIT prices
+ * that weren't multiples of the real 0.05 exchange tick — e.g. 1200.40
+ * (multiple of 0.20 but not 0.05) could be rejected on a scrip whose
+ * exchange tick is 0.05. The B-35a schedule is strictly safer: all snap
+ * values are multiples of 0.05 so they remain valid on any scrip on the
+ * real 0.05 tick.
+ *
+ * Without this snap, `applyKiteMarketProtection` produces e.g.
+ * `1.45 * 1.015 = 1.47175` and Kite responds with "invalid price" for the
+ * basket item (and silently drops it in some cases). Call this on the
+ * limit price only — the LTP itself is reported verbatim.
  *
  * Rounding is to the NEAREST tick (not floor/ceil), then we normalize to
- * one decimal place to avoid float drift artifacts (0.30000000001).
+ * 2 decimals to avoid float drift artifacts (0.30000000001).
+ *
+ * BUY callers can use Math.ceil(price/tick)*tick (snap UP); SELL callers
+ * Math.floor(price/tick)*tick (snap DOWN) if directional snap matters.
+ * The default here is nearest-tick — appropriate for applyKiteMarketProtection
+ * which already applies a 1.0% (equity) or 1.5% (derivative) buffer.
  */
 export function roundToKiteTick(price) {
   if (!Number.isFinite(price) || price <= 0) return price;
   let tick;
-  if (price < 500) tick = 0.10;
-  else if (price <= 5000) tick = 0.20;
-  else tick = 0.50;
+  if (price > 4000) tick = 1.0;
+  else if (price > 1000) tick = 0.5;
+  else tick = 0.10;
   const rounded = Math.round(price / tick) * tick;
   // Normalize to 2 decimals; all three ticks have at most 1 decimal so
   // this drops float-drift trailing digits without losing precision.
@@ -319,17 +355,30 @@ export function applyKiteMarketProtection(baseOrder, ltp, transactionType) {
   const ltpNumeric = parseFloat(ltp) || 0;
   if (ltpNumeric <= 0) return baseOrder;
   const isBuy = (transactionType || baseOrder.transaction_type || 'BUY').toUpperCase() === 'BUY';
-  const MARKET_PROTECTION_BUFFER_PCT = 0.01;
+
+  // B-35 (2026-05-19 mobile migration): buffer policy is exchange-aware:
+  //   • Equity (NSE/BSE):     1.0% (mobile retained legacy 1% — web is tiered 0.3/0.5/1.0)
+  //   • Derivative (NFO/BFO): 1.5% (uniform — matches the proven AliceBlue policy)
+  // Wider derivative buffer because option premiums have wider bid-ask
+  // spreads (especially near-the-money strikes at open/close), and a 1%
+  // buffer was unreliable for fills.
+  const exchangeUpper = (baseOrder.exchange || '').toUpperCase();
+  const isDerivative = exchangeUpper === 'NFO' || exchangeUpper === 'BFO';
+  const bufferPct = isDerivative ? 0.015 : 0.01;
+
   const rawBuffered = isBuy
-    ? ltpNumeric * (1 + MARKET_PROTECTION_BUFFER_PCT)
-    : ltpNumeric * (1 - MARKET_PROTECTION_BUFFER_PCT);
-  // Snap to the nearest valid Kite tick for this price bucket. Required —
+    ? ltpNumeric * (1 + bufferPct)
+    : ltpNumeric * (1 - bufferPct);
+  // Snap to the nearest valid tick for this price bucket. Required —
   // Kite rejects LIMIT orders whose price isn't on a valid increment.
   const limitPrice = roundToKiteTick(rawBuffered);
-  const validity = (baseOrder.exchange || '').toUpperCase() === 'BSE' ? 'DAY' : 'IOC';
+  // Validity: IOC on NSE/NFO, DAY on BSE/BFO (BSE+BFO reject LIMIT+IOC).
+  const validity = (exchangeUpper === 'BSE' || exchangeUpper === 'BFO') ? 'DAY' : 'IOC';
   console.log(
     `[ZerodhaPublisher] MARKET→LIMIT for ${baseOrder.tradingsymbol}: ltp=${ltpNumeric} ` +
-      `${isBuy ? 'BUY' : 'SELL'} limit=${limitPrice} validity=${validity}`
+      `${isBuy ? 'BUY' : 'SELL'} ` +
+      `${isDerivative ? 'derivative buffer 1.5%' : 'equity buffer 1.0%'} ` +
+      `limit=${limitPrice} validity=${validity}`
   );
   return { ...baseOrder, order_type: 'LIMIT', price: limitPrice, validity };
 }
@@ -346,12 +395,21 @@ export function convertToBasketItem(broker, stock, symbolMap) {
       tradingsymbol = tradingsymbol.replace(/-EQ$/, '');
     }
 
-    // MARKET -> LIMIT with market-protection buffer (IOC on NSE, DAY on BSE).
-    // Mirrors ICICI (48f1fb47) / AliceBlue (84a9bf94) / web (this session).
-    // Avoids Kite's "MARKET orders are blocked — enable market protection"
-    // rejection on GSM/T2T/BE-series stocks. Falls through to plain MARKET
-    // when no LTP is available.
-    const MARKET_PROTECTION_BUFFER_PCT = 0.01;
+    // MARKET -> LIMIT with market-protection buffer (IOC on NSE/NFO,
+    // DAY on BSE/BFO).
+    //
+    // B-35 (2026-05-19 mobile migration): exchange-aware buffer policy:
+    //   • Equity (NSE/BSE):     1.0% (mobile retained legacy)
+    //   • Derivative (NFO/BFO): 1.5% (uniform — matches AliceBlue policy)
+    // B-35a tick-safe snap via roundToKiteTick (was raw Math.round to 2dp)
+    // so the LIMIT price is always a valid multiple of the exchange tick.
+    //
+    // Mirrors ICICI / AliceBlue / web (commits c85d6ea4 + aafe1830 +
+    // b7f7ccd0 on ccxt-india feature/4.0_broker). Falls through to plain
+    // MARKET when no LTP is available.
+    const exchangeUpper = (exchange || '').toUpperCase();
+    const isDerivative = exchangeUpper === 'NFO' || exchangeUpper === 'BFO';
+    const MARKET_PROTECTION_BUFFER_PCT = isDerivative ? 0.015 : 0.01;
     let orderType = mapKiteOrderType(stock.orderType);
     let price = stock.price || 0;
     let validity = null;
@@ -360,15 +418,19 @@ export function convertToBasketItem(broker, stock, symbolMap) {
     );
     if (orderType === 'MARKET' && ltp > 0) {
       const isBuy = (stock.transactionType || 'BUY').toUpperCase() === 'BUY';
-      const limitPrice = isBuy
-        ? Math.round(ltp * (1 + MARKET_PROTECTION_BUFFER_PCT) * 100) / 100
-        : Math.round(ltp * (1 - MARKET_PROTECTION_BUFFER_PCT) * 100) / 100;
+      const rawBuffered = isBuy
+        ? ltp * (1 + MARKET_PROTECTION_BUFFER_PCT)
+        : ltp * (1 - MARKET_PROTECTION_BUFFER_PCT);
+      // Snap to the tick-safe schedule (0.10/0.50/1.00 — see roundToKiteTick).
+      const limitPrice = roundToKiteTick(rawBuffered);
       orderType = 'LIMIT';
       price = limitPrice;
-      validity = (exchange || '').toUpperCase() === 'BSE' ? 'DAY' : 'IOC';
+      validity = (exchangeUpper === 'BSE' || exchangeUpper === 'BFO') ? 'DAY' : 'IOC';
       console.log(
         `[BrokerPublisher] MARKET→LIMIT for ${tradingsymbol}: ltp=${ltp} ` +
-          `${isBuy ? 'BUY' : 'SELL'} limit=${limitPrice} validity=${validity}`
+          `${isBuy ? 'BUY' : 'SELL'} ` +
+          `${isDerivative ? 'derivative 1.5%' : 'equity 1.0%'} ` +
+          `limit=${limitPrice} validity=${validity}`
       );
     }
 
@@ -382,7 +444,9 @@ export function convertToBasketItem(broker, stock, symbolMap) {
       transaction_type: stock.transactionType,
       quantity: stock.quantity,
       order_type: orderType,
-      product: mapKiteProductType(stock.productType),
+      // B-28: pass exchange so F&O (NFO/BFO) maps CARRYFORWARD → NRML
+      // instead of CNC. Equity (NSE/BSE) is unchanged.
+      product: mapKiteProductType(stock.productType, exchange),
       price,
       trigger_price: stock.triggerPrice || 0,
       variety: 'regular',

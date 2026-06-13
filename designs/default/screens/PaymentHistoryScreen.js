@@ -4,15 +4,23 @@
  * Pure presentation. Container owns useTrade, useConfig, Firebase auth,
  * axios invoice fetch, PDF download/view via RNFS + FileViewer + Share.
  *
+ * P1 (web-parity, D15): optional second "Fee Statements" tab for RIA AUM-billing
+ * invoices. Rendered ONLY when viewModel.showFeeTab is true; otherwise this screen
+ * is byte-identical to before (single transactions list). Fee rows show
+ * period · AUA · fee · GST · total + a status pill + View/Download (reusing the
+ * container's PDF helper). See docs/WEB_PARITY_MIGRATION_2026-06.md §5.1.
+ *
  * Contract:
  *   viewModel = {
- *     invoiceData,            // array of invoice objects
- *     gradient1, gradient2,   // gradient colors from config
+ *     invoiceData, gradient1, gradient2,
+ *     showFeeTab,            // bool — render the segmented control + fee tab
+ *     tab,                   // 'transactions' | 'fees'
+ *     feeStatements,         // [{ id, invoice_id, period, planName, category, status, aua, fee, gst, total }]
+ *     feeContract,           // { billing_mode, billing_period, billing_timing, client_category, plan_name } | null
  *   }
  *   actions = {
- *     onGoBack,
- *     onDownloadInvoice(item, index),
- *     onViewInvoice(item, index),
+ *     onGoBack, onDownloadInvoice(item,index), onViewInvoice(item,index),
+ *     onSelectTab(tab), onViewFee(item), onDownloadFee(item),
  *   }
  */
 
@@ -26,19 +34,45 @@ import {
     Image,
 } from 'react-native';
 import { ChevronLeft } from 'lucide-react-native';
-import Toast from 'react-native-toast-message';
 import LinearGradient from 'react-native-linear-gradient';
+
+// Indian-grouping rupee formatter (12,40,000). Null/NaN → '—'.
+const inr = v => {
+    if (v === null || v === undefined || isNaN(Number(v))) return '—';
+    const n = Math.round(Number(v));
+    const s = String(Math.abs(n));
+    let last3 = s.slice(-3);
+    const rest = s.slice(0, -3);
+    if (rest) last3 = ',' + last3;
+    const grouped =
+        rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',') + last3;
+    return `₹${n < 0 ? '-' : ''}${grouped}`;
+};
+
+const FEE_STATUS = {
+    paid: { label: 'Paid', bg: '#DCFCE7', fg: '#16A34A' },
+    issued: { label: 'Issued', bg: '#DBEAFE', fg: '#2563EB' },
+    proforma: { label: 'Estimate', bg: '#FEF3C7', fg: '#B45309' },
+    void: { label: 'Void', bg: '#F0F0F0', fg: '#6B7280' },
+};
 
 const PaymentHistoryScreen = ({ viewModel, actions }) => {
     const {
         invoiceData = [],
         gradient1 = 'rgba(0, 86, 183, 1)',
         gradient2 = 'rgba(0, 38, 81, 1)',
+        showFeeTab = false,
+        tab = 'transactions',
+        feeStatements = [],
+        feeContract = null,
     } = viewModel || {};
     const {
         onGoBack = () => {},
         onDownloadInvoice = () => {},
         onViewInvoice = () => {},
+        onSelectTab = () => {},
+        onViewFee = () => {},
+        onDownloadFee = () => {},
     } = actions || {};
 
     const renderPaymentItem = ({ item, index }) => (
@@ -86,105 +120,92 @@ const PaymentHistoryScreen = ({ viewModel, actions }) => {
         </View>
     );
 
-    const renderEmptyComponent = () => (
-        <View
-            style={{
-                flex: 1,
-                alignContent: 'center',
-                alignItems: 'center',
-                alignSelf: 'center',
-                justifyContent: 'center',
-                marginVertical: 40,
-            }}>
-            <View
-                style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    opacity: 0.7,
-                    backgroundColor: '#fff',
-                    borderRadius: 16,
-                }}>
-                <View
-                    style={{
-                        position: 'absolute',
-                        top: -80,
-                        right: -80,
-                        width: 200,
-                        height: 200,
-                        borderRadius: 100,
-                        backgroundColor: 'rgba(107, 20, 0, 0.08)',
-                    }}
-                />
-                <View
-                    style={{
-                        position: 'absolute',
-                        bottom: -60,
-                        left: -60,
-                        width: 180,
-                        height: 180,
-                        borderRadius: 90,
-                        backgroundColor: 'rgba(173, 66, 38, 0.06)',
-                    }}
-                />
-            </View>
-
-            <View
-                style={{
-                    width: 90,
-                    height: 90,
-                    borderRadius: 45,
-                    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    marginBottom: 20,
-                    shadowColor: '#6B1400',
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.15,
-                    shadowRadius: 10,
-                    elevation: 4,
-                }}>
-                <View
-                    style={{
-                        width: 70,
-                        height: 70,
-                        borderRadius: 35,
-                        backgroundColor: 'rgba(107, 20, 0, 0.05)',
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                    }}>
-                    <Text style={{ fontSize: 32 }}>{'💸'}</Text>
+    const renderFeeItem = ({ item }) => {
+        const st = FEE_STATUS[item.status] || FEE_STATUS.issued;
+        return (
+            <View style={styles.feeCard}>
+                <View style={styles.feeHeaderRow}>
+                    <View style={{ flex: 1, paddingRight: 8 }}>
+                        <Text style={styles.feePeriod}>{item.period || 'Fee period'}</Text>
+                        {(!!item.planName || !!item.category) && (
+                            <Text style={styles.feePlanName}>
+                                {[item.planName, item.category].filter(Boolean).join('  ·  ')}
+                            </Text>
+                        )}
+                    </View>
+                    <View style={[styles.pill, { backgroundColor: st.bg }]}>
+                        <Text style={[styles.pillText, { color: st.fg }]}>
+                            {st.label}
+                        </Text>
+                    </View>
+                </View>
+                <View style={styles.feeKv}>
+                    <Text style={styles.feeKvLabel}>AUA</Text>
+                    <Text style={styles.feeKvValue}>{inr(item.aua)}</Text>
+                </View>
+                <View style={styles.feeKv}>
+                    <Text style={styles.feeKvLabel}>Fee</Text>
+                    <Text style={styles.feeKvValue}>{inr(item.fee)}</Text>
+                </View>
+                <View style={styles.feeKv}>
+                    <Text style={styles.feeKvLabel}>GST</Text>
+                    <Text style={styles.feeKvValue}>{inr(item.gst)}</Text>
+                </View>
+                <View style={[styles.feeKv, styles.feeTotalRow]}>
+                    <Text style={styles.feeTotalLabel}>Total</Text>
+                    <Text style={styles.feeTotalValue}>{inr(item.total)}</Text>
+                </View>
+                <View style={styles.feeActions}>
+                    <TouchableOpacity onPress={() => onDownloadFee(item)}>
+                        <Text style={styles.downloadText}>Download</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => onViewFee(item)}>
+                        <Text style={styles.invoiceText}>View</Text>
+                    </TouchableOpacity>
                 </View>
             </View>
+        );
+    };
 
-            <Text
-                style={{
-                    fontFamily: 'Satoshi-Bold',
-                    fontSize: 20,
-                    color: '#3A0B00',
-                    textAlign: 'center',
-                    marginBottom: 12,
-                }}>
-                No Payment History
+    const renderContractStrip = () =>
+        feeContract ? (
+            <View style={styles.contractStrip}>
+                <Text style={styles.contractText}>
+                    {[
+                        feeContract.billing_mode,
+                        feeContract.billing_period,
+                        feeContract.billing_timing,
+                    ]
+                        .filter(Boolean)
+                        .join('  ·  ')}
+                </Text>
+                {!!(feeContract.client_category || feeContract.plan_name) && (
+                    <Text style={styles.contractCategory}>
+                        {feeContract.plan_name
+                            ? `Plan: ${feeContract.plan_name}`
+                            : `Category: ${feeContract.client_category}`}
+                    </Text>
+                )}
+            </View>
+        ) : null;
+
+    const renderEmptyComponent = () => (
+        <View style={styles.emptyWrap}>
+            <View style={styles.emptyBadge}>
+                <Text style={{ fontSize: 32 }}>{'💸'}</Text>
+            </View>
+            <Text style={styles.emptyTitle}>
+                {tab === 'fees' ? 'No fee statements yet' : 'No Payment History'}
             </Text>
-
-            <Text
-                style={{
-                    fontFamily: 'Satoshi-Medium',
-                    fontSize: 15,
-                    color: '#4D2418',
-                    textAlign: 'center',
-                    maxWidth: '85%',
-                    lineHeight: 22,
-                    marginBottom: 20,
-                }}>
-                Your completed transactions will appear here once you make your
-                first payment.
+            <Text style={styles.emptyBody}>
+                {tab === 'fees'
+                    ? 'Your advisory fee statements will appear here once your first billing period closes.'
+                    : 'Your completed transactions will appear here once you make your first payment.'}
             </Text>
         </View>
     );
+
+    const onFees = tab === 'fees';
 
     return (
         <View style={styles.container}>
@@ -204,9 +225,7 @@ const PaymentHistoryScreen = ({ viewModel, actions }) => {
                         alignItems: 'center',
                         marginTop: 10,
                     }}>
-                    <TouchableOpacity
-                        style={styles.backButton}
-                        onPress={onGoBack}>
+                    <TouchableOpacity style={styles.backButton} onPress={onGoBack}>
                         <ChevronLeft size={24} color="#000" />
                     </TouchableOpacity>
                     <View style={{ justifyContent: 'center' }}>
@@ -221,26 +240,54 @@ const PaymentHistoryScreen = ({ viewModel, actions }) => {
                     </View>
                 </View>
             </LinearGradient>
-            <FlatList
-                data={invoiceData}
-                renderItem={renderPaymentItem}
-                keyExtractor={item => item.id}
-                ListEmptyComponent={renderEmptyComponent}
-                contentContainerStyle={styles.listContent}
-                showsVerticalScrollIndicator={false}
-            />
+
+            {showFeeTab && (
+                <View style={styles.segment}>
+                    <TouchableOpacity
+                        style={[styles.segItem, !onFees && styles.segItemOn]}
+                        onPress={() => onSelectTab('transactions')}>
+                        <Text
+                            style={[styles.segText, !onFees && styles.segTextOn]}>
+                            Transactions
+                        </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.segItem, onFees && styles.segItemOn]}
+                        onPress={() => onSelectTab('fees')}>
+                        <Text style={[styles.segText, onFees && styles.segTextOn]}>
+                            Fee Statements
+                        </Text>
+                    </TouchableOpacity>
+                </View>
+            )}
+
+            {onFees ? (
+                <FlatList
+                    data={feeStatements}
+                    renderItem={renderFeeItem}
+                    keyExtractor={item => String(item.id)}
+                    ListHeaderComponent={renderContractStrip}
+                    ListEmptyComponent={renderEmptyComponent}
+                    contentContainerStyle={styles.listContent}
+                    showsVerticalScrollIndicator={false}
+                />
+            ) : (
+                <FlatList
+                    data={invoiceData}
+                    renderItem={renderPaymentItem}
+                    keyExtractor={item => String(item.id)}
+                    ListEmptyComponent={renderEmptyComponent}
+                    contentContainerStyle={styles.listContent}
+                    showsVerticalScrollIndicator={false}
+                />
+            )}
         </View>
     );
 };
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#FFFFFF',
-    },
-    listContent: {
-        paddingHorizontal: 16,
-    },
+    container: { flex: 1, backgroundColor: '#FFFFFF' },
+    listContent: { paddingHorizontal: 16 },
     backButton: {
         padding: 4,
         borderRadius: 5,
@@ -253,10 +300,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingVertical: 12,
     },
-    leftContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
+    leftContent: { flexDirection: 'row', alignItems: 'center' },
     iconContainer: {
         width: 40,
         height: 40,
@@ -264,41 +308,123 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
-    iconText: {
-        fontSize: 14,
-        fontWeight: '500',
-    },
-    textContainer: {
-        marginLeft: 12,
-    },
-    nameText: {
-        fontSize: 16,
-        fontFamily: 'Satoshi-Bold',
-        color: '#000000',
-    },
+    iconText: { fontSize: 14, fontWeight: '500' },
+    textContainer: { marginLeft: 12 },
+    nameText: { fontSize: 16, fontFamily: 'Satoshi-Bold', color: '#000000' },
     dateText: {
         fontSize: 14,
         color: '#6B7280',
         fontFamily: 'Satoshi-Regular',
         marginTop: 2,
     },
-    rightContent: {
-        alignItems: 'flex-end',
+    rightContent: { alignItems: 'flex-end' },
+    amountText: { fontSize: 16, fontFamily: 'Satoshi-Bold', color: '#000000' },
+    invoiceText: { fontSize: 14, fontFamily: 'Satoshi-Medium', color: '#2563EB' },
+    downloadText: { fontSize: 14, fontFamily: 'Satoshi-Medium', color: '#16A085' },
+
+    // Segmented control
+    segment: {
+        flexDirection: 'row',
+        backgroundColor: '#F0F0F0',
+        borderRadius: 10,
+        padding: 3,
+        marginHorizontal: 16,
+        marginTop: 12,
     },
-    amountText: {
-        fontSize: 16,
+    segItem: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
+    segItemOn: {
+        backgroundColor: '#fff',
+        shadowColor: '#000',
+        shadowOpacity: 0.06,
+        shadowRadius: 2,
+        elevation: 1,
+    },
+    segText: { fontSize: 12.5, color: '#6B7280', fontFamily: 'Poppins-Medium' },
+    segTextOn: { color: '#111827' },
+
+    // Contract strip
+    contractStrip: {
+        backgroundColor: '#F8F9FC',
+        borderRadius: 10,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        marginTop: 12,
+        marginBottom: 4,
+    },
+    contractText: { fontSize: 12, color: '#374151', fontFamily: 'Poppins-Medium' },
+    contractCategory: { fontSize: 11, color: '#6B7280', fontFamily: 'Poppins-Regular', marginTop: 2 },
+
+    // Fee statement card
+    feeCard: {
+        backgroundColor: '#fff',
+        borderWidth: 1,
+        borderColor: '#E5E7EB',
+        borderRadius: 14,
+        padding: 12,
+        marginTop: 10,
+    },
+    feeHeaderRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 6,
+    },
+    feePeriod: { fontSize: 14, fontFamily: 'Satoshi-Bold', color: '#111827' },
+    feePlanName: { fontSize: 11, color: '#6B7280', fontFamily: 'Poppins-Regular', marginTop: 2 },
+    pill: { borderRadius: 20, paddingHorizontal: 9, paddingVertical: 2 },
+    pillText: { fontSize: 10, fontFamily: 'Poppins-Medium' },
+    feeKv: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingVertical: 2,
+    },
+    feeKvLabel: { fontSize: 12, color: '#6B7280', fontFamily: 'Satoshi-Regular' },
+    feeKvValue: { fontSize: 12, color: '#111827', fontFamily: 'Satoshi-Medium' },
+    feeTotalRow: {
+        borderTopWidth: 1,
+        borderTopColor: '#F0F0F0',
+        marginTop: 4,
+        paddingTop: 6,
+    },
+    feeTotalLabel: { fontSize: 13, color: '#111827', fontFamily: 'Satoshi-Bold' },
+    feeTotalValue: { fontSize: 13, color: '#111827', fontFamily: 'Satoshi-Bold' },
+    feeActions: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+        gap: 16,
+        marginTop: 10,
+    },
+
+    // Empty state
+    emptyWrap: {
+        flex: 1,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginVertical: 50,
+    },
+    emptyBadge: {
+        width: 90,
+        height: 90,
+        borderRadius: 45,
+        backgroundColor: 'rgba(0,86,183,0.06)',
+        justifyContent: 'center',
+        alignItems: 'center',
+        marginBottom: 20,
+    },
+    emptyTitle: {
         fontFamily: 'Satoshi-Bold',
-        color: '#000000',
+        fontSize: 18,
+        color: '#111827',
+        textAlign: 'center',
+        marginBottom: 10,
     },
-    invoiceText: {
-        fontSize: 14,
+    emptyBody: {
         fontFamily: 'Satoshi-Medium',
-        color: '#2563EB',
-    },
-    downloadText: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Medium',
-        color: '#16A085',
+        color: '#4B5563',
+        textAlign: 'center',
+        maxWidth: '85%',
+        lineHeight: 21,
     },
 });
 

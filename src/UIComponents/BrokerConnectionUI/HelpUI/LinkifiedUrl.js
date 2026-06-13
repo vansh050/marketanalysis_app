@@ -1,5 +1,6 @@
 import React from 'react';
 import {Text, Linking} from 'react-native';
+import Clipboard from '@react-native-clipboard/clipboard';
 import Toast from 'react-native-toast-message';
 
 /**
@@ -17,12 +18,13 @@ import Toast from 'react-native-toast-message';
  * the surrounding instruction `<Text>` paragraph (TouchableOpacity can
  * NOT be nested inside Text in RN — only Text/Image).
  *
- * Clipboard: RN 0.78 dropped core `Clipboard` and this project doesn't
- * install `@react-native-clipboard/clipboard` as an explicit dep. Same
- * pattern as MotilalConnectUI / HelpModal / KotakConsumerKeySteps —
- * reference `Clipboard` as a runtime global and fall back to a toast
- * telling the user to long-press to copy manually (`selectable` on the
- * URL text makes that work natively on iOS + Android).
+ * Clipboard: uses `@react-native-clipboard/clipboard` (added 2026-04-30).
+ * Earlier this file referenced a runtime `Clipboard` global and fell
+ * back to a "Long-press the link to copy manually" toast — but RN 0.78
+ * dropped core Clipboard and the package wasn't installed, so the toast
+ * fired on every tap and users couldn't actually copy. Now uses the
+ * real package; the `selectable` long-press affordance stays as a
+ * belt-and-braces fallback if the native module ever fails to bind.
  */
 const LinkifiedUrl = ({url, display, style, copyLabel = ' ⧉'}) => {
   if (!url) return null;
@@ -41,7 +43,6 @@ const LinkifiedUrl = ({url, display, style, copyLabel = ' ⧉'}) => {
 
   const handleCopy = () => {
     try {
-      // eslint-disable-next-line no-undef
       Clipboard.setString(url);
       Toast.show({
         type: 'success',

@@ -25,14 +25,18 @@
  */
 
 import defaultVariant from './default';
+// Fork: marketanalysis variant overlay. Two-line patch maintained per
+// docs/WHITELABEL_RECIPE.md § "Adding a new whitelabel" step 6 — this
+// import + the map entry below are the entire registration. Expected to
+// conflict on every upstream merge; resolve by keeping both upstream's
+// default-only state and these two lines.
+import marketanalysisVariant from './marketanalysis';
 
 export const DEFAULT_VARIANT_NAME = 'default';
 
 export const VARIANTS = {
     [DEFAULT_VARIANT_NAME]: defaultVariant,
-    // Add custom variants here:
-    // acme: require('./acme').default,
-    // zamzamcapital: require('./zamzamcapital').default,
+    marketanalysis: marketanalysisVariant,
 };
 
 export default VARIANTS;

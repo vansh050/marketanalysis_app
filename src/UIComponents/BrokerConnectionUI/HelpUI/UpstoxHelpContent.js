@@ -2,7 +2,6 @@ import React, {useState, useEffect} from 'react';
 import {
   View,
   Text,
-  ScrollView,
   StyleSheet,
   Linking,
   TouchableOpacity,
@@ -21,9 +20,7 @@ const UpstoxHelpContent = ({expanded, onExpandChange, brokerConnectRedirectURL: 
 
   return (
     <View>
-      <ScrollView
-        style={styles.container}
-        contentContainerStyle={{paddingBottom: 20}}>
+      <View style={[styles.container, {paddingBottom: 20}]}>
         <View style={styles.videoBox}>
           <YoutubePlayer
             height={screenHeight * 0.24}
@@ -72,7 +69,7 @@ const UpstoxHelpContent = ({expanded, onExpandChange, brokerConnectRedirectURL: 
             </Text>
           </>
         )}
-      </ScrollView>
+      </View>
     </View>
   );
 };

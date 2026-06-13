@@ -6,11 +6,17 @@ import server from '../../utils/serverConfig';
 import CryptoJS from 'react-native-crypto-js';
 import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
+import { getStoredBrokerCreds } from '../../utils/brokerCredentials';
 import KotakConnectUI from '../../UIComponents/BrokerConnectionUI/KotakConnectUI';
 import { useTrade } from '../../screens/TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 const KotakModal = ({
   isVisible,
@@ -22,6 +28,7 @@ const KotakModal = ({
 }) => {
   const { configData } = useTrade();
   const showAlert = useModalStore((state) => state.showAlert);
+  const sdkBridge = useSdkBridge();
   const sheet = useRef(null);
   const scrollViewRef = useRef(null);
   const auth = getAuth();
@@ -66,23 +73,35 @@ const KotakModal = ({
     getUserDeatils();
   }, [userEmail, server.server.baseUrl]);
 
-  // Pre-fill mobile number on reconnect — matches web 933e9a4.
-  // Reads from connected_brokers[broker=Kotak].mobileNumber (primary)
-  // with fallback to the legacy top-level phone_number field.
-  // Strips the '+91' prefix so the <TextInput> only holds 10 digits
-  // (updateKotakSecretKey re-adds '+91' before sending to the backend).
+  // Smart reauth pre-fill on reconnect — Kotak NEO has 5 form fields
+  // but mpin + totp are deliberately never stored (security: mpin is
+  // a personal PIN; totp rotates every 30s). Backend persists apiKey
+  // (encrypted) + clientCode (=ucc) in connected_brokers[], plus
+  // phone_number on the user doc.
+  //
+  // Pre-fill: apiKey + ucc + mobileNumber. User still types mpin +
+  // totp every reconnect — best achievable for a PIN-protected
+  // broker. Cuts re-entry from 5 fields to 2.
   useEffect(() => {
     if (!userDetails) return;
-    const kotakSlot = Array.isArray(userDetails.connected_brokers)
-      ? userDetails.connected_brokers.find(b => b.broker === 'Kotak')
-      : null;
-    const saved = kotakSlot?.mobileNumber || userDetails.phone_number || '';
-    const digits = String(saved).replace(/^\+91/, '').replace(/\D/g, '');
+
+    // Mobile number from user.phone_number (top-level, not
+    // connected_brokers — see Kotak.js:185).
+    const mobileSource = userDetails.phone_number || '';
+    const digits = String(mobileSource).replace(/^\+91/, '').replace(/\D/g, '');
     if (/^\d{10}$/.test(digits) && !mobileNumber) {
       setMobileNumber(digits);
     }
-    // Intentionally depend on userDetails only — don't overwrite user
-    // edits in-progress.
+
+    // apiKey + ucc from connected_brokers[Kotak] entry. Decrypts
+    // client-side via brokerCredentials.getStoredBrokerCreds so the
+    // user doesn't have to re-paste their NEO consumer key on every
+    // reconnect.
+    const stored = getStoredBrokerCreds(userDetails, 'Kotak');
+    if (stored) {
+      if (stored.apiKey && !apiKey) setApiKey(stored.apiKey);
+      if (stored.ucc && !ucc) setucc(stored.ucc);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userDetails]);
 
@@ -217,30 +236,59 @@ const KotakModal = ({
       .then(response => {
         console.log('[Kotak Neo] Broker connected successfully, updating model portfolio...');
 
-        // Update model portfolio with broker information (non-critical)
-        let newBrokerData = {
-          user_email: userEmail,
-          user_broker: 'Kotak Neo',
-        };
-        let A1_broker = {
-          method: 'post',
-          url: `${server.ccxtServer.baseUrl}rebalance/change_broker_model_pf`,
-          data: JSON.stringify(newBrokerData),
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
-          },
-        };
+        // EVERYTHING below this line runs AFTER the connect HTTP call
+        // returned 2xx — the broker IS connected DB-side. Wrap each
+        // independently-failable step so a JS runtime error here does
+        // NOT bubble to the outer .catch and surface as "Connection
+        // Issue" / "Incorrect credentials". Production 2026-04-28: a
+        // throw inside this first .then (suspect: generateToken with
+        // missing env, sdkBridge access, or sdkConnectBroker arg eval)
+        // was producing the false-negative even after we hardened the
+        // SECOND .then with the same wrap pattern. See CHANGELOG 3.9.41.
+        try {
+          if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+            sdkDualWriteSafely(
+              sdkConnectBroker(sdkBridge.client, 'Kotak', data),
+              'Kotak',
+              'connect',
+            );
+          }
+        } catch (sdkErr) {
+          console.warn(
+            '[Kotak Neo] SDK dual-write threw synchronously (connection IS saved DB-side):',
+            sdkErr?.message || sdkErr,
+          );
+        }
 
-        // Execute the model portfolio broker update - catch separately so connection success isn't affected
-        return axios.request(A1_broker).catch(err => {
-          console.warn('[Kotak Neo] Model portfolio update failed (non-critical):', err);
+        try {
+          let newBrokerData = {
+            user_email: userEmail,
+            user_broker: 'Kotak Neo',
+          };
+          let A1_broker = {
+            method: 'post',
+            url: `${server.ccxtServer.baseUrl}rebalance/change_broker_model_pf`,
+            data: JSON.stringify(newBrokerData),
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+              'aq-encrypted-key': generateToken(
+                Config.REACT_APP_AQ_KEYS,
+                Config.REACT_APP_AQ_SECRET,
+              ),
+            },
+          };
+          return axios.request(A1_broker).catch(err => {
+            console.warn('[Kotak Neo] Model portfolio update failed (non-critical):', err);
+            return null;
+          });
+        } catch (mpErr) {
+          console.warn(
+            '[Kotak Neo] Model portfolio update setup threw (connection IS saved DB-side):',
+            mpErr?.message || mpErr,
+          );
           return null;
-        });
+        }
       })
       .then(async response => {
         if (response) {
@@ -253,10 +301,31 @@ const KotakModal = ({
         // dual-modal-stacking rationale.
         setShowKotakModal(false);
         setShowBrokerModal(false);
-        eventEmitter.emit('refreshEvent', { source: 'Kotak broker connection' });
-        const result = await fetchBrokerStatusModal();
-        if (!result?.migrationWillShow) {
-          showAlert('success', 'Connected Successfully', 'Your Kotak broker has been connected successfully!');
+        // The connect HTTP call already returned 200 by this point —
+        // the broker IS connected DB-side. Wrap the post-success steps
+        // (event emit, fetchBrokerStatusModal, showAlert) in their own
+        // try/catch so a throw from any of them doesn't bubble up to
+        // the outer .catch and get rewritten as "Connection Error:
+        // Incorrect credentials" — that message is actively misleading
+        // when the user actually IS connected. Production 2026-04-27:
+        // user saw "Incorrect credentials" alert despite three 200s in
+        // nginx (POST /kotak/login/totp, PUT /api/kotak/connect-broker,
+        // PUT /sdk/v1/connections/Kotak/connect/) — i.e. the connect
+        // succeeded and a downstream JS error inside this .then crashed
+        // the success path. Worst-case under the new wrap: the success
+        // toast doesn't show; the user can verify connection state via
+        // refresh. Better than telling them their credentials are wrong.
+        try {
+          eventEmitter.emit('refreshEvent', { source: 'Kotak broker connection' });
+          const result = await fetchBrokerStatusModal();
+          if (!result?.migrationWillShow) {
+            showAlert('success', 'Connected Successfully', 'Your Kotak broker has been connected successfully!');
+          }
+        } catch (postSuccessErr) {
+          console.warn(
+            '[Kotak Neo] post-success step threw (connection IS saved DB-side):',
+            postSuccessErr?.message || postSuccessErr,
+          );
         }
       })
       .catch(error => {
@@ -279,6 +348,15 @@ const KotakModal = ({
           lower.includes('totp') ||
           lower.includes('two factor') ||
           lower.includes('two-factor');
+        // `error.response` is set ONLY when axios received an HTTP
+        // response (i.e. real broker/backend rejection). When it's
+        // absent the error is either a network failure or a JS
+        // runtime error after a 2xx — in neither case do we have any
+        // evidence the credentials were wrong, so do not claim that.
+        // (Post-success runtime errors are caught one level up by the
+        // try/catch in the second .then, so reaching here without
+        // error.response usually means a network-layer failure.)
+        const isHttpError = !!error?.response;
         let alertTitle = 'Connection Error';
         let alertBody;
         if (isTotpFailure) {
@@ -286,8 +364,12 @@ const KotakModal = ({
           alertBody =
             (rawMessage || 'Kotak rejected the TOTP code.') +
             '\n\nKotak TOTPs rotate every 30s and can\'t be reused. Generate a fresh 6-digit code in NEO and try again.';
-        } else {
+        } else if (isHttpError) {
           alertBody = rawMessage || 'Incorrect credentials. Please try again';
+        } else {
+          alertTitle = 'Connection Issue';
+          alertBody =
+            'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
         }
 
         setIsLoading(false);

@@ -12,6 +12,11 @@ import FyersConnectUI from '../../UIComponents/BrokerConnectionUI/FyersConnectUI
 import { useTrade } from '../../screens/TradeContext';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const commonHeight = screenHeight * 0.06;
@@ -26,6 +31,7 @@ const FyersConnect = ({
 }) => {
   const { configData } = useTrade();
   const showAlert = useModalStore((state) => state.showAlert);
+  const sdkBridge = useSdkBridge();
   const [apiKey, setApiKey] = useState('');
   const [secretKey, setSecretKey] = useState('');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
@@ -179,9 +185,21 @@ const FyersConnect = ({
         data: JSON.stringify(brokerData),
       };
 
+      // SDK pilot dual-write — see brokerSdkBridge.js. Fired
+      // alongside the legacy save (PUT /api/user/connect-broker)
+      // so we can verify /sdk/v1/connections/Fyers/connect in
+      // production. Failure logged, never blocks legacy success.
+      if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+        sdkDualWriteSafely(
+          sdkConnectBroker(sdkBridge.client, 'Fyers', brokerData),
+          'Fyers',
+          'connect',
+        );
+      }
+
       axios
         .request(config)
-        .then(response => {
+        .then(async response => {
           console.log('[Fyers] Broker connection saved successfully');
 
           // Update model portfolio with broker information
@@ -206,15 +224,43 @@ const FyersConnect = ({
             console.warn('[Fyers] Model portfolio update failed (non-critical):', modelPortfolioError);
           }
 
-          fetchBrokerStatusModal();
-          eventEmitter.emit('refreshEvent', { source: 'Fyers broker connection' });
-          showAlert('success', 'Connected Successfully', 'Your Fyers broker has been connected successfully!');
           onClose();
           setShowBrokerModal(false);
+          // Wrap post-success steps so a downstream throw doesn't bubble
+          // to the outer .catch and get rewritten as "Connection Error".
+          // See KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
+          // § Broker-connect post-success hygiene.
+          try {
+            const result = await fetchBrokerStatusModal();
+            eventEmitter.emit('refreshEvent', { source: 'Fyers broker connection' });
+            if (!result?.migrationWillShow) {
+              showAlert('success', 'Connected Successfully', 'Your Fyers broker has been connected successfully!');
+            }
+          } catch (postSuccessErr) {
+            console.warn(
+              '[Fyers] post-success step threw (connection IS saved DB-side):',
+              postSuccessErr?.message || postSuccessErr,
+            );
+          }
         })
         .catch(error => {
           console.error('[Fyers] connect-broker error:', error);
-          showAlert('error', 'Connection Error', 'Failed to save Fyers connection. Please try again.');
+          const isHttpError = !!error?.response;
+          const rawMessage =
+            error.response?.data?.message ||
+            error.response?.data?.details ||
+            '';
+          let alertTitle = 'Connection Error';
+          let alertBody;
+          if (isHttpError) {
+            alertBody =
+              rawMessage || 'Failed to save Fyers connection. Please try again.';
+          } else {
+            alertTitle = 'Connection Issue';
+            alertBody =
+              'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+          }
+          showAlert('error', alertTitle, alertBody);
         });
     }
   };

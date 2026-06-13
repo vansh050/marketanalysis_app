@@ -156,17 +156,24 @@ const IgnoreTradesScreen = () => {
       return Key;
     }
   };
-  const getUserDeatils = () => {
+  // Build a fresh auth header set on each call. The `aq-encrypted-key` JWT has
+  // a short expiry validated against the client clock; minting per call (not
+  // once at mount) avoids a stale-token 401. Ported from web parity
+  // commit 5660392c (fix(auth): tolerate client clock skew on aq-encrypted-key
+  // token; retry getUserDetails on 401).
+  const buildAuthHeaders = () => ({
+    'Content-Type': 'application/json',
+    'X-Advisor-Subdomain': getAdvisorSubdomain(),
+    'aq-encrypted-key': generateToken(
+      Config.REACT_APP_AQ_KEYS,
+      Config.REACT_APP_AQ_SECRET,
+    ),
+  });
+
+  const getUserDeatils = (retry = true) => {
     axios
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': getAdvisorSubdomain(),
-          'aq-encrypted-key': generateToken(
-            Config.REACT_APP_AQ_KEYS,
-            Config.REACT_APP_AQ_SECRET,
-          ),
-        },
+        headers: buildAuthHeaders(),
       })
       .then(res => {
         setUserDetails(res.data.User);
@@ -174,7 +181,15 @@ const IgnoreTradesScreen = () => {
 
         setBrokerStatus(res.data.connect_broker_status);
       })
-      .catch(err => console.log(err));
+      .catch(err => {
+        // 401 is almost always a stale / clock-skewed short-lived auth token.
+        // Retry once with a freshly minted token before surfacing the error.
+        if (retry && err?.response?.status === 401) {
+          getUserDeatils(false);
+          return;
+        }
+        console.log(err);
+      });
   };
   // zerodha start
   const [zerodhaAccessToken, setZerodhaAccessToken] = useState(null);

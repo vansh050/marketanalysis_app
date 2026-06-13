@@ -113,6 +113,16 @@ import MPCard from './composites/MPCard';
 import LiveRoom from './composites/LiveRoom';
 // Courses Phase 2 (2026-05-23) — Gumlet VOD player (WebView; see file header for native-video swap)
 import GumletPlayer from './composites/GumletPlayer';
+// Web-parity (P1) — RIA AUM value-history card (self-gated on riaBillingEnabled).
+import AumPerformanceCard from './composites/AumPerformanceCard';
+// Web-parity (P2) — Portfolio Health tool sheet (self-gated on portfolioHealthEnabled).
+import PortfolioHealthSheet from './composites/PortfolioHealthSheet';
+// Web-parity (P3) — NBA action banner + status strip (self-gated on nbaHomeEnabled).
+import NbaBanner from './composites/NbaBanner';
+// Web-parity (P4) — eNACH provisional-access banner (self-shows only when a mandate is pending).
+import ProvisionalBanner from './composites/ProvisionalBanner';
+// Web-parity (P5) — Transition (advice) card. DEFERRED/unmounted; gated transitionEngineEnabled.
+import PortfolioTransitionCard from './composites/PortfolioTransitionCard';
 
 const variant = {
     name: 'default',
@@ -196,6 +206,16 @@ const variant = {
         'composites.LiveRoom': LiveRoom,
         // Courses Phase 2 (2026-05-23) — Gumlet VOD player (WebView-based; works today)
         'composites.GumletPlayer': GumletPlayer,
+        // Web-parity (P1) — RIA AUM value-history card
+        'composites.AumPerformanceCard': AumPerformanceCard,
+        // Web-parity (P2) — Portfolio Health tool sheet
+        'composites.PortfolioHealthSheet': PortfolioHealthSheet,
+        // Web-parity (P3) — NBA action banner + status strip
+        'composites.NbaBanner': NbaBanner,
+        // Web-parity (P4) — eNACH provisional-access banner
+        'composites.ProvisionalBanner': ProvisionalBanner,
+        // Web-parity (P5) — Transition (advice) card; deferred/unmounted
+        'composites.PortfolioTransitionCard': PortfolioTransitionCard,
     },
     // SDK widget defaults — all 10 overridable slots.
     // Each file in sdk/ re-exports the SDK built-in OR provides a

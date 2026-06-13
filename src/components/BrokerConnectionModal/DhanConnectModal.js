@@ -11,6 +11,11 @@ import {useTrade} from '../../screens/TradeContext';
 import {getAdvisorSubdomain} from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
@@ -22,6 +27,7 @@ const DhanConnectModal = ({
 }) => {
   const {configData} = useTrade();
   const showAlert = useModalStore(state => state.showAlert);
+  const sdkBridge = useSdkBridge();
 
   // OAuth mode is primary (matching web). Manual credential form is fallback.
   const [oauthMode, setOauthMode] = useState(true);
@@ -176,19 +182,29 @@ const DhanConnectModal = ({
   const saveBrokerConnectionWithUid = async (uid, clientId, jwtToken) => {
     setLoading(true);
     try {
+      const dhanBrokerData = {
+        uid,
+        user_broker: 'Dhan',
+        clientCode: clientId,
+        jwtToken,
+      };
       await axios.request({
         method: 'put',
         url: `${server.server.baseUrl}api/user/connect-broker`,
         headers: getHeaders(),
-        data: JSON.stringify({
-          uid,
-          user_broker: 'Dhan',
-          clientCode: clientId,
-          jwtToken,
-        }),
+        data: JSON.stringify(dhanBrokerData),
       });
 
       console.log('[Dhan] Broker connected, updating model portfolio...');
+
+      // SDK pilot dual-write — see brokerSdkBridge.js.
+      if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+        sdkDualWriteSafely(
+          sdkConnectBroker(sdkBridge.client, 'Dhan', dhanBrokerData),
+          'Dhan',
+          'connect',
+        );
+      }
 
       // Update model portfolio with new broker (non-critical)
       try {
@@ -203,24 +219,49 @@ const DhanConnectModal = ({
       }
 
       setLoading(false);
-      showAlert(
-        'success',
-        'Connected Successfully',
-        'Your Dhan broker has been connected successfully!',
-      );
-      fetchBrokerStatusModal();
-      eventEmitter.emit('refreshEvent', {source: 'Dhan broker connection'});
       setShowBrokerModal(false);
       onClose();
-      getUserDeatils();
+      // Wrap post-success steps so a downstream throw doesn't bubble to
+      // the outer catch and get rewritten as "Connection Failed". See
+      // KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
+      // § Broker-connect post-success hygiene.
+      try {
+        const result = await fetchBrokerStatusModal();
+        eventEmitter.emit('refreshEvent', {source: 'Dhan broker connection'});
+        if (!result?.migrationWillShow) {
+          showAlert(
+            'success',
+            'Connected Successfully',
+            'Your Dhan broker has been connected successfully!',
+          );
+        }
+        getUserDeatils();
+      } catch (postSuccessErr) {
+        console.warn(
+          '[Dhan] post-success step threw (connection IS saved DB-side):',
+          postSuccessErr?.message || postSuccessErr,
+        );
+      }
     } catch (error) {
       console.error('[Dhan] Connection error:', error);
       setLoading(false);
-      showAlert(
-        'error',
-        'Connection Failed',
-        'Failed to connect Dhan. Please check your credentials and try again.',
-      );
+      const isHttpError = !!error?.response;
+      const rawMessage =
+        error.response?.data?.message ||
+        error.response?.data?.details ||
+        '';
+      let alertTitle = 'Connection Failed';
+      let alertBody;
+      if (isHttpError) {
+        alertBody =
+          rawMessage ||
+          'Failed to connect Dhan. Please check your credentials and try again.';
+      } else {
+        alertTitle = 'Connection Issue';
+        alertBody =
+          'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
+      }
+      showAlert('error', alertTitle, alertBody);
     }
   };
 

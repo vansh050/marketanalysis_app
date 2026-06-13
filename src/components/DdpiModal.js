@@ -1,4 +1,4 @@
-import React, {useState, useEffect} from 'react';
+import React, {useState, useEffect, useRef} from 'react';
 import {
   Modal,
   View,
@@ -74,8 +74,11 @@ export default function DdpiModal({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.advisorTag || '',
-            'aq-encrypted-key': configData?.aqEncryptedKey || '',
+            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
           },
           body: JSON.stringify({
             accessToken: userDetails?.jwtToken,
@@ -95,7 +98,9 @@ export default function DdpiModal({
 
       if (data.status === 0) {
         setAuthUrl(data.auth_url); // Set the authentication URL to open in WebView
-        setShowTpinConfirmation(true);
+        // Do NOT show confirmation overlay yet — user needs to complete
+        // the CDSL TPIN + OTP flow in the WebView first. The overlay
+        // shows when the user closes the WebView (onClose callback).
       } else {
         console.error('Error in response:', data.message);
         // Alert.alert("Error", data.message || "An error occurred.");
@@ -219,13 +224,15 @@ export default function DdpiModal({
             console.log('url zerodha:', event.url);
             if (event.url.includes('callback_url')) {
               setAuthUrl(null);
-              setShowTpinConfirmation(true);
+              // Auto-proceed — CDSL TPIN + OTP completed successfully.
+              // No need for manual "I've authorized" checkbox.
+              handleProceed();
             }
           }}
           onShouldStartLoadWithRequest={request => {
             if (request.url.includes('callback_url')) {
               setAuthUrl(null);
-              setShowTpinConfirmation(true);
+              handleProceed();
               return false;
             }
             return true;
@@ -785,6 +792,76 @@ const styles = StyleSheet.create({
   },
 });
 
+const otherBrokerStyles = StyleSheet.create({
+  ddpiHeroCard: {
+    backgroundColor: '#f0fdf4',
+    borderColor: '#86efac',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    width: '100%',
+  },
+  ddpiHeroBadge: {
+    backgroundColor: '#16a34a',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
+  },
+  ddpiHeroBadgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '700',
+    fontFamily: 'Poppins',
+    letterSpacing: 0.5,
+  },
+  ddpiHeroTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#15803d',
+    fontFamily: 'Poppins',
+    marginBottom: 6,
+  },
+  ddpiHeroBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: '#4b5563',
+    fontFamily: 'Poppins',
+    marginBottom: 12,
+  },
+  ddpiHeroButton: {
+    backgroundColor: '#16a34a',
+    borderRadius: 8,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  ddpiHeroButtonText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
+    fontFamily: 'Poppins',
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 14,
+    width: '100%',
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#E5E7EB',
+  },
+  dividerText: {
+    marginHorizontal: 10,
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontFamily: 'Poppins',
+  },
+});
+
 export function ActivateNowModel({
   isOpen = false,
   setIsOpen = () => {},
@@ -1036,41 +1113,160 @@ export function AngleOneTpinModal({
   const [showTpinConfirmation, setShowTpinConfirmation] = useState(false);
   const [tpinCompleted, setTpinCompleted] = useState(false);
   const { configData } = useTrade();
+  // Guard against duplicate verify-edis fires per modal open. SmartAPI
+  // verifyDis is rate-limited (1 req/sec) and the userDetails object
+  // reference can flip on every parent re-render — without this guard
+  // the useEffect re-fires repeatedly and Angel One returns 403
+  // "Access denied because of exceeding access rate", which the
+  // backend either translates to a 500 (no useful response) or a 200
+  // with empty data: {}. Either case stops EDIS from working and is
+  // why the CDSL form posts with empty DPId/ReqId/TransDtls.
+  const verifyFiredRef = useRef(false);
 
   // Use prop if available, otherwise use locally fetched status
   const edisStatus = edisStatusProp || localEdisStatus;
+  const hasUsableEdisData = !!(
+    edisStatus?.data &&
+    edisStatus.data.DPId &&
+    edisStatus.data.ReqId &&
+    edisStatus.data.TransDtls
+  );
+
+  // Reset the fire-once guard whenever the modal closes so the next
+  // open re-runs verify-edis cleanly.
+  useEffect(() => {
+    if (!isOpen) {
+      verifyFiredRef.current = false;
+      setLocalEdisStatus(null);
+    }
+  }, [isOpen]);
 
   // Auto-fetch EDIS status if not provided as prop (matches production behavior)
+  //
+  // 2026-05-02 enhancement (parity with tidi_new RebalanceReviewPage live
+  // verify-dis check): if SmartAPI verify-edis returns `edis: true` —
+  // meaning the user is ALREADY authorized server-side (DDPI active OR
+  // today's TPIN session valid) — auto-call handleProceed to flip
+  // `is_authorized_for_sell=true` in DB and close the modal. The user
+  // never sees the redundant prompt. Mirrors the Flutter
+  // _checkAngelOneEdisStatus pattern (live-probe before forcing the
+  // EDIS auth page).
+  //
+  // 2026-05-07: deps narrowed to primitive jwtToken (not the
+  // userDetails object) and gated behind verifyFiredRef to fire once
+  // per modal open. Earlier the useEffect refired on every parent
+  // re-render and triggered Angel One rate-limiting; rate-limit
+  // responses returned `data: {}` to the form-builder and CDSL
+  // rejected with "Some data is missing in posted Form".
+  const jwtToken = userDetails?.jwtToken;
+  const userEmail = userDetails?.email;
   useEffect(() => {
-    if (isOpen && !edisStatusProp && userDetails?.jwtToken) {
-      const fetchEdisStatus = async () => {
-        try {
-          setLoading(true);
-          const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
-          const response = await axios.post(
-            `${server.ccxtServer.baseUrl}angelone/verify-edis`,
-            {
-              apiKey: angelOneApiKey,
-              jwtToken: userDetails.jwtToken,
-              userEmail: userDetails?.email,
+    if (!isOpen) return;
+    if (verifyFiredRef.current) return;
+    // Prop path: parent already fetched EDIS status (e.g. RebalanceAdviceContent
+    // pre-fetches on userDetails change). If it already shows edis=true, auto-skip
+    // without re-fetching — same logic as the fetch path below.
+    if (edisStatusProp?.edis === true) {
+      verifyFiredRef.current = true;
+      const isDdpiActive =
+        edisStatusProp.errorcode === 'AG1000' ||
+        (typeof edisStatusProp.message === 'string' &&
+          /already.+registered.+with.+CDSL/i.test(edisStatusProp.message));
+      console.log('[DdpiModal] prop edis=true → auto-skip, ddpiActive=', isDdpiActive);
+      setTimeout(() => handleProceed(isDdpiActive), 0);
+      return;
+    }
+    if (!jwtToken) return;
+    verifyFiredRef.current = true;
+    const fetchEdisStatus = async () => {
+      try {
+        setLoading(true);
+        const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
+        const response = await axios.post(
+          `${server.ccxtServer.baseUrl}angelone/verify-edis`,
+          {
+            apiKey: angelOneApiKey,
+            jwtToken,
+            userEmail,
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+              'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
             },
-          );
-          console.log('AngleOne local EDIS fetch:', response.data);
-          setLocalEdisStatus(response.data);
-        } catch (error) {
-          console.error('Error fetching Angel One EDIS status:', error);
+          },
+        );
+        console.log('AngleOne local EDIS fetch:', response.data);
+        setLocalEdisStatus(response.data);
+        // Live short-circuit — already authorized server-side, skip
+        // the prompt entirely. handleProceed updates the DB flag +
+        // closes the modal + reopens rebalance.
+        if (response?.data?.edis === true) {
+          // 2026-05-07: SmartAPI's verifyDis returning AG1000 means
+          // DDPI is currently active at the broker (per Angel One
+          // SmartAPI docs). Pass `ddpiActive: true` to handleProceed
+          // so it ALSO sets `ddpi_enabled: true` in the DB —
+          // previously only `is_authorized_for_sell` was set, leaving
+          // `ddpi_enabled` stuck at false even though the broker
+          // considered DDPI active. The RebalanceModal sell-auth
+          // gate (line 1357-1364) reads `userDetails.ddpi_enabled`
+          // and `userDetails.is_authorized_for_sell` — until the
+          // latter was set, the gate would re-fire on every Place
+          // Order tap (TPIN session expires daily, but DDPI doesn't).
+          // Setting `ddpi_enabled: true` makes the gate skip
+          // permanently as long as DDPI stays active at the broker.
+          const isDdpiActive =
+            response?.data?.errorcode === 'AG1000' ||
+            (typeof response?.data?.message === 'string' &&
+              /already.+registered.+with.+CDSL/i.test(response.data.message));
+          console.log('[DdpiModal] verify-edis edis=true → auto-skip prompt, ddpiActive=', isDdpiActive);
+          // Defer to next tick so React has settled state from the
+          // setLocalEdisStatus call above before handleProceed mutates
+          // the modal visibility.
+          setTimeout(() => handleProceed(isDdpiActive), 0);
+          return;
+        }
+        // edis=false but no usable form data — most commonly because
+        // SmartAPI rate-limited verifyDis OR getHolding (returns
+        // create_error_response with `data: {}`). Tell the user
+        // explicitly so they know it's transient, not a "wrong API
+        // key" type failure.
+        const data = response?.data?.data;
+        const hasFormData = !!(data?.DPId && data?.ReqId && data?.TransDtls);
+        if (!hasFormData) {
+          const reason = response?.data?.error || '';
           Toast.show({
             type: 'error',
-            text1: 'Error',
-            text2: 'Failed to fetch EDIS status. Please try again.',
+            text1: 'Angel One temporarily busy',
+            text2: reason
+              ? `Couldn't fetch EDIS form: ${reason}. Wait 20s and retry.`
+              : "Couldn't fetch EDIS form data. Please wait 20 seconds and retry.",
+            visibilityTime: 5000,
           });
-        } finally {
-          setLoading(false);
+          // Allow a manual retry by re-opening the modal — clear the
+          // guard so a re-open triggers a fresh call.
+          verifyFiredRef.current = false;
         }
-      };
-      fetchEdisStatus();
-    }
-  }, [isOpen, edisStatusProp, userDetails]);
+      } catch (error) {
+        console.error('Error fetching Angel One EDIS status:', error);
+        const upstream = error?.response?.data?.error || error?.message || '';
+        const isRateLimited = /rate.?limit|exceeding access|RATE_LIMITED/i.test(upstream);
+        Toast.show({
+          type: 'error',
+          text1: isRateLimited ? 'Angel One rate-limited' : 'Error',
+          text2: isRateLimited
+            ? 'Angel One temporarily blocked the request. Wait 20s and retry.'
+            : 'Failed to fetch EDIS status. Please try again.',
+          visibilityTime: 5000,
+        });
+        verifyFiredRef.current = false;
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchEdisStatus();
+  }, [isOpen, edisStatusProp, jwtToken, userEmail]);
   const buildFormHtml = (edisData) => `
   <!DOCTYPE html>
   <html>
@@ -1106,7 +1302,13 @@ export function AngleOneTpinModal({
     setIsOpen(false); // Close the DDPI modal
   };
 
-  const handleProceed = async () => {
+  // 2026-05-07: handleProceed now accepts an optional `ddpiActive`
+  // flag. When true, also flips `ddpi_enabled` in the DB. Used by
+  // the auto-skip path (verifyDis AG1000 = DDPI active at broker).
+  // The TPIN-completion path (WebView returnURL hit) keeps the
+  // default `false` since TPIN doesn't imply DDPI is active —
+  // DDPI is a one-time setup, TPIN is a daily session.
+  const handleProceed = async (ddpiActive = false) => {
     try {
       await axios.put(
         `${server.server.baseUrl}api/update-edis-status`,
@@ -1114,6 +1316,7 @@ export function AngleOneTpinModal({
           uid: userDetails?._id,
           is_authorized_for_sell: true,
           user_broker: userDetails?.user_broker,
+          ...(ddpiActive ? { ddpi_enabled: true } : {}),
         },
         {
           headers: {
@@ -1177,10 +1380,18 @@ export function AngleOneTpinModal({
                     until DDPI is active
                   </Text>
                 </View>
+                {/* 2026-05-07: button enable previously checked
+                 * `!edisStatus?.data` — but `data: {}` (empty object,
+                 * what the backend returns when getHolding is rate-
+                 * limited or holdings are empty) is TRUTHY in JS, so
+                 * the button enabled and clicking it submitted an
+                 * empty form to CDSL → "Some data is missing in
+                 * posted Form". hasUsableEdisData verifies the actual
+                 * fields the form needs. */}
                 <TouchableOpacity
-                  style={[styles.proceedButton, (loading || !edisStatus?.data) && { opacity: 0.5 }]}
+                  style={[styles.proceedButton, (loading || !hasUsableEdisData) && { opacity: 0.5 }]}
                   onPress={proceedWithTpin}
-                  disabled={loading || !edisStatus?.data}>
+                  disabled={loading || !hasUsableEdisData}>
                   {loading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
@@ -1311,6 +1522,13 @@ export function DhanTpinModal({
             {
               clientId: userDetails.clientCode,
               accessToken: userDetails.jwtToken,
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+                'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+              },
             },
           );
           console.log('Dhan local EDIS fetch:', response.data);
@@ -1519,6 +1737,8 @@ export function DhanTpinModal({
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+              'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
             },
             body: JSON.stringify({
               clientId: userDetails?.clientCode,
@@ -1542,6 +1762,8 @@ export function DhanTpinModal({
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+                'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
               },
               body: JSON.stringify({
                 clientId: userDetails?.clientCode,
@@ -2125,7 +2347,6 @@ export function OtherBrokerModel({
           <ScrollView contentContainerStyle={styles.modalContent}>
             {showHowToAuthorize ? (
               <>
-                {/* YouTube iframe — only rendered when a videoId exists for this broker */}
                 {brokerInstructions[broker]?.videoId ? (
                   <View style={styles.playerWrapper}>
                     <YoutubePlayer
@@ -2137,7 +2358,6 @@ export function OtherBrokerModel({
                   </View>
                 ) : null}
 
-                {/* Broker instructions */}
                 {brokerInstructions[broker]?.title && (
                   <Text style={styles.title}>
                     {brokerInstructions[broker].title}
@@ -2155,40 +2375,44 @@ export function OtherBrokerModel({
                 )}
               </>
             ) : (
-              <View style={styles.header}>
-                <View
-                  style={{
-                    flexDirection: 'row',
-                    alignContent: 'center',
-                    alignItems: 'center',
-                    alignSelf: 'center',
-                    justifyContent: 'flex-end',
-                  }}>
-                  <AlertTriangle size={24} color={'black'} />
-                  <Text style={styles.title}>
-                    Action Required: Stock Authorization to Sell
+              <View style={{width: '100%'}}>
+                <View style={{flexDirection: 'row', alignItems: 'center', alignSelf: 'center', marginBottom: 12}}>
+                  <AlertTriangle size={22} color="#E43D3D" />
+                  <Text style={[styles.title, {marginLeft: 8, fontSize: 18}]}>
+                    Sell Authorization Required
                   </Text>
                 </View>
 
-                <View style={styles.header}>
-                  <Text style={styles.listText}>
-                    Your broker does not allow selling authorization from the app. Please authorize your
-                    stocks manually on your broker before trying to sell orders
-                    from here again. The best way to tackle this is to activate DDPI.
+                <View style={otherBrokerStyles.ddpiHeroCard}>
+                  <View style={otherBrokerStyles.ddpiHeroBadge}>
+                    <Text style={otherBrokerStyles.ddpiHeroBadgeText}>RECOMMENDED</Text>
+                  </View>
+                  <Text style={otherBrokerStyles.ddpiHeroTitle}>
+                    Activate DDPI — Sell Freely, Forever
+                  </Text>
+                  <Text style={otherBrokerStyles.ddpiHeroBody}>
+                    DDPI is a one-time, SEBI-approved authorization that lets you sell stocks without daily TPIN/OTP hassle. Set it up once and never see this screen again.
                   </Text>
                   <TouchableOpacity
-                    onPress={() =>
-                      useModalStore
-                        .getState()
-                        .openModal('DdpiHelp', {broker})
-                    }
-                    style={styles.ddpiNudgeRow}
+                    onPress={() => useModalStore.getState().openModal('DdpiHelp', {broker})}
+                    style={otherBrokerStyles.ddpiHeroButton}
                     activeOpacity={0.7}>
-                    <Text style={styles.ddpiNudgeText}>
-                      {'➜ '}Show me how to activate DDPI on {broker}
+                    <Text style={otherBrokerStyles.ddpiHeroButtonText}>
+                      Activate DDPI on {broker}
                     </Text>
                   </TouchableOpacity>
                 </View>
+
+                <View style={otherBrokerStyles.dividerRow}>
+                  <View style={otherBrokerStyles.dividerLine} />
+                  <Text style={otherBrokerStyles.dividerText}>or authorize for today</Text>
+                  <View style={otherBrokerStyles.dividerLine} />
+                </View>
+
+                <Text style={[styles.listText, {textAlign: 'center', color: '#6B7280'}]}>
+                  If you've already authorized your stocks for selling today via
+                  your broker's app or portal, tick the box below and retry.
+                </Text>
               </View>
             )}
 
@@ -2535,6 +2759,8 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+              'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
             },
             body: JSON.stringify({
               clientId: userDetails?.clientCode,
@@ -2559,6 +2785,8 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
+                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+                'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
               },
               body: JSON.stringify({
                 clientId: userDetails?.clientCode,

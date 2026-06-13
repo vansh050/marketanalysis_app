@@ -52,7 +52,7 @@ export function userInsertDoc(email, strategyDetails, investAmount, broker) {
   const insertDocPayload = {
     userEmail: email,
     model: strategyDetails?.model_name,
-    advisor: strategyDetails?.advisor,
+    advisor: configData?.config?.REACT_APP_HEADER_NAME,
     model_id: strategyDetails?.model_Id,
     userBroker: broker ? broker : "DummyBroker",
     subscriptionAmountRaw: [

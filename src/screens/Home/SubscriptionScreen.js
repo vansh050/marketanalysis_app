@@ -446,12 +446,19 @@ const SubscriptionScreen = () => {
           )}
         </View>
 
-        {/* Broker & Funds Info Card */}
-        <LinearGradient
-          colors={[gradient1, gradient2]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.infoCard}>
+        {/* Broker & Funds Info Card.
+            Pre-2026-05-01 wrapped these rows in a <LinearGradient>;
+            user-reported on a real Android phone after connecting
+            Dhan that the title rendered but every row below was
+            invisible (zero height in the gradient subtree).
+            react-native-linear-gradient v3 has known Android cases
+            where multiple Text children inside the gradient lose
+            measurement when LinearGradient's native view is mounted
+            before its children's text has loaded, leaving the rows
+            sized to 0. Switched to a plain View with the solid
+            darker-end of the same gradient as backgroundColor —
+            decorative-only difference, robust on every device. */}
+        <View style={styles.infoCard}>
           <Text style={styles.infoCardTitle}>Your Broker & Funds Info</Text>
 
           <View style={styles.infoRow}>
@@ -501,7 +508,7 @@ const SubscriptionScreen = () => {
                 : 'N/A'}
             </Text>
           </View>
-        </LinearGradient>
+        </View>
       </ScrollView>
 
       {/* Manage Connections visible whenever the user has ANY saved broker
@@ -843,6 +850,11 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingVertical: 22,
     paddingHorizontal: 25,
+    // Solid backgroundColor — same darker end of the original
+    // [gradient1, gradient2] pair the LinearGradient used. Switched
+    // away from LinearGradient 2026-05-01 after the on-device
+    // rows-invisible bug.
+    backgroundColor: '#002651',
     elevation: 8,
     shadowColor: '#2a4bd7',
     shadowOffset: { width: 0, height: 4 },

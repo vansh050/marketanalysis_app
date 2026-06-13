@@ -4,6 +4,129 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
 
+## [Unreleased] - 2026-06-13 — WHITELABEL RESTRUCTURE + UPSTREAM SYNC
+
+### Restructured fork to satisfy `docs/WHITELABEL_RECIPE.md` contract
+
+This commit makes the marketanalysis_app fork a thin overlay on upstream
+`Alphab2bapp` (commit `76b943d`, branch `feature/sdk-plus-config_forkv2`).
+Before this change the fork carried 145 patched `src/` files + 10 fork-only
+`src/` files + an inline `marketanalysis` block in `src/utils/Config.js`.
+That drift made every upstream sync painful and let `src/assets/AppLogo/
+logo.png` get mutated cross-tenant. After this change `src/` is byte-
+identical to upstream and all tenant-specific values live OUTSIDE `src/`.
+
+#### What moved
+
+| Concern | Was | Now |
+|---|---|---|
+| Marketanalysis variant block (theme colors, RA code, Firebase clientId, paymentModal) | Inline in `src/utils/Config.js` lines 73-117 | `whitelabel/appVariants.js` (new fork-owned file). `src/utils/Config.js` is now the 2-line re-exporter, byte-identical to upstream. |
+| Marketanalysis brand logo | `src/assets/AppLogo/logo.png` overwrote the shared default | `designs/marketanalysis/assets/logo.png`. `src/assets/AppLogo/logo.png` restored to upstream's shared default. |
+| Marketanalysis secondary logo | `src/assets/logo.png` overwrote the AlphaQuark logo | `designs/marketanalysis/assets/logoSecondary.png`. `src/assets/logo.png` restored to upstream's AlphaQuark mark. |
+| `DEFAULT_VARIANT` fallback | `'marketanalysis'` in `src/context/ConfigContext.js` | `'rgxresearch'` (upstream's value). The fork's `.env` `APP_VARIANT=marketanalysis` takes precedence, so the runtime behavior is unchanged. |
+| Firebase config fallbacks | Hardcoded values in `src/utils/firebaseConfig.js` | Env-only (upstream's pattern). All `REACT_APP_FIREBASE_*` vars in `.env` are required at boot. |
+
+#### What got added
+
+- `whitelabel/appVariants.js` (new) — holds the marketanalysis variant +
+  upstream variants. The fork-owned root of tenant config.
+- `designs/marketanalysis/` (new) — variant skeleton:
+  - `index.js` — variant root, empty `components` + `sdk` overrides.
+  - `tokens/index.js` — re-exports default tokens, overrides assets.
+  - `tokens/assets.js` — `DEFAULT_ASSETS.logoPng` → `../assets/logo.png`.
+  - `assets/logo.png`, `assets/logoSecondary.png` — marketanalysis brand
+    binaries recovered from git HEAD before the rsync overwrite.
+  - `composites/`, `screens/`, `sdk/` — empty (with `.gitkeep`), flow
+    through to upstream `designs/default/`.
+- `designs/registry.js` 2-line patch — `import marketanalysisVariant
+  from './marketanalysis';` + `marketanalysis: marketanalysisVariant,`
+  in the `VARIANTS` map.
+- `.env` — added `DESIGN_VARIANT=marketanalysis` (was missing — design
+  resolver was falling back through APP_VARIANT and silently using
+  `default` tokens).
+- `SYNC.md` at fork root — upstream tracking, sync workflow, per-fork
+  holds (reanimated 4.1.0, metro SDK_PATH `../alphaquark-mobile-sdk`,
+  babel worklets/plugin), per-fork gotchas (Firebase project migration,
+  deep link scheme).
+
+#### What got synced from upstream
+
+- `src/` — 145 changed files + 15 new files (AumPerformanceCard,
+  PortfolioHealthSheet, NbaBanner, ProvisionalBanner,
+  PortfolioTransitionCard, RiaBillingService, SubscriptionMandateService,
+  ArihantConnectModal, DefinEdgeConnectModal, AngelOneCautionaryWarning,
+  BrandLogo, validateChargeableAmount, subscriptionStatus,
+  alphanomyPlanShape, cashfreeEnv).
+- `designs/default/` — 9 changed files + 5 new composites
+  (AumPerformanceCard, NbaBanner, PortfolioHealthSheet,
+  PortfolioTransitionCard, ProvisionalBanner).
+- `App.js` — adopted module-level `CustomStatusBar` + `SdkOn` wrapper
+  hoisting (fixes TextInput value flicker + keyboard dismiss bug from
+  per-render wrapper recreation; see file header for production
+  symptoms).
+- `index.js` — adopted `WebinarReminderHandler` background + cold-start
+  + onNotificationOpenedApp routing.
+- `babel.config.js` — adopted comment, REVERTED plugin to
+  `react-native-worklets/plugin` (fork holds reanimated 4).
+- `package.json` — added `@react-native-clipboard/clipboard@^1.16.3`,
+  `react-native-gifted-charts@^1.4.41`. Held `react-native-reanimated`
+  at `4.1.0` (not upstream's 3.19.5). App name stays `MarketAnalysis`.
+
+#### What got deleted (fork-only files removed)
+
+- `src/utils/ProcessTrades.js` + `src/__tests__/utils/ProcessTrades.test.js`
+  — upstream removed as dead code; the bespoke trade flow no longer
+  routes through this module.
+- `src/UIComponents/BrokerConnectionUI/GlobalBrokerModals.js` — replaced
+  upstream by `src/screens/Broker/BrokerSelectionScreen.js`.
+- `src/components/AdviceScreenComponents/RebalanceDetailsModal.js` —
+  moved to `designs/default/composites/RebalanceDetailsModal.js`,
+  resolved via `useComponent('composites.RebalanceDetailsModal')`.
+- `src/components/IgnoreStockCard.js` — moved to the design system
+  (composites slot referenced from `useDesign()`).
+- `src/components/BrokerOverlay.js` — orphan; 0 upstream refs.
+- `src/components/HomeScreenComponents/KnowledgeHubScreen/VideoPlayerModal.js`
+  — orphan; 0 upstream refs.
+- `src/screens/Drawer/SubscriptionsScreen.js` — 19-line stub; navigation
+  uses `src/screens/Home/MySubscriptionsScreen.js` instead.
+- `src/screens/Drawer/investContext.js`, `src/screens/Drawer/use.js` —
+  orphans.
+
+#### What did NOT get touched (per-fork holds)
+
+- `metro.config.js` — fork's `SDK_PATH=../alphaquark-mobile-sdk/packages/rn`
+  is correct; upstream's `../../alphaquark-mobile-sdk/packages/rn` reflects
+  upstream's deeper repo nesting.
+- `app.json` — kept `MarketAnalysis` / `Market Analysis Academy`.
+- `android/` + `ios/` native shell — fork-owned per recipe.
+
+#### Verification
+
+```bash
+diff -rq src /Users/pratik/PycharmProjects/Alphab2bapp/src    # empty
+diff -rq designs/default /Users/pratik/PycharmProjects/Alphab2bapp/designs/default # empty
+```
+
+Both diffs are empty after the sync. Next upstream merge will be a clean
+rsync of `src/` and `designs/default/` + a 2-line conflict resolution on
+`designs/registry.js`.
+
+#### Files touched
+
+- `whitelabel/appVariants.js` (new)
+- `designs/marketanalysis/` (new tree)
+- `designs/registry.js` (2-line patch)
+- `designs/default/` (full sync from upstream)
+- `src/` (full sync from upstream; 145 modified, 15 added, 10 deleted)
+- `.env` (added `DESIGN_VARIANT=marketanalysis`)
+- `App.js`, `index.js` (synced from upstream)
+- `babel.config.js` (synced + reverted plugin to worklets)
+- `package.json` (added 2 deps; held reanimated)
+- `SYNC.md` (new)
+- `docs/CHANGELOG.md` (this entry)
+
+---
+
 ## [Unreleased] - 2026-06-06 (b)
 
 ### LOGIN: GOOGLE OAUTH FIX (BUG 1 of 2) + COLOR ALIGNMENT WITH MARKETANALYSIS WEB

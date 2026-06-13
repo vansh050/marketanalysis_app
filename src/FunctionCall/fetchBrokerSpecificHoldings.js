@@ -156,6 +156,28 @@ export const fetchBrokerSpecificHoldings = async (
       url = `${server.ccxtServer.baseUrl}motilal-oswal/holdings`;
       break;
 
+    case 'Arihant Capital':
+      // Parity with web AllHoldings.js § 134.
+      if (!jwtToken) return null;
+      data = JSON.stringify({
+        accessToken: jwtToken,
+        userId: clientCode,
+      });
+      url = `${server.ccxtServer.baseUrl}arihant/holdings`;
+      break;
+
+    case 'DefinEdge Securities':
+      // Parity with web AllHoldings.js § 143. apiSessionKey and
+      // accessToken are the same value on the new INTEGRATE flow.
+      if (!jwtToken) return null;
+      data = JSON.stringify({
+        apiSessionKey: jwtToken,
+        accessToken: jwtToken,
+        actid: clientCode,
+      });
+      url = `${server.ccxtServer.baseUrl}definedge/holdings`;
+      break;
+
     default:
       console.log('[fetchBrokerSpecificHoldings] Unrecognized broker:', broker);
       return null;

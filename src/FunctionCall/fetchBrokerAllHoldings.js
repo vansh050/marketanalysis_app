@@ -159,6 +159,27 @@ export const fetchBrokerAllHoldings = async (
       url = `${server.ccxtServer.baseUrl}motilal-oswal/holdings`;
       break;
 
+    case 'Arihant Capital':
+      // Parity with web AllHoldings.js § 134.
+      if (!jwtToken) return null;
+      data = JSON.stringify({
+        accessToken: jwtToken,
+        userId: clientCode,
+      });
+      url = `${server.ccxtServer.baseUrl}arihant/all-holdings`;
+      break;
+
+    case 'DefinEdge Securities':
+      // Parity with web AllHoldings.js § 143.
+      if (!jwtToken) return null;
+      data = JSON.stringify({
+        apiSessionKey: jwtToken,
+        accessToken: jwtToken,
+        actid: clientCode,
+      });
+      url = `${server.ccxtServer.baseUrl}definedge/all-holdings`;
+      break;
+
     default:
       console.log('[fetchAllHoldings] Unrecognized broker:', broker);
       return null;

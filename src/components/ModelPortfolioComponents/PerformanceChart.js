@@ -7,7 +7,7 @@ import {
   Dimensions,
   TouchableOpacity,
 } from 'react-native';
-import { LineChart } from 'react-native-chart-kit';
+import { LineChart } from 'react-native-gifted-charts';
 import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import server from '../../utils/serverConfig';
@@ -349,6 +349,20 @@ const PerformanceChart = ({ modelName, advisor }) => {
     return '';
   });
 
+  // gifted-charts datasets: value + sparse x-label + date (for the pointer
+  // tooltip). data = portfolio (line 1, area-filled), data2 = index (line 2).
+  const giftedPortfolio = sampledData.map((d, i) => ({
+    value: d.portfolioValue,
+    label: labels[i] || undefined,
+    date: d.date,
+  }));
+  const giftedIndex = sampledData.map(d => ({ value: d.indexValue }));
+  // Non-zero baseline: chart-kit used fromZero={false}; gifted-charts achieves
+  // it with yAxisOffset (baseline) + maxValue (range above the offset).
+  const allVals = [...portfolioValues, ...indexValues];
+  const yMin = Math.floor(Math.min(...allVals) - 2);
+  const yMax = Math.ceil(Math.max(...allVals) + 2);
+
   const chartWidth = screenWidth - 40; // fit within screen with padding
   const chartHeight = 220;
 
@@ -538,130 +552,103 @@ const PerformanceChart = ({ modelName, advisor }) => {
           shadowOpacity: 0.08,
           shadowRadius: 8,
         }}>
-        <View style={{ position: 'relative' }}>
+        <View style={{ position: 'relative', paddingLeft: 4 }}>
           <LineChart
-            data={{
-              labels: labels,
-              datasets: [
-                {
-                  data: portfolioValues,
-                  color: (opacity = 1) => `rgba(7, 186, 209, ${opacity})`,
-                  strokeWidth: 2.5,
-                },
-                {
-                  data: indexValues,
-                  color: (opacity = 1) => `rgba(255, 99, 71, ${opacity})`,
-                  strokeWidth: 2,
-                },
-              ],
-            }}
-            width={chartWidth}
+            data={giftedPortfolio}
+            data2={giftedIndex}
             height={chartHeight}
-            chartConfig={{
-              backgroundColor: '#fff',
-              backgroundGradientFrom: '#fff',
-              backgroundGradientTo: '#fff',
-              decimalPlaces: 0,
-              color: (opacity = 1) => `rgba(0,0,0,${opacity})`,
-              labelColor: () => 'rgba(130,130,130,1)',
-              propsForDots: { r: '0' },
-              propsForBackgroundLines: {
-                stroke: 'rgba(0,0,0,0.05)',
-                strokeDasharray: '4,4',
-              },
-              fillShadowGradient: 'rgba(7, 186, 209, 0.1)',
-              fillShadowGradientOpacity: 0.15,
+            width={chartWidth - 44}
+            adjustToWidth
+            curved
+            thickness={2.5}
+            thickness2={2}
+            color1="#07BAD1"
+            color2="#FF6347"
+            hideDataPoints
+            areaChart
+            startFillColor="#07BAD1"
+            endFillColor="#07BAD1"
+            startOpacity={0.18}
+            endOpacity={0.012}
+            yAxisOffset={yMin}
+            maxValue={Math.max(1, yMax - yMin)}
+            noOfSections={4}
+            yAxisColor="transparent"
+            xAxisColor="rgba(0,0,0,0.08)"
+            rulesType="dashed"
+            rulesColor="rgba(0,0,0,0.05)"
+            initialSpacing={6}
+            endSpacing={6}
+            yAxisLabelWidth={34}
+            yAxisTextStyle={{
+              color: '#9aa0a6',
+              fontSize: 9,
+              fontFamily: 'Poppins-Regular',
             }}
-            bezier
-            withInnerLines
-            withOuterLines={false}
-            withDots={false}
-            yLabelsOffset={8}
-            xLabelsOffset={-4}
-            fromZero={false}
-            segments={4}
-            style={{ borderRadius: 14, marginLeft: -6 }}
-            onDataPointClick={data => {
-              const idx = data.index;
-              const ds = data.datasetIndex ?? 0;
-              const x = Number(data.x);
-              const y = Number(data.y);
-              const dataPoint = sampledData[idx];
-              if (!dataPoint) return;
-
-              const pointInfo = {
-                index: idx,
-                datasetIndex: ds,
-                x,
-                y,
-                portfolio: dataPoint.portfolioValue,
-                nifty: dataPoint.indexValue,
-                date: dataPoint.date,
-              };
-
-              if (
-                selectedPoint &&
-                selectedPoint.index === idx &&
-                selectedPoint.datasetIndex === ds
-              ) {
-                setSelectedPoint(null);
-              } else {
-                setSelectedPoint(pointInfo);
-              }
+            xAxisLabelTextStyle={{
+              color: '#9aa0a6',
+              fontSize: 9,
+              fontFamily: 'Poppins-Regular',
+            }}
+            pointerConfig={{
+              pointerStripHeight: chartHeight,
+              pointerStripColor: 'rgba(0,0,0,0.12)',
+              pointerStripWidth: 1,
+              pointerColor: '#07BAD1',
+              radius: 4,
+              pointerLabelWidth: 150,
+              pointerLabelHeight: 80,
+              activatePointersOnLongPress: false,
+              autoAdjustPointerLabelPosition: true,
+              pointerLabelComponent: items => {
+                const pt = items?.[0];
+                const ix = items?.[1];
+                return (
+                  <View
+                    style={{
+                      backgroundColor: 'rgba(0,0,0,0.88)',
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      borderRadius: 10,
+                      minWidth: 140,
+                    }}>
+                    <Text
+                      style={{
+                        color: 'rgba(255,255,255,0.7)',
+                        fontSize: 10,
+                        fontFamily: 'Poppins-Regular',
+                        marginBottom: 3,
+                      }}>
+                      {pt?.date
+                        ? new Date(pt.date).toLocaleDateString('en-IN', {
+                            day: 'numeric',
+                            month: 'short',
+                            year: 'numeric',
+                          })
+                        : ''}
+                    </Text>
+                    <Text
+                      style={{
+                        color: '#07BAD1',
+                        fontSize: 12,
+                        fontFamily: 'Poppins-SemiBold',
+                      }}>
+                      Portfolio: {Number(pt?.value || 0).toFixed(2)}
+                    </Text>
+                    <Text
+                      style={{
+                        color: '#FF6347',
+                        fontSize: 12,
+                        fontFamily: 'Poppins-SemiBold',
+                      }}>
+                      {selectedIndex === '^NSEI' ? 'Nifty 50' : selectedIndex}:{' '}
+                      {Number(ix?.value || 0).toFixed(2)}
+                    </Text>
+                  </View>
+                );
+              },
             }}
           />
-
-          {/* Tooltip */}
-          {selectedPoint && (
-            <View
-              style={{
-                position: 'absolute',
-                left: Math.max(
-                  8,
-                  Math.min(
-                    chartWidth - 160,
-                    selectedPoint.x - 70,
-                  ),
-                ),
-                top: Math.max(4, Math.min(chartHeight - 80, selectedPoint.y - 75)),
-                backgroundColor: 'rgba(0,0,0,0.88)',
-                paddingHorizontal: 12,
-                paddingVertical: 8,
-                borderRadius: 10,
-                zIndex: 30,
-                minWidth: 140,
-              }}>
-              <Text
-                style={{
-                  color: 'rgba(255,255,255,0.7)',
-                  fontSize: 10,
-                  fontFamily: 'Poppins-Regular',
-                  marginBottom: 3,
-                }}>
-                {new Date(selectedPoint.date).toLocaleDateString('en-IN', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })}
-              </Text>
-              <Text
-                style={{
-                  color: '#07BAD1',
-                  fontSize: 12,
-                  fontFamily: 'Poppins-SemiBold',
-                }}>
-                Portfolio: {selectedPoint.portfolio?.toFixed(2)}
-              </Text>
-              <Text
-                style={{
-                  color: '#FF6347',
-                  fontSize: 12,
-                  fontFamily: 'Poppins-SemiBold',
-                }}>
-                Nifty: {selectedPoint.nifty?.toFixed(2)}
-              </Text>
-            </View>
-          )}
         </View>
 
         {/* Legend */}

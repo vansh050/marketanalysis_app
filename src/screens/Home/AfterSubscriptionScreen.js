@@ -23,7 +23,6 @@ import moment from 'moment';
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import useWebSocketCurrentPrice from '../../FunctionCall/useWebSocketCurrentPrice';
-import {isOrderRejected, isOrderSuccess, isOrderPending} from '../../utils/orderStatusUtils';
 
 import PriceText from '../../components/AdviceScreenComponents/DynamicText/PriceText';
 import PortfolioPercentage from '../../components/AdviceScreenComponents/DynamicText/PortfolioPercentage';
@@ -66,6 +65,7 @@ const AfterSubscriptionScreen = ({route}) => {
   const config = useConfig();
   const gradientStart = config?.gradient1 || '#002651';
   const gradientEnd = config?.gradient2 || '#0056B7';
+  const themeColor = config?.themeColor || '#0056B7';
   const {fileName} = route.params;
   const auth = getAuth();
   const user = auth.currentUser;
@@ -94,21 +94,32 @@ const AfterSubscriptionScreen = ({route}) => {
       return newHeights;
     });
   };
-  // Fetch User
-  const getUserDeatils = () => {
+  // Fetch User. Auth header is built per-call (not memoized) so the short-lived
+  // aq-encrypted-key JWT is freshly minted, avoiding stale-token 401s on a
+  // device whose clock drifted. Retries once on 401 with a fresh token before
+  // surfacing the error. Ported from web parity commit 5660392c.
+  const buildAuthHeaders = () => ({
+    'Content-Type': 'application/json',
+    'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+    'aq-encrypted-key': generateToken(
+      Config.REACT_APP_AQ_KEYS,
+      Config.REACT_APP_AQ_SECRET,
+    ),
+  });
+
+  const getUserDeatils = (retry = true) => {
     axios
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-          'aq-encrypted-key': generateToken(
-            Config.REACT_APP_AQ_KEYS,
-            Config.REACT_APP_AQ_SECRET,
-          ),
-        },
+        headers: buildAuthHeaders(),
       })
       .then(res => setUserDetails(res.data.User))
-      .catch(err => console.log(err));
+      .catch(err => {
+        if (retry && err?.response?.status === 401) {
+          getUserDeatils(false);
+          return;
+        }
+        console.log(err);
+      });
   };
   useEffect(() => {
     getUserDeatils();
@@ -265,17 +276,44 @@ const AfterSubscriptionScreen = ({route}) => {
     return null;
   })();
 
-  // Filter out rejected/failed/cancelled orders from calculations.
-  // Orders with success/pending status (OPEN, TRANSIT, TRADED, etc.) are kept even if
-  // rebalance_status is stale, since the order was actually placed at the broker.
+  // Holdings list — match web's useStrategyDetailsWithPortfolioData.js
+  // (no orderStatus filter). The previous filter dropped 'unplaced' and
+  // 'rejected' rows, which broke parity with the Portfolio Distribution
+  // tab: TVVISION (target weight 13%) appeared in Distribution but
+  // disappeared from Holdings whenever its order was still 'unplaced'
+  // (i.e. the user hadn't executed the latest rebalance yet). User
+  // report 2026-06-09: "the holdings showing are 2 different" — same MP,
+  // 4 stocks on Holdings, 6 entries on Distribution. Matching web closes
+  // the gap; rejected rows now also show, which is web's behaviour too
+  // (the rebalance modal already labels them — Holdings just needs to
+  // reflect the same source-of-truth).
+  // Keep only the qty > 0 guard so zero-quantity placeholders don't
+  // clutter the list (mirrors the implicit web behaviour: tableData maps
+  // every row but a qty=0 row renders as "Shares: 0" / "Weight: 0%").
   const validOrderResults = net_portfolio_updated?.order_results?.filter((order) => {
-    if (isOrderSuccess(order.orderStatus) || isOrderPending(order.orderStatus)) {
-      return Number(order.quantity || 0) > 0;
-    }
-    return !isOrderRejected(order.orderStatus) &&
-      order.orderStatus?.toLowerCase() !== 'unplaced' &&
-      Number(order.quantity || 0) > 0;
+    return Number(order.quantity || 0) > 0;
   });
+
+  // Per-symbol actual broker quantity from latest user_net_pf_updated.
+  // Used to detect "phantom" holdings — rows where user_net_pf_model claims
+  // qty=N but the broker reconciliation says qty<N (typical when an old model
+  // snapshot lingers but the broker holds nothing, e.g. test accounts, broker
+  // switch, fund withdrawal). The rebalance engine clamps to broker reality
+  // via min(net, broker) in resultant_of_net_and_holding (rebalancing.py:2160),
+  // so these rows produce BUYs not SELLs even though the user thinks they hold
+  // them. Surfaced inline next to the symbol in the holdings table.
+  const actualQtyBySymbol = (() => {
+    const arr = subscriptionAmount?.user_net_pf_updated;
+    if (!Array.isArray(arr) || arr.length === 0) return {};
+    const latest = [...arr].sort(
+      (a, b) => new Date(b.execDate) - new Date(a.execDate),
+    )[0];
+    const map = {};
+    (latest?.order_results || []).forEach(o => {
+      map[o.symbol] = Number(o.updated_qty ?? o.quantity ?? 0) || 0;
+    });
+    return map;
+  })();
 
   const {getLTPForSymbol} = useWebSocketCurrentPrice(
     validOrderResults,
@@ -414,13 +452,28 @@ const AfterSubscriptionScreen = ({route}) => {
       const hasValidPrice =
         resolvedLtp !== null && !isNaN(resolvedLtp) && resolvedLtp !== 0 &&
         !isNaN(avg) && avg !== 0;
+      const modelQty = Number(stock?.quantity) || 0;
+      const actualQty = actualQtyBySymbol?.[stock?.symbol];
+      const isPhantom = actualQty !== undefined && actualQty < modelQty;
       return {
         symbol: stock.symbol,
         currentPrice: hasValidPrice ? resolvedLtp : 'N/A',
         avgBuyPrice: stock?.averagePrice,
         returns: hasValidPrice ? ((resolvedLtp - avg) / avg) * 100 : 'N/A',
-        weights: (stock?.quantity / totalUpdatedQty) * 100,
+        // Web parity (useStrategyDetailsWithPortfolioData.js:660-662):
+        // share-count weight, formatted to 2 decimals as a string; "-"
+        // sentinel when no shares to weight against. This is NOT a
+        // value-based weight — both web AND mobile use share count
+        // here, which is why a single high-share-count row (often a
+        // phantom from broker reconciliation drift) can drown the
+        // others to 0.00%. A value-based weight would be a divergence
+        // from web; flagged separately.
+        weights: totalUpdatedQty > 0
+          ? ((stock?.quantity / totalUpdatedQty) * 100).toFixed(2)
+          : '-',
         shares: stock?.quantity,
+        isPhantom,
+        actualQty,
       };
     }) || [];
 
@@ -585,52 +638,106 @@ const AfterSubscriptionScreen = ({route}) => {
                         </View>
                       )}
                       {tableData?.length > 0 ? (
-                        <View style={{paddingHorizontal: 16, paddingTop: 8, flex: 1}}>
-                          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                            <View>
-                              <View style={{flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#E5E7EB'}}>
-                                <Text style={{width: 110, fontSize: 11, fontFamily: 'Poppins-Medium', color: '#6B7280'}}>Stock</Text>
-                                <Text style={{width: 95, fontSize: 11, fontFamily: 'Poppins-Medium', color: '#6B7280', textAlign: 'right'}}>Current Price</Text>
-                                <Text style={{width: 90, fontSize: 11, fontFamily: 'Poppins-Medium', color: '#6B7280', textAlign: 'right'}}>Avg. Buy</Text>
-                                <Text style={{width: 80, fontSize: 11, fontFamily: 'Poppins-Medium', color: '#6B7280', textAlign: 'right'}}>Returns</Text>
-                                <Text style={{width: 70, fontSize: 11, fontFamily: 'Poppins-Medium', color: '#6B7280', textAlign: 'right'}}>Weight</Text>
-                                <Text style={{width: 70, fontSize: 11, fontFamily: 'Poppins-Medium', color: '#6B7280', textAlign: 'right'}}>Shares</Text>
-                              </View>
-                              <FlatList
-                                data={tableData}
-                                keyExtractor={(item, idx) => item.symbol + idx}
-                                scrollEnabled={true}
-                                nestedScrollEnabled={true}
-                                renderItem={({item}) => {
-                                  const hasPrice = item.currentPrice !== 'N/A';
-                                  const hasReturns = item.returns !== 'N/A';
-                                  const hasWeight = Number.isFinite(item.weights);
-                                  return (
-                                  <View style={{flexDirection: 'row', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#F3F4F6', alignItems: 'center'}}>
-                                    <Text style={{width: 110, fontSize: 12, fontFamily: 'Poppins-Medium', color: '#1F2937'}}>{item.symbol}</Text>
-                                    <Text style={{width: 95, fontSize: 12, fontFamily: 'Poppins-Regular', color: '#374151', textAlign: 'right'}}>
+                        <FlatList
+                          data={tableData}
+                          keyExtractor={(item, idx) => item.symbol + idx}
+                          scrollEnabled={true}
+                          nestedScrollEnabled={true}
+                          contentContainerStyle={{paddingHorizontal: 12, paddingTop: 10, paddingBottom: 16, gap: 10}}
+                          ListFooterComponent={
+                            <Text style={{fontSize: 9, fontFamily: 'Poppins-Regular', color: '#9CA3AF', marginTop: 4, textAlign: 'center'}}>
+                              Prices may be delayed.
+                            </Text>
+                          }
+                          renderItem={({item}) => {
+                            const hasPrice = item.currentPrice !== 'N/A';
+                            const hasReturns = item.returns !== 'N/A';
+                            // Web parity (TerminateStrategyModal.js:230 +
+                            // useStrategyDetailsWithPortfolioData.js:660):
+                            // item.weights is now a string ("5.88") OR "-".
+                            // The renderer treats "-" as the no-weight sentinel
+                            // and renders "—"; everything else gets the "%" suffix.
+                            const hasWeight = item.weights && item.weights !== '-';
+                            const isPositive = hasReturns && item.returns >= 0;
+                            const displaySymbol = item.symbol.replace(/-EQ$|-BE$|-N$/, '');
+                            return (
+                              <View style={{
+                                backgroundColor: '#fff',
+                                borderRadius: 12,
+                                borderLeftWidth: 3,
+                                borderLeftColor: themeColor,
+                                paddingHorizontal: 14,
+                                paddingVertical: 12,
+                                elevation: 2,
+                                shadowColor: '#000',
+                                shadowOffset: {width: 0, height: 1},
+                                shadowOpacity: 0.08,
+                                shadowRadius: 3,
+                              }}>
+                                {/* Card header: symbol + returns badge */}
+                                <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10}}>
+                                  <View style={{flex: 1, marginRight: 8}}>
+                                    <Text style={{fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#1F2937'}}>{displaySymbol}</Text>
+                                    {item.isPhantom && (
+                                      <Text style={{
+                                        fontSize: 9, fontFamily: 'Poppins-SemiBold',
+                                        color: '#92400E', backgroundColor: '#FEF3C7',
+                                        borderWidth: 1, borderColor: '#FDE68A',
+                                        paddingHorizontal: 5, paddingVertical: 1,
+                                        borderRadius: 3, alignSelf: 'flex-start', marginTop: 2,
+                                      }}>
+                                        Broker qty: {item.actualQty}
+                                      </Text>
+                                    )}
+                                  </View>
+                                  <View style={{
+                                    backgroundColor: isPositive ? '#DCFCE7' : (hasReturns ? '#FEE2E2' : '#F3F4F6'),
+                                    borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4,
+                                  }}>
+                                    <Text style={{
+                                      fontSize: 13, fontFamily: 'Poppins-SemiBold',
+                                      color: isPositive ? '#16A34A' : (hasReturns ? '#DC2626' : '#9CA3AF'),
+                                    }}>
+                                      {hasReturns ? `${isPositive ? '+' : ''}${item.returns.toFixed(2)}%` : 'N/A'}
+                                    </Text>
+                                  </View>
+                                </View>
+                                {/* Data grid: 2 × 2 */}
+                                <View style={{flexDirection: 'row', gap: 8}}>
+                                  <View style={{flex: 1, backgroundColor: '#F8FAFF', borderRadius: 8, padding: 8}}>
+                                    <Text style={{fontSize: 10, fontFamily: 'Poppins-Regular', color: '#6B7280', marginBottom: 2}}>Current Price</Text>
+                                    <Text style={{fontSize: 13, fontFamily: 'Poppins-Medium', color: '#1F2937'}}>
                                       {hasPrice ? `₹${parseFloat(item.currentPrice).toFixed(2)}` : 'N/A'}
                                     </Text>
-                                    <Text style={{width: 90, fontSize: 12, fontFamily: 'Poppins-Regular', color: '#374151', textAlign: 'right'}}>₹{parseFloat(item.avgBuyPrice).toFixed(2)}</Text>
-                                    <Text style={{width: 80, fontSize: 12, fontFamily: 'Poppins-SemiBold', color: hasReturns ? (item.returns >= 0 ? '#16A34A' : '#DC2626') : '#9CA3AF', textAlign: 'right'}}>
-                                      {hasReturns ? `${item.returns >= 0 ? '+' : ''}${item.returns.toFixed(2)}%` : 'N/A'}
-                                    </Text>
-                                    <Text style={{width: 70, fontSize: 12, fontFamily: 'Poppins-Regular', color: '#374151', textAlign: 'right'}}>
-                                      {hasWeight ? `${item.weights.toFixed(2)}%` : '-'}
-                                    </Text>
-                                    <Text style={{width: 70, fontSize: 12, fontFamily: 'Poppins-Regular', color: '#374151', textAlign: 'right'}}>{item.shares}</Text>
                                   </View>
-                                  );
-                                }}
-                              />
-                            </View>
-                          </ScrollView>
-                          <Text style={{fontSize: 9, fontFamily: 'Poppins-Regular', color: '#9CA3AF', marginTop: 6, textAlign: 'center'}}>
-                            Prices may be delayed. Scroll to see all stocks.
-                          </Text>
-                        </View>
+                                  <View style={{flex: 1, backgroundColor: '#F8FAFF', borderRadius: 8, padding: 8}}>
+                                    <Text style={{fontSize: 10, fontFamily: 'Poppins-Regular', color: '#6B7280', marginBottom: 2}}>Avg. Buy</Text>
+                                    <Text style={{fontSize: 13, fontFamily: 'Poppins-Medium', color: '#1F2937'}}>
+                                      ₹{parseFloat(item.avgBuyPrice).toFixed(2)}
+                                    </Text>
+                                  </View>
+                                </View>
+                                <View style={{flexDirection: 'row', gap: 8, marginTop: 8}}>
+                                  <View style={{flex: 1, backgroundColor: '#F8FAFF', borderRadius: 8, padding: 8}}>
+                                    <Text style={{fontSize: 10, fontFamily: 'Poppins-Regular', color: '#6B7280', marginBottom: 2}}>Shares</Text>
+                                    <Text style={{fontSize: 13, fontFamily: 'Poppins-Medium', color: '#1F2937'}}>{item.shares}</Text>
+                                  </View>
+                                  <View style={{flex: 1, backgroundColor: '#F8FAFF', borderRadius: 8, padding: 8}}>
+                                    <Text style={{fontSize: 10, fontFamily: 'Poppins-Regular', color: '#6B7280', marginBottom: 2}}>Weight</Text>
+                                    <Text style={{fontSize: 13, fontFamily: 'Poppins-Medium', color: '#1F2937'}}>
+                                      {hasWeight ? `${item.weights}%` : '—'}
+                                    </Text>
+                                  </View>
+                                </View>
+                              </View>
+                            );
+                          }}
+                        />
                       ) : (
-                        <EmptyStateInfoMP />
+                        <EmptyStateInfoMP
+                          title="No Holdings Yet"
+                          subtitle="Accept and execute your first rebalance to start building your portfolio."
+                        />
                       )}
                     </SafeAreaView>
                   ),

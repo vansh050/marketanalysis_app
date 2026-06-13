@@ -190,6 +190,46 @@ export const brokerRegistry = [
       },
     ],
   },
+  {
+    // IIFL Securities — OAuth via markets.iiflcapital.com. Callback
+    // returns ?authcode=&clientid= which the modal exchanges via
+    // POST ccxt /iifl/login/client → returns sessionToken (jwtToken)
+    // persisted on the user doc. Mirrors web src/Home/LivePortfolioSection/
+    // connectBroker.js handleIIFLLogin (lines 1114–1167).
+    name: 'IIFL Securities',
+    key: 'iifl',
+    apiBrokerName: 'IIFL Securities',
+    authType: BROKER_AUTH_TYPE.OAUTH,
+    logoKey: 'iifl',
+    fields: [],
+  },
+  {
+    // Arihant Capital — TradeBridge partner. 2-step credential + OTP.
+    // Mirrors web src/Home/BrokerConnection/Arihant/ArihantConnection.js.
+    name: 'Arihant Capital',
+    key: 'arihant',
+    apiBrokerName: 'Arihant Capital',
+    authType: BROKER_AUTH_TYPE.CREDENTIAL,
+    logoKey: 'arihant',
+    fields: [
+      { label: 'User ID', key: 'userId', isSecret: false, placeholder: 'Enter your Arihant user ID' },
+      { label: 'Password', key: 'password', isSecret: true, placeholder: 'Enter your Arihant password' },
+      { label: 'API Key', key: 'apiKey', isSecret: true, placeholder: 'Enter API key from TradeBridge' },
+    ],
+  },
+  {
+    // DefinEdge Securities — INTEGRATE partner. 2-step credential + OTP.
+    // Mirrors web src/Home/BrokerConnection/DefinEdge/DefinEdgeConnection.js.
+    name: 'DefinEdge',
+    key: 'definedge',
+    apiBrokerName: 'DefinEdge Securities',
+    authType: BROKER_AUTH_TYPE.CREDENTIAL,
+    logoKey: 'definedge',
+    fields: [
+      { label: 'API Token', key: 'apiKey', isSecret: false, placeholder: 'Enter API token from INTEGRATE' },
+      { label: 'API Secret', key: 'secretKey', isSecret: true, placeholder: 'Enter API secret from INTEGRATE' },
+    ],
+  },
 ];
 
 /**

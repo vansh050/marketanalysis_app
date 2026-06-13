@@ -27,6 +27,13 @@ import useModalStore from '../../GlobalUIModals/modalStore';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 import { saveBrokerSessionTime } from '../../utils/brokerSessionUtils';
 import EgressIpCallout from './EgressIpCallout';
+import {ChevronDown, ChevronUp} from 'lucide-react-native';
+import GrowwHelpContent from '../../UIComponents/BrokerConnectionUI/HelpUI/GrowwHelpContent';
+import {
+  useSdkBridge,
+  sdkConnectBroker,
+  sdkDualWriteSafely,
+} from '../../sdk/brokerSdkBridge';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -46,11 +53,17 @@ const GrowwConnectModal = ({
 }) => {
   const { configData } = useTrade();
   const showAlert = useModalStore((state) => state.showAlert);
+  const sdkBridge = useSdkBridge();
 
   const [apiKey, setApiKey] = useState('');
   const [totpToken, setTotpToken] = useState('');
   const [loading, setLoading] = useState(false);
   const [userDetails, setUserDetails] = useState();
+  // Read More / See Less toggle — mirrors ZerodhaConnectUI's expanded
+  // help pattern. Collapsed by default so the form stays the
+  // primary action; tapping Read More expands the GrowwHelpContent
+  // panel to show Important Notes + Need Help sections.
+  const [helpExpanded, setHelpExpanded] = useState(false);
   // Gated by EgressIpCallout acknowledgment. Customers must claim a
   // dedicated egress IP, whitelist it on Groww's side, and tick the
   // acknowledgment checkbox before the Connect button does anything.
@@ -134,6 +147,18 @@ const GrowwConnectModal = ({
           // non-critical
         }
 
+        // SDK pilot dual-write — see brokerSdkBridge.js. Groww uses
+        // /api/groww/update-key (no /api/user/connect-broker step
+        // because update-key persists directly), so we mirror with
+        // /sdk/v1/connections/Groww/connect.
+        if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+          sdkDualWriteSafely(
+            sdkConnectBroker(sdkBridge.client, 'Groww', payload),
+            'Groww',
+            'connect',
+          );
+        }
+
         // Non-critical — model-portfolio broker sync, same as FyersConnect.
         try {
           await axios.post(
@@ -148,17 +173,30 @@ const GrowwConnectModal = ({
           );
         }
 
-        fetchBrokerStatusModal?.();
-        eventEmitter.emit('refreshEvent', {
-          source: 'Groww broker connection',
-        });
-        showAlert(
-          'success',
-          'Connected Successfully',
-          'Your Groww broker has been connected. Daily session refresh is now one tap.',
-        );
         setShowBrokerModal?.(false);
         onClose?.();
+        // Wrap post-success steps so a downstream throw doesn't bubble
+        // to the outer catch and get rewritten as a granular Groww error
+        // code or "Connection Error". See KotakModal.js (commit 172767d)
+        // and BROKER_CONNECTION.md § Broker-connect post-success hygiene.
+        try {
+          const result = await fetchBrokerStatusModal?.();
+          eventEmitter.emit('refreshEvent', {
+            source: 'Groww broker connection',
+          });
+          if (!result?.migrationWillShow) {
+            showAlert(
+              'success',
+              'Connected Successfully',
+              'Your Groww broker has been connected. Daily session refresh is now one tap.',
+            );
+          }
+        } catch (postSuccessErr) {
+          console.warn(
+            '[Groww] post-success step threw (connection IS saved DB-side):',
+            postSuccessErr?.message || postSuccessErr,
+          );
+        }
         return;
       }
       showAlert(
@@ -207,13 +245,26 @@ const GrowwConnectModal = ({
             'Same mismatch as above. Verify (1) the API Key is the JWT from the TOP of the "Generate TOTP token" dialog, (2) the TOTP Secret Key is the Base32 string below the QR in the SAME dialog, and (3) your dedicated static IP is whitelisted via Groww\'s "Update static IP".',
         );
       } else {
-        showAlert(
-          'error',
-          'Connection Error',
-          serverMessage ||
-            err?.message ||
-            'Failed to connect to Groww. Please try again.',
-        );
+        // Gate the generic "Connection Error" wording on whether axios
+        // actually got an HTTP response. If err.response is missing,
+        // it's a network/runtime error and we shouldn't claim Groww
+        // rejected the credentials. See KotakModal.js (commit 172767d).
+        const isHttpError = !!err?.response;
+        if (isHttpError) {
+          showAlert(
+            'error',
+            'Connection Error',
+            serverMessage ||
+              err?.message ||
+              'Failed to connect to Groww. Please try again.',
+          );
+        } else {
+          showAlert(
+            'error',
+            'Connection Issue',
+            'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.',
+          );
+        }
       }
     } finally {
       setLoading(false);
@@ -330,6 +381,32 @@ const GrowwConnectModal = ({
                 </View>
               </View>
             </View>
+
+            {/* Read More / See Less expandable help — mirrors
+                ZerodhaConnectUI's pattern. Collapsed shows a one-line
+                "About this connection"; expanded reveals Important
+                Notes + Need Help sections (matching Zerodha's yellow
+                callout + gray support box). */}
+            <View style={styles.guideBox}>
+              <GrowwHelpContent
+                expanded={helpExpanded}
+                onExpandChange={setHelpExpanded}
+              />
+            </View>
+            <TouchableOpacity
+              onPress={() => setHelpExpanded(prev => !prev)}
+              style={styles.toggleContainer}>
+              <Text style={styles.toggleText}>
+                {helpExpanded ? 'See Less' : 'Read More'}
+              </Text>
+              <View style={styles.toggleIconContainer}>
+                {helpExpanded ? (
+                  <ChevronUp size={14} color="#000" />
+                ) : (
+                  <ChevronDown size={14} color="#000" />
+                )}
+              </View>
+            </TouchableOpacity>
 
             {/* Per-customer dedicated IP claim/whitelist gate.
                 Submit button is locked until the customer has claimed
@@ -537,6 +614,37 @@ const styles = StyleSheet.create({
   cancelButtonText: {
     color: '#666',
     fontSize: 14,
+  },
+  // Read More / See Less help-panel styles. Mirrors
+  // ZerodhaConnectUI's guideBox + toggleContainer / toggleText /
+  // toggleIconContainer for cross-broker visual parity.
+  guideBox: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    marginTop: 12,
+    padding: 12,
+    elevation: 2,
+    shadowColor: '#ccc',
+  },
+  toggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 10,
+  },
+  toggleText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: 'rgba(0, 86, 183, 1)',
+    marginRight: 8,
+  },
+  toggleIconContainer: {
+    backgroundColor: '#fff',
+    elevation: 3,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 3,
   },
 });
 

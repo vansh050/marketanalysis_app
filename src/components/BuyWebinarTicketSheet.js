@@ -27,15 +27,56 @@ import Config from 'react-native-config';
 import { CFPaymentGatewayService } from 'react-native-cashfree-pg-sdk';
 import {
   CFDropCheckoutPayment,
-  CFEnvironment,
   CFPaymentComponentBuilder,
   CFPaymentModes,
   CFSession,
   CFThemeBuilder,
 } from 'cashfree-pg-api-contract';
+import { getAuth } from '@react-native-firebase/auth';
 import liveKitService from '../FunctionCall/services/LiveKitService';
+import {
+  getCashfreeEnvironment,
+  friendlyPaymentError,
+} from '../utils/cashfreeEnv';
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
+
+// Translate backend `error` codes + raw CF SDK errors into something the
+// registrant can act on. Mirrors web's BuyWebinarTicketModal FRIENDLY_ERRORS
+// map so the two UIs read the same on every failure.
+const FRIENDLY_ERRORS = {
+  BAD_EMAIL: 'Please enter a valid email address.',
+  EMAIL_MISMATCH: "Your sign-in email doesn't match the ticket email. Please sign out and sign back in with the right account.",
+  INVALID_TOKEN: 'Your sign-in session expired. Please sign in again and retry.',
+  INVALID_LESSON_ID: 'This webinar link looks invalid — please reload.',
+  NOT_FOUND: "We couldn't find this webinar. It may have been removed.",
+  NOT_A_WEBINAR: "This isn't a live webinar lesson.",
+  WEBINAR_ENDED: 'This webinar has already ended — you can no longer register.',
+  REGISTRATION_FAILED: 'Registration failed. Please try again or contact support if it continues.',
+  PAYMENT_CANCELLED: "You cancelled the payment. Try again when you're ready.",
+  PAYMENT_FAILED: "Payment didn't go through. Please try again or use a different payment method.",
+  PAYMENT_EXPIRED: 'The payment session expired. Please try again.',
+  PAYMENT_PENDING_TIMEOUT: "We didn't get a confirmation from the payment provider. If you were charged, please refresh in a minute.",
+  UNEXPECTED_RESPONSE: 'Something went wrong while starting your payment. Please try again.',
+};
+
+function friendlyErrorMessage(err, isFree) {
+  if (err?.code && FRIENDLY_ERRORS[err.code]) return FRIENDLY_ERRORS[err.code];
+  const data = err?.response?.data;
+  const code = data?.error;
+  if (code && FRIENDLY_ERRORS[code]) return FRIENDLY_ERRORS[code];
+  // CashFree install-source check trips here for sideloaded APKs in
+  // PRODUCTION env. Translate before any other passthrough so the user
+  // sees the workaround paths instead of the raw native string.
+  const friendly = friendlyPaymentError(err, '');
+  if (friendly && friendly !== (err?.message || '')) return friendly;
+  const m = data?.message || err?.message || '';
+  const looksLikeStackTrace = /\b(BSONError|ObjectId|validation failed|Cast to|at path)\b/i.test(m);
+  if (m && !looksLikeStackTrace && m.length < 200) return m;
+  return isFree
+    ? 'Registration failed. Please try again or contact support if it continues.'
+    : 'Payment failed. Please try again or contact support if it continues.';
+}
 
 export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurchased }) {
   const [phase, setPhase] = useState('form'); // form | paying | done
@@ -46,12 +87,25 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
   const abortRef = useRef(null);
   const handledRef = useRef(false);
 
+  // Backend now enforces caller.email == body.userEmail (backend commit
+  // c8512b9, 2026-05-30). Pre-fill from Firebase and lock the field for
+  // signed-in users so they can't accidentally type a different address
+  // and trip EMAIL_MISMATCH.
+  const signedInEmail = (() => {
+    try { return getAuth().currentUser?.email || ''; } catch (_) { return ''; }
+  })();
+  const isSignedInEmail = !!signedInEmail;
+
   useEffect(() => {
     if (visible) {
       setPhase('form');
       setErrorMsg('');
       handledRef.current = false;
+      setEmail(signedInEmail);
     }
+    // signedInEmail intentionally not in deps — capturing the value at
+    // open time matches web's behaviour.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
   // Cancel any in-flight poll if the sheet closes mid-payment; also tear
@@ -116,7 +170,7 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
 
       const paymentSessionId = purchase.cashfree.payment_session_id;
       const orderId = purchase.cashfree.order_id || purchase.orderId;
-      const cfEnvironment = Config.REACT_APP_ENV === 'production' ? CFEnvironment.PRODUCTION : CFEnvironment.SANDBOX;
+      const cfEnvironment = getCashfreeEnvironment();
 
       // Single-shot guards — onVerify and onError can both fire on the same
       // order in some SDK paths; first writer wins, the rest no-op.
@@ -135,7 +189,7 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
             setPhase('done');
             onPurchased && onPurchased({ ...final, buyerEmail: cleanEmail });
           } else {
-            setErrorMsg(`Payment ${final.paymentStatus}`);
+            setErrorMsg(friendlyErrorMessage({ code: 'PAYMENT_FAILED' }, isFree));
             setPhase('form');
           }
         },
@@ -151,7 +205,7 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
           if (isCancel) {
             // Don't make the user wait 30s for the webhook race after they
             // explicitly tapped Cancel.
-            setErrorMsg(error?.message || 'Payment cancelled');
+            setErrorMsg(friendlyErrorMessage({ code: 'PAYMENT_CANCELLED' }, isFree));
             setPhase('form');
             return;
           }
@@ -163,7 +217,7 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
             setPhase('done');
             onPurchased && onPurchased({ ...final, buyerEmail: cleanEmail });
           } else {
-            setErrorMsg(error?.message || 'Payment failed');
+            setErrorMsg(friendlyErrorMessage({ code: 'PAYMENT_FAILED' }, isFree));
             setPhase('form');
           }
         },
@@ -191,7 +245,7 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
       CFPaymentGatewayService.doPayment(dropPayment);
     } catch (e) {
       teardownSdk();
-      setErrorMsg(e?.response?.data?.message || e?.message || 'Purchase failed');
+      setErrorMsg(friendlyErrorMessage(e, isFree));
       setPhase('form');
     }
   }
@@ -237,12 +291,17 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
               <TextInput
                 value={email}
                 onChangeText={setEmail}
-                editable={phase !== 'paying'}
+                editable={phase !== 'paying' && !isSignedInEmail}
                 keyboardType="email-address"
                 autoCapitalize="none"
                 placeholder="you@example.com"
-                style={styles.input}
+                style={[styles.input, isSignedInEmail && styles.inputLocked]}
               />
+              <Text style={styles.helperText}>
+                {isSignedInEmail
+                  ? 'Ticket is tied to your signed-in account.'
+                  : "Use the email where you'd like to receive the confirmation + join link."}
+              </Text>
               <Text style={styles.label}>Name *</Text>
               <TextInput
                 value={name}
@@ -306,6 +365,8 @@ const styles = StyleSheet.create({
   form: { marginTop: 14 },
   label: { fontSize: 12, fontWeight: '600', color: '#374151', marginBottom: 4, marginTop: 8 },
   input: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: '#111827' },
+  inputLocked: { backgroundColor: '#f9fafb', color: '#6b7280' },
+  helperText: { fontSize: 11, color: '#6b7280', marginTop: 4 },
   errorBox: { marginTop: 10, backgroundColor: '#fef2f2', borderColor: '#fecaca', borderWidth: 1, borderRadius: 6, padding: 10 },
   errorText: { color: '#991b1b', fontSize: 12 },
   payingBox: { alignItems: 'center', paddingVertical: 14 },
