@@ -4,6 +4,56 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
 
+## [Unreleased] - 2026-06-15 — Google Sign-In WebView fallback (Android) + versionCode 4
+
+### Why
+The release-signed APK fails Google Sign-In on Android with `DEVELOPER_ERROR (10)` because the upload-key SHA-1 (`D5:C6:3F:3F:57:53:22:49:91:87:6E:8D:4F:0B:43:79:26:FB:A1:6C`) and the Play App Signing SHA-1 are not yet registered in Firebase project `marketanalysis-3a279` — only the debug keystore SHA-1 (`033f2e7d…`) is. Fingerprint registration is in flight and expected to land "in a few days" but until then the release build is sign-in-blocked. iOS is unaffected because its OAuth client validates on bundle ID, not SHA.
+
+### What changed
+- `src/screens/Authentication/GoogleWebSignInModal.js` (NEW) — WebView modal that runs OAuth 2.0 implicit-grant against the project's **Web client ID** (`config.googleWebClientId`, sourced from backend `appadvisors` doc → falls back to `REACT_APP_GOOGLE_WEB_CLIENT_ID_FALLBACK`). Web client has no SHA-1 binding, so it sidesteps the registration gap entirely.
+  - Loads `https://accounts.google.com/o/oauth2/v2/auth` with `response_type=id_token`, `redirect_uri=https://<firebaseAuthDomain>/__/auth/handler`, fresh nonce, `prompt=select_account`.
+  - The `__/auth/handler` URL is auto-authorized as a redirect URI for the web client when Firebase Auth is enabled — no Google Cloud Console change needed.
+  - Intercepts the redirect via `onShouldStartLoadWithRequest`, parses the `id_token` from the URL fragment, hands it to a callback, never lets Firebase's handler page actually load.
+  - UA-spoofs as Chrome 120 on Android 13 — raw WebView UAs are rejected by Google with `disallowed_useragent`. Verified working on the Pixel emulator: Google's real OAuth page renders inside the modal.
+
+- `src/screens/Authentication/LoginScreen.js` (MODIFIED) — refactored `handleGoogleLogin`:
+  - Extracted the post-idToken work (Firebase credential exchange + `/api/user/` POST + `getUser` GET + `trackAppUser` + `logLoginAttempt` + `handlePostLoginNavigation`) into a shared `completeGoogleSignIn(idToken, source)` so both paths converge.
+  - **Android branch**: opens `<GoogleWebSignInModal>` instead of calling the native `@react-native-google-signin/google-signin` SDK. On `onIdToken`, calls `completeGoogleSignIn(idToken, 'web')`.
+  - **iOS branch**: unchanged — keeps `GoogleSignin.signIn()` (the iOS OAuth client validates on bundle ID, not SHA-1, so it works).
+  - Login tracking now records `login_method: 'google_web'` for the WebView path and `google_native` for the SDK path so analytics can distinguish them.
+  - Renamed the return to a Fragment so the modal can render alongside `<Presentation>`.
+
+- `android/app/build.gradle` (MODIFIED) — versionCode `3` → `4`, versionName `1.0.2` → `1.0.3` (next Play release).
+
+### Verified on emulator (Pixel image, Google APIs)
+- Release APK installed (signed with `marketanalysis-upload-key.keystore` via `-PMYAPP_UPLOAD_*` overrides — see "Heads-up" below).
+- Boot logs show backend doc loaded with `firebaseProjectId: marketanalysis-3a279`, `googleWebClientId: 675041319268-ao2ac85qabj8ohvonvqagoe6nck1mvu3...`. `[AqSdkProvider] userRef is null` confirms the SDK provider tree still mounts.
+- Tap "Continue with Google" → WebView modal opens → Google's actual sign-in UI renders (`Sign in / to continue to marketanalysis-3a279.firebaseapp.com / Email or phone / Next`). No `disallowed_useragent`, no DEVELOPER_ERROR.
+
+### Heads-up — global gradle.properties override
+`~/.gradle/gradle.properties` (per-user) has a stale Alphanomy/Zamzam block:
+```
+MYAPP_UPLOAD_STORE_FILE=alphanomy-release.keystore
+MYAPP_UPLOAD_KEY_ALIAS=my-key-alias-zamzam
+MYAPP_UPLOAD_STORE_PASSWORD=zamzam12345
+MYAPP_UPLOAD_KEY_PASSWORD=zamzam12345
+```
+This overrides this project's `android/gradle.properties`. Until that block is removed (or this project's keystore is renamed to match), every release build must pass `-PMYAPP_UPLOAD_STORE_FILE=marketanalysis-upload-key.keystore` etc. on the command line. The next person who runs a bare `./gradlew bundleRelease` will hit `Keystore file '…/alphanomy-release.keystore' not found`.
+
+### How to revert once SHA fingerprints land in Firebase
+Either:
+1. Remove the `if (Platform.OS === 'android') { setGoogleWebSignInVisible(true); return; }` branch in `handleGoogleLogin` — Android falls back to native, web modal stays available as emergency fallback. Recommended.
+2. Delete `GoogleWebSignInModal.js` + revert `LoginScreen.js` to native-only. Aggressive cleanup, only if confident the fingerprint problem won't recur for future upload-keys or new Firebase projects.
+
+### Files touched
+- `src/screens/Authentication/GoogleWebSignInModal.js` — NEW
+- `src/screens/Authentication/LoginScreen.js`
+- `android/app/build.gradle`
+- `docs/CHANGELOG.md`
+- `docs/APP_ARCHITECTURE.md`
+
+---
+
 ## [Unreleased] - 2026-06-13 — WHITELABEL RESTRUCTURE + UPSTREAM SYNC
 
 ### Restructured fork to satisfy `docs/WHITELABEL_RECIPE.md` contract

@@ -1199,6 +1199,99 @@ The `email_advisor_map` collection in the `common` database maintains a central 
 
 **Fallback rule:** If an email maps to multiple advisors, the RA ID screen is always shown to let the user choose.
 
+### 6.5.1 Google Sign-In — Native SDK + WebView Fallback (2026-06-15)
+
+`LoginScreen.handleGoogleLogin` dispatches by platform:
+
+| Platform | Path | OAuth client validated against | Failure mode if misconfigured |
+|---|---|---|---|
+| iOS | `GoogleSignin.signIn()` (native) | iOS client ID + bundle ID | crash on first signIn if `iosClientId` missing |
+| Android | `<GoogleWebSignInModal>` (WebView) | Web client ID — **no SHA-1 check** | none — sidesteps the SHA registration entirely |
+
+#### Why Android uses WebView
+The native `@react-native-google-signin/google-signin` SDK matches the calling APK's signing-cert SHA-1 against the Firebase project's Android OAuth client. Three SHA-1s exist for this project and each must be registered separately:
+1. Debug keystore (`marketanalysis-debug.keystore`) — SHA-1 `03:3F:2E:7D…` (already registered)
+2. Release upload keystore (`marketanalysis-upload-key.keystore`) — SHA-1 `D5:C6:3F:3F:57:53:22:49:91:87:6E:8D:4F:0B:43:79:26:FB:A1:6C` (registration in flight)
+3. Play App Signing key (Play re-signs the uploaded AAB) — SHA-1 visible in Play Console → Setup → App integrity (registration in flight)
+
+While (2) and (3) are still being added to Firebase project `marketanalysis-3a279`, every release-signed APK Google-sign-in attempt fails with `DEVELOPER_ERROR (10)`. The WebView path uses the **Web** OAuth client (`config.googleWebClientId`), which has no SHA-1 binding, so it works during the registration gap.
+
+#### Flow
+
+```
+User taps "Continue with Google"
+    │
+    ▼
+LoginScreen.handleGoogleLogin
+    │
+    ├── Platform.OS === 'ios'  → GoogleSignin.signIn() → idToken
+    │
+    └── Platform.OS === 'android' → setGoogleWebSignInVisible(true)
+                                        │
+                                        ▼
+                            GoogleWebSignInModal mounts
+                                        │
+                                        ▼
+                            WebView loads accounts.google.com/o/oauth2/v2/auth
+                              ?client_id=<config.googleWebClientId>
+                              &redirect_uri=https://<authDomain>/__/auth/handler
+                              &response_type=id_token
+                              &scope=openid email profile
+                              &nonce=<random>
+                              &prompt=select_account
+                                        │
+                                        ▼
+                            User picks Google account + consents
+                                        │
+                                        ▼
+                            Google redirects to redirect_uri#id_token=…
+                                        │
+                                        ▼
+                            onShouldStartLoadWithRequest intercepts BEFORE
+                            Firebase's handler page actually loads —
+                            extracts id_token from URL fragment, returns false
+                                        │
+                                        ▼
+                            onIdToken(idToken) → handleGoogleWebIdToken
+                                        │
+                                        ▼
+                            completeGoogleSignIn(idToken, 'web')
+                                        │
+                                        ▼
+                            auth.GoogleAuthProvider.credential(idToken)
+                            auth().signInWithCredential(googleCredential)
+                                        │
+                                        ▼
+                            POST /api/user/ (upsert) + GET /api/user/getUser/:email
+                            trackAppUser({login_method: 'google_web'})
+                            logLoginAttempt({login_method: 'google_web'})
+                                        │
+                                        ▼
+                            handlePostLoginNavigation → Home / RA screen
+```
+
+#### Why `https://<authDomain>/__/auth/handler` as the redirect URI
+This URL is automatically authorized for the project's web OAuth client when Firebase Auth is enabled — no Google Cloud Console change is required. We never let the page actually load; the WebView intercepts the URL during navigation and short-circuits.
+
+#### Why we spoof the user agent
+Google rejects OAuth attempts from `disallowed_useragent` strings (e.g. the default Android WebView UA) as an anti-phishing measure. `GoogleWebSignInModal` sets `userAgent="Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"` to look like Chrome (the Android WebView engine is Chromium, so this is structurally accurate, not deceptive). Verified working on the Pixel emulator.
+
+#### Differentiating native vs. web logins in analytics
+`completeGoogleSignIn(idToken, source)` accepts a `source` arg ('native' or 'web') and writes `login_method: \`google_${source}\`` to both `trackAppUser` and `logLoginAttempt`. This lets Mixpanel/backend distinguish the paths so we can watch the WebView path's adoption and clean it up once SHA registration completes.
+
+#### Revert plan
+Once all three Android SHA-1s land in Firebase project `marketanalysis-3a279`:
+1. **Recommended**: remove the `if (Platform.OS === 'android') { setGoogleWebSignInVisible(true); return; }` branch in `handleGoogleLogin` (LoginScreen.js). Android falls back to native; web modal stays available as emergency fallback.
+2. **Aggressive**: delete `GoogleWebSignInModal.js` + revert `LoginScreen.js` to native-only. Only if confident no future upload-key or Firebase project will hit the same gap.
+
+#### Key files
+| File | Purpose |
+|---|---|
+| `src/screens/Authentication/LoginScreen.js` | Container — dispatches by platform, owns `completeGoogleSignIn` shared post-idToken work |
+| `src/screens/Authentication/GoogleWebSignInModal.js` | WebView modal — runs OAuth implicit-grant, intercepts redirect, returns idToken |
+| `src/context/ConfigContext.js` | Backend `appadvisors.googleWebClientId` → `config.googleWebClientId` resolution (with `.env`'s `REACT_APP_GOOGLE_WEB_CLIENT_ID_FALLBACK` fallback) |
+| `.env` `REACT_APP_FIREBASE_AUTH_DOMAIN` | Source for the WebView's redirect URI `https://<authDomain>/__/auth/handler` |
+
 ---
 
 ## 7. State Management

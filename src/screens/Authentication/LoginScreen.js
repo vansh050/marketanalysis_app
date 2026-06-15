@@ -32,6 +32,7 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
+import GoogleWebSignInModal from './GoogleWebSignInModal';
 
 import {
     storeLoginData,
@@ -57,6 +58,12 @@ const LoginScreen = () => {
     const [loading, setLoading] = useState(false);
     const [errorShow, setErrorShow] = useState(false);
     const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+    // Android falls back to WebView-based Google OAuth when the native SDK
+    // can't match the APK's signing-cert SHA-1 against the Firebase project's
+    // Android OAuth client. Keeping iOS on the native SDK because iosClientId
+    // verifies on bundle ID, not fingerprint, so it never has this problem.
+    // See GoogleWebSignInModal.js for the full rationale.
+    const [googleWebSignInVisible, setGoogleWebSignInVisible] = useState(false);
     const navigation = useNavigation();
 
     React.useEffect(() => {
@@ -228,13 +235,11 @@ const LoginScreen = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [email, password]);
 
-    const handleGoogleLogin = useCallback(async () => {
+    // Shared post-idToken handler: Firebase credential exchange + backend
+    // create/get + tracking + nav. Reused by both the native Android/iOS SDK
+    // path and the WebView fallback (GoogleWebSignInModal).
+    const completeGoogleSignIn = useCallback(async (idToken, source) => {
         try {
-            setErrorShow(false);
-            await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
-            const { idToken } = await GoogleSignin.signIn();
-            if (!idToken) throw new Error('No ID token returned');
-
             const googleCredential = auth.GoogleAuthProvider.credential(idToken);
             setLoading(true);
             const response = await auth().signInWithCredential(googleCredential);
@@ -265,23 +270,18 @@ const LoginScreen = () => {
                 );
 
                 const subdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
-                trackAppUser({ email: user.email, firebase_id: user.uid, name: user.displayName, login_method: 'google', advisor_subdomain: subdomain });
-                logLoginAttempt({ email: user.email, firebase_id: user.uid, status: 'success', login_method: 'google', advisor_subdomain: subdomain });
+                trackAppUser({ email: user.email, firebase_id: user.uid, name: user.displayName, login_method: `google_${source || 'native'}`, advisor_subdomain: subdomain });
+                logLoginAttempt({ email: user.email, firebase_id: user.uid, status: 'success', login_method: `google_${source || 'native'}`, advisor_subdomain: subdomain });
 
                 await handlePostLoginNavigation(userDetails, user.email);
             }
         } catch (e) {
             console.error('❌ Google login error:', e.code, e.message);
-            if (e.code === 'SIGN_IN_CANCELLED' || e.code === '12501' || e.message?.toLowerCase().includes('cancel')) {
-                setLoading(false);
-                return;
-            }
-
             const failedSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
             logLoginAttempt({
                 email: 'unknown',
                 status: 'failed',
-                login_method: 'google',
+                login_method: `google_${source || 'native'}`,
                 failure_reason: 'google_auth_error',
                 error_message: e.message,
                 error_code: e.code,
@@ -291,7 +291,7 @@ const LoginScreen = () => {
             let userMessage = 'Google sign-in failed. Please try again.';
             const code = e.code || '';
             const msg = (e.message || '').toLowerCase();
-            if (code === 'auth/network-request-failed' || code === 'PLAY_SERVICES_NOT_AVAILABLE' || msg.includes('network') || msg.includes('socket') || msg.includes('econnrefused') || msg.includes('unable to resolve host')) {
+            if (code === 'auth/network-request-failed' || msg.includes('network') || msg.includes('socket') || msg.includes('econnrefused') || msg.includes('unable to resolve host')) {
                 userMessage = 'No internet connection. Please check your network and try again.';
             } else if (msg.includes('timeout') || msg.includes('timed out')) {
                 userMessage = 'Connection timed out. Please try again.';
@@ -312,6 +312,55 @@ const LoginScreen = () => {
             setLoading(false);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const handleGoogleLogin = useCallback(async () => {
+        setErrorShow(false);
+        // Android: route through the WebView Google OAuth modal — the native
+        // SDK requires an SHA-1 match (debug + each release + Play app-signing
+        // key) registered in Firebase, and that reconciliation is in flight.
+        // The WebView path authenticates against the Web client ID, which has
+        // no SHA-1 binding. See GoogleWebSignInModal.js.
+        if (Platform.OS === 'android') {
+            if (!config?.googleWebClientId) {
+                setError('Google sign-in is not configured for this app.');
+                setErrorShow(true);
+                return;
+            }
+            setGoogleWebSignInVisible(true);
+            return;
+        }
+
+        // iOS: native SDK (iosClientId verifies on bundle ID, not SHA-1).
+        try {
+            await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+            const { idToken } = await GoogleSignin.signIn();
+            if (!idToken) throw new Error('No ID token returned');
+            await completeGoogleSignIn(idToken, 'native');
+        } catch (e) {
+            if (e.code === 'SIGN_IN_CANCELLED' || e.code === '12501' || e.message?.toLowerCase().includes('cancel')) {
+                setLoading(false);
+                return;
+            }
+            console.error('❌ Google login error:', e.code, e.message);
+            setError('Google sign-in failed. Please try again.');
+            setErrorShow(true);
+            setLoading(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [config?.googleWebClientId, completeGoogleSignIn]);
+
+    const handleGoogleWebIdToken = useCallback(
+        async (idToken) => {
+            await completeGoogleSignIn(idToken, 'web');
+        },
+        [completeGoogleSignIn],
+    );
+
+    const handleGoogleWebError = useCallback((e) => {
+        console.error('❌ Google web sign-in error:', e?.message);
+        setError('Google sign-in was cancelled or failed. Please try again.');
+        setErrorShow(true);
     }, []);
 
     const completeAppleSignIn = async (user, userEmail, fullName) => {
@@ -449,35 +498,50 @@ const LoginScreen = () => {
     const Presentation = useComponent('screens.LoginScreen');
 
     return (
-        <Presentation
-            viewModel={{
-                email,
-                password,
-                isPasswordVisible,
-                error,
-                errorShow,
-                isLoading: loading,
-                logoComponent: LogoComponent,
-                configLoading,
-                whiteLabelText: Config?.REACT_APP_WHITE_LABEL_TEXT,
-                showAppleButton: Platform.OS === 'ios',
-                // Variant-facing tagline overrides — alphanomy reads these
-                // to swap its built-in tenant copy. See
-                // src/context/ConfigContext.js § TENANT TAGLINES for the shape.
-                taglines: config?.taglines?.login || null,
-            }}
-            actions={{
-                onEmailChange: setEmail,
-                onPasswordChange: setPassword,
-                onPasswordVisibilityToggle: () => setIsPasswordVisible((p) => !p),
-                onLogin: signInWithEmail,
-                onGoogleLogin: handleGoogleLogin,
-                onAppleLogin: handleAppleLogin,
-                onForgotPassword: () => navigation.navigate('ResetPassword'),
-                onNavigateToSignup: () => navigation.navigate('Signup'),
-                dismissKeyboard,
-            }}
-        />
+        <>
+            <Presentation
+                viewModel={{
+                    email,
+                    password,
+                    isPasswordVisible,
+                    error,
+                    errorShow,
+                    isLoading: loading,
+                    logoComponent: LogoComponent,
+                    configLoading,
+                    whiteLabelText: Config?.REACT_APP_WHITE_LABEL_TEXT,
+                    showAppleButton: Platform.OS === 'ios',
+                    // Variant-facing tagline overrides — alphanomy reads these
+                    // to swap its built-in tenant copy. See
+                    // src/context/ConfigContext.js § TENANT TAGLINES for the shape.
+                    taglines: config?.taglines?.login || null,
+                }}
+                actions={{
+                    onEmailChange: setEmail,
+                    onPasswordChange: setPassword,
+                    onPasswordVisibilityToggle: () => setIsPasswordVisible((p) => !p),
+                    onLogin: signInWithEmail,
+                    onGoogleLogin: handleGoogleLogin,
+                    onAppleLogin: handleAppleLogin,
+                    onForgotPassword: () => navigation.navigate('ResetPassword'),
+                    onNavigateToSignup: () => navigation.navigate('Signup'),
+                    dismissKeyboard,
+                }}
+            />
+            <GoogleWebSignInModal
+                visible={googleWebSignInVisible}
+                onClose={() => setGoogleWebSignInVisible(false)}
+                onIdToken={handleGoogleWebIdToken}
+                onError={handleGoogleWebError}
+                webClientId={config?.googleWebClientId}
+                firebaseAuthDomain={
+                    Config?.REACT_APP_FIREBASE_AUTH_DOMAIN ||
+                    (Config?.REACT_APP_FIREBASE_PROJECT_ID
+                        ? `${Config.REACT_APP_FIREBASE_PROJECT_ID}.firebaseapp.com`
+                        : '')
+                }
+            />
+        </>
     );
 };
 
