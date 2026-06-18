@@ -55,6 +55,21 @@ import { Gauge, TrendingUp } from 'lucide-react-native';
 
 const { width: screenWidth } = Dimensions.get('window');
 
+// API returns description with HTML tags — render as plain text.
+const stripHtml = (input) => {
+  if (!input) return '';
+  return String(input)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 const MPCard = ({ viewModel, actions, slots }) => {
   const {
     modelName = '',
@@ -261,7 +276,7 @@ const MPCard = ({ viewModel, actions, slots }) => {
           <View style={styles.expandedContent}>
             <Text style={[styles.descriptionText, { color: mainColor }]}>
               <Text style={[styles.overviewLabel, { color: mainColor }]}>{'•'} Overview : </Text>
-              {description || '-'}
+              {stripHtml(description) || '-'}
             </Text>
           </View>
         </Animated.View>

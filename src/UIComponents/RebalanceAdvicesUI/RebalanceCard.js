@@ -40,6 +40,22 @@ import {useTrade} from '../../screens/TradeContext';
 import {isFundsErrorOrMissing} from '../../utils/rebalanceHelpers';
 import {useRefreshBrokerStatus} from '../../hooks/useRefreshBrokerStatus';
 
+// API returns overView with HTML tags (e.g. `<p><span style="...">text</span></p>`).
+// Render as plain text — entities decoded, tags stripped, whitespace collapsed.
+const stripHtml = (input) => {
+  if (!input) return '';
+  return String(input)
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
 const RebalanceCard = ({
   openRebalModal,
   data,
@@ -641,12 +657,15 @@ const RebalanceCard = ({
                       color: '#fff',
                       fontFamily: 'Satoshi-Regular',
                     }}></Text>
-                  {overView?.length > 50
-                    ? isExpanded
-                      ? overView
-                      : `${overView?.substring(0, 50)}...`
-                    : overView}
-                  {overView?.length > 50 && (
+                  {(() => {
+                    const plainOverview = stripHtml(overView);
+                    return plainOverview.length > 50
+                      ? isExpanded
+                        ? plainOverview
+                        : `${plainOverview.substring(0, 50)}...`
+                      : plainOverview;
+                  })()}
+                  {stripHtml(overView).length > 50 && (
                     <Text
                       onPress={openModal}
                       style={{
@@ -819,7 +838,7 @@ const RebalanceCard = ({
               </Text>
               <XIcon onPress={closeModal} size={20} color={'black'} />
             </View>
-            <Text style={styles.readMoreModalText}>{overView}</Text>
+            <Text style={styles.readMoreModalText}>{stripHtml(overView)}</Text>
           </View>
         </View>
       </Modal>
