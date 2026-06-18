@@ -537,6 +537,9 @@ const HomeScreen = ({ }) => {
         case 'New Rebalance':
           handleRebalanceNotification(title, body, notificationType);
           break;
+        case 'reco_message':
+          await handleRecoMessageNotification(title, body);
+          break;
         default:
           console.warn('Foreground: Unrecognized notification type');
       }
@@ -571,6 +574,23 @@ const HomeScreen = ({ }) => {
     };
 
     await notifee.displayNotification(notificationConfig);
+  };
+
+  // 🟢 Handle advisor "Investment Message" (Recommendation Message) push.
+  // Background/quit notifications auto-display from the FCM notification block;
+  // this surfaces it while the app is in the foreground too.
+  const handleRecoMessageNotification = async (title, body) => {
+    if (!title && !body) return;
+    await notifee.displayNotification({
+      title: `${title || 'New message from your advisor'}`,
+      body: `${body || ''}`,
+      android: {
+        channelId: 'default',
+        importance: AndroidImportance.HIGH,
+        pressAction: { id: 'default' },
+        color: '#045DFF',
+      },
+    });
   };
 
   // 🟢 Handle Bespoke Notifications (Stock Advice)

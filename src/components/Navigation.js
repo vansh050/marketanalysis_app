@@ -53,6 +53,7 @@ import {
   User,
   Video,
   BookOpen,
+  MessageSquare,
 } from 'lucide-react-native';
 import HomeScreen from '../screens/Home/HomeScreen';
 import PhoneNumberScreen from '../screens/Authentication/PhoneNumberScreen';
@@ -100,6 +101,7 @@ import {useModal} from '../components/ModalContext';
 import ModelPortfolioScreen from '../screens/Drawer/ModelPortfolioScreen';
 import MPPerformanceScreen from '../screens/Drawer/MPPerformanceScreen';
 import ResearchReportScreen from '../screens/Home/ResearchReportScreen';
+import RecommendationMessagesScreen from '../screens/Home/RecommendationMessagesScreen';
 import PushNotificationScreen from '../screens/Home/PushNotificationScreen';
 import TradePnLScreen from '../screens/Home/TradePnLScreen';
 
@@ -898,6 +900,18 @@ const CustomDrawerContent = props => {
             )}
           />
 
+          <CustomDrawerItem
+            label="Recommendation Messages"
+            isSelected={
+              props.state.routeNames[props.state.index] ===
+              'RecommendationMessages'
+            }
+            onPress={() => handleDrawerItemPress('RecommendationMessages')}
+            IconComponent={({color, style}) => (
+              <MessageSquare color={color} style={style} />
+            )}
+          />
+
           {/* Courses (2026-05-24) — viewer-only catalog. Gated per-advisor
               by AppConfigContext.coursesEnabled (mirrors web's
               AppConfigContext default-false → AdvisorConfig.courses_enabled).
@@ -1240,6 +1254,11 @@ const Navigation = ({userEmail, isAuthenticated}) => {
         <Stack.Screen
           name="HistoryScreen"
           component={HistoryScreen}
+          options={{headerShown: false}}
+        />
+        <Stack.Screen
+          name="RecommendationMessages"
+          component={RecommendationMessagesScreen}
           options={{headerShown: false}}
         />
         <Stack.Screen
