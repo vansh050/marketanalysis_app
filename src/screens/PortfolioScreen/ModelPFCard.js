@@ -14,6 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
 import Config from 'react-native-config';
 import { useComponent } from '../../design/useDesign';
+import useTokens from '../../theme/useTokens';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import PortfolioPercentage from '../../components/AdviceScreenComponents/DynamicText/PortfolioPercentage';
@@ -30,10 +31,28 @@ const ModalPFCard = ({
   repair,
   price,
   percentage,
+  index = 0,
 }) => {
   const { configData } = useTrade();
   const navigation = useNavigation();
   const Presentation = useComponent('composites.ModelPFCard');
+  const tokens = useTokens();
+  // Prefer a plan-name-based mapping (moneyman_app: MAMM/MFCC/MSRO) so the
+  // same portfolio always renders the same accent regardless of load order.
+  // Fall back to `mpCardColorCycle[index]` when the plan isn't in the map,
+  // and to null (no accent) when the variant supplies neither.
+  const colorMap = tokens?.colors?.mpCardColorMap;
+  const cardColorCycle = tokens?.colors?.mpCardColorCycle;
+  let cardColor = null;
+  if (colorMap && typeof modelName === 'string') {
+    const upperName = modelName.toUpperCase();
+    for (const [key, color] of Object.entries(colorMap)) {
+      if (upperName.includes(key.toUpperCase())) { cardColor = color; break; }
+    }
+  }
+  if (!cardColor && Array.isArray(cardColorCycle) && cardColorCycle.length > 0) {
+    cardColor = cardColorCycle[index % cardColorCycle.length];
+  }
 
   const resultfinal = specificPlan
     ? strategy.find(s => s._id === specificPlan._id)
@@ -153,6 +172,7 @@ const ModalPFCard = ({
         repair,
         totalInvested,
         net_portfolio_updated,
+        cardColor,
       }}
       actions={{
         onCardPress: handleCardClick,

@@ -41,11 +41,17 @@ const merge = (base, override) => {
 
 export const DEFAULT_TOKENS = {
     brand: {
-        primary: '#0D021F',
+        // AlphaQuark default chrome — historically the app's fallback blues
+        // when no tenant / advisor / variant overrides were provided. These
+        // values were previously hardcoded across many components (MPCard,
+        // CustomStatusBar, CustomToolbar, LoginScreen, etc.); centralising
+        // them here keeps the default appearance stable when consumers move
+        // to `useTokens().colors.brand.*`.
+        primary: '#0056B7',
         secondary: '#ffffff',
-        accent: '#ff0000',
-        gradientStart: '#F0F0F0',
-        gradientEnd: '#773D9A',
+        accent: '#0056B7',
+        gradientStart: '#002651',
+        gradientEnd: '#0076fb',
         onBrand: '#ffffff',
         placeholder: '#B893F1',
     },
@@ -130,6 +136,12 @@ export const DEFAULT_TOKENS = {
         subtle: 'rgba(0,0,0,0.05)',
         medium: 'rgba(0,0,0,0.15)',
     },
+    // Optional per-variant card color palette used by container components that
+    // want to cycle a fixed color set across a list (e.g. the Portfolio tab's
+    // ModelPFCard rows). `null` on default = feature off (no per-card color).
+    // A variant sets this to an array of hex strings; the container picks
+    // `mpCardColorCycle[index % length]`. See designs/moneyman_app/tokens.
+    mpCardColorCycle: null,
 };
 
 /**

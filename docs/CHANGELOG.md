@@ -4,6 +4,22 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
 
+## [unreleased] - 2026-07-13 — sync(design): mpCardColorMap + variant-aware buildColors (from Alphab2bapp)
+
+Port of Alphab2bapp commit `bfa5175`. Adds per-plan MP card color override and admin-configurable color tokens (via `config.colorTokens` from support.alphaquark.in).
+
+Copied verbatim from Alphab2bapp:
+- `src/theme/colors.js` — new `mpCardColorCycle: null` slot; `DEFAULT_TOKENS.brand` backfilled with AlphaQuark blues. Effect on this tenant is zero at runtime because backend config layers on top.
+- `src/theme/useTokens.js` — variant-aware color builder.
+- `src/components/ModelPortfolioComponents/MPCard.js` — name-map lookup + cycle fallback + index prop + GST double-count fix.
+- `src/screens/PortfolioScreen/ModelPFCard.js` — same lookup, passes `cardColor` to presentation.
+- `src/screens/PortfolioScreen/PortfolioScreen.js` — threads `index` to `<ModelPFCard>`.
+- `src/screens/Drawer/ModelPortfolioScreen.js` — threads `index` to `<MPCard>`.
+
+**Runtime effect for this tenant**: no visible change today. What's unlocked: per-plan colors editable from support.alphaquark.in once `colorTokens.mpCardColorMap` is populated in the advisor doc.
+
+---
+
 ## [Unreleased] - 2026-06-15 — Google Sign-In WebView fallback (Android) + versionCode 4
 
 ### Why

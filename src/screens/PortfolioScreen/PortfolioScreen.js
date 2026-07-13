@@ -19,6 +19,7 @@ import WebSocketManager from '../../components/AdviceScreenComponents/DynamicTex
 import PortfolioPositionText from '../../components/AdviceScreenComponents/DynamicText/PortfolioPositionText';
 import HoldingDynamicText from '../../components/AdviceScreenComponents/DynamicText/HoldingDynamicText';
 import {useConfig} from '../../context/ConfigContext';
+import useTokens from '../../theme/useTokens';
 import {useNavigation} from '@react-navigation/native';
 import useWebSocketCurrentPrice from '../../FunctionCall/useWebSocketCurrentPrice';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
@@ -41,9 +42,8 @@ const PortfolioScreen = () => {
     modelPortfolioRepairTrades,
   } = useTrade();
 
-  // Get dynamic colors from config
   const config = useConfig();
-  const mainColor = config?.mainColor || '#1264D4';
+  const mainColor = useTokens().colors.brand.primary;
 
   const [tabIndex, setTabIndex] = useState(2);
   const tabIndexRef = useRef(tabIndex);
@@ -1420,6 +1420,7 @@ const PortfolioScreen = () => {
       specificPlan={item.latest}
       modelName={item.modelName}
       repair={item.repair ? 'repair' : null}
+      index={index}
     />
   );
 

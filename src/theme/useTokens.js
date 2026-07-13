@@ -44,10 +44,16 @@ export const useTokens = () => {
     // legacy-branding, so only `assets` needs the variant builder here.
     const design = useContext(DesignContext);
     const buildVariantAssets = design?.tokens?.buildAssets || buildAssets;
+    // Variant-aware color builder. Default variant re-exports src/theme/colors,
+    // so `design.tokens.buildColors` is functionally the same as the local
+    // `buildColors` for default. A custom variant (moneyman_app, etc.) exports
+    // its own builder with hard-coded brand defaults, so its color palette
+    // persists even when `src/` is copied over from Alphab2bapp.
+    const buildVariantColors = design?.tokens?.buildColors || buildColors;
 
     return useMemo(
         () => ({
-            colors: buildColors(config),
+            colors: buildVariantColors(config),
             spacing: buildSpacing(config),
             typography: buildTypography(config),
             radii: buildRadii(config),
@@ -56,6 +62,7 @@ export const useTokens = () => {
         }),
         [
             buildVariantAssets,
+            buildVariantColors,
             // Colors deps (mirror useColors.js)
             config.mainColor,
             config.secondaryColor,

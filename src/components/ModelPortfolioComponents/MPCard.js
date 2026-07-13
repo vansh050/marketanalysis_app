@@ -18,6 +18,7 @@ import { useTrade } from '../../screens/TradeContext';
 import { useGstConfig } from '../../context/GstConfigContext';
 import { withGst } from '../../utils/gstHelpers';
 import { useComponent } from '../../design/useDesign';
+import useTokens from '../../theme/useTokens';
 const Alpha100 = require('../../assets/alpha-100.png');
 
 const ACCEPTABLE_DATE_FORMATS = [
@@ -45,6 +46,7 @@ const MPCard = ({
   isSubscribed,
   subscriptionData,
   setSelectedCard,
+  index = 0,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const navigation = useNavigation();
@@ -52,9 +54,32 @@ const MPCard = ({
   const [isConsentPopupOpen, setIsConsentPopupOpen] = useState(false);
 
   const config = useConfig();
-  const gradient1 = config?.gradient1 || '#002651';
-  const gradient2 = config?.gradient2 || '#0076fb';
-  const mainColor = config?.mainColor || 'rgba(0, 86, 183, 1)';
+  // Read brand colors through useTokens so the active design variant (default,
+  // moneyman_app, …) supplies the fallback when the tenant hasn't set
+  // gradient1/gradient2/mainColor on the backend. useTokens still layers
+  // config.gradient1 → brand.gradientStart etc., so tenant overrides win.
+  //
+  // If the active variant provides `mpCardColorMap` (moneyman_app assigns
+  // MAMM→green, MFCC→purple, MSRO→blue via case-insensitive substring
+  // match on the plan name) the plan-specific color wins. Otherwise fall
+  // back to `mpCardColorCycle` by row index. Both fall back to the brand
+  // gradient tokens for variants that supply neither.
+  const tokens = useTokens();
+  const colorMap = tokens?.colors?.mpCardColorMap;
+  const cycle = tokens?.colors?.mpCardColorCycle;
+  let cardColor = null;
+  if (colorMap && typeof modelName === 'string') {
+    const upperName = modelName.toUpperCase();
+    for (const [key, color] of Object.entries(colorMap)) {
+      if (upperName.includes(key.toUpperCase())) { cardColor = color; break; }
+    }
+  }
+  if (!cardColor && Array.isArray(cycle) && cycle.length > 0) {
+    cardColor = cycle[index % cycle.length];
+  }
+  const gradient1 = cardColor || tokens.colors.brand.gradientStart;
+  const gradient2 = cardColor || tokens.colors.brand.gradientEnd;
+  const mainColor = cardColor || tokens.colors.brand.primary;
   const paymentModalConfig = config?.paymentModal;
   const { configData } = useTrade();
   const { gstConfigure: configGst, gstWithTextConfigure: configGstWithText } = useGstConfig();
@@ -115,8 +140,15 @@ const MPCard = ({
     if (isValidPrice(ele?.pricingWithoutGst?.['half-yearly'])) {
       options.push({ period: 'half-yearly', label: '6 Months', value: ele.pricingWithoutGst['half-yearly'] });
     }
-    if (isValidPrice(ele?.pricing?.yearly)) {
-      options.push({ period: 'yearly', label: 'Yearly', value: ele.pricing.yearly });
+    // Pre-GST base like the other frequencies — ele.pricing.yearly is
+    // GST-INCLUSIVE, so reading it here + the "+ GST" label double-counts GST.
+    // Fall back to pricing.yearly only for legacy plans without pricingWithoutGst.
+    if (isValidPrice(ele?.pricingWithoutGst?.yearly ?? ele?.pricing?.yearly)) {
+      options.push({
+        period: 'yearly',
+        label: 'Yearly',
+        value: ele?.pricingWithoutGst?.yearly ?? ele.pricing.yearly,
+      });
     }
 
     return options;
