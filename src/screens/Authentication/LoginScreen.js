@@ -439,14 +439,23 @@ const LoginScreen = () => {
 
             if (response) {
                 const user = response.user;
-                let userEmail = appleEmail || user.email;
+                // Apple ALWAYS returns an email — the real address ("Share My
+                // Email") or a @privaterelay.appleid.com alias ("Hide My
+                // Email"). The relay is a real, forwarding, STABLE identity, so
+                // we accept whatever Apple provides (App Store Guideline 4,
+                // Design → Sign in with Apple: use the framework-provided email,
+                // never require the user to type it). appleEmail lands only on
+                // the first authorization; user.email (Firebase) carries it on
+                // subsequent logins. Optional real-email account-linking is a
+                // separate, user-initiated Settings flow — never a gate here.
+                const userEmail = appleEmail || user.email || null;
                 if (!userEmail) {
+                    // Should not happen after a valid first authorization; if
+                    // it does, surface an error rather than blocking on an
+                    // email-entry screen (Guideline 4).
                     setLoading(false);
-                    navigation.navigate('EmailScreenAppleLogin', {
-                        onSubmit: async (collectedEmail) => {
-                            if (collectedEmail) await completeAppleSignIn(user, collectedEmail, fullName);
-                        },
-                    });
+                    setError('Apple did not return an email for this account. Please try signing in again.');
+                    setErrorShow(true);
                     return;
                 }
                 await completeAppleSignIn(user, userEmail, fullName);
