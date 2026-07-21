@@ -186,15 +186,30 @@ Zerodha, Angel One, Upstox, ICICI Direct, Kotak, Dhan, Fyers, IIFL Securities, A
 
 ```bash
 # Install dependencies
-cd /Users/pratik/PycharmProjects/Alphab2bapp && npm install
+npm install
 
 # Start Metro bundler
 npx react-native start
 
-# Run on Android emulator (separate terminal)
-cd android && ./gradlew app:installDebug -PreactNativeDevServerPort=8081
+# --- Launch an emulator FIRST (separate terminal) ---
+# `npm run android` installs onto an already-running emulator but will NOT open a
+# window on its own, so start one here. AVD name below (`aq_pixel`) + DISPLAY=:1
+# are examples — check yours with `emulator -list-avds` and your login session.
+#
+# DEFAULT — hardware-accelerated via the host GPU. Fast, smooth UI.
+DISPLAY=:1 ~/Android/Sdk/emulator/emulator -avd aq_pixel -gpu host &
+#
+# FALLBACK — software rendering. Use this when the machine has no usable GPU,
+# `-gpu host` throws GL errors / glitches, or you're not on a real desktop.
+# Slower UI but works on essentially any host with a display.
+DISPLAY=:1 ~/Android/Sdk/emulator/emulator -avd aq_pixel -gpu swiftshader_indirect &
 
-# Launch on device
+# Build + install the debug APK onto the running emulator/device (separate terminal)
+cd android && ./gradlew app:installDebug -PreactNativeDevServerPort=8081
+#   (or simply: npm run android)
+
+# Launch the app — this variant's applicationId is `com.aq.marketanalysis`
+# (label "Market Analysis Academy"), NOT com.arpint.alphaquark.
 adb shell monkey -p com.aq.marketanalysis -c android.intent.category.LAUNCHER 1
 ```
 
