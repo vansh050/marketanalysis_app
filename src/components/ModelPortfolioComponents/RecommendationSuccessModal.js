@@ -48,6 +48,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import { useConfig } from '../../context/ConfigContext';
 import { resolveResultVariant } from '../../utils/tradeVariant';
 import { DEFAULT_TOKENS } from '../../theme/colors';
+import useTokens from '../../theme/useTokens';
 import portfolioEvents, { PORTFOLIO_EVENTS } from '../../utils/portfolioEvents';
 
 const CheckedIcon = require('../../assets/checked.png');
@@ -99,10 +100,14 @@ const RecommendationSuccessModal = ({
   modelName,
   uniqueId,
 }) => {
-  // Get dynamic colors from config
+  // Brand colors via useTokens — variant supplies the fallback, backend
+  // config.gradient1 / gradient2 still override through legacy branding.
   const config = useConfig();
-  const gradient1 = config?.gradient1 || 'rgba(0, 86, 183, 1)';
-  const gradient2 = config?.gradient2 || 'rgba(0, 38, 81, 1)';
+  const tokens = useTokens();
+  const gradient1 = tokens.colors.brand.gradientStart;
+  const gradient2 = tokens.colors.brand.gradientEnd;
+  const brandPrimary = tokens.colors.brand.primary;
+  const infoColor = tokens.colors.status.info;
   const stepCompletedColor = config?.paymentModal?.stepCompletedColor || '#29A400';
   // Status warning tokens — used by the AMO pill on result cards. Sourced
   // from `theme/colors.js § DEFAULT_TOKENS.status`. Tenant overrides via
@@ -665,12 +670,12 @@ const RecommendationSuccessModal = ({
               paddingVertical: 6,
               borderRadius: 6,
               borderWidth: 1,
-              borderColor: '#0056B7',
+              borderColor: brandPrimary,
               backgroundColor: '#EFF6FF',
             }}>
             <Text
               style={{
-                color: '#0056B7',
+                color: brandPrimary,
                 fontSize: 11,
                 fontFamily: 'Poppins-Medium',
               }}>
@@ -830,7 +835,7 @@ const RecommendationSuccessModal = ({
                   paddingHorizontal: 14,
                   paddingVertical: 6,
                   borderRadius: 6,
-                  backgroundColor: '#0056B7',
+                  backgroundColor: brandPrimary,
                   flexDirection: 'row',
                   alignItems: 'center',
                   opacity: submittingManualIdx !== null ? 0.7 : 1,
@@ -983,7 +988,7 @@ const RecommendationSuccessModal = ({
                           ? 'Every order was blocked by the exchange. See the alert below.'
                           : (orderResponse?.[0]?.message_aq ||
                               orderResponse?.[0]?.message ||
-                              'Your order could not be placed. Please contact your advisor.')}
+                              'Your order could not be placed. Please contact your manager.')}
                   </Text>
 
                   {/* Keep link to Orders */}
@@ -1023,7 +1028,7 @@ const RecommendationSuccessModal = ({
                       style={styles.linkText}>
                       Order details
                     </Text>{' '}
-                    below and contact your advisor for next steps.
+                    below and contact your manager for next steps.
                   </Text>
                 </View>
               </View>
@@ -1068,7 +1073,7 @@ const RecommendationSuccessModal = ({
                 {/* Instructions box */}
                 <View style={cautionaryStyles.instructionsBox}>
                   <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                    <Info size={14} color="#2563EB" style={{ marginTop: 2, marginRight: 8 }} />
+                    <Info size={14} color={infoColor} style={{ marginTop: 2, marginRight: 8 }} />
                     <View style={{ flex: 1 }}>
                       <Text style={cautionaryStyles.instructionsTitle}>
                         What you need to do:
@@ -1161,7 +1166,7 @@ const RecommendationSuccessModal = ({
                     style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
                     <Info
                       size={14}
-                      color="#2563EB"
+                      color={infoColor}
                       style={{ marginTop: 2, marginRight: 8 }}
                     />
                     <View style={{ flex: 1 }}>

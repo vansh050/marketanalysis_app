@@ -18,6 +18,7 @@ import { getAuth } from '@react-native-firebase/auth';
 import server from '../../../src/utils/serverConfig';
 import { generateToken } from '../../../src/utils/SecurityTokenManager';
 import { useTrade } from '../../../src/screens/TradeContext';
+import {useAccountEmail} from '../../../src/utils/accountEmail';
 
 const fmtDate = d => {
     const dt = new Date(d);
@@ -31,7 +32,10 @@ const fmtDate = d => {
 
 const ProvisionalBanner = () => {
     const { configData } = useTrade();
-    const email = getAuth().currentUser?.email;
+    // Apple users have no usable currentUser.email (null / relay alias);
+    // this component gates its fetch on `email`, and the identity can
+    // resolve AFTER mount — the reactive hook re-renders when it does.
+    const email = useAccountEmail();
     const [pending, setPending] = useState(null);
     const [dismissed, setDismissed] = useState(false);
 

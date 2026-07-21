@@ -79,3 +79,4 @@ coverage/
 
 # Firebase config — machine-local, never commit (holds project API keys)
 android/app/google-services.json
+android/.kotlin/

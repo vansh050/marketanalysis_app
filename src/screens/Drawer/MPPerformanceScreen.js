@@ -12,13 +12,14 @@
  * Tab content, EDIS modals, and all child modals are passed as slots.
  */
 
-import React, {useState, useEffect, useMemo} from 'react';
+import React, {useState, useEffect, useMemo, useRef} from 'react';
 import {
   View,
   Text,
   ScrollView,
   Dimensions,
   FlatList,
+  TouchableOpacity,
 } from 'react-native';
 import {useParams} from 'react-router-native';
 import axios from 'axios';
@@ -30,6 +31,7 @@ import Config from 'react-native-config';
 import { useComponent } from '../../design/useDesign';
 
 import server from '../../utils/serverConfig';
+import {resolveImageUrl} from '../../utils/resolveImageUrl';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import IsMarketHours from '../../utils/isMarketHours';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
@@ -37,9 +39,9 @@ import {convertResponse} from '../../utils/tradeUtils';
 import {getAdvisorSubdomain} from '../../utils/variantHelper';
 import {useTrade} from '../TradeContext';
 import {useConfig} from '../../context/ConfigContext';
+import useTokens from '../../theme/useTokens';
 import {useGstConfig} from '../../context/GstConfigContext';
 import {withGst, gstLabel} from '../../utils/gstHelpers';
-import {getSubscriptionStatusString} from '../../utils/subscriptionStatus';
 
 import PaymentSuccessModal from '../../components/ModelPortfolioComponents/PaymentSuccessModal';
 import MPInvestNowModal from '../../components/ModelPortfolioComponents/MPInvestNowModal';
@@ -59,6 +61,7 @@ import {AngleOneTpinModal} from '../../components/DdpiModal';
 import {FyersTpinModal} from '../../components/DdpiModal';
 import {OtherBrokerModel} from '../../components/DdpiModal';
 import {FileText} from 'lucide-react-native';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const Alpha100 = require('../../assets/alpha-100.png');
 const screenWidth = Dimensions.get('window').width;
@@ -70,22 +73,30 @@ const colorPalette = [
   '#D4A5A5', '#FFF3E2', '#F7B7A3', '#EFD6AC', '#FAE3D9',
 ];
 
+const entitlementKey = value =>
+  String(value || '').toLowerCase().replace(/_/g, ' ').trim();
+
 const MPPerformanceScreen = ({route}) => {
   const {modelName, specificPlan} = route.params;
-  const {configData} = useTrade();
+  const {
+    configData,
+    modelPortfolioStrategyfinal,
+    modelPortfolioEntitlementsLoaded,
+  } = useTrade();
   const navigation = useNavigation();
   const {gstConfigure: configGst, gstWithTextConfigure: configGstWithText} = useGstConfig();
   const Presentation = useComponent('screens.MPPerformanceScreen');
 
   const appConfig = useConfig();
-  const gradient1 = appConfig?.gradient1 || '#002651';
-  const gradient2 = appConfig?.gradient2 || '#0076fb';
-  const mainColor = appConfig?.mainColor || '#0056B7';
+  const tokens = useTokens();
+  const gradient1 = tokens.colors.brand.gradientStart;
+  const gradient2 = tokens.colors.brand.gradientEnd;
+  const mainColor = tokens.colors.brand.primary;
 
   const auth = getAuth();
   const user = auth.currentUser;
   const {fileName} = useParams();
-  const userEmail = user && user.email;
+  const userEmail = getAccountEmail();
 
   // State
   const [confirmOrder, setConfirmOrder] = useState(false);
@@ -113,9 +124,11 @@ const MPPerformanceScreen = ({route}) => {
   const [showPaymentFail, setShowPaymentFail] = useState(false);
   const [researchWebViewUrl, setResearchWebViewUrl] = useState(null);
 
+  // Overview first (index 0) so "View More" lands on Overview, not the
+  // subscriber-locked Portfolio tab.
   const [routes] = useState([
-    {key: 'portfolio', title: 'Portfolio'},
     {key: 'overview', title: 'OverView'},
+    {key: 'portfolio', title: 'Portfolio'},
     {key: 'research', title: 'Research'},
   ]);
 
@@ -145,9 +158,8 @@ const MPPerformanceScreen = ({route}) => {
   const [globalConsent, setGlobalConsent] = useState(false);
   const [isConsentPopupOpen, setIsConsentPopupOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-
-  // Subscription data
-  const [subscriptionData, setSubscriptionData] = useState([]);
+  const overviewScrollRef = useRef(null);
+  const performanceSectionOffset = useRef(0);
 
   // Pricing
   const [selectedPricing, setSelectedPricing] = useState(null);
@@ -340,32 +352,20 @@ const MPPerformanceScreen = ({route}) => {
     }
   }, [userDetails, broker]);
 
-  // Subscription data
-  const getAllSubscriptionData = () => {
-    axios.get(`${server.server.baseUrl}api/all-clients/user/${userEmail}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-        'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
-      },
-    }).then(r => setSubscriptionData(r.data.data)).catch(() => {});
-  };
-  useEffect(() => { getAllSubscriptionData(); }, []);
-
-  // Shared util — consults subscriptionData.groups before subscriptions
-  // (web parity, prod-alphaquark-github/src/Home/PricingSection/IPOCard.js
-  // hasActiveSubscription). Pass the FULL subscriptionData object so the
-  // groups branch can fire; the previous inline copy only looked at
-  // `.subscriptions` and produced false-positives for plans the user
-  // never subscribed to.
-  const subscriptionStatus = getSubscriptionStatusString(modelName, subscriptionData);
-  const isActive = subscriptionStatus === 'active' || subscriptionStatus === 'renew';
-  // Defend against backend variants that return `subscribed_by` as something
-  // other than an array (alphanomy tenant has surfaced it as an object on
-  // some plans, which threw `.filter is not a function`). Treat anything
-  // non-array as no subscribers.
-  const subscribed = Array.isArray(planDetails?.subscribed_by)
-    && planDetails.subscribed_by.some(email => email === userEmail);
+  // This is deliberately the same entitlement snapshot consumed by Home,
+  // plan cards and Portfolio summary. `subscribed_by`, catalog subscription
+  // metadata and historic holdings are not proof that a customer can receive
+  // the current portfolio or its rebalance research reports.
+  const hasActiveEntitlement = (modelPortfolioStrategyfinal || []).some(
+    portfolio => entitlementKey(portfolio?.model_name) === entitlementKey(modelName),
+  );
+  const subscriptionStatus = !modelPortfolioEntitlementsLoaded
+    ? 'checking'
+    : hasActiveEntitlement
+      ? 'active'
+      : 'none';
+  const isActive = subscriptionStatus === 'active';
+  const subscribed = isActive;
 
   // Pricing options
   const getPricingOptions = () => {
@@ -417,45 +417,41 @@ const MPPerformanceScreen = ({route}) => {
   const gstLabelText = gstLabel(configGst, configGstWithText);
   const discount = specificPlan?.discountPercentage || 0;
   const originalPrice = discount > 0 ? Math.round(currentPrice / (1 - discount / 100)) : currentPrice;
-
-  // Volatility color
-  const getVolatilityColorStyle = () => {
-    if (!globalConsent) return { color: '#9CA3AF' };
-    const v = strategyDetails?.volatility;
-    if (typeof v === 'number') {
-      if (v > 0.15) return { color: '#DC2626' };
-      if (v > 0.1) return { color: '#F59E0B' };
-      return { color: '#16A34A' };
-    }
-    if (v === 'High') return { color: '#DC2626' };
-    if (v === 'Medium') return { color: '#F59E0B' };
-    if (v === 'Low') return { color: '#16A34A' };
-    return { color: '#9CA3AF' };
-  };
-
-  const getCagrDisplay = () => {
-    if (!globalConsent) return 'View';
-    if (strategyDetails?.performance_data?.returns?.cagr) {
-      return `${strategyDetails.performance_data.returns.cagr.toFixed(2)}%`;
-    }
-    return 'New Portfolio';
-  };
+  const nextRebalanceMoment = moment(singleStrategyDetails?.nextRebalanceDate);
+  // A rebalance date in the past is historical context, not a future schedule.
+  // Do not present it as "Next rebalance" until the manager publishes a new date.
+  const nextRebalanceDate = nextRebalanceMoment.isValid() &&
+    nextRebalanceMoment.endOf('day').isSameOrAfter(moment())
+    ? nextRebalanceMoment.format('MMM DD, YYYY')
+    : 'Schedule to be announced';
 
   // Invest button label
   const getInvestButtonLabel = () => {
     if (subscriptionStatus === 'active') return 'Subscribed';
     if (subscriptionStatus === 'renew') return 'Renew now';
     if (subscriptionStatus === 'expired') return 'Resubscribe';
+    if (subscriptionStatus === 'checking') return 'Checking status…';
     return 'Invest now';
   };
 
   // Image
-  const imageUri = strategyDetails?.image
-    ? `${server.server.baseUrl}${strategyDetails.image}`
-    : null;
+  const imageUri = resolveImageUrl(strategyDetails?.image, server.server.baseUrl) || null;
 
   // Consent handlers
-  const handleConsentAccept = () => { setGlobalConsent(true); setIsConsentPopupOpen(false); };
+  const handleConsentAccept = () => {
+    setGlobalConsent(true);
+    setIsConsentPopupOpen(false);
+    // Consent can originate from the summary while another tab is selected.
+    // Always land the customer at the newly revealed, disclosure-led chart
+    // instead of leaving it below the fold in Overview.
+    setIndex(0);
+    setTimeout(() => {
+      overviewScrollRef.current?.scrollTo({
+        y: Math.max(performanceSectionOffset.current - 8, 0),
+        animated: true,
+      });
+    }, 350);
+  };
   const handleConsentOpen = () => { setIsConsentPopupOpen(true); };
 
   // Invest handlers
@@ -572,25 +568,21 @@ const MPPerformanceScreen = ({route}) => {
     </View>
   );
 
-  const OverviewTab = () => (
+  const OverviewTab = ({HeaderSlot} = {}) => (
     <View style={{flex: 1, backgroundColor: '#fff'}}>
       <ScrollView
+        ref={overviewScrollRef}
         nestedScrollEnabled
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{paddingHorizontal: 16, paddingTop: 8, paddingBottom: 40}}
       >
-        {!globalConsent ? (
-          <PerformanceDisclaimer onAccept={handleConsentAccept} accentColor={mainColor} />
-        ) : (
-          <PerformanceChart
-            modelName={singleStrategyDetails?.model_name || modelName}
-            advisor={singleStrategyDetails?.advisor}
-          />
-        )}
+        {HeaderSlot ? <HeaderSlot /> : null}
+        {/* Overview (methodology) shown FIRST; performance + its consent
+            disclaimer moved to the bottom of this tab (see below). */}
         {(singleStrategyDetails?.definingUniverse ||
           singleStrategyDetails?.researchOverView ||
           singleStrategyDetails?.constituentScreening) && (
-          <View style={{marginTop: 24, backgroundColor: '#fafafa', borderRadius: 12, padding: 16}}>
+          <View style={{backgroundColor: '#fafafa', borderRadius: 12, padding: 16}}>
             <Text style={{fontFamily: 'Poppins-SemiBold', fontSize: 14, color: '#1a1a1a', marginBottom: 12}}>
               Methodology
             </Text>
@@ -632,6 +624,26 @@ const MPPerformanceScreen = ({route}) => {
             ) : null}
           </View>
         )}
+
+        {/* Performance section at the END of Overview — consent gate preserved:
+            the (now shorter) disclaimer must be accepted before the chart shows. */}
+        <View
+          onLayout={event => {
+            performanceSectionOffset.current = event.nativeEvent.layout.y;
+          }}
+          style={{marginTop: 24}}>
+          <Text style={{fontFamily: 'Poppins-SemiBold', fontSize: 14, color: '#1a1a1a', marginBottom: 12}}>
+            Performance
+          </Text>
+          {!globalConsent ? (
+            <PerformanceDisclaimer onAccept={handleConsentAccept} accentColor={mainColor} />
+          ) : (
+            <PerformanceChart
+              modelName={singleStrategyDetails?.model_name || modelName}
+              advisor={singleStrategyDetails?.advisor}
+            />
+          )}
+        </View>
       </ScrollView>
     </View>
   );
@@ -640,9 +652,32 @@ const MPPerformanceScreen = ({route}) => {
     <View style={{flex: 1, backgroundColor: '#fff'}}>
       <View style={{paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0'}}>
         <Text style={{fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#1F2937'}}>Research Reports</Text>
-        <Text style={{fontSize: 11, fontFamily: 'Poppins-Regular', color: '#6B7280'}}>Research reports for each rebalance</Text>
+        <Text style={{fontSize: 11, fontFamily: 'Poppins-Regular', color: '#6B7280'}}>
+          {isActive
+            ? 'Research reports for each rebalance'
+            : 'Available with an active subscription'}
+        </Text>
       </View>
-      {researchReports.length > 0 ? (
+      {!modelPortfolioEntitlementsLoaded ? (
+        <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32}}>
+          <Text style={{fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#1F2937'}}>Checking subscription status…</Text>
+        </View>
+      ) : !isActive ? (
+        <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32}}>
+          <FileText size={32} color="#9CA3AF" />
+          <Text style={{fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#1F2937', marginTop: 12, textAlign: 'center'}}>
+            Research reports are included with this subscription
+          </Text>
+          <Text style={{fontSize: 12, lineHeight: 18, fontFamily: 'Poppins-Regular', color: '#6B7280', marginTop: 6, textAlign: 'center'}}>
+            Subscribe to access the research report published for each rebalance.
+          </Text>
+          <TouchableOpacity
+            onPress={handleInvestNow}
+            style={{marginTop: 18, backgroundColor: mainColor, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8}}>
+            <Text style={{fontSize: 12, fontFamily: 'Poppins-SemiBold', color: '#fff'}}>View subscription options</Text>
+          </TouchableOpacity>
+        </View>
+      ) : researchReports.length > 0 ? (
         <FlatList
           data={researchReports}
           keyExtractor={(item, idx) => item.model_Id || idx.toString()}
@@ -701,14 +736,11 @@ const MPPerformanceScreen = ({route}) => {
         selectedPricing,
         minInvestment: singleStrategyDetails?.minInvestment,
         volatility: strategyDetails?.volatility,
-        volatilityColorStyle: getVolatilityColorStyle(),
-        cagrDisplay: getCagrDisplay(),
-        cagrClickable: !globalConsent,
-        globalConsent,
         frequency: singleStrategyDetails?.frequency,
-        nextRebalanceDate: moment(singleStrategyDetails?.nextRebalanceDate).format('MMM DD, YYYY'),
+        nextRebalanceDate,
         isSubscribed: subscribed,
         subscriptionStatus,
+        isEntitlementLoading: !modelPortfolioEntitlementsLoaded,
         investButtonLabel: getInvestButtonLabel(),
         tabIndex: index,
         routes,

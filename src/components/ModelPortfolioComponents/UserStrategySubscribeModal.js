@@ -44,10 +44,12 @@ import {getAdvisorSubdomain} from '../../utils/variantHelper';
 import {useTrade} from '../../screens/TradeContext';
 import {convertResponse} from '../../utils/tradeUtils';
 import {useConfig} from '../../context/ConfigContext';
+import useTokens from '../../theme/useTokens';
 import { computeTradeVariant } from '../../utils/tradeVariant';
 import moment from 'moment';
 import { isOrderSuccess, isOrderRejected } from '../../utils/orderStatusUtils';
 import { validateBrokerSession } from '../../utils/brokerSessionUtils';
+import { isZerodhaSellAuthorized } from '../../utils/zerodhaDdpiGate';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import useSdkClient from '../../sdk/useSdkClient';
 
@@ -89,7 +91,7 @@ const UserStrategySubscribeModal = ({
   const allowAfterHoursOrders = appConfig?.allowAfterHoursOrders;
   const sdkClient = useSdkClient();
   const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
-  const mainColor = appConfig?.mainColor || '#000';
+  const mainColor = useTokens().colors.brand.primary;
   const [loading, setLoading] = useState(false);
   const [confirmOrder, setConfirmOrder] = useState(false);
 
@@ -274,8 +276,7 @@ const UserStrategySubscribeModal = ({
           // Zerodha: DDPI persisted by `ddpi_status` ∈ {physical, ddpi}
           // (live check via `/zerodha/save-ddpi-status` populates this);
           // OR session-TPIN flag. Either ⇒ proceed.
-          const canSellZerodha = userDetails?.is_authorized_for_sell ||
-            ['physical', 'ddpi'].includes(userDetails?.ddpi_status);
+          const canSellZerodha = isZerodhaSellAuthorized(userDetails);
           if (!canSellZerodha) {
             needsEdisAuth = true;
             edisMessage = 'Please authorize DDPI in Kite Web before placing sell orders.';

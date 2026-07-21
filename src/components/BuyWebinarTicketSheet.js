@@ -32,8 +32,8 @@ import {
   CFSession,
   CFThemeBuilder,
 } from 'cashfree-pg-api-contract';
-import { getAuth } from '@react-native-firebase/auth';
 import liveKitService from '../FunctionCall/services/LiveKitService';
+import {getAccountEmail} from '../utils/accountEmail';
 import {
   getCashfreeEnvironment,
   friendlyPaymentError,
@@ -84,6 +84,11 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  // Webinar coupon (web parity C6: BuyWebinarTicketModal coupon block).
+  const [couponCode, setCouponCode] = useState('');
+  const [appliedCoupon, setAppliedCoupon] = useState(null); // {couponId, code, discount, finalAmount}
+  const [couponMsg, setCouponMsg] = useState('');
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
   const abortRef = useRef(null);
   const handledRef = useRef(false);
 
@@ -92,7 +97,7 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
   // signed-in users so they can't accidentally type a different address
   // and trip EMAIL_MISMATCH.
   const signedInEmail = (() => {
-    try { return getAuth().currentUser?.email || ''; } catch (_) { return ''; }
+    try { return getAccountEmail() || ''; } catch (_) { return ''; }
   })();
   const isSignedInEmail = !!signedInEmail;
 
@@ -102,6 +107,9 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
       setErrorMsg('');
       handledRef.current = false;
       setEmail(signedInEmail);
+      setCouponCode('');
+      setAppliedCoupon(null);
+      setCouponMsg('');
     }
     // signedInEmail intentionally not in deps — capturing the value at
     // open time matches web's behaviour.
@@ -123,6 +131,55 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
   if (!visible || !lesson) return null;
 
   const isFree = Number(lesson.ticketPrice || 0) <= 0;
+  const originalPrice = Number(lesson.ticketPrice || 0);
+  const payableAmount = appliedCoupon
+    ? Number(appliedCoupon.finalAmount)
+    : originalPrice;
+
+  async function handleApplyCoupon() {
+    const code = (couponCode || '').trim().toUpperCase();
+    if (!code) {
+      setCouponMsg('Enter a coupon code first.');
+      return;
+    }
+    setApplyingCoupon(true);
+    setCouponMsg('');
+    try {
+      const data = await liveKitService.validateWebinarCoupon(
+        code,
+        lesson.lessonId,
+        originalPrice,
+      );
+      const finalAmount = Number(data?.finalAmount ?? data?.payableAmount ?? 0);
+      const discount = Number(
+        data?.discount ??
+          data?.discountAmount ??
+          Math.max(0, originalPrice - finalAmount),
+      );
+      if (!Number.isFinite(finalAmount) || finalAmount < 0) {
+        setCouponMsg("We couldn't apply this coupon. Please retry.");
+        return;
+      }
+      setAppliedCoupon({
+        couponId: data?.couponId || data?._id || '',
+        code,
+        discount,
+        finalAmount,
+      });
+      setCouponMsg(`Coupon applied — you save ₹${discount}.`);
+    } catch (e) {
+      setAppliedCoupon(null);
+      setCouponMsg(e?.response?.data?.message || e?.message || 'Invalid coupon.');
+    } finally {
+      setApplyingCoupon(false);
+    }
+  }
+
+  function removeCoupon() {
+    setAppliedCoupon(null);
+    setCouponCode('');
+    setCouponMsg('');
+  }
 
   async function pollUntilTerminal(orderId) {
     abortRef.current?.abort();
@@ -154,6 +211,8 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
         mobile: mobile.trim(),
         // Mobile has no canonical return URL; backend tolerates an empty string.
         returnUrl: '',
+        // Backend re-validates + recomputes finalAmount server-side.
+        couponCode: appliedCoupon?.code || undefined,
       });
 
       // Free path — server already wrote the enrollment + fired email
@@ -250,7 +309,7 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
     }
   }
 
-  const ctaLabel = isFree ? 'Register' : `Pay ₹${lesson.ticketPrice}`;
+  const ctaLabel = isFree ? 'Register' : `Pay ₹${payableAmount}`;
   const titleLabel = isFree ? 'Register for free' : `Buy ticket — ₹${lesson.ticketPrice}`;
 
   return (
@@ -320,6 +379,59 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
                     placeholder="10-digit mobile"
                     style={styles.input}
                   />
+                </>
+              )}
+
+              {!isFree && (
+                <>
+                  <Text style={styles.label}>Coupon (optional)</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <TextInput
+                      value={couponCode}
+                      onChangeText={(t) => setCouponCode(t.toUpperCase())}
+                      editable={phase !== 'paying' && !appliedCoupon}
+                      autoCapitalize="characters"
+                      placeholder="Enter code"
+                      style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                    />
+                    {appliedCoupon ? (
+                      <TouchableOpacity
+                        onPress={removeCoupon}
+                        style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
+                        <Text style={{ color: '#dc2626', fontWeight: '600' }}>Remove</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity
+                        onPress={handleApplyCoupon}
+                        disabled={applyingCoupon || phase === 'paying'}
+                        style={{
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                          backgroundColor: '#d97706',
+                          borderRadius: 8,
+                          opacity: applyingCoupon ? 0.6 : 1,
+                        }}>
+                        <Text style={{ color: '#fff', fontWeight: '700' }}>
+                          {applyingCoupon ? '…' : 'Apply'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {!!couponMsg && (
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        marginTop: 4,
+                        color: appliedCoupon ? '#16a34a' : '#dc2626',
+                      }}>
+                      {couponMsg}
+                    </Text>
+                  )}
+                  {appliedCoupon && (
+                    <Text style={{ fontSize: 12, marginTop: 2, color: '#374151' }}>
+                      Price: ₹{originalPrice} → <Text style={{ fontWeight: '700' }}>₹{payableAmount}</Text>
+                    </Text>
+                  )}
                 </>
               )}
 

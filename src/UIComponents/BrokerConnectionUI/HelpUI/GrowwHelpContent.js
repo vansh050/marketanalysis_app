@@ -39,10 +39,25 @@ const GrowwHelpContent = ({expanded, onExpandChange}) => {
         {expanded && (
           <>
             <View style={styles.noteContainer}>
+              <Text style={styles.noteTitle}>Generating your credentials</Text>
+              <Text style={styles.noteText}>
+                On Groww's Trade API page, open the{' '}
+                <Text style={{fontWeight: '700'}}>"Generate API key"</Text>{' '}
+                dropdown (top right) and pick{' '}
+                <Text style={{fontWeight: '700'}}>"Generate TOTP token"</Text>{' '}
+                — NOT "Generate Access Token". After naming the token and
+                clicking Continue, Groww shows a dialog with the two values
+                you need; both come from this single dialog and are shown only
+                once.
+              </Text>
+            </View>
+
+            <View style={styles.noteContainer}>
               <Text style={styles.noteTitle}>Which value goes where?</Text>
               <Text style={styles.noteText}>
-                • The <Text style={{fontWeight: '700'}}>JWT</Text> (starts
-                with <Text style={styles.mono}>eyJraWQi…</Text>) → paste
+                • The <Text style={{fontWeight: '700'}}>JWT token</Text> (the
+                TOTP Token, starts with{' '}
+                <Text style={styles.mono}>eyJraWQi…</Text>) → paste
                 into the "TOTP Token (used as API Key)" field. Groww
                 uses this as the Bearer token.
               </Text>

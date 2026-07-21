@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronUp,
   ChevronDown,
+  X,
 } from 'lucide-react-native';
 import {WebView} from 'react-native-webview';
 import HelpModal from '../../components/BrokerConnectionModal/HelpModal';
@@ -83,13 +84,18 @@ const HDFCConnectUI = ({
           start={{x: 0, y: 0}}
           end={{x: 1, y: 1}}
           style={styles.headerRow}>
-          <View style={{flexDirection: 'row', alignItems: 'center'}}>
+          <View style={styles.headerLeft}>
             <TouchableOpacity onPress={onClose} style={styles.backButton}>
-              <ChevronLeft size={24} color="#000" />
+              <ChevronLeft size={23} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Connect to HDFC</Text>
+            <View style={styles.headerCopy}>
+              <Text style={styles.headerEyebrow}>BROKER AUTHORISATION</Text>
+              <Text style={styles.headerTitle}>Sign in to HDFC Securities</Text>
+            </View>
           </View>
-          <Image source={hdfcIcon} style={styles.headerIcon} />
+          <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <X size={20} color="#fff" />
+          </TouchableOpacity>
         </LinearGradient>
 
         {/* WebView Full Screen */}
@@ -266,26 +272,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
+  headerLeft: {flexDirection: 'row', alignItems: 'center', flex: 1},
   backButton: {
-    padding: 4,
-    borderRadius: 5,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.10,
-    shadowRadius: 2,
-    elevation: 2,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
   },
+  headerCopy: {flex: 1, marginLeft: 10},
+  headerEyebrow: {color: 'rgba(255,255,255,0.76)', fontSize: 10, fontWeight: '800', letterSpacing: 0.7},
   headerTitle: {
-    fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
+    fontSize: 16,
+    fontFamily: 'Satoshi-Bold',
     color: '#fff',
-    marginLeft: 10,
+    marginTop: 2,
   },
-  headerIcon: {width: 35, height: 35, borderRadius: 3, backgroundColor: '#fff'},
+  closeButton: {width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)'},
   guideBox: {
     borderWidth: 1,
     borderColor: '#E8E9EC',

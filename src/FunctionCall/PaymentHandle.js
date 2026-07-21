@@ -406,30 +406,43 @@ async function subscribeToPlan(props) {
         },
       };
       
-         try {
-        const razorpayResponse = await RazorpayCheckout.open(options);
+      // Only the Razorpay checkout itself is a "payment"; post-payment
+      // processing (completeSubscription) is handled separately so a
+      // processing error never shows a false "Payment Failed" over the
+      // success screen (same class of bug as the one-time path). Recurring
+      // mandates have no order-status recovery endpoint — stragglers are
+      // covered by the webhook.alphaquark.in razorpay cache + the 15-min
+      // CronPaymentReconciliation.
+      let razorpayResponse;
+      try {
+        razorpayResponse = await RazorpayCheckout.open(options);
         console.log("Payment Success:", razorpayResponse);
-        
-        // Create payment response object similar to web
-        const paymentResponse = {
-          razorpay_payment_id: razorpayResponse.razorpay_payment_id,
-          razorpay_subscription_id: razorpayResponse.razorpay_subscription_id,
-          razorpay_signature: razorpayResponse.razorpay_signature
-        };
-
-        if (props.userId) { // Use props.userId
-          props.setIsPostPaymentProcessing(true); // Use props.setIsPostPaymentProcessing
-          await completeSubscription(props, paymentResponse); // Pass props to completeSubscription
-        }
-
       } catch (paymentError) {
         console.log("Payment Error:", paymentError);
         if (paymentError.code === 0) {
           // User cancelled the payment
           Alert.alert('Payment Cancelled', 'The payment was cancelled. Please try again.');
         } else {
-          // Payment failed
+          // Payment genuinely failed
           Alert.alert('Payment Failed', 'The payment could not be processed. Please try again.');
+        }
+        return;
+      }
+
+      // Payment SUCCEEDED — any error below is post-payment processing.
+      const paymentResponse = {
+        razorpay_payment_id: razorpayResponse.razorpay_payment_id,
+        razorpay_subscription_id: razorpayResponse.razorpay_subscription_id,
+        razorpay_signature: razorpayResponse.razorpay_signature
+      };
+
+      if (props.userId) { // Use props.userId
+        props.setIsPostPaymentProcessing(true); // Use props.setIsPostPaymentProcessing
+        try {
+          await completeSubscription(props, paymentResponse); // Pass props to completeSubscription
+        } catch (postErr) {
+          console.error('Post-payment processing error (payment already succeeded):', postErr);
+          props.setIsPostPaymentProcessing(false);
         }
       }
     } else {
@@ -629,45 +642,50 @@ async function completeSubscription(props, paymentDetails) {
         console.log(error);
       });
 
-    let data2 = JSON.stringify({
-      userEmail: userEmail,
-      model: strategyDetails?.model_name,
-      advisor: strategyDetails?.advisor,
-      model_id: latestRebalance.model_Id,
-      userBroker: broker ? broker : "",
-      subscriptionAmountRaw: [
-        {
-          amount: invetAmount,
-          dateTime: new Date(),
-        },
-      ],
-    });
-
-    let config2 = {
-      method: "post",
-      url: `${props.server.ccxtServer.baseUrl}rebalance/insert-user-doc`,
-      
-        headers: {
-                    "Content-Type": "application/json",
-                    "X-Advisor-Subdomain":  configData?.config?.REACT_APP_HEADER_NAME,
-                    "aq-encrypted-key": generateToken(
-                      Config.REACT_APP_AQ_KEYS,
-                      Config.REACT_APP_AQ_SECRET
-                    ),
-                  },
-    
-      data: data2,
-    };
-
-    axios
-      .request(config2)
-      .then((response) => {
-        getStrategyDetails();
-      
-      })
-      .catch((error) => {
-        console.log(error);
+    // MP-only guard: bespoke recurring plans have no strategyDetails /
+    // latestRebalance — unguarded latestRebalance.model_Id is the same
+    // TypeError class as the 2026-07-07 one-time incident.
+    if (strategyDetails && latestRebalance) {
+      let data2 = JSON.stringify({
+        userEmail: userEmail,
+        model: strategyDetails?.model_name,
+        advisor: strategyDetails?.advisor,
+        model_id: latestRebalance.model_Id,
+        userBroker: broker ? broker : "",
+        subscriptionAmountRaw: [
+          {
+            amount: invetAmount,
+            dateTime: new Date(),
+          },
+        ],
       });
+
+      let config2 = {
+        method: "post",
+        url: `${props.server.ccxtServer.baseUrl}rebalance/insert-user-doc`,
+
+          headers: {
+                      "Content-Type": "application/json",
+                      "X-Advisor-Subdomain":  configData?.config?.REACT_APP_HEADER_NAME,
+                      "aq-encrypted-key": generateToken(
+                        Config.REACT_APP_AQ_KEYS,
+                        Config.REACT_APP_AQ_SECRET
+                      ),
+                    },
+
+        data: data2,
+      };
+
+      axios
+        .request(config2)
+        .then((response) => {
+          getStrategyDetails();
+
+        })
+        .catch((error) => {
+          console.log(error);
+        });
+    }
     getAllStrategy();
   } catch (error) {
     console.error("Error completing subscription:", error);
@@ -738,30 +756,71 @@ async function handleSinglePayment(props) {
         theme: { color: "#F37254" }
       };
 
+      // ONLY the Razorpay checkout itself is a "payment". Post-payment
+      // processing (completeSinglePayment) must NOT share its catch — a
+      // processing error would surface a false "Payment Failed" alert on top
+      // of the success screen even though the charge went through (the
+      // 2026-07-07 arfs "KYC only plan" incident).
+      let razorpayResponse;
       try {
-        const razorpayResponse = await RazorpayCheckout.open(options);
+        razorpayResponse = await RazorpayCheckout.open(options);
         console.log("Payment Success:", razorpayResponse);
-        
-        // Create payment response object similar to web
-        const paymentResponse = {
-          razorpay_payment_id: razorpayResponse.razorpay_payment_id,
-          razorpay_order_id: razorpayResponse.razorpay_order_id,
-          razorpay_signature: razorpayResponse.razorpay_signature
-        };
-
-        if (userId) {
-          setIsPostPaymentProcessing(true);
-          await completeSinglePayment(props, paymentResponse); // Pass props to completeSinglePayment
-        }
-
       } catch (paymentError) {
         console.log("Payment Error:", paymentError);
         if (paymentError.code === 0) {
           // User cancelled the payment
           Alert.alert('Payment Cancelled', 'The payment was cancelled. Please try again.');
-        } else {
-          // Payment failed
+          return;
+        }
+        // The checkout died without a success callback — but the charge may
+        // still have landed (UPI push flows complete out-of-band). Before
+        // declaring failure, ask the backend whether the order is actually
+        // paid (GET /api/admin/razorpay/order-status — the Razorpay Orders
+        // API is the authority) and, if so, finish via the
+        // "verified_signature" sentinel that the backend gateway-verifies.
+        // Web parity: PricingPage handlePaymentWithVerification.
+        setIsPostPaymentProcessing(true);
+        const recovered = await recoverOneTimePaymentViaGateway({
+          props,
+          configData,
+          orderId: paymentData.razorpay_order_id,
+          completeFn: completeSinglePayment,
+        });
+        setIsPostPaymentProcessing(false);
+        if (!recovered) {
+          // Genuinely unpaid — this alert is now trustworthy.
           Alert.alert('Payment Failed', 'The payment could not be processed. Please try again.');
+        }
+        return;
+      }
+
+      // Payment SUCCEEDED past this point — any error below is post-payment
+      // processing (records/notifications), never a payment failure.
+      const paymentResponse = {
+        razorpay_payment_id: razorpayResponse.razorpay_payment_id,
+        razorpay_order_id: razorpayResponse.razorpay_order_id,
+        razorpay_signature: razorpayResponse.razorpay_signature
+      };
+
+      if (userId) {
+        setIsPostPaymentProcessing(true);
+        try {
+          await completeSinglePayment(props, paymentResponse); // Pass props to completeSinglePayment
+        } catch (postErr) {
+          console.error('Post-payment processing error (payment already succeeded):', postErr);
+          // Retry once through the gateway-verified recovery path. If the
+          // first attempt died BEFORE activation this completes it; if it
+          // died AFTER, the backend idempotency guard answers "already
+          // processed". Either way, never alert "Payment Failed" here — the
+          // charge is captured, and CronPaymentReconciliation (15 min) is the
+          // final server-side net.
+          const recovered = await recoverOneTimePaymentViaGateway({
+            props,
+            configData,
+            orderId: paymentResponse.razorpay_order_id,
+            completeFn: completeSinglePayment,
+          });
+          if (!recovered) setIsPostPaymentProcessing(false);
         }
       }
     } else {
@@ -775,6 +834,63 @@ async function handleSinglePayment(props) {
   } finally {
     setLoading(false);
   }
+}
+
+/**
+ * Gateway-verified recovery for a one-time Razorpay payment whose checkout
+ * callback was lost (dismissed checkout with an out-of-band UPI charge, app
+ * hiccup mid-callback) or whose first completion attempt threw.
+ *
+ * Polls GET /api/admin/razorpay/order-status/:orderId (backend queries the
+ * Razorpay Orders API — the authority, cannot be forged). If paid, completes
+ * via the caller-supplied complete function using the "verified_signature"
+ * sentinel, which the backend re-verifies against the Razorpay API
+ * server-side (SubscriptionRouter, 2026-07-08). Idempotent end to end: if the
+ * subscription is already active, the backend answers "already processed".
+ * Web parity: PricingPage handlePaymentWithVerification (which polls the
+ * webhook.alphaquark.in razorpay cache instead — same structure, same
+ * sentinel). Server-side stragglers beyond this are recovered by
+ * CronPaymentReconciliation Path D within 15 minutes.
+ */
+async function recoverOneTimePaymentViaGateway({ props, configData, orderId, completeFn }) {
+  if (!orderId || typeof completeFn !== 'function') return false;
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+    'aq-encrypted-key': generateToken(
+      Config.REACT_APP_AQ_KEYS,
+      Config.REACT_APP_AQ_SECRET,
+    ),
+  };
+  // A UPI charge can land seconds after the checkout UI dies — poll briefly
+  // (3 × 3s) rather than checking once.
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      const res = await axios.get(
+        `${props.server.server.baseUrl}api/admin/razorpay/order-status/${orderId}`,
+        { headers },
+      );
+      if (res.data?.success && res.data?.isPaid) {
+        await completeFn(props, {
+          razorpay_order_id: orderId,
+          razorpay_payment_id: res.data?.successfulPayment?.id || 'gateway_verified',
+          razorpay_signature: 'verified_signature',
+        });
+        console.log('[PaymentRecovery] gateway-verified completion succeeded for', orderId);
+        return true;
+      }
+      // Not paid (yet) — fall through to wait + retry.
+    } catch (err) {
+      console.log(
+        `[PaymentRecovery] order-status attempt ${attempt} failed:`,
+        err?.response?.status || err.message,
+      );
+    }
+    if (attempt < 3) {
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
+  }
+  return false;
 }
 
 // Complete single payment function
@@ -895,7 +1011,8 @@ async function completeSinglePayment(props, paymentDetails) {
     // Invoice + notifications handled by handleClientUpdate.
     // Removed sendNotifications() — was producing duplicate invoices.
 
-    if (strategyDetails) {
+    // (also requires latestRebalance — see the guard note on the block below)
+    if (strategyDetails && latestRebalance) {
       let data2 = JSON.stringify({
         userEmail: userEmail,
         model: strategyDetails?.model_name,
@@ -955,44 +1072,51 @@ async function completeSinglePayment(props, paymentDetails) {
       data.subscription
     );
 
-    let data2 = JSON.stringify({
-      userEmail: userEmail,
-      model: strategyDetails?.model_name,
-      advisor: strategyDetails?.advisor,
-      model_id: latestRebalance.model_Id,
-      userBroker: broker ? broker : "",
-      subscriptionAmountRaw: [
-        {
-          amount: invetAmount,
-          dateTime: new Date(),
-        },
-      ],
-    });
-
-    let config2 = {
-      method: "post",
-      url: `${props.server.ccxtServer.baseUrl}rebalance/insert-user-doc`,
-      
-        headers: {
-                    "Content-Type": "application/json",
-                    "X-Advisor-Subdomain":  configData?.config?.REACT_APP_HEADER_NAME,
-                    "aq-encrypted-key": generateToken(
-                      Config.REACT_APP_AQ_KEYS,
-                      Config.REACT_APP_AQ_SECRET
-                    ),
-                  },
-    
-      data: data2,
-    };
-
-    axios
-      .request(config2)
-      .then((response) => {
-        getStrategyDetails();
-      })
-      .catch((error) => {
-        console.log(error);
+    // MP-only: insert the subscriber doc on ccxt. Guarded because bespoke
+    // plans have no strategyDetails/latestRebalance — referencing
+    // latestRebalance.model_Id unguarded threw a TypeError AFTER the payment
+    // succeeded, which propagated up as a false "Payment Failed" alert
+    // (2026-07-07 arfs incident). Skip entirely for bespoke.
+    if (strategyDetails && latestRebalance) {
+      let data2 = JSON.stringify({
+        userEmail: userEmail,
+        model: strategyDetails?.model_name,
+        advisor: strategyDetails?.advisor,
+        model_id: latestRebalance.model_Id,
+        userBroker: broker ? broker : "",
+        subscriptionAmountRaw: [
+          {
+            amount: invetAmount,
+            dateTime: new Date(),
+          },
+        ],
       });
+
+      let config2 = {
+        method: "post",
+        url: `${props.server.ccxtServer.baseUrl}rebalance/insert-user-doc`,
+
+          headers: {
+                      "Content-Type": "application/json",
+                      "X-Advisor-Subdomain":  configData?.config?.REACT_APP_HEADER_NAME,
+                      "aq-encrypted-key": generateToken(
+                        Config.REACT_APP_AQ_KEYS,
+                        Config.REACT_APP_AQ_SECRET
+                      ),
+                    },
+
+        data: data2,
+      };
+
+      axios
+        .request(config2)
+        .then((response) => {
+          getStrategyDetails();
+        })
+        .catch((error) => {
+          console.log(error);
+        });
+    }
     props.showToast("isSubscriptionExtension", "success", ""); // Use props.showToast
     
   } catch (error) {

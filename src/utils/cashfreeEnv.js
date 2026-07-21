@@ -83,3 +83,86 @@ export function friendlyPaymentError(err, fallback = 'Could not open payment') {
   if (isInstallSourceError(err)) return installSourceFriendlyMessage();
   return err?.message || fallback;
 }
+
+// Friendly, actionable decline + retry message for a FAILED payment.
+// Web parity: prod-alphaquark-github utils/paymentErrorHandler.js
+// describeCashfreeDecline (2026-07-17). The native CF SDK's onError gives
+// {code,type,message} (not the REST payment_group/error_details), so this
+// maps from the SDK error object. Returns { title, message } for Alert.
+// Rationale: bank declines are usually issuer-side and clear on a
+// different method/app or after checking limits — but the app previously
+// showed only a generic "Payment Failed", so customers just re-tried the
+// same method blindly (marketanalysis: one user, 8 UPI declines).
+export function describeCashfreeDecline(err) {
+  if (isInstallSourceError(err)) {
+    return {title: 'Payment unavailable', message: installSourceFriendlyMessage()};
+  }
+  const raw = String(err?.message || err?.getMessage?.() || '').trim();
+  const code = String(err?.code || err?.getCode?.() || '').toUpperCase();
+  const lower = raw.toLowerCase();
+  const isCancel =
+    code.includes('CANCEL') ||
+    lower.includes('cancel') ||
+    lower.includes('user dropped') ||
+    lower.includes('user_dropped');
+  if (isCancel) {
+    return {
+      title: 'Payment cancelled',
+      message:
+        'Looks like the payment was cancelled — no money was deducted. ' +
+        'You can try again with UPI, a card, or netbanking.',
+    };
+  }
+  let message = 'Your payment couldn’t be completed';
+  if (raw && raw.length < 140) message += `: ${raw}`;
+  message +=
+    '. This is usually a block by your bank, not an issue on our side — ' +
+    'please try a different method (a card, netbanking, or another UPI app), ' +
+    'or check your balance / daily transaction limit and try again. ' +
+    'No money has been deducted.';
+  return {title: 'Payment could not be completed', message};
+}
+
+// Same job as describeCashfreeDecline, but for a STORED payment record rather
+// than a live SDK error object.
+//
+// The pending-payment recovery check (PendingPaymentManager) runs on every
+// modal open and every app foreground resume, long after the SDK error object
+// is gone. It only has the payment row fetched back from Cashfree. It used to
+// render a flat "Payment was not successful. Please try again." with no cause,
+// which is the same dead end describeCashfreeDecline was written to fix — a
+// customer told only "failed" just retries the identical method (marketanalysis:
+// one user, 8 consecutive UPI declines).
+//
+// @param {object} payment a Cashfree payment row (payment_status + whatever
+//        message/error fields that gateway version supplies)
+// @returns {{title: string, message: string}}
+export function describeStoredPaymentFailure(payment) {
+  const status = String(payment?.payment_status || '').toUpperCase();
+  // Cashfree has moved these around across versions; check the known spellings
+  // rather than assuming one shape.
+  const raw = String(
+    payment?.payment_message ||
+      payment?.error_details?.error_description ||
+      payment?.error_description ||
+      payment?.failure_reason ||
+      '',
+  ).trim();
+
+  if (status === 'USER_DROPPED' || status === 'CANCELLED') {
+    return {
+      title: 'Payment cancelled',
+      message:
+        'Your last payment was cancelled — no money was deducted. ' +
+        'You can try again with UPI, a card, or netbanking.',
+    };
+  }
+
+  let message = 'Your last payment didn’t go through';
+  if (raw && raw.length < 140) message += `: ${raw}`;
+  message +=
+    '. This is usually a block by your bank, not an issue on our side — ' +
+    'try a different method (a card, netbanking, or another UPI app), or ' +
+    'check your balance / daily limit. No money has been deducted.';
+  return {title: 'Payment could not be completed', message};
+}

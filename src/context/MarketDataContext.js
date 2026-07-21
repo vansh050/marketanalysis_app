@@ -20,7 +20,7 @@ import React, {
 } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {AppState} from 'react-native';
-import {ccxtServer} from '../utils/serverConfig';
+import server from '../utils/serverConfig';
 
 const STALE_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
 const CACHE_KEY = '@market_data_cache';
@@ -80,7 +80,14 @@ export function MarketDataProvider({children, websocketUrl}) {
   const reconnectTimerRef = useRef(null);
   const subscribedRef = useRef(new Set());
 
-  const wsUrl = websocketUrl || ccxtServer;
+  // serverConfig.js has NO named exports (only `export default server`), so the
+  // former `import {ccxtServer}` resolved to undefined and this fallback was
+  // dead — wsUrl became undefined and the subscribe fetch hit
+  // "undefinedwebsocket/subscribe". Silent: no crash, market data just never
+  // subscribed. `ccxtServer` was also the wrong key (the HTTP API base); every
+  // other websocket/subscribe call site uses `server.ccxtWs.httpUrl`.
+  // Trailing slashes are stripped so a caller-supplied websocketUrl works either way.
+  const wsUrl = (websocketUrl || server.ccxtWs.httpUrl || '').replace(/\/+$/, '');
 
   // --- Cache persistence ---
   const loadFromCache = useCallback(async () => {
@@ -120,7 +127,7 @@ export function MarketDataProvider({children, websocketUrl}) {
     async symbols => {
       if (!symbols || symbols.length === 0) return;
       try {
-        const response = await fetch(`${wsUrl}websocket/subscribe`, {
+        const response = await fetch(`${wsUrl}/websocket/subscribe`, {
           method: 'POST',
           headers: {'Content-Type': 'application/json'},
           body: JSON.stringify({symbols}),

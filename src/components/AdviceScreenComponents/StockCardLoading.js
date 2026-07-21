@@ -13,6 +13,7 @@ import io from 'socket.io-client';
 import server from '../../utils/serverConfig';
 import axios from 'axios';
 import { FadeLoading } from 'react-native-fade-loading';
+import { orderTypeDisplay } from '../../utils/adviceDisplay';
 const screenWidth = Dimensions.get('window').width;
 import { useModal } from '../../components/ModalContext';
 
@@ -58,7 +59,7 @@ const StockCardLoading = ({
   
   const isBuyAction = action.toLowerCase() === 'buy';
   const [inputPrice, setInputPrice] = useState(Price);
-  const [market, setMarket] = useState(OrderType === 'LIMIT' ? 'Limit' : 'Market');
+  const [market, setMarket] = useState(orderTypeDisplay(OrderType));
   const [isExpanded, setIsExpanded] = useState(false); 
   const [modalVisible, setModalVisible] = useState(false);
   const shouldShowReadMore = rationale.length > 60;
@@ -82,7 +83,7 @@ const StockCardLoading = ({
   }, [Price]);
 
   useEffect(() => {
-    setMarket(OrderType === 'LIMIT' ? 'Limit' : 'Market');
+    setMarket(orderTypeDisplay(OrderType));
   }, [OrderType]);
 
   const handleInputChange = (text) => {
@@ -341,7 +342,7 @@ const StockCardLoading = ({
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.tradeBtn}
-              onPress={() => handleTradePress(symbol, tradeId)}
+              onPress={() => handleTradePress(symbol, tradeId, action)}
             >
               <Text style={styles.tradeBtnText}>Trade Now</Text>
     

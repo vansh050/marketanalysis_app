@@ -66,14 +66,17 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
                 if (isRejected) setShowReason((prev) => !prev);
             }}
             style={{
-                backgroundColor: 'transparent',
-                paddingVertical: tokens.spacing.md,
-                paddingHorizontal: tokens.spacing.md,
-                borderRadius: tokens.radii.md - 1,
+                backgroundColor: tokens.colors.surface.card,
+                paddingVertical: 11,
+                paddingHorizontal: 12,
+                marginHorizontal: 16,
+                marginVertical: 4,
+                borderRadius: 12,
                 borderColor: tokens.colors.border.subtle,
                 borderWidth: 1,
                 ...tokens.shadows.card,
-                shadowOpacity: 0.04,
+                shadowOpacity: 0.06,
+                elevation: 1,
             }}
         >
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -81,6 +84,7 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
                     <Text
                         variant="bodyEmphasis"
                         style={{ fontSize: 14, color: tokens.colors.text.primary }}
+                        numberOfLines={1}
                     >
                         {symbolText}
                     </Text>
@@ -101,19 +105,23 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
                     ) : null}
                 </View>
 
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <View
+                    style={{
+                        flexDirection: 'row',
+                        paddingHorizontal: 9,
+                        paddingVertical: 3,
+                        borderRadius: 999,
+                        backgroundColor: color1,
+                        alignItems: 'center',
+                        marginLeft: 8,
+                    }}
+                >
+                    <Icon Component={StatusIconComponent} size={13} color={color2} />
                     <Text
                         variant="caption"
-                        style={{ fontSize: 11, color: tokens.colors.text.muted, marginRight: tokens.spacing.sm }}
-                    >
-                        {item?.user_broker || '-'}
+                        style={{fontSize: 11, color: color2, marginLeft: 3, fontFamily: 'Satoshi-Medium'}}>
+                        {getOrderStatusDisplay(item.trade_place_status)}
                     </Text>
-                    <Pill
-                        variant={isBuy ? 'profit' : 'loss'}
-                        label={isBuy ? 'Buy' : 'Sell'}
-                        style={{ paddingHorizontal: 14 }}
-                        labelStyle={{ fontSize: 10, color: '#fff', fontFamily: 'Poppins-Medium' }}
-                    />
                 </View>
             </View>
 
@@ -122,17 +130,21 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
                     flexDirection: 'row',
                     alignItems: 'center',
                     justifyContent: 'space-between',
+                    marginTop: 8,
                 }}
             >
-                <View style={{ flexDirection: 'row', marginTop: 2 }}>
-                    <Text
-                        variant="caption"
-                        style={{ color: tokens.colors.text.muted, fontSize: 12, letterSpacing: 0.2 }}
-                    >
-                        Qty. {item.tradedQty || 0}/{totalQty || '-'}{'  '}|{'  '}Avg. {avgPrice || '-'}{'  '}|{'  '}{item.Exchange}
+                <View style={{flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 8}}>
+                    <Pill
+                        variant={isBuy ? 'profit' : 'loss'}
+                        label={isBuy ? 'Buy' : 'Sell'}
+                        style={{paddingHorizontal: 8, paddingVertical: 2}}
+                        labelStyle={{fontSize: 10, color: '#fff', fontFamily: 'Poppins-Medium'}}
+                    />
+                    <Text variant="caption" numberOfLines={1} style={{fontSize: 11, color: tokens.colors.text.muted, marginLeft: 7}}>
+                        {item?.user_broker || 'Broker not recorded'} · {item.Exchange || '—'}
                     </Text>
                 </View>
-                <View style={{ alignItems: 'flex-end', marginTop: 6 }}>
+                <View style={{ alignItems: 'flex-end' }}>
                     <Text
                         variant="caption"
                         style={{ color: tokens.colors.text.muted, fontSize: 11 }}
@@ -146,47 +158,25 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
                 </View>
             </View>
 
-            <View
-                style={{
-                    flexDirection: 'row',
-                    paddingHorizontal: 10,
-                    borderRadius: 3,
-                    backgroundColor: color1,
-                    alignItems: 'flex-end',
-                    alignSelf: 'flex-end',
-                    marginTop: 10,
-                }}
-            >
-                <Icon Component={StatusIconComponent} size={13} color={color2} />
-                <Text
-                    variant="caption"
-                    style={{
-                        fontSize: 13,
-                        color: color2,
-                        marginLeft: 3,
-                        fontFamily: 'Satoshi-Medium',
-                    }}
-                >
-                    {getOrderStatusDisplay(item.trade_place_status)}{' '}
-                </Text>
-            </View>
+            <Text variant="caption" style={{color: tokens.colors.text.muted, fontSize: 12, letterSpacing: 0.1, marginTop: 8}}>
+                Qty. {item.tradedQty || 0}/{totalQty || '—'}  ·  Avg. {avgPrice || '—'}
+            </Text>
 
-            {showReason && rejectionReason ? (
+            {isRejected && rejectionReason ? (
                 <View
                     style={{
-                        marginTop: 8,
+                        marginTop: 9,
                         backgroundColor: '#FFF5F5',
                         borderRadius: tokens.radii.sm,
-                        paddingHorizontal: 10,
+                        paddingHorizontal: 9,
                         paddingVertical: 6,
                         borderLeftWidth: 3,
                         borderLeftColor: tokens.colors.status.danger,
-                    }}
-                >
-                    <Text variant="caption" style={{ color: '#555', fontSize: 11 }}>
+                    }}>
+                    <Text variant="caption" numberOfLines={showReason ? undefined : 2} style={{color: '#8B1E1E', fontSize: 11, lineHeight: 16}}>
                         Reason: {rejectionReason}
                     </Text>
-                    {isSellAuthRejection(rejectionReason, item.classification) &&
+                    {showReason && isSellAuthRejection(rejectionReason, item.classification) &&
                     getBrokerDdpiHelp(item?.user_broker) ? (
                         <TouchableOpacity
                             onPress={(e) => {

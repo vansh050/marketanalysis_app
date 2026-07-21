@@ -10,6 +10,7 @@ import axios from 'axios';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
 import UpstoxConnectUI from '../../UIComponents/BrokerConnectionUI/UpstoxConnectUI';
+import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import { useTrade } from '../../screens/TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
@@ -20,6 +21,7 @@ import {
   sdkConnectBroker,
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -43,7 +45,7 @@ const UpstoxModal = ({
   const [authUrl, setAuthUrl] = useState('');
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
   const sheet = useRef(null);
   const scrollViewRef = useRef(null);
 
@@ -435,8 +437,13 @@ const UpstoxModal = ({
     setShowWebView(false);
   };
 
-  return (
-    <UpstoxConnectUI
+  // OAuth phase keeps the existing UpstoxConnectUI WebView flow untouched;
+  // credential phase renders the shared web-parity stepper (mirrors web
+  // connectBroker.js Upstox config: guide steps, redirect copy row, egress
+  // static-IP gating). NEVER React Native <Modal> here (Android freeze).
+  if (showWebView) {
+    return (
+      <UpstoxConnectUI
       isVisible={isVisible}
       onClose={onClose}
       shouldRenderContent={true}
@@ -467,6 +474,60 @@ const UpstoxModal = ({
       setUnmetAck={setUnmetAck}
       configData={configData}
       brokerConnectRedirectURL={brokerConnectRedirectURL}
+    />
+    );
+  }
+
+  return (
+    <BrokerConnectStepperSheet
+      isVisible={!!isVisible}
+      onClose={onClose}
+      broker="Upstox"
+      config={{
+        monogram: 'U',
+        brandFrom: '#8b54ff',
+        brandTo: '#5b21d6',
+        portalUrl: 'https://account.upstox.com/developer/apps',
+        portalLabel: 'Open Upstox developer portal',
+        redirectUrl: brokerConnectRedirectURL,
+        walkthroughVideoId: 'qYgpZTYYdyk',
+        guideSteps: [
+          'Log in with your <b>mobile number</b> and OTP, then your <b>PIN</b>',
+          'Go to <b>Apps → My Apps</b> and click <b>New App</b>',
+          `Name the app <b>${Config.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark'}</b> (keep to 2 apps max)`,
+          'Set the <b>Redirect URL</b> shown below',
+          'Paste your <b>IP</b> into <b>Allowed IPs</b>, accept T&C, Continue',
+          'Open the new app and copy the <b>API key</b> and <b>Secret key</b>',
+        ],
+      }}
+      egressBrokerKey="upstox"
+      customerId={userId}
+      customerEmail={userEmail}
+      egressReady={egressReady}
+      setEgressReady={setEgressReady}
+      unmetAck={unmetAck}
+      setUnmetAck={setUnmetAck}
+      fields={[
+        {
+          label: 'API Key',
+          value: apiKey,
+          onChange: (t) => setApiKey(t.trim()),
+          password: true,
+          placeholder: 'Paste your Upstox API key',
+        },
+        {
+          label: 'Secret Key',
+          value: secretKey,
+          onChange: (t) => setSecretKey(t.trim()),
+          password: true,
+          placeholder: 'Paste your Upstox secret key',
+        },
+      ]}
+      phase="creds"
+      canSubmit={Boolean(apiKey) && Boolean(secretKey)}
+      submitLabel="Connect Upstox"
+      loading={isLoading}
+      onSubmit={updateSecretKey}
     />
   );
 };

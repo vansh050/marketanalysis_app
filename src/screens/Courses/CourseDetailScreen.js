@@ -29,11 +29,11 @@ import {
   Alert,
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
-import { getAuth, onAuthStateChanged } from '@react-native-firebase/auth';
 import { useConfig } from '../../context/ConfigContext';
 import { useDesign } from '../../design/useDesign';
 import gumletService from '../../FunctionCall/services/GumletService';
 import CoursePurchaseSheet from '../../components/CoursePurchaseSheet';
+import {useAccountEmail} from '../../utils/accountEmail';
 
 function GumletPlayerLazy(props) {
   const design = useDesign();
@@ -108,12 +108,10 @@ export default function CourseDetailScreen() {
   // forever, even after the user successfully enrolled. Mirrors web
   // courseDetailsPage.js `isPurchased`.
   const [isPurchased, setIsPurchased] = useState(false);
-  const [user, setUser] = useState(() => getAuth().currentUser);
-
-  useEffect(() => {
-    const unsub = onAuthStateChanged(getAuth(), (u) => setUser(u));
-    return () => { if (unsub) unsub(); };
-  }, []);
+  // Reactive: the enrollment lookup below gates on this email, and the
+  // identity can resolve AFTER mount (cold start / fresh Apple sign-in) —
+  // a one-shot read would capture null and never refetch.
+  const userEmail = useAccountEmail();
 
   const fetchCourse = useCallback(async () => {
     if (!courseId) { setError('Missing courseId'); setLoading(false); return; }
@@ -141,7 +139,6 @@ export default function CourseDetailScreen() {
   // Enrollment lookup — mirrors web courseDetailsPage.fetchClientCourseDetails.
   // 404 = not enrolled (expected). Anything else: stay un-purchased.
   const fetchClientCourse = useCallback(async () => {
-    const userEmail = user?.email;
     if (!userEmail || !course?._id) return;
     try {
       const res = await gumletService.getClientCourseDetails(userEmail, course._id);
@@ -162,7 +159,7 @@ export default function CourseDetailScreen() {
       // un-purchased; the user can still tap "Get free access" to enroll.
       setIsPurchased(false);
     }
-  }, [user?.email, course?._id, course?.modules]);
+  }, [userEmail, course?._id, course?.modules]);
 
   useEffect(() => { fetchClientCourse(); }, [fetchClientCourse]);
 

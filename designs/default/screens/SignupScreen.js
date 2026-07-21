@@ -104,8 +104,8 @@ const SignupScreen = ({ viewModel, actions }) => {
             <TouchableWithoutFeedback onPress={dismissError}>
                 <LinearGradient
                     colors={[
-                        gradient.start || 'rgba(0, 38, 81, 1)',
-                        gradient.end || 'rgba(0, 86, 183, 1)',
+                        gradient.start || tokens.colors.brand.gradientStart,
+                        gradient.end || tokens.colors.brand.gradientEnd,
                     ]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}

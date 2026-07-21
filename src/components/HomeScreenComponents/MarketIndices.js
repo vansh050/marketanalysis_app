@@ -1,11 +1,24 @@
 import React, { useState, useEffect, useRef } from "react";
-import { View, Text, StyleSheet, ScrollView } from "react-native";
+import { View, Text, StyleSheet, ScrollView, AppState } from "react-native";
 import axios from "axios";
 import WebSocketManager from "../../components/AdviceScreenComponents/DynamicText/WebSocketManager";
 import { useTrade } from "../../screens/TradeContext";
 import server from "../../utils/serverConfig";
 import Config from "react-native-config";
 import { generateToken } from "../../utils/SecurityTokenManager";
+
+// Day-boundary / foreground refresh interval for the prev-close base.
+//
+// 2026-06-22: prev-close (yesterday's settled close) is fetched ONCE on mount
+// and held in memory for the whole session, with no day-boundary refresh. A
+// session left open across the close→open rollover therefore keeps the STALE
+// base — e.g. app opened Fri pre-close → base = Thu close → still showing Thu
+// close on Mon morning until a manual logout/login (reported 2026-06-22). We
+// now re-fetch when the app returns to the foreground, throttled to this
+// interval. During market hours a re-fetch returns the SAME value (no flicker
+// — the recompute below produces an identical change); the value only differs
+// across a session that spans a market close, which is exactly the bug.
+const PREV_CLOSE_REFRESH_MS = 15 * 60 * 1000; // 15 minutes
 
 // Indices configuration with correct symbols and exchanges.
 //
@@ -75,6 +88,13 @@ const MarketIndices = () => {
   const hasReceivedRef = useRef({});
   const fallbackTimersRef = useRef({});
   const fallbackDelayRef = useRef(1500);
+  // Day-boundary refresh bookkeeping (see PREV_CLOSE_REFRESH_MS above):
+  // lastPrevCloseFetchRef = ms timestamp of the last SUCCESSFUL prev-close
+  // fetch (0 = never); fetchPrevCloseRef holds the latest fetch fn so the
+  // AppState listener can re-trigger it without duplicating the retry/merge
+  // logic.
+  const lastPrevCloseFetchRef = useRef(0);
+  const fetchPrevCloseRef = useRef(null);
 
   // Keep refs in sync with state
   useEffect(() => {
@@ -148,6 +168,7 @@ const MarketIndices = () => {
             setBasePrices(prev => ({ ...prev, ...previousClosePrices }));
             setComparisonType("prevClose");
             setHasInitializedBasePrices(true);
+            lastPrevCloseFetchRef.current = Date.now();
           } else {
             throw new Error("No valid previous close data in response");
           }
@@ -172,8 +193,63 @@ const MarketIndices = () => {
       }
     };
 
+    fetchPrevCloseRef.current = fetchPreviousClosePrices;
     fetchPreviousClosePrices();
   }, [configData]);
+
+  // Day-boundary refresh: re-fetch the prev-close base when the app returns to
+  // the foreground after long enough that the completed-session close may have
+  // rolled over. This fixes the stale-base-across-overnight/weekend bug
+  // (2026-06-22) without a manual logout/login. Throttled by
+  // PREV_CLOSE_REFRESH_MS so frequent background/foreground toggles don't spam
+  // the endpoint; a same-session refresh returns the same base (no flicker).
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (nextState) => {
+      if (nextState !== "active") return;
+      if (Date.now() - lastPrevCloseFetchRef.current < PREV_CLOSE_REFRESH_MS) {
+        return;
+      }
+      fetchPrevCloseRef.current?.();
+    });
+    return () => sub?.remove();
+  }, []);
+
+  // Recompute change/% whenever the base (prev_close) or comparison mode
+  // changes — WITHOUT waiting for the next price tick.
+  //
+  // The tick handler below only (re)computes `change` when the price ticks
+  // to a NEW value (the `newPrice !== currentData.value` gate). But the
+  // prev_close base is fetched asynchronously and usually lands AFTER the
+  // first tick has already set change=0 (in "loading" mode the base is the
+  // live price itself). If the index then doesn't tick to a fresh value, the
+  // stale 0.00 change sticks on screen even though the correct base is now
+  // known — the intermittent "Nifty/Sensex 0.00" report. This effect closes
+  // that race: on every base/mode change, recompute each index's change from
+  // its current value against the current base. (2026-06-21)
+  useEffect(() => {
+    if (comparisonType !== "prevClose") {
+      return;
+    }
+    setMarketData((prev) => {
+      let mutated = false;
+      const next = { ...prev };
+      Object.keys(indicesConfig).forEach((key) => {
+        const data = prev[key];
+        const base = basePrices[key];
+        if (!data || data.loading || base == null || !data.value) {
+          return;
+        }
+        const change = parseFloat((data.value - base).toFixed(2));
+        const percentChange =
+          base === 0 ? 0 : parseFloat(((change / base) * 100).toFixed(2));
+        if (change !== data.change || percentChange !== data.percentChange) {
+          next[key] = { ...data, change, percentChange, basePrice: base };
+          mutated = true;
+        }
+      });
+      return mutated ? next : prev;
+    });
+  }, [basePrices, comparisonType]);
 
   // Subscribe to all indices via WebSocket
   useEffect(() => {

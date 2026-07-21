@@ -67,7 +67,7 @@ const SignUpRADetails = ({ route }) => {
             }
 
             setLoading(true);
-            setStatusMessage('Verifying advisor details...');
+            setStatusMessage('Verifying manager details...');
 
             const result = await updateRACodeAndConfig(raId.trim(), userEmail);
 
@@ -105,7 +105,7 @@ const SignUpRADetails = ({ route }) => {
             } else if (result.advisorExists === false) {
                 Alert.alert(
                     'Invalid RA ID',
-                    'The RA ID you entered is not registered in our system. Please contact your financial advisor for the correct RA ID.',
+                    'The RA ID you entered is not registered in our system. Please contact your manager for the correct RA ID.',
                     [{ text: 'OK' }],
                 );
                 setStatusMessage('');
@@ -147,7 +147,26 @@ const SignUpRADetails = ({ route }) => {
         navigation.replace('Home');
     }, [navigation]);
 
+    // RA-ID onboarding is only for the multi-advisor master app (Alphab2b).
+    // Every white-label defaults to appadvisors.raIdOnboardingEnabled=false, so
+    // this screen self-redirects to Home — a single, robust gate that catches
+    // every entry point (login / signup / splash). Controlled from supportAQ
+    // App Advisors (no per-app rebuild). b2b's `prod` appadvisors doc sets it
+    // true. We wait for the app-advisor config to load before deciding so we
+    // never bounce b2b out prematurely.
+    const configReady = !!(config && (config.subdomain || config.appName));
+    const raIdEnabled = config?.raIdOnboardingEnabled === true;
+    useEffect(() => {
+        if (configReady && !raIdEnabled) {
+            navigation.replace('Home');
+        }
+    }, [configReady, raIdEnabled, navigation]);
+
     const Presentation = useComponent('screens.SignUpRADetails');
+
+    if (configReady && !raIdEnabled) {
+        return null;
+    }
 
     return (
         <Presentation

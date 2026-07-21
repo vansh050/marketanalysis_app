@@ -45,6 +45,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import PortfolioCard from '../../../src/screens/PortfolioScreen/PortFolioCard';
 import RenderEmptyMessage from '../../../src/screens/PortfolioScreen/EmptyMessageCard';
 import HoldingScoreModal from '../../../src/screens/PortfolioScreen/HoldingScoreModal';
+import PortfolioSummaryCard from '../composites/PortfolioSummaryCard';
 import formatCurrency from '../../../src/utils/formatCurrency';
 import styles from '../../../src/screens/PortfolioScreen/PortfolioScreen.styles';
 
@@ -99,21 +100,35 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
         setModalVisible,
     } = portfolio;
 
+    // The P&L summary deliberately belongs to each scrolling holdings list,
+    // rather than the fixed screen chrome. This keeps the source visible at
+    // the top while leaving room for the actual holdings on short devices.
+    const renderBrokerSummary = () => (
+        <PortfolioCard
+            Loading={Loading}
+            allHoldingsData={effectiveHoldingsData}
+            formatCurrency={formatCurrency}
+            profitAndLoss={profitAndLoss}
+            pnlPercentage={pnlPercentage}
+            pnlposneg={pnlposneg}
+            broker={selectedPlan ? planHoldings?.[0]?.broker || broker : broker}
+            selectedPlan={selectedPlan}
+        />
+    );
+
+    const getHoldingSourceName = source => {
+        if (!source) return 'No broker connected';
+        return /dummy|demo|paper/i.test(source)
+            ? 'Simulated portfolio (not a broker)'
+            : source;
+    };
+
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
             <View {...panResponder.panHandlers} style={{ flex: 1 }}>
-                <View style={{ backgroundColor: '#EFF0EE', flex: 1 }}>
+                    <View style={{ backgroundColor: '#EFF0EE', flex: 1 }}>
                     <View style={styles.headerContainer}>
                         <View>
-                            <PortfolioCard
-                                Loading={Loading}
-                                allHoldingsData={effectiveHoldingsData}
-                                formatCurrency={formatCurrency}
-                                profitAndLoss={profitAndLoss}
-                                pnlPercentage={pnlPercentage}
-                                pnlposneg={pnlposneg}
-                                setSelectedInnerTab={setSelectedInnerTab}
-                            />
                             <View style={{ marginHorizontal: 0 }}>
                                 <View style={styles.toggleBtnContainer}>
                                     {modelPortfolioEnabled === true ? (
@@ -159,23 +174,6 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                 </View>
                             </View>
 
-                            {selectedInnerTab === 1 && (
-                                <TouchableOpacity
-                                    onPress={() => navigation.navigate('TradePnLScreen')}
-                                    style={{
-                                        flexDirection: 'row',
-                                        alignItems: 'center',
-                                        justifyContent: 'center',
-                                        marginHorizontal: 16,
-                                        marginTop: 8,
-                                        paddingVertical: 8,
-                                        backgroundColor: mainColor,
-                                        borderRadius: 8,
-                                    }}>
-                                    <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Poppins-Medium' }}>📊 View Trade P&L Report</Text>
-                                </TouchableOpacity>
-                            )}
-
                             {selectedInnerTab === 0 && (
                                 <>
                                     {modelPortfolioStrategy?.length > 0 && (
@@ -191,9 +189,13 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                                 <Text style={styles.planDropdownArrow}>&#9660;</Text>
                                             </TouchableOpacity>
                                             <View style={styles.brokerBadge}>
-                                                <Text style={styles.planDropdownLabel}>Broker</Text>
+                                                <Text style={styles.planDropdownLabel}>Holdings source</Text>
                                                 <Text style={styles.brokerBadgeValue} numberOfLines={1}>
-                                                    {broker || 'Not Connected'}
+                                                    {getHoldingSourceName(
+                                                        selectedPlan
+                                                            ? planHoldings?.[0]?.broker || broker
+                                                            : broker,
+                                                    )}
                                                 </Text>
                                             </View>
                                         </View>
@@ -287,51 +289,6 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                     </View>
                                 </>
                             )}
-                            {selectedInnerTab === 1 ? (
-                                <View
-                                    style={{
-                                        flexDirection: 'row',
-                                        justifyContent: 'space-between',
-                                        padding: 15,
-                                    }}>
-                                    <View
-                                        style={{
-                                            flexDirection: 'column',
-                                            alignContent: 'flex-start',
-                                            alignItems: 'flex-start',
-                                            alignSelf: 'flex-start',
-                                        }}>
-                                        <Text
-                                            style={{
-                                                color: 'grey',
-                                                fontFamily: 'Satoshi-Regular',
-                                                fontSize: 12,
-                                                width: '100%',
-                                                borderColor: 'black',
-                                            }}>
-                                            {modelPortfolioStrategy.length} Model Portfolio
-                                        </Text>
-                                    </View>
-                                    <View
-                                        style={{
-                                            flexDirection: 'column',
-                                            alignContent: 'flex-end',
-                                            alignItems: 'flex-end',
-                                            alignSelf: 'flex-end',
-                                        }}>
-                                        <Text
-                                            style={{
-                                                color: 'grey',
-                                                fontFamily: 'Satoshi-Regular',
-                                                fontSize: 12,
-                                                width: '100%',
-                                                borderColor: 'black',
-                                            }}>
-                                            Current Value
-                                        </Text>
-                                    </View>
-                                </View>
-                            ) : null}
                         </View>
                     </View>
                     <View style={{ flex: 1, backgroundColor: '#fff', marginTop: 0 }}>
@@ -344,6 +301,7 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                         horizontal={false}
                                         scrollEnabled={true}
                                         renderItem={renderPositions}
+                                        ListHeaderComponent={renderBrokerSummary}
                                         ListEmptyComponent={<RenderEmptyMessage value="positions" />}
                                         refreshControl={
                                             <RefreshControl
@@ -369,6 +327,7 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                         <FlatList
                                             style={styles.list}
                                             data={selectedPlan ? planHoldings : BrokerHoldingsData?.holding}
+                                            ListHeaderComponent={renderBrokerSummary}
                                             refreshControl={
                                                 <RefreshControl
                                                     refreshing={refreshing}
@@ -392,7 +351,28 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                     style={styles.list}
                                     renderItem={renderModalPFCard}
                                     keyExtractor={(item, index) => `${item?.modelName || index}_${index}`}
-                                    ListEmptyComponent={<RenderEmptyMessage value="modelPortfolio" />}
+                                    ListHeaderComponent={
+                                        <>
+                                            <TouchableOpacity
+                                                onPress={() => navigation.navigate('TradePnLScreen')}
+                                                style={{
+                                                    flexDirection: 'row',
+                                                    alignItems: 'center',
+                                                    justifyContent: 'center',
+                                                    marginHorizontal: 16,
+                                                    marginTop: 8,
+                                                    paddingVertical: 8,
+                                                    backgroundColor: mainColor,
+                                                    borderRadius: 8,
+                                                }}>
+                                                <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Poppins-Medium' }}>
+                                                    📊 View Trade P&L Report
+                                                </Text>
+                                            </TouchableOpacity>
+                                            <PortfolioSummaryCard />
+                                        </>
+                                    }
+                                    ListEmptyComponent={null}
                                     scrollEventThrottle={16}
                                 />
                             </SafeAreaView>

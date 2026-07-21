@@ -195,7 +195,7 @@ npx react-native start
 cd android && ./gradlew app:installDebug -PreactNativeDevServerPort=8081
 
 # Launch on device
-adb shell monkey -p com.arpint.alphaquark -c android.intent.category.LAUNCHER 1
+adb shell monkey -p com.aq.marketanalysis -c android.intent.category.LAUNCHER 1
 ```
 
 ## Important Notes

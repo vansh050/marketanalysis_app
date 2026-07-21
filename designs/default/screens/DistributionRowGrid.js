@@ -26,7 +26,6 @@ import {
     View,
     Text,
     ScrollView,
-    FlatList,
     ActivityIndicator,
     StyleSheet,
     TouchableOpacity,
@@ -65,20 +64,24 @@ const DistributionRowGrid = ({ viewModel, actions }) => {
             );
         }
 
+        // Plain ScrollView + map, NOT a FlatList: one host (AfterSubscriptionScreen)
+        // renders this grid inside its screen-level ScrollView, where a nested
+        // VirtualizedList loses windowing and RN warns "VirtualizedLists should
+        // never be nested". The other host (MPPerformanceScreen tab scene) still
+        // needs a scroller of its own — this ScrollView serves both. Entry lists
+        // are small (model constituents), so windowing isn't needed.
         return (
             <View style={{ flex: 1 }}>
-                <FlatList
-                    data={adviceEntries}
-                    keyExtractor={(_, index) => index.toString()}
+                <ScrollView
                     showsVerticalScrollIndicator
                     contentContainerStyle={{ paddingBottom: 80 }}
-                    scrollEnabled={true}
                     nestedScrollEnabled={true}
                     style={{ flex: 1, width: '100%' }}
-                    renderItem={({ item }) => {
+                >
+                    {adviceEntries.map((item, index) => {
                         const percentage = (item.value * 100).toFixed(2);
                         return (
-                            <View style={[styles.card, { width: screenWidth - 30 }]}>
+                            <View key={index.toString()} style={[styles.card, { width: screenWidth - 30 }]}>
                                 <View style={styles.cardHeader}>
                                     <Text style={styles.symbol}>{item.symbol}</Text>
                                     <Text style={styles.percent}>{percentage}%</Text>
@@ -90,8 +93,8 @@ const DistributionRowGrid = ({ viewModel, actions }) => {
                                 </View>
                             </View>
                         );
-                    }}
-                />
+                    })}
+                </ScrollView>
             </View>
         );
     };

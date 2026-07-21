@@ -33,6 +33,7 @@ import {
 import { getApiBrokerName } from '../../config/brokerRegistry';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import CryptoJS from 'react-native-crypto-js';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const getHeaders = () => ({
   'Content-Type': 'application/json',
@@ -48,7 +49,7 @@ const BrokerAuthScreen = () => {
   const { brokerConfig, onSuccess } = route.params || {};
 
   const auth = getAuth();
-  const userEmail = auth.currentUser?.email;
+  const userEmail = getAccountEmail();
   const showAlert = useModalStore((state) => state.showAlert);
 
   const [state, setState] = useState('loading'); // loading, webview, success, error

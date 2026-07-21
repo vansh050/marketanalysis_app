@@ -75,7 +75,7 @@ const PortfolioTransitionCard = ({ transition, modelName, advisorName }) => {
             </View>
 
             <Text style={styles.footer}>
-                Shows alignment to your advisor's model — not a returns forecast.
+                Shows alignment to your manager's model — not a returns forecast.
             </Text>
         </View>
     );

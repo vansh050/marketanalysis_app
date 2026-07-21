@@ -9,16 +9,17 @@ import React, {
 } from 'react';
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
-import {getAuth} from '@react-native-firebase/auth';
 import server from '../utils/serverConfig';
 import {fetchFunds} from '../FunctionCall/fetchFunds';
 import {fetchBrokerAllHoldings} from '../FunctionCall/fetchBrokerAllHoldings';
 import {fetchBrokerSpecificHoldings} from '../FunctionCall/fetchBrokerSpecificHoldings';
 import {fetchOrderBook, fetchPendingOrders} from '../services/BrokerOrderBookAPI';
+import {getAccountEmail, useAccountEmail} from '../utils/accountEmail';
 
 import {getConfigData, isUserDataComplete} from '../utils/storageUtils';
 import Config from 'react-native-config';
 const TradeContext = createContext();
+
 import {generateToken} from '../utils/SecurityTokenManager';
 import {getAdvisorSubdomain} from '../utils/variantHelper';
 import {isOrderSuccess, isOrderRejected} from '../utils/orderStatusUtils';
@@ -52,9 +53,18 @@ export const TradeProvider = ({children}) => {
   const [ignoredTrades, setIgnoredTrades] = useState([]);
   const [isBrokerConnected, setIsBrokerConnected] = useState(false);
 
-  const auth = getAuth();
-  const user = auth.currentUser;
-  const userEmail = user?.email;
+  // Apple sign-in identity: Firebase-first, falling back to the typed
+  // identity persisted by completeAppleSignIn (Apple "Hide My Email" —
+  // auth.currentUser.email is null/relay-aliased for the life of the
+  // Firebase user, while every backend record is keyed by the real typed
+  // email). useAccountEmail is the shared reactive resolver in
+  // src/utils/accountEmail.js — it re-renders when the identity resolves
+  // (auth-state change or the completeAppleSignIn event), which is what
+  // lets the [userEmail, configData] effects below fire once the identity
+  // is known instead of capturing null forever (2026-07-20). This used to
+  // be a module-private fallback here; it is now the single shared
+  // resolver every screen uses.
+  const userEmail = useAccountEmail();
 
   const [configData, setConfigData] = useState(null);
   const [configLoading, setConfigLoading] = useState(true);
@@ -153,6 +163,11 @@ export const TradeProvider = ({children}) => {
   const [modelPortfolioStrategyfinal, setModelPortfolioStrategyfinal] =
     useState([]);
   const [isDatafetchinMP, setIsDatafetchingMP] = useState(false);
+  // This is the single client-side readiness flag for the server-filtered
+  // active-model entitlement query. Consumers must not infer entitlement from
+  // historical holdings or catalog metadata while it is unresolved.
+  const [modelPortfolioEntitlementsLoaded, setModelPortfolioEntitlementsLoaded] =
+    useState(false);
 
   // Repair-trades state — auto-fetched after MP strategies load.
   // Each entry: { modelName, uniqueId, userBroker, failedTrades[], message, modelId }
@@ -397,13 +412,13 @@ export const TradeProvider = ({children}) => {
   };
 
   const getModelPortfolioStrategyDetails = async () => {
-    const auth = getAuth();
-    const user = auth.currentUser;
-    const userEmail = user?.email;
+    // Firebase-first, typed-identity fallback — see src/utils/accountEmail.js.
+    const userEmail = getAccountEmail();
 
     try {
       setIsDatafetchingMP(true);
       if (userEmail && configData) {
+        setModelPortfolioEntitlementsLoaded(false);
         console.log(
           '📊 TradeContext: Getting model portfolio with config:',
           configData?.config?.REACT_APP_HEADER_NAME,
@@ -421,7 +436,8 @@ export const TradeProvider = ({children}) => {
           },
         });
 
-        setModelPortfolioStrategyfinal(response?.data?.subscribedPortfolios);
+        setModelPortfolioStrategyfinal(response?.data?.subscribedPortfolios || []);
+        setModelPortfolioEntitlementsLoaded(true);
 
         // Best-effort: fetch repair-trades alongside strategies so the
         // RebalanceCard can flag any partial executions. Failures here MUST
@@ -437,6 +453,9 @@ export const TradeProvider = ({children}) => {
       }
     } catch (error) {
       setModelPortfolioStrategyfinal([]);
+      // The request completed, but no stale catalog/holdings result is allowed
+      // to override this source of truth.
+      setModelPortfolioEntitlementsLoaded(true);
       if (error.response) {
         console.error(
           'TradeContext: Model Portfolio API Error:',
@@ -462,9 +481,8 @@ export const TradeProvider = ({children}) => {
   // Mirrors web's `getRebalanceRepair` in prod-alphaquark-github/
   // src/Home/LivePortfolioSection/Home.js:364-393.
   const getModelPortfolioRepairTrades = async portfolios => {
-    const auth = getAuth();
-    const user = auth.currentUser;
-    const userEmail = user?.email;
+    // Firebase-first, typed-identity fallback — see src/utils/accountEmail.js.
+    const userEmail = getAccountEmail();
 
     if (!userEmail || !configData) return;
     const list = Array.isArray(portfolios) ? portfolios : [];
@@ -540,12 +558,17 @@ export const TradeProvider = ({children}) => {
     }
   }
 const getAllTrades = async () => {
-  const auth = getAuth();
-  const user = auth.currentUser;
-  const userEmail = user?.email;
+  // Firebase-first, typed-identity fallback — see src/utils/accountEmail.js.
+  const userEmail = getAccountEmail();
 
   if (!userEmail) {
-    console.error('[Trade Fetch] Error: User email is missing');
+    // TradeProvider mounts before auth resolves. The [userEmail, configData]
+    // useEffect fires once as soon as both look truthy from the top-level
+    // closure — occasionally BEFORE Firebase has restored the on-disk
+    // session on cold start (async). Once auth restores, the useEffect
+    // fires again with a valid user. Warn (not error) so we don't red-
+    // banner LogBox for a transient startup state.
+    console.warn('[Trade Fetch] Skipped — auth not ready yet');
     setIsDatafetching(false);
     return;
   }
@@ -873,6 +896,18 @@ const getAllTrades = async () => {
   };
 
   const getPlanList = async () => {
+    // Re-derive at call time — see comment in getUserDeatils. This was
+    // using the stale top-level closure and hitting
+    // /api/sendnotification/undefined on fresh Apple sign-ins, which is
+    // exactly why the Plans / Model Portfolio catalog rendered empty
+    // after Apple login even though the same account showed plans fine
+    // after a subsequent Google login (Firebase cached currentUser
+    // populates the closure early enough for Google flows).
+    const userEmail = getAccountEmail();
+    if (!userEmail) {
+      console.warn('[getPlanList] skipped — auth not ready yet');
+      return;
+    }
     try {
       const response = await axios({
         method: 'get',
@@ -887,7 +922,6 @@ const getAllTrades = async () => {
           ),
         },
       });
-      console.log("RESPONSE HERE FOR VALIDITY---cccccccccccccccccccc------", configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),response?.data)
       setPlanList(response?.data?.isValid);
       return response?.data?.isValid;
     } catch (planError) {
@@ -1028,7 +1062,16 @@ const getAllTrades = async () => {
     }
   }, []);
 
-  const getUserDeatils = async () => {
+  const getUserDeatils = async (attempt = 0) => {
+    // Re-derive at call time via the shared resolver — see
+    // src/utils/accountEmail.js. TradeProvider mounts BEFORE auth resolves
+    // (it wraps the app in App.js), so a top-level closure would be
+    // `undefined` when a fresh Apple sign-in lands.
+    const userEmail = getAccountEmail();
+    if (!userEmail) {
+      console.warn('[getUserDeatils] skipped — no authenticated user yet');
+      return;
+    }
     try {
       const response = await axios.get(
         `${server.server.baseUrl}api/user/getUser/${userEmail}`,
@@ -1072,6 +1115,20 @@ const getAllTrades = async () => {
       console.log('🔍 [BROKER DEBUG] brokerStatus SET TO:', user?.connect_broker_status);
       return user;
     } catch (error) {
+      // 404 on first-time Apple sign-in: TradeProvider's [userEmail,
+      // configData] useEffect can fire the moment onAuthStateChanged
+      // propagates, which may race ahead of LoginScreen's completeAppleSignIn
+      // POST that actually creates the Mongo record. Retry a few times so a
+      // fresh Apple signup doesn't strand the user on an empty Home.
+      const status = error?.response?.status;
+      if (status === 404 && attempt < 3) {
+        const delayMs = 1500 * (attempt + 1);
+        console.warn(
+          `[getUserDeatils] 404 on attempt ${attempt + 1} — retrying in ${delayMs}ms`,
+        );
+        await new Promise(r => setTimeout(r, delayMs));
+        return getUserDeatils(attempt + 1);
+      }
       console.error('Error fetching user details:', error.message);
     }
   };
@@ -1101,6 +1158,9 @@ const getAllTrades = async () => {
       sid,
       serverId,
     } = userDetails;
+
+    // Re-derive at call time — see comment in getUserDeatils.
+    const userEmail = getAccountEmail();
 
     try {
       const fetchedFunds = await fetchFunds(
@@ -1132,6 +1192,8 @@ const getAllTrades = async () => {
     // just reconnect. Migration modal should only fire after an
     // explicit reconnect action by the user. User-reported 2026-04-29.
     const silent = opts.silent === true;
+    // Re-derive at call time — see comment in getUserDeatils.
+    const userEmail = getAccountEmail();
     if (!userEmail) return;
     try {
       const updatedUser = await getUserDeatils();
@@ -1247,6 +1309,12 @@ const getAllTrades = async () => {
   const [allNotifications, setAllNotifications] = useState(null);
 
   const getAllNotifcations = async () => {
+    // Don't fetch with an unresolved email — on login this can fire before
+    // userEmail hydrates and would hit /get-user-notifications/undefined → 404.
+    if (!userEmail) {
+      setIsNotificationLoading(false);
+      return;
+    }
     try {
       setIsNotificationLoading(true);
       const response = await axios.get(
@@ -1266,7 +1334,15 @@ const getAllTrades = async () => {
 
       setAllNotifications(response.data.data);
     } catch (error) {
-      console.error('Error fetching notifications', error);
+      // 404 is the backend's "this user has no notification record yet" —
+      // the normal state for a new / freshly-migrated account, not a
+      // failure. Logging it at error level raised a red LogBox on every
+      // launch. Treat it as an empty list; keep error level for the rest.
+      if (error?.response?.status === 404) {
+        setAllNotifications([]);
+      } else {
+        console.error('Error fetching notifications', error);
+      }
     } finally {
       setIsNotificationLoading(false);
     }
@@ -1615,6 +1691,7 @@ const getAllTrades = async () => {
         videos,
         fetchVideos,
         modelPortfolioStrategyfinal,
+        modelPortfolioEntitlementsLoaded,
         stockRecoNotExecutedfinal,
         recommendationStockfinal,
         isDatafetching,

@@ -25,19 +25,7 @@
  * Cross-ref: docs/BROKER_CONNECTION.md § DefinEdge Securities.
  */
 import React, { useState, useEffect } from 'react';
-import {
-  Modal,
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  Linking,
-} from 'react-native';
+import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
 import { getAuth } from '@react-native-firebase/auth';
@@ -48,6 +36,7 @@ import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import { useTrade } from '../../screens/TradeContext';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const wrapCredential = (value) =>
   CryptoJS.AES.encrypt(String(value || ''), 'ApiKeySecret').toString();
@@ -60,7 +49,7 @@ const DefinEdgeConnectModal = ({
   const { configData } = useTrade();
   const showAlert = useModalStore((s) => s.showAlert);
   const auth = getAuth();
-  const userEmail = auth.currentUser?.email;
+  const userEmail = getAccountEmail();
 
   const [apiKey, setApiKey] = useState('');        // api_token
   const [secretKey, setSecretKey] = useState('');  // api_secret
@@ -199,188 +188,73 @@ const DefinEdgeConnectModal = ({
     }
   };
 
+  // Rendered through the shared BrokerConnectStepperSheet — the RN port of
+  // web's BrokerConnectStepper (same guide steps, brand, portal link, and
+  // EgressIpCallout static-IP gating as prod web's DefinEdgeConnection.js).
+  // NEVER use React Native's <Modal> here: it hard-freezes this app on
+  // Android (New Architecture) — tiny white box top-left + wedged UI thread.
   return (
-    <Modal
-      visible={!!isVisible}
-      animationType="slide"
-      transparent
-      onRequestClose={loading ? undefined : onClose}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.backdrop}
-      >
-        <View style={styles.sheet}>
-          <View style={styles.headerRow}>
-            <Text style={styles.headerTitle}>Connect DefinEdge</Text>
-            {!loading && (
-              <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
-                <Text style={styles.closeX}>×</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
-            <Text style={styles.subtitle}>
-              {step === 'creds'
-                ? "We'll send an OTP to your registered DefinEdge contact."
-                : 'Enter the OTP DefinEdge sent to your registered mobile/email.'}
-            </Text>
-
-            <View style={styles.infoBox}>
-              <Text style={styles.infoText}>
-                Log in at{' '}
-                <Text
-                  style={styles.link}
-                  onPress={() =>
-                    Linking.openURL('https://myaccount.definedgesecurities.com/')
-                  }
-                >
-                  myaccount.definedgesecurities.com
-                </Text>{' '}
-                → API Config to generate your api_token + api_secret. Sessions
-                last ~8 hours — re-OTP after expiry. Note: tokens regenerate
-                when you change your DefinEdge password.
-              </Text>
-            </View>
-
-            {step === 'creds' ? (
-              <>
-                <Text style={styles.label}>API Token *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={apiKey}
-                  onChangeText={(t) => setApiKey(t.trim())}
-                  placeholder="Enter api_token from MyAccount"
-                  autoCapitalize="none"
-                  editable={!loading}
-                />
-
-                <Text style={styles.label}>API Secret *</Text>
-                <View style={styles.passwordWrap}>
-                  <TextInput
-                    style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                    value={secretKey}
-                    onChangeText={(t) => setSecretKey(t.trim())}
-                    placeholder="Enter api_secret from MyAccount"
-                    secureTextEntry={!showSecret}
-                    autoCapitalize="none"
-                    editable={!loading}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeBtn}
-                    onPress={() => setShowSecret((v) => !v)}
-                  >
-                    <Text style={styles.eyeBtnText}>{showSecret ? 'Hide' : 'Show'}</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={styles.label}>OTP *</Text>
-                <TextInput
-                  style={[styles.input, styles.otpInput]}
-                  value={otp}
-                  onChangeText={(t) => setOtp(t.replace(/\D/g, '').slice(0, 8))}
-                  placeholder="Enter OTP"
-                  keyboardType="number-pad"
-                  maxLength={8}
-                  editable={!loading}
-                  autoFocus
-                />
-                <Text style={styles.expiryHint}>
-                  Didn't receive an OTP? Go Back and re-run "Send OTP" — DefinEdge does not support resend.
-                </Text>
-              </>
-            )}
-
-            {!!error && (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            )}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            {step === 'otp' && (
-              <TouchableOpacity
-                style={styles.backBtn}
-                onPress={() => {
-                  setStep('creds');
-                  setOtp('');
-                  setOtpToken('');
-                  setError('');
-                }}
-                disabled={loading}
-              >
-                <Text style={styles.backBtnText}>Back</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
-              onPress={step === 'creds' ? initiateLogin : connectDefinEdge}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.submitBtnText}>
-                  {step === 'creds' ? 'Send OTP' : 'Connect DefinEdge'}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+    <BrokerConnectStepperSheet
+      isVisible={!!isVisible}
+      onClose={onClose}
+      broker="DefinEdge Securities"
+      config={{
+        monogram: 'D',
+        brandFrom: '#1565c0',
+        brandTo: '#0d3f8a',
+        portalUrl: 'https://myaccount.definedgesecurities.com',
+        portalLabel: 'Open Definedge MyAccount',
+        walkthroughVideoId: 'A6ytHApBTo4',
+        guideSteps: [
+          'Log in at <b>signin.definedgesecurities.com</b>',
+          'Open <b>MyAccount → API Config</b>',
+          'Whitelist the <b>IP</b> below',
+          'Copy your <b>API Token</b> and <b>API Secret</b>',
+          'Paste them here',
+          'Verify with the OTP',
+        ],
+        note: "DefinEdge sessions last ~8 hours; you'll re-verify with OTP after that.",
+      }}
+      egressBrokerKey="definedge"
+      customerId={uid}
+      customerEmail={userEmail}
+      fields={[
+        {
+          label: 'API Token',
+          value: apiKey,
+          onChange: (t) => setApiKey(t.trim()),
+          password: true,
+          placeholder: 'From MyAccount → API Config',
+        },
+        {
+          label: 'API Secret',
+          value: secretKey,
+          onChange: (t) => setSecretKey(t.trim()),
+          password: true,
+          placeholder: 'From MyAccount → API Config',
+        },
+      ]}
+      phase={step === 'otp' ? 'otp' : 'creds'}
+      otp={{
+        value: otp,
+        onChange: (t) => setOtp(t.trim()),
+        sentToText: 'Enter the OTP DefinEdge sent to your registered mobile/email.',
+      }}
+      error={error}
+      canSubmit={
+        step === 'otp' ? Boolean(otp) : Boolean(apiKey) && Boolean(secretKey)
+      }
+      submitLabel={step === 'otp' ? 'Verify & Connect' : 'Send OTP'}
+      loading={loading}
+      onSubmit={step === 'otp' ? connectDefinEdge : initiateLogin}
+      onBackStep={() => {
+        setStep('creds');
+        setOtp('');
+        setOtpToken('');
+        setError('');
+      }}
+    />
   );
 };
-
-const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
-  sheet: {
-    backgroundColor: '#ffffff', borderTopLeftRadius: 18, borderTopRightRadius: 18,
-    paddingHorizontal: 20, paddingTop: 18, paddingBottom: 24, maxHeight: '92%',
-  },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
-  closeX: { fontSize: 28, color: '#9ca3af', paddingHorizontal: 4, lineHeight: 28 },
-  scroll: { maxHeight: 460 },
-  subtitle: { fontSize: 13, color: '#6b7280', marginBottom: 14 },
-  infoBox: {
-    backgroundColor: '#eff6ff', borderColor: '#bfdbfe', borderWidth: 1,
-    borderRadius: 8, padding: 12, marginBottom: 14,
-  },
-  infoText: { fontSize: 12, color: '#1e40af', lineHeight: 18 },
-  link: { color: '#1d4ed8', textDecorationLine: 'underline' },
-  label: { fontSize: 12, fontWeight: '600', color: '#374151', marginBottom: 6, marginTop: 8 },
-  input: {
-    borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#111827',
-    marginBottom: 4, backgroundColor: '#fafafa',
-  },
-  passwordWrap: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  eyeBtn: { paddingHorizontal: 12, paddingVertical: 8 },
-  eyeBtnText: { color: '#1d4ed8', fontWeight: '600', fontSize: 12 },
-  otpInput: { textAlign: 'center', letterSpacing: 6, fontSize: 18 },
-  expiryHint: { fontSize: 11, color: '#6b7280', marginTop: 8 },
-  errorBox: {
-    marginTop: 12, backgroundColor: '#fef2f2', borderColor: '#fecaca',
-    borderWidth: 1, borderRadius: 6, padding: 10,
-  },
-  errorText: { color: '#991b1b', fontSize: 12 },
-  footer: { flexDirection: 'row', marginTop: 14 },
-  backBtn: {
-    paddingVertical: 12, paddingHorizontal: 18, borderRadius: 8,
-    borderWidth: 1, borderColor: '#d1d5db', marginRight: 8,
-  },
-  backBtnText: { color: '#374151', fontWeight: '600' },
-  submitBtn: {
-    flex: 1, backgroundColor: '#1d4ed8', borderRadius: 8,
-    paddingVertical: 14, alignItems: 'center',
-  },
-  submitBtnDisabled: { backgroundColor: '#9ca3af' },
-  submitBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 15 },
-});
 
 export default DefinEdgeConnectModal;

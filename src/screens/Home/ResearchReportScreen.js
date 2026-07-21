@@ -11,6 +11,7 @@ import { getAuth } from '@react-native-firebase/auth';
 import LinearGradient from 'react-native-linear-gradient';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const ResearchReportScreen = () => {
   const {configData}=useTrade();
@@ -39,7 +40,7 @@ const ResearchReportScreen = () => {
 
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
 
   useEffect(() => {
     if (userEmail) {

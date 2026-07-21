@@ -27,6 +27,7 @@ import {useNavigation, useRoute} from '@react-navigation/native';
 import MPCard from '../../components/ModelPortfolioComponents/MPCard';
 import {getAuth} from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
+import {resolveImageUrl} from '../../utils/resolveImageUrl';
 import {GitForkIcon} from 'lucide-react-native';
 import Config from 'react-native-config';
 import {getAdvisorSubdomain} from '../../utils/variantHelper';
@@ -40,6 +41,7 @@ import useTokens from '../../theme/useTokens';
 import { useComponent } from '../../design/useDesign';
 import useHomeMarketSummary from '../Home/hooks/useHomeMarketSummary';
 import { shapeMpPlan, shapeBespokePlan } from '../../utils/alphanomyPlanShape';
+import {useAccountEmail} from '../../utils/accountEmail';
 
 const {width, width: ScreenWidth} = Dimensions.get('window');
 
@@ -64,7 +66,11 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
   const [showPaymentFail, setShowPaymentFail] = useState(false);
   const navigation = useNavigation();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  // Reactive: this screen (the Plans tab) gates its fetch on `userEmail`,
+  // and on a cold start / fresh Apple sign-in the identity resolves AFTER
+  // mount — a one-shot read would capture null and never refetch, which is
+  // exactly why the Plans tab rendered empty for Apple users.
+  const userEmail = useAccountEmail();
 
   // Variant-facing user name for the alphanomy `_AppHeader` greeting.
   // Declared AFTER `user` so we don't TDZ-read an undeclared binding.
@@ -454,7 +460,7 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
   const renderItembespoke = ({item}) => (
     <MPCardBespoke
       modelName={item?.name}
-      image={item?.image ? `${server.server.baseUrl}${item?.image}` : ''}
+      image={resolveImageUrl(item?.image, server.server.baseUrl)}
       overview={item.overView}
       minInvestment={item.minInvestment}
       retentionRate={item.retentionRate}
@@ -479,7 +485,7 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
   const renderItem = ({item, index}) => (
     <MPCard
       modelName={item.name}
-      image={item?.image ? `${server.server.baseUrl}${item?.image}` : ''}
+      image={resolveImageUrl(item?.image, server.server.baseUrl)}
       overview={item.description}
       setSelectedCard={setSelectedCard}
       minInvestment={item.minInvestment}
@@ -491,6 +497,7 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
       handleSubscribe={() => handlePricingCardClick(item)}
       description={item.description}
       index={index}
+      isHorizontal={type.includes('horizontal')}
     />
   );
 
@@ -517,7 +524,7 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
       refreshControl={
         <RefreshControl refreshing={refreshingMP} onRefresh={getAllStrategy} />
       }
-      contentContainerStyle={{padding: 5}}
+      contentContainerStyle={{paddingHorizontal: 16, paddingTop: 16, paddingBottom: 24}}
       style={{margin: 0}}
       ListEmptyComponent={
         <View style={localStyles.emptyContainer}>

@@ -2,6 +2,7 @@ import React, { createContext, useEffect, useState, useCallback } from 'react';
 import { AppState, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import auth from '@react-native-firebase/auth';
+import { clearAccountEmail } from '../utils/accountEmail';
 
 const InactivityContext = createContext();
 
@@ -31,6 +32,7 @@ const InactivityProvider = ({ children, onAppForeground }) => {
   }, [onAppForeground]);
 
   const handleLogout = () => {
+    clearAccountEmail().catch(() => {});
     auth().signOut().then(() => {
       Alert.alert('Logged out', 'You have been logged out due to inactivity.');
     }).catch(error => {

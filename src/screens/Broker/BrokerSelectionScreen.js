@@ -31,6 +31,7 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const getHeaders = () => ({
   'Content-Type': 'application/json',
@@ -44,7 +45,7 @@ const BrokerSelectionScreen = () => {
   const { onBrokerConnected } = route.params || {};
 
   const auth = getAuth();
-  const userEmail = auth.currentUser?.email;
+  const userEmail = getAccountEmail();
 
   const [connectedBrokers, setConnectedBrokers] = useState({});
   const [loading, setLoading] = useState(true);

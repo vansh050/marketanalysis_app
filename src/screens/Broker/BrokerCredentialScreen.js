@@ -18,7 +18,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Linking,
 } from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
@@ -33,6 +32,8 @@ import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import { getApiBrokerName, BROKER_AUTH_TYPE } from '../../config/brokerRegistry';
 import { getBrokerCallbackUrl } from '../../utils/brokerAuth';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import BrokerWalkthroughPlayer from '../../components/BrokerConnectionModal/BrokerWalkthroughPlayer';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const getHeaders = () => ({
   'Content-Type': 'application/json',
@@ -48,13 +49,14 @@ const BrokerCredentialScreen = () => {
   const { brokerConfig, onSuccess } = route.params || {};
 
   const auth = getAuth();
-  const userEmail = auth.currentUser?.email;
+  const userEmail = getAccountEmail();
   const showAlert = useModalStore((state) => state.showAlert);
 
   const [formValues, setFormValues] = useState({});
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [webviewUrl, setWebviewUrl] = useState(null);
+  const [walkthroughVideoId, setWalkthroughVideoId] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const hasConnected = useRef(false);
 
@@ -289,13 +291,16 @@ const BrokerCredentialScreen = () => {
   // ---------------------------------------------------------------------------
   // Save broker connection to DB (reused by WebView callback)
   // ---------------------------------------------------------------------------
-  const saveBrokerConnection = async (userId, extraFields) => {
-    await axios.put(
-      `${server.server.baseUrl}api/user/connect-broker`,
-      { uid: userId, user_broker: apiBrokerName, ...extraFields },
-      { headers: getHeaders(), timeout: 15000 },
-    );
-  };
+  const saveBrokerConnection = useCallback(
+    async (userId, extraFields) => {
+      await axios.put(
+        `${server.server.baseUrl}api/user/connect-broker`,
+        {uid: userId, user_broker: apiBrokerName, ...extraFields},
+        {headers: getHeaders(), timeout: 15000},
+      );
+    },
+    [apiBrokerName],
+  );
 
   // ---------------------------------------------------------------------------
   // WebView callback handler (for hybrid brokers after OAuth)
@@ -369,7 +374,15 @@ const BrokerCredentialScreen = () => {
       hasConnected.current = false;
     }
     setSubmitting(false);
-  }, [brokerKey, brokerName, formValues, getUserId, onConnectionSuccess]);
+  }, [
+    brokerKey,
+    brokerName,
+    formValues,
+    getUserId,
+    onConnectionSuccess,
+    saveBrokerConnection,
+    userEmail,
+  ]);
 
   // ---------------------------------------------------------------------------
   // WebView callback URL detection
@@ -442,7 +455,9 @@ const BrokerCredentialScreen = () => {
           {brokerConfig?.youtubeVideoId && (
             <TouchableOpacity
               style={styles.videoLink}
-              onPress={() => Linking.openURL(`https://youtube.com/watch?v=${brokerConfig.youtubeVideoId}`)}
+              onPress={() => setWalkthroughVideoId(brokerConfig.youtubeVideoId)}
+              accessibilityRole="button"
+              accessibilityLabel={`Watch ${brokerName} setup instructions in app`}
             >
               <Text style={styles.videoLinkText}>Watch setup instructions</Text>
             </TouchableOpacity>
@@ -495,6 +510,12 @@ const BrokerCredentialScreen = () => {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
+      <BrokerWalkthroughPlayer
+        videoId={walkthroughVideoId}
+        title={`${brokerName} walkthrough`}
+        accent="#1A237E"
+        onClose={() => setWalkthroughVideoId(null)}
+      />
     </View>
   );
 };

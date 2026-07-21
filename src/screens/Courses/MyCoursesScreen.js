@@ -5,7 +5,7 @@
  * webinar container course is filtered out — webinar discovery lives at
  * WebinarsListScreen). Tap → CourseDetail. Pull-to-refresh.
  *
- * Despite the name "My Courses", this is actually the advisor's full
+ * Despite the name "My Courses", this is actually the manager's full
  * course catalog — enrollment is checked when the viewer opens a lesson
  * via /api/gumlet/playback-token (server-side verifyEnrollment). That
  * matches the web naming + flow.

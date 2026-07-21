@@ -5,8 +5,13 @@ const defaultConfig = getDefaultConfig(__dirname);
 const { resolver: { sourceExts, assetExts } } = defaultConfig;
 
 // @alphaquark/mobile-sdk lives outside this project root at
-// ../../alphaquark-mobile-sdk (i.e. ~/PycharmProjects/alphaquark-mobile-sdk —
-// one level above PycharmProjects/marketanalysis_app).
+// ../../alphaquark-mobile-sdk/packages/rn — two levels up from this repo
+// (marketanalysis_app is under codes/github/, the SDK sits directly under
+// codes/). This MUST match the file: dep in package.json
+// ("file:../../alphaquark-mobile-sdk/packages/rn") and the node_modules
+// symlink; using a single "../" here (github/alphaquark-mobile-sdk) points at
+// a path that doesn't exist and crashes Metro at startup with an ENOENT
+// fs.watch on a nonexistent directory.
 // npm installed it via the file: dep into node_modules/@alphaquark/mobile-sdk
 // as a symlink, but Metro's default resolver doesn't follow symlinks across
 // watchFolder boundaries — it returned "Unable to resolve module
@@ -16,7 +21,7 @@ const { resolver: { sourceExts, assetExts } } = defaultConfig;
 //      project rebuilds when the SDK is re-tsc'd.
 // Scoped to ONLY the SDK path (not the whole parent dir, which has 50+
 // unrelated projects and would tank Metro's startup).
-const SDK_PATH = path.resolve(__dirname, '../alphaquark-mobile-sdk/packages/rn');
+const SDK_PATH = path.resolve(__dirname, '../../alphaquark-mobile-sdk/packages/rn');
 
 /**
  * Metro configuration

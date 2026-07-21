@@ -12,6 +12,7 @@ import {
 import { WebView } from "react-native-webview";
 import { X } from "lucide-react-native";
 import { useConfig } from "../../context/ConfigContext";
+import useTokens from "../../theme/useTokens";
 
 const DigioModal = ({
   authenticationUrl,
@@ -21,10 +22,10 @@ const DigioModal = ({
   onError,
   onVerificationComplete,
 }) => {
-  // Get dynamic colors from config
   const config = useConfig();
-  const mainColor = config?.mainColor || '#0076FB';
-  const gradient2 = config?.gradient2 || '#002651';
+  const tokens = useTokens();
+  const mainColor = tokens.colors.brand.primary;
+  const gradient2 = tokens.colors.brand.gradientEnd;
 
   const webviewRef = useRef(null);
   const hasTriggeredRef = useRef(false);

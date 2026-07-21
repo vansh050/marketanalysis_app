@@ -3,11 +3,11 @@ import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { useConfig } from '../../context/ConfigContext';
 import { useGstConfig } from '../../context/GstConfigContext';
 import { withGst, gstLabel } from '../../utils/gstHelpers';
+import useTokens from '../../theme/useTokens';
 
 const PricingCard = ({ pricingOptions = [], discount = 0 }) => {
-  // Get dynamic colors from config
   const config = useConfig();
-  const mainColor = config?.mainColor || '#2563EB';
+  const mainColor = useTokens().colors.brand.primary;
   const { gstConfigure: configGst, gstWithTextConfigure: configGstWithText } = useGstConfig();
 
   const [selectedPricing, setSelectedPricing] = useState(pricingOptions[0]?.period || '');

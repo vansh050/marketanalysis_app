@@ -23,8 +23,46 @@ const getPackageId = () => DeviceInfo.getBundleId();
 const getPlayStoreUrl = () =>
   `https://play.google.com/store/apps/details?id=${getPackageId()}`;
 
-const getAppStoreUrl = () =>
-  `https://apps.apple.com/app/id${getPackageId()}`;
+// App Store URLs require Apple's numeric app ID (e.g. id1234567890), NOT the
+// bundle ID. The numeric ID is per-tenant and lives in backend config as
+// `iosAppStoreId`. When null (app not yet on App Store, TestFlight only), we
+// return null so callers can skip the version prompt entirely instead of
+// linking the user to an invalid URL.
+const getAppStoreUrl = (appStoreId) => {
+  if (!appStoreId) return null;
+  return `https://apps.apple.com/app/id${appStoreId}`;
+};
+
+// Platform-specific version override. Android and iOS frequently sit at
+// different store versions (e.g. Android 1.0.38 is live while iOS is still on
+// 1.0.17 in review). A single shared floor would soft-lock the lagging
+// platform — iOS users can never reach an Android-only version, so the
+// "Update Required" gate loops forever. Resolve `<base>Android` / `<base>Ios`
+// first, then fall back to the platform-agnostic `<base>` for backward compat.
+// Used for both `latestAppVersion` and `minAppVersion`.
+const pickPlatformVersion = (cfg, base) => {
+  if (!cfg) return undefined;
+  const key = base + (Platform.OS === 'ios' ? 'Ios' : 'Android');
+  return cfg[key] || cfg[base] || undefined;
+};
+
+// Only PLAY-STORE installs get the mandatory upgrade gate. Sideloaded / APK /
+// dev installs (installer null, "adb", or unknown) can't update through the
+// store, so we never hard-block them — APK installs are explicitly exempt.
+// iOS has no sideloaded-APK case here, so it's always treated as store.
+const STORE_INSTALLERS = [
+  'com.android.vending', // Google Play
+  'com.google.android.feedback', // Play (legacy)
+];
+const isStoreInstall = async () => {
+  if (Platform.OS === 'ios') return true;
+  try {
+    const inst = (await DeviceInfo.getInstallerPackageName()) || '';
+    return STORE_INSTALLERS.includes(inst);
+  } catch (e) {
+    return false; // unknown → treat as sideload, don't force
+  }
+};
 
 // serverVersion: version string from backend config (e.g. "1.0.4").
 // When provided, skips Play Store scraping — which is unreliable because
@@ -93,21 +131,55 @@ const saveDismissTimestamp = async () => {
 const UpdateAppModal = ({visible, onClose, serverVersion}) => {
   const [showModal, setShowModal] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
+  const [mandatory, setMandatory] = useState(false);
 
   const config = useConfig();
   const gradientStart = config?.gradient2 || '#0076FB';
   const gradientEnd = config?.gradient1 || '#002651';
 
   const checkUpdate = useCallback(async () => {
-    const shouldShow = await shouldShowUpdatePrompt();
-    if (!shouldShow) return;
-
-    const result = await checkForAppUpdate(serverVersion);
-    if (result.updateAvailable) {
-      setLatestVersion(result.latestVersion);
-      setShowModal(true);
+    // Backend-supplied version is authoritative; fall back to config so a bare
+    // <UpdateAppModal/> mount resolves the same latestAppVersion that
+    // <AppUpdateChecker/> passes explicitly.
+    const sv = serverVersion ?? pickPlatformVersion(config, 'latestAppVersion');
+    const result = await checkForAppUpdate(sv);
+    // Self-heal: if a refreshed config says no update is needed, HIDE the modal
+    // (it may have been shown earlier from a higher floor that was since lowered).
+    if (!result.updateAvailable) {
+      setShowModal(false);
+      return;
     }
-  }, [serverVersion]);
+
+    // APK / sideloaded installs can't update via the store → never gate them.
+    const fromStore = await isStoreInstall();
+    if (!fromStore) {
+      setShowModal(false);
+      return;
+    }
+
+    // Mandatory by default (force upgrade, non-dismissible). A backend
+    // `minAppVersion` (platform-specific or generic) softens it: at/above min →
+    // optional dismissible nudge.
+    let isMandatory = config?.forceUpdate !== false;
+    const minV = pickPlatformVersion(config, 'minAppVersion');
+    if (
+      minV &&
+      semver.valid(minV) &&
+      semver.valid(result.currentVersion)
+    ) {
+      isMandatory = semver.lt(result.currentVersion, minV);
+    }
+
+    // Optional nudges respect the 48h "Maybe Later" cooldown; mandatory ignores it.
+    if (!isMandatory) {
+      const shouldShow = await shouldShowUpdatePrompt();
+      if (!shouldShow) return;
+    }
+
+    setMandatory(isMandatory);
+    setLatestVersion(result.latestVersion);
+    setShowModal(true);
+  }, [serverVersion, config]);
 
   useEffect(() => {
     if (visible !== undefined) {
@@ -118,7 +190,11 @@ const UpdateAppModal = ({visible, onClose, serverVersion}) => {
   }, [visible, checkUpdate]);
 
   const handleUpdate = () => {
-    const storeUrl = Platform.OS === 'android' ? getPlayStoreUrl() : getAppStoreUrl();
+    const storeUrl =
+      Platform.OS === 'android'
+        ? getPlayStoreUrl()
+        : getAppStoreUrl(config?.iosAppStoreId);
+    if (!storeUrl) return;
     Linking.openURL(storeUrl);
   };
 
@@ -131,15 +207,25 @@ const UpdateAppModal = ({visible, onClose, serverVersion}) => {
   if (!showModal) return null;
 
   return (
-    <Modal visible={showModal} transparent animationType="fade">
+    <Modal
+      visible={showModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => {
+        // Block the Android hardware-back dismiss when the update is mandatory.
+        if (!mandatory) handleDismiss();
+      }}>
       <View style={styles.overlay}>
         <LinearGradient
           colors={[gradientStart, gradientEnd]}
           style={styles.container}>
-          <Text style={styles.heading}>Update Available!</Text>
+          <Text style={styles.heading}>
+            {mandatory ? 'Update Required' : 'Update Available!'}
+          </Text>
           <Text style={styles.message}>
-            A new version{latestVersion ? ` (v${latestVersion})` : ''} of this app is available.
-            Please update for the best experience and latest features.
+            {mandatory
+              ? `A required update${latestVersion ? ` (v${latestVersion})` : ''} is available. Please update to continue using the app.`
+              : `A new version${latestVersion ? ` (v${latestVersion})` : ''} of this app is available. Please update for the best experience and latest features.`}
           </Text>
           <TouchableOpacity
             style={styles.updateButton}
@@ -147,12 +233,14 @@ const UpdateAppModal = ({visible, onClose, serverVersion}) => {
             activeOpacity={0.8}>
             <Text style={styles.updateButtonText}>Update Now</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.laterButton}
-            onPress={handleDismiss}
-            activeOpacity={0.8}>
-            <Text style={styles.laterButtonText}>Maybe Later</Text>
-          </TouchableOpacity>
+          {!mandatory && (
+            <TouchableOpacity
+              style={styles.laterButton}
+              onPress={handleDismiss}
+              activeOpacity={0.8}>
+              <Text style={styles.laterButtonText}>Maybe Later</Text>
+            </TouchableOpacity>
+          )}
         </LinearGradient>
       </View>
     </Modal>
@@ -164,7 +252,9 @@ const UpdateAppModal = ({visible, onClose, serverVersion}) => {
 // it separately from the default UpdateAppModal.
 export const AppUpdateChecker = () => {
   const config = useConfig();
-  return <UpdateAppModal serverVersion={config?.latestAppVersion} />;
+  // Platform-specific latest version (Android vs iOS) with fallback to the
+  // generic latestAppVersion.
+  return <UpdateAppModal serverVersion={pickPlatformVersion(config, 'latestAppVersion')} />;
 };
 
 const styles = StyleSheet.create({

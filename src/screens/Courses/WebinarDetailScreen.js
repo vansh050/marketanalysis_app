@@ -26,6 +26,7 @@ import { useDesign } from '../../design/useDesign';
 import { useConfig } from '../../context/ConfigContext';
 import liveKitService from '../../FunctionCall/services/LiveKitService';
 import BuyWebinarTicketSheet from '../../components/BuyWebinarTicketSheet';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 // Lazy LiveRoom resolution — once Phase 1c registers
 // composites.LiveRoom in designs/default/index.js, this renders the
@@ -64,7 +65,11 @@ function formatDateIST(iso) {
 export default function WebinarDetailScreen() {
   const route = useRoute();
   const navigation = useNavigation();
-  const { lessonId } = route.params || {};
+  // joinToken — magic-link join (web parity, 2026-06-06): a confirmation-
+  // email deep link can carry a signed JWT that lets the registrant into
+  // the room with no Firebase sign-in. When present we skip the sign-in /
+  // email-mismatch gating and forward the token to LiveRoom.
+  const { lessonId, joinToken } = route.params || {};
   const config = useConfig();
   const accent = config?.mainColor || config?.themeColor || '#d97706';
 
@@ -114,6 +119,10 @@ export default function WebinarDetailScreen() {
   // a sign-out) needs a re-query.
   useEffect(() => { fetchPublic(); }, [fetchPublic, user?.uid]);
 
+  // Magic-link arrival — flip straight into join mode; the JWT is the
+  // credential, so no /public enrollment confirmation is needed first.
+  useEffect(() => { if (joinToken) setShowJoinFlow(true); }, [joinToken]);
+
   const handlePurchased = useCallback((res) => {
     setBuyOpen(false);
     if (res?.buyerEmail) setPurchaseEmail(res.buyerEmail);
@@ -127,7 +136,7 @@ export default function WebinarDetailScreen() {
       <View style={styles.notAvailableBox}>
         <Text style={styles.notAvailableTitle}>Not available</Text>
         <Text style={styles.notAvailableBody}>
-          Webinars are not enabled for this advisor.
+          Webinars are not enabled for this manager.
         </Text>
       </View>
     );
@@ -156,7 +165,7 @@ export default function WebinarDetailScreen() {
   const isVod = data.recordingStorageTier === 'promoted' && data.gumletAssetId;
   const ctaLabel = isFree ? 'Register for free' : `Buy ticket — ₹${data.ticketPrice}`;
   const emailMismatch = user?.email && purchaseEmail
-    && user.email.toLowerCase() !== purchaseEmail.toLowerCase();
+    && (getAccountEmail() || '').toLowerCase() !== purchaseEmail.toLowerCase();
 
   return (
     <>
@@ -228,7 +237,7 @@ export default function WebinarDetailScreen() {
 
           {(showJoinFlow || isVod) && (
             <View style={{ marginTop: 20 }}>
-              {!user && (
+              {!user && !joinToken && (
                 <View style={styles.signInBox}>
                   <Text style={styles.signInText}>
                     {purchaseEmail
@@ -240,7 +249,7 @@ export default function WebinarDetailScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-              {user && emailMismatch && (
+              {user && emailMismatch && !joinToken && (
                 <View style={styles.warnBox}>
                   <Text style={styles.warnText}>
                     You're signed in as {user.email} but registered as {purchaseEmail}. Either sign out and sign in with the registered email, or register again with this account below.
@@ -262,7 +271,7 @@ export default function WebinarDetailScreen() {
                   </TouchableOpacity>
                 </View>
               )}
-              {user && !emailMismatch && (
+              {(joinToken || (user && !emailMismatch)) && (
                 <LiveRoomLazy
                   lesson={{
                     _id: data.lessonId,
@@ -275,6 +284,7 @@ export default function WebinarDetailScreen() {
                   }}
                   courseId={data.courseId}
                   host={false}
+                  joinToken={joinToken}
                 />
               )}
             </View>

@@ -8,6 +8,7 @@
 import React, { useState } from 'react';
 import { useNavigation } from '@react-navigation/native';
 import { useComponent } from '../../design/useDesign';
+import { useConfig } from '../../context/ConfigContext';
 
 const catalogData = [
     {
@@ -115,11 +116,12 @@ const formatPrice = (price) => {
 
 const ProductCatalogScreen = ({ route }) => {
     const navigation = useNavigation();
+    const config = useConfig();
     const { explore = null } = route.params || {};
 
     const [index, setIndex] = useState(explore);
     const [routes] = useState([
-        { key: 'bespoke', title: 'Bespoke Plan' },
+        { key: 'bespoke', title: config?.bespokePlanLabel || 'Bespoke Plan' },
         { key: 'modelportfolio', title: 'Model Portfolio Plan' },
     ]);
 

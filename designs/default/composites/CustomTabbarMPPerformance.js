@@ -9,7 +9,7 @@
  *   Props (flat — not viewModel/actions, since this is a memo leaf):
  *     navigationState  — { index, routes: [{ key, title }] }
  *     jumpTo           — (key: string) => void
- *     isSubscriptionActive — boolean — when true, ALL tabs are locked (premium gate active = user not subscribed)
+ *     isSubscriptionActive — boolean — when true, the PORTFOLIO tab is locked (premium gate active = user not subscribed). Keyed by route.key, not index.
  */
 
 import React, { memo } from 'react';
@@ -22,8 +22,11 @@ const CustomTabBarMPPerformance = memo(({ navigationState, jumpTo, isSubscriptio
       {navigationState.routes.map((route, idx) => {
         const isActive = navigationState.index === idx;
 
-        // Lock ALL tabs when premium gate is active (user not subscribed)
-        const isDisabled = isSubscriptionActive;
+        // Lock only the PORTFOLIO tab (premium content) by key when the
+        // premium gate is active (user not subscribed). Keyed, not index-based,
+        // so the tab order can change (Overview is index 0) without locking the
+        // wrong tab. Overview + Research stay visible.
+        const isDisabled = route.key === 'portfolio' && isSubscriptionActive;
 
         return (
           <TouchableOpacity

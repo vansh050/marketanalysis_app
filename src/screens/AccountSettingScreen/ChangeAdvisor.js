@@ -15,6 +15,7 @@ import { useNavigation, CommonActions } from '@react-navigation/native';
 import { useTrade } from '../TradeContext';
 import { updateRACodeAndConfig, getRaId, getUserData } from '../../utils/storageUtils';
 import { useComponent } from '../../design/useDesign';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 let RNRestart = null;
 try {
@@ -31,7 +32,7 @@ const ChangeAdvisor = () => {
 
     const auth = getAuth();
     const user = auth.currentUser;
-    const userEmail = user?.email;
+    const userEmail = getAccountEmail();
     const navigation = useNavigation();
 
     const { getAllTrades, getModelPortfolioStrategyDetails, reloadConfigData } = useTrade();

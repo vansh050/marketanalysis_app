@@ -16,11 +16,13 @@ import Config from 'react-native-config';
 import { useComponent } from '../../design/useDesign';
 import useTokens from '../../theme/useTokens';
 import server from '../../utils/serverConfig';
+import { resolveImageUrl } from '../../utils/resolveImageUrl';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import PortfolioPercentage from '../../components/AdviceScreenComponents/DynamicText/PortfolioPercentage';
 import { isOrderRejected, isOrderSuccess, isOrderPending } from '../../utils/orderStatusUtils';
 import { useTrade } from '../TradeContext';
 import portfolioEvents, { PORTFOLIO_EVENTS } from '../../utils/portfolioEvents';
+import eventEmitter from '../../components/EventEmitter';
 import MPF_1 from '../../assets/Mpholder1.png';
 
 const ModalPFCard = ({
@@ -29,8 +31,6 @@ const ModalPFCard = ({
   specificPlan,
   strategy,
   repair,
-  price,
-  percentage,
   index = 0,
 }) => {
   const { configData } = useTrade();
@@ -62,6 +62,22 @@ const ModalPFCard = ({
     navigation.navigate('AfterSubscriptionScreen', {
       fileName: modelName,
     });
+  };
+
+  // "Invest" CTA on the pending state: land the user on the Home tab's
+  // Portfolio Recommendations card and trigger its Accept Rebalance flow
+  // (RebalanceCard listens for this event; Home stays mounted in the tab
+  // navigator). If the card isn't rendered yet the event is a no-op and the
+  // user still lands right next to the Accept Rebalance button.
+  const handleInvestClick = () => {
+    navigation.navigate('Home');
+    // Small fixed delay so the tab switch has started before the Home card
+    // opens its modal. Deliberately NOT InteractionManager: Home hosts
+    // perpetually-animating components (tickers, social-proof toasts), so
+    // runAfterInteractions can stall for seconds and the open feels dead.
+    setTimeout(() => {
+      eventEmitter.emit('openRebalanceFlow', { modelName });
+    }, 250);
   };
 
   const [strategyDetails, setStrategyDetails] = useState(null);
@@ -159,9 +175,7 @@ const ModalPFCard = ({
       }, 0)
     : 0;
 
-  const imageUri = strategyDetails?.image
-    ? `${server.server.baseUrl}${strategyDetails.image}`
-    : null;
+  const imageUri = resolveImageUrl(strategyDetails?.image, server.server.baseUrl) || null;
 
   return (
     <Presentation
@@ -173,9 +187,16 @@ const ModalPFCard = ({
         totalInvested,
         net_portfolio_updated,
         cardColor,
+        // Invested-view upgrade (2026-07-19): surface data the container
+        // already had so the card can show real metrics instead of a bare
+        // "₹X/-" row. specificPlan is the latest rebalance entry passed by
+        // PortfolioScreen's processedData.
+        holdingsCount: validOrderResults?.length || 0,
+        lastRebalanceDate: specificPlan?.rebalanceDate || null,
       }}
       actions={{
         onCardPress: handleCardClick,
+        onInvestPress: handleInvestClick,
       }}
       slots={{
         PortfolioPercentageSlot: (

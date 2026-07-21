@@ -8,6 +8,7 @@ import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { getStoredBrokerCreds } from '../../utils/brokerCredentials';
 import KotakConnectUI from '../../UIComponents/BrokerConnectionUI/KotakConnectUI';
+import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import { useTrade } from '../../screens/TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
@@ -17,6 +18,7 @@ import {
   sdkConnectBroker,
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const KotakModal = ({
   isVisible,
@@ -33,7 +35,7 @@ const KotakModal = ({
   const scrollViewRef = useRef(null);
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
   const [apiKey, setApiKey] = useState('');
   const [mobileNumber, setMobileNumber] = useState('');
   const [ucc, setucc] = useState('');
@@ -390,38 +392,96 @@ const KotakModal = ({
 
   // Render content for each accordion section
 
+  // Shared web-parity stepper surface (RN port of web BrokerConnectStepper /
+  // KotakConnection.js — same guide steps + egress static-IP gating). The app
+  // flow keeps its TWO extra fields vs web (MPIN + TOTP: the app posts a full
+  // Neo login, not just key registration) — do not drop them.
   return (
-    <KotakConnectUI
-      isVisible={isVisible}
+    <BrokerConnectStepperSheet
+      isVisible={!!isVisible}
       onClose={onClose}
-      helpVisible={helpVisible}
-      setHelpVisible={setHelpVisible}
-      scrollViewRef={scrollViewRef}
-      shouldRenderContent={shouldRenderContent}
-      mpin={mpin}
-      setMpin={setMpin}
-      totp={totp}
-      settotp={settotp}
-      mobileNumber={mobileNumber}
-      setMobileNumber={setMobileNumber}
-      apiKey={apiKey}
-      setApiKey={setApiKey}
-      ucc={ucc}
-      setucc={setucc}
-      iskeyVisible={iskeyVisible}
-      setIskeyVisible={setIskeyVisible}
-      ismpinVisible={ismpinVisible}
-      setIsmpinVisible={setIsmpinVisible}
-      updateKotakSecretKey={updateKotakSecretKey}
-      OpenHelpModal={OpenHelpModal}
-      isLoading={isLoading}
-      egressUserId={userId}
-      egressUserEmail={userEmail}
+      broker="Kotak"
+      config={{
+        monogram: 'K',
+        brandFrom: '#e3001b',
+        brandTo: '#9c0014',
+        portalUrl: 'https://trade.kotakneo.com/Login',
+        portalLabel: 'Open Kotak Neo',
+        walkthroughVideoId: 'J15Z4dP19o8',
+        guideSteps: [
+          'Log in to <b>Kotak Neo</b> with mobile, password and OTP',
+          'Open <b>More → Trade API</b>',
+          'Copy your <b>API access token</b>',
+          'Whitelist the <b>IP</b> below',
+          'On that page, click <b>TOTP Registration</b> → verify mobile + OTP',
+          'Find your <b>Client Code (UCC)</b> in your Kotak profile',
+        ],
+        note:
+          'Your app must be <b>Active</b> in Kotak NEO → TradeAPI → API Dashboard; old API keys are rejected.',
+      }}
+      egressBrokerKey="kotak"
+      customerId={userId}
+      customerEmail={userEmail}
       egressReady={egressReady}
       setEgressReady={setEgressReady}
       unmetAck={unmetAck}
       setUnmetAck={setUnmetAck}
-      configData={configData}
+      fields={[
+        {
+          label: 'Client Code (UCC)',
+          value: ucc,
+          onChange: (t) => setucc(t.trim()),
+          placeholder: 'Enter your UCC Code',
+        },
+        {
+          label: 'API Access Token',
+          value: apiKey,
+          onChange: (t) => setApiKey(t.trim()),
+          password: true,
+          placeholder: 'From Kotak Neo → Trade API',
+        },
+        {
+          label: 'Mobile Number',
+          value: mobileNumber,
+          onChange: (t) => {
+            let input = String(t || '').trim().replace(/\D/g, '');
+            if (/^91\d{10}$/.test(input)) input = input.slice(2);
+            else if (/^0\d{10}$/.test(input)) input = input.slice(1);
+            setMobileNumber(input);
+          },
+          keyboardType: 'number-pad',
+          maxLength: 10,
+          placeholder: 'Enter 10-digit mobile number',
+        },
+        {
+          label: 'MPIN',
+          value: mpin,
+          onChange: (t) => setMpin(t.replace(/\D/g, '').slice(0, 6)),
+          password: true,
+          keyboardType: 'number-pad',
+          maxLength: 6,
+          placeholder: 'Enter your 6-digit Neo MPIN',
+        },
+        {
+          label: 'TOTP',
+          value: totp,
+          onChange: (t) => settotp(t.replace(/\D/g, '').slice(0, 6)),
+          keyboardType: 'number-pad',
+          maxLength: 6,
+          placeholder: 'Enter 6-digit TOTP',
+        },
+      ]}
+      phase="creds"
+      canSubmit={
+        Boolean(ucc) &&
+        Boolean(apiKey) &&
+        Boolean(mobileNumber) &&
+        Boolean(mpin) &&
+        Boolean(totp)
+      }
+      submitLabel="Connect Kotak"
+      loading={isLoading}
+      onSubmit={updateKotakSecretKey}
     />
   );
 };

@@ -36,6 +36,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import useModalStore from '../GlobalUIModals/modalStore';
 import {useTrade} from '../screens/TradeContext';
 import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAccountEmail} from '../utils/accountEmail';
 const {height: screenHeight, width: screenWidth} = Dimensions.get('window');
 const checkValidApiAnSecret = data => {
   if (!data) return null;
@@ -1159,7 +1160,7 @@ export function AngleOneTpinModal({
   // responses returned `data: {}` to the form-builder and CDSL
   // rejected with "Some data is missing in posted Form".
   const jwtToken = userDetails?.jwtToken;
-  const userEmail = userDetails?.email;
+  const userEmail = getAccountEmail();
   useEffect(() => {
     if (!isOpen) return;
     if (verifyFiredRef.current) return;

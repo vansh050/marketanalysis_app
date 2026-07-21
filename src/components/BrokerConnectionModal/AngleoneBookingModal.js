@@ -16,6 +16,7 @@ import {
   sdkConnectBroker,
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const AngleOneBookingTrueSheet = ({
   isVisible,
@@ -55,7 +56,7 @@ const AngleOneBookingTrueSheet = ({
   const [authtoken, setAuthToken] = useState(null);
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
 
   const [userDetails, setUserDetails] = useState();
   const getUserDeatils = () => {

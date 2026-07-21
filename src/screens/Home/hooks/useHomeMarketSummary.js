@@ -27,7 +27,8 @@
  * arrays / zero values. Consumers fall back to design-preview placeholders.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { AppState } from 'react-native';
 import axios from 'axios';
 import { useTrade } from '../../TradeContext';
 import server from '../../../utils/serverConfig';
@@ -61,6 +62,14 @@ const INDICES = [
         alts: ['NIFTY BANK', 'NIFTYBANK', 'Nifty Bank', 'BANK NIFTY'],
     },
 ];
+
+// Day-boundary / foreground refresh interval for the prev-close base. The base
+// is fetched once on mount; a session held open across a market close→open
+// rollover would otherwise keep a STALE base (e.g. Fri-pre-close base = Thu
+// close, still shown Mon until relogin — reported 2026-06-22). Mirrors
+// MarketIndices.js. A same-session re-fetch returns the same value (no chip
+// flicker); the base only differs across a session that spans a market close.
+const PREV_CLOSE_REFRESH_MS = 15 * 60 * 1000; // 15 minutes
 
 const formatNumber = (n) => {
     if (!Number.isFinite(n) || n === 0) return '—';
@@ -129,6 +138,12 @@ export default function useHomeMarketSummary() {
     //                 no change indicator at all.
     const [comparisonType, setComparisonType] = useState('prevClose');
     const [openingPrices, setOpeningPrices] = useState({});
+    // Day-boundary refresh bookkeeping (see PREV_CLOSE_REFRESH_MS):
+    // lastPrevCloseFetchRef = ms timestamp of last successful prev-close fetch
+    // (0 = never); fetchPrevRef holds the latest fetch fn so the AppState
+    // listener can re-trigger it without duplicating the retry/merge logic.
+    const lastPrevCloseFetchRef = useRef(0);
+    const fetchPrevRef = useRef(null);
 
     // Subscribe + listen via WebSocketManager. Subscribe to the PRIMARY
     // symbol ONLY — exactly like the legacy `<MarketIndices>` (which uses
@@ -231,6 +246,7 @@ export default function useHomeMarketSummary() {
                 // every base once seen.
                 setPreviousClose((prev) => ({ ...prev, ...next }));
                 setComparisonType('prevClose');
+                lastPrevCloseFetchRef.current = Date.now();
                 // Partial response → retry to fill the missing indices (keeping
                 // what we already have). The endpoint's subset varies per call,
                 // so a retry usually returns the ones this call omitted.
@@ -248,10 +264,27 @@ export default function useHomeMarketSummary() {
                 degradeOrRetry();
             }
         };
+        fetchPrevRef.current = fetchPrev;
         fetchPrev();
         return () => {
             cancelled = true;
         };
+    }, []);
+
+    // Day-boundary refresh: re-fetch prev-close when the app returns to the
+    // foreground after long enough that the completed-session close may have
+    // rolled over. Fixes the stale-base-across-overnight/weekend bug
+    // (2026-06-22) without a manual logout/login. Throttled by
+    // PREV_CLOSE_REFRESH_MS; a same-session refresh returns the same base.
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (nextState) => {
+            if (nextState !== 'active') return;
+            if (Date.now() - lastPrevCloseFetchRef.current < PREV_CLOSE_REFRESH_MS) {
+                return;
+            }
+            fetchPrevRef.current?.();
+        });
+        return () => sub?.remove();
     }, []);
 
     // Snapshot the first LTP per index when comparisonType is 'opening' so

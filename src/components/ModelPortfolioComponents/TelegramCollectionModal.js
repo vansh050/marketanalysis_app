@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { X, MessageCircle, CheckCircle } from 'lucide-react-native';
 import { useConfig } from '../../context/ConfigContext';
+import useTokens from '../../theme/useTokens';
 
 const TelegramCollectionModal = ({
     visible,
@@ -22,7 +23,7 @@ const TelegramCollectionModal = ({
 }) => {
     // Get dynamic colors from config
     const config = useConfig();
-    const mainColor = config?.mainColor || '#2563EB';
+    const mainColor = useTokens().colors.brand.primary;
 
     const [showInstructions, setShowInstructions] = useState(false);
     const [isSaving, setIsSaving] = useState(false);

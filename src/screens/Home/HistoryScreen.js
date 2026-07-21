@@ -29,13 +29,14 @@ import {generateToken} from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
 import {useTrade} from '../TradeContext';
 import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {getAccountEmail} from '../../utils/accountEmail';
 const {width: screenWidth} = Dimensions.get('window');
 const HistoryScreen = () => {
   const {configData} = useTrade();
   const auth = getAuth();
   const navigation = useNavigation();
   const user = auth.currentUser;
-  const userEmail = user && user.email;
+  const userEmail = getAccountEmail();
   const [startDate, setStartDate] = useState(new Date());
   const [endDate, setEndDate] = useState(new Date());
   const [startDateOpen, setStartDateOpen] = useState(false);

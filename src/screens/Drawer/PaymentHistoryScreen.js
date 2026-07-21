@@ -31,6 +31,7 @@ import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import RiaBillingService from '../../FunctionCall/services/RiaBillingService';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 // Robustly turn an axios arraybuffer (or already-base64 string) into base64 so the
 // existing savePdfToFile (atob → RNFS.writeFile) can consume it unchanged.
@@ -108,7 +109,7 @@ const PaymentHistoryScreen = () => {
 
     const auth = getAuth();
     const user = auth.currentUser;
-    const userEmail = user?.email;
+    const userEmail = getAccountEmail();
 
     // X-Advisor-Subdomain: prefer the live config value (per-tenant
     // override resolved from the backend), but fall back to the static

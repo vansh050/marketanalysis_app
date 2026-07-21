@@ -666,7 +666,7 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
                         <View>
                             <Text style={styles.sectionTitle}>Knowledge Hub</Text>
                             <Text style={styles.sectionSubtitle}>
-                                Learn with trusted advisor content.
+                                Learn with trusted manager content.
                             </Text>
                         </View>
                     )}
@@ -732,7 +732,7 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
                     </View>
                     <View style={{ marginLeft: 45, marginTop: 2 }}>
                         <Text style={{ fontSize: 12, fontFamily: 'Poppins-Regular', color: '#f0f0f0' }}>
-                            Learn with trusted advisor content.
+                            Learn with trusted manager content.
                         </Text>
                     </View>
                     <View style={styles.tabContainer}>

@@ -20,6 +20,7 @@ import moment from 'moment';
 import Config from 'react-native-config';
 
 import server from '../../utils/serverConfig';
+import {resolveImageUrl} from '../../utils/resolveImageUrl';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useTrade} from '../TradeContext';
 import {useConfig} from '../../context/ConfigContext';
@@ -28,6 +29,7 @@ import {
   getSubscriptionStatus,
   ACCEPTABLE_DATE_FORMATS,
 } from '../../utils/subscriptionStatus';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const {width: screenWidth} = Dimensions.get('window');
 const Alpha100 = require('../../assets/alpha-100.png');
@@ -53,7 +55,7 @@ const MySubscriptionsScreen = () => {
   const navigation = useNavigation();
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -184,7 +186,7 @@ const MySubscriptionsScreen = () => {
               <Image
                 source={
                   plan?.image
-                    ? {uri: `${server.server.baseUrl}${plan.image}`}
+                    ? {uri: resolveImageUrl(plan.image, server.server.baseUrl)}
                     : Alpha100
                 }
                 style={styles.cardImage}
@@ -265,7 +267,7 @@ const MySubscriptionsScreen = () => {
             activeOpacity={0.7}
           >
             <Text style={[styles.subTabText, activeSubTab === 'bespoke' && styles.subTabTextActive]}>
-              Bespoke Plans ({bespokeSubscribed.length})
+              {config?.bespokePlanLabel || 'Bespoke Plans'} ({bespokeSubscribed.length})
             </Text>
           </TouchableOpacity>
         </View>
@@ -279,12 +281,12 @@ const MySubscriptionsScreen = () => {
         <View style={styles.emptyContainer}>
           <Crown size={48} color={mainColor} />
           <Text style={styles.emptyTitle}>
-            {activeSubTab === 'mp' ? 'No Model Portfolio Subscriptions' : 'No Bespoke Subscriptions'}
+            {activeSubTab === 'mp' ? 'No Model Portfolio Subscriptions' : `No ${config?.bespokePlanLabel || 'Bespoke'} Subscriptions`}
           </Text>
           <Text style={styles.emptySubtitle}>
             {activeSubTab === 'mp'
               ? "You haven't subscribed to any model portfolios yet."
-              : "You haven't subscribed to any bespoke plans yet."}
+              : `You haven't subscribed to any ${(config?.bespokePlanLabel || 'bespoke plans').toLowerCase()} yet.`}
           </Text>
           <TouchableOpacity
             style={[styles.browsePlansButton, {backgroundColor: mainColor}]}

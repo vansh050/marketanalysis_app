@@ -37,6 +37,7 @@ import {
   useSdkBridge,
   sdkExchangeBrokerToken,
 } from '../../sdk/brokerSdkBridge';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 
@@ -57,7 +58,7 @@ const ZerodhaConnectUI = ({
 
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
 
   // Get common headers for API calls
   const getHeaders = () => ({

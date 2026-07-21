@@ -36,6 +36,7 @@ import Config from 'react-native-config';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useConfig} from '../../context/ConfigContext';
 import RebalanceNotificationComponent from './RebalanceNotificationComponent';
+import {adviceHeaderLabel, orderTypeDisplay} from '../../utils/adviceDisplay';
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
@@ -766,14 +767,21 @@ const getUnreadCount = () => {
 
                                   {/* Recommendation Details Grid */}
                                   <View style={styles.recommendationGrid}>
-                                    {/* MARKET Order */}
-                                    {orderType === 'MARKET' && (
-                                      <View style={styles.recommendationRow}>
-                                        <Text style={styles.recommendationValue}>
-                                          {action === 'BUY' ? 'BUY at market' : 'SELL at market'}
-                                        </Text>
-                                      </View>
-                                    )}
+                                    {/* Advice summary — mirrors the advice email header
+                                        (with STOP LOSS/PROFIT TARGET when set, else at
+                                        Market Price / at the limit price). See
+                                        src/utils/adviceDisplay.js. */}
+                                    <View style={styles.recommendationRow}>
+                                      <Text style={styles.recommendationValue}>
+                                        {adviceHeaderLabel({
+                                          action,
+                                          orderType,
+                                          price: limitPrice,
+                                          stopLoss,
+                                          profitTarget,
+                                        })}
+                                      </Text>
+                                    </View>
 
                                     {/* Limit Price */}
                                     {limitPrice > 0 && orderType !== 'MARKET' && (
@@ -787,7 +795,7 @@ const getUnreadCount = () => {
                                     {orderType && (
                                       <View style={styles.recommendationRow}>
                                         <Text style={styles.recommendationLabel}>Order Type:</Text>
-                                        <Text style={styles.recommendationValue}>{orderType}</Text>
+                                        <Text style={styles.recommendationValue}>{orderTypeDisplay(orderType)}</Text>
                                       </View>
                                     )}
 

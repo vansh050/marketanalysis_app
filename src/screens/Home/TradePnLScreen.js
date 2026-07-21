@@ -21,6 +21,7 @@ import {generateToken} from '../../utils/SecurityTokenManager';
 import {useTrade} from '../TradeContext';
 import {useConfig} from '../../context/ConfigContext';
 import formatCurrency from '../../utils/formatCurrency';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const TradePnLScreen = () => {
   const {configData} = useTrade();
@@ -31,7 +32,7 @@ const TradePnLScreen = () => {
 
   const navigation = useNavigation();
   const auth = getAuth();
-  const userEmail = auth.currentUser?.email;
+  const userEmail = getAccountEmail();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -115,6 +116,25 @@ const TradePnLScreen = () => {
             <Text style={styles.modelMeta}>
               {model.tradeCount} stocks · {model.holdingDays != null ? `${model.holdingDays}d` : '-'} held
             </Text>
+            {model.subscriptionActive === false && (
+              <View style={styles.expiredRow}>
+                <View style={styles.expiredBadge}>
+                  <Text style={styles.expiredBadgeText}>Subscription expired</Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => navigation?.navigate?.('Plans')}
+                  hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}>
+                  <Text style={styles.renewLink}>Renew</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {model.trades?.length > 0 && !model.trades.every((t) => t.isLtpLive) && (
+              <Text style={styles.asOfHint}>
+                {model.asOf
+                  ? `Prices as of ${new Date(model.asOf).toLocaleDateString('en-IN', {day: 'numeric', month: 'short'})}`
+                  : 'Prices pending — showing cost basis'}
+              </Text>
+            )}
           </View>
           <View style={{alignItems: 'flex-end'}}>
             <Text style={[styles.modelPnl, {color: pos ? '#16A34A' : '#DC2626'}]}>
@@ -233,6 +253,19 @@ const TradePnLScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  expiredRow: {flexDirection: 'row', alignItems: 'center', marginTop: 4},
+  expiredBadge: {
+    backgroundColor: '#FFFAEB',
+    borderColor: '#FEDF89',
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    marginRight: 8,
+  },
+  expiredBadgeText: {fontSize: 10, fontWeight: '700', color: '#B54708'},
+  renewLink: {fontSize: 11, fontWeight: '700', color: '#0056B7'},
+  asOfHint: {fontSize: 10, color: '#9CA3AF', marginTop: 3},
   container: {flex: 1, backgroundColor: '#F5F5F5'},
   header: {
     flexDirection: 'row',

@@ -81,6 +81,7 @@ import AlphaQuarkBanner from '../../components/HomeScreenComponents/AlphaQuarkBa
 import KnowledgeHub from '../../components/HomeScreenComponents/KnowledgeHub';
 import ModelPortfolioScreen from '../Drawer/ModelPortfolioScreen';
 import UpdateAppModal, {checkForAppUpdate} from '../../UpdateAppModal';
+import {getAccountEmail, getAccountEmailAsync} from '../../utils/accountEmail';
 
 const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
 const selectedVariant = Config?.APP_VARIANT || 'rgxresearch';
@@ -140,7 +141,7 @@ const HomeScreen = ({ }) => {
 
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
   // Resolve a displayable user name (alphanomy variant uses this for the
   // header greeting). Backend-stored `userDetails.name` is preferred (full
   // legal name); Firebase `user.displayName` is the fallback (Google /
@@ -274,6 +275,48 @@ const HomeScreen = ({ }) => {
   const showNotification = useSocialProof();
   const navigation = useNavigation();
 
+  // mobile-deeplink Phase 1: consume a pending functional deep-link (rebalance/
+  // execute) that smartLink.js resolved + stashed, and route to the rebalance
+  // surface. Fires once per stash; clears it so a later focus doesn't re-open.
+  const _deeplinkConsumed = useRef(false);
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+      (async () => {
+        try {
+          const raw = await AsyncStorage.getItem('pending_functional_deeplink');
+          if (!raw || !active) return;
+          const parsed = JSON.parse(raw) || {};
+          const resolved = parsed.resolved;
+          await AsyncStorage.removeItem('pending_functional_deeplink');
+          if (!resolved || _deeplinkConsumed.current) return;
+          _deeplinkConsumed.current = true;
+          const surface = String(resolved.surface || '');
+          if (
+            surface.startsWith('rebalance') ||
+            surface === 'trade_execute' ||
+            surface === 'basket_execute'
+          ) {
+            // Land on the rebalance/notifications surface with the resolved model.
+            // TODO(app team): in PushNotificationScreen, when deeplinkModelName is
+            // present, fetch that model's latest rebalance and render its
+            // RebalanceNotificationComponent (selectedNotification.modelName +
+            // .latestRebalance.adviceEntries) — same shape as a rebalance push.
+            navigation.navigate('PushNotificationScreen', {
+              deeplinkModelName: resolved.model_name,
+              deeplinkUniqueId: resolved.unique_id,
+            });
+          }
+        } catch (_) {
+          /* ignore — never block Home */
+        }
+      })();
+      return () => {
+        active = false;
+      };
+    }, [navigation]),
+  );
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const handleUserDataAndFcm = async () => {
     try {
@@ -281,9 +324,15 @@ const HomeScreen = ({ }) => {
       //  console.log('fcm_token:', fcmToken);
 
       if (fcmToken) {
+        // getAccountEmailAsync(), not user.email: an Apple user's Firebase
+        // email is null, which registered the device token against no
+        // account and silently disabled push notifications for them. Async
+        // (not the sync getAccountEmail) so a cold-start call before the
+        // in-memory cache primes still resolves the typed identity.
+        const accountEmail = await getAccountEmailAsync();
         // Define the payload
         const payload = {
-          email: user.email,
+          email: accountEmail,
           fcm_token: fcmToken.toString(),
         };
         console.log(' Fcm token:', fcmToken);
@@ -317,7 +366,7 @@ const HomeScreen = ({ }) => {
           await axios.post(
             `${server.server.baseUrl}api/devices/register`,
             {
-              user_email: user.email,
+              user_email: accountEmail,
               app: 'alphab2b',
               platform: Platform.OS, // 'ios' | 'android'
               device_token: fcmToken.toString(),
@@ -582,7 +631,7 @@ const HomeScreen = ({ }) => {
   const handleRecoMessageNotification = async (title, body) => {
     if (!title && !body) return;
     await notifee.displayNotification({
-      title: `${title || 'New message from your advisor'}`,
+      title: `${title || 'New message from your manager'}`,
       body: `${body || ''}`,
       android: {
         channelId: 'default',
@@ -687,7 +736,7 @@ const HomeScreen = ({ }) => {
         title: title || 'New Rebalance!',
         body:
           body ||
-          'You have received a new rebalance from your advisor. Tap to review.',
+          'You have received a new rebalance from your manager. Tap to review.',
         android: {
           channelId: 'default',
           importance: AndroidImportance.HIGH,
@@ -737,6 +786,11 @@ const HomeScreen = ({ }) => {
     fetchVideos();
     getModelPortfolioStrategyDetails();
     getAllBestPerformers();
+    // useHomePlanSummary fetches once on mount and doesn't depend on any
+    // value pull-to-refresh changes, so a plan deleted/unpublished on the
+    // admin dashboard after that initial fetch kept showing on Home
+    // indefinitely, even across refresh (2026-07-16). Force it explicitly.
+    refetchPlanSummary();
     // Emit the refresh event
 
     //eventEmitter.emit('refreshEvent', { userEmail });
@@ -1351,12 +1405,17 @@ const HomeScreen = ({ }) => {
   const [hasMPData, setHasMPData] = useState(false);
   const [hasBespokeData, setHasBespokeData] = useState(false);
 
-  // Whether user has active recommendations or rebalances.
-  // planList is truthy only when the user has an active subscription (set by
-  // api/sendnotification). Unsubscribed users who received a demo reco must
-  // still see the Plans section — so we gate on planList here to prevent a
-  // blurred demo card from hiding the Plans discovery section.
-  const hasActiveContent = !!planList && (filteredAndSortedStrategies.length > 0 || stockRecoNotExecutedfinal?.length > 0);
+  // Entitlements come from their product-specific source, never from one
+  // broad "has any plan" boolean. The MP endpoint is server-filtered to paid,
+  // active, unexpired model subscriptions; planList remains the legacy gate
+  // for bespoke recommendations only. This prevents an unrelated/stale
+  // ClientList subscription from turning a browseable model into a rebalance
+  // card on Home.
+  const hasActiveModelPortfolio = filteredAndSortedStrategies.length > 0;
+  const hasActiveBespokeRecommendations =
+    !!planList && (stockRecoNotExecutedfinal?.length || 0) > 0;
+  const hasActiveContent =
+    hasActiveModelPortfolio || hasActiveBespokeRecommendations;
 
   // Data for All Tab
   // If user has active subscriptions (recos/rebalances), show those first, plans after.
@@ -1388,8 +1447,8 @@ const HomeScreen = ({ }) => {
                 </View>
                 <TouchableOpacity
                   onPress={() => setSeeAllMP(true)}
-                  style={styles.viewAll}>
-                  <Text style={styles.viewAllText}>View All</Text>
+                  style={[styles.viewAll, { borderColor: mainColor }]}>
+                  <Text style={[styles.viewAllText, { color: mainColor }]}>View All</Text>
                 </TouchableOpacity>
               </View>
               <View style={{ marginLeft: 14 }}>
@@ -1418,13 +1477,13 @@ const HomeScreen = ({ }) => {
                 <View>
                   <Text style={styles.StockTitle}>Recommendations</Text>
                   <Text style={styles.StockTitlebelow}>
-                    Bespoke Active Recommendations
+                    {config?.bespokePlanLabel || 'Bespoke'} Active Recommendations
                   </Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => setSeeAllBespoke(true)}
-                  style={styles.viewAll}>
-                  <Text style={styles.viewAllText}>View All</Text>
+                  style={[styles.viewAll, { borderColor: mainColor }]}>
+                  <Text style={[styles.viewAllText, { color: mainColor }]}>View All</Text>
                 </TouchableOpacity>
               </View>
               <View style={{ marginLeft: 2 }}>
@@ -1465,8 +1524,8 @@ const HomeScreen = ({ }) => {
 
                   <TouchableOpacity
                     onPress={() => setSeeAllMPplan(true)}
-                    style={styles.viewAll}>
-                    <Text style={styles.viewAllText}>View All</Text>
+                    style={[styles.viewAll, { borderColor: mainColor }]}>
+                    <Text style={[styles.viewAllText, { color: mainColor }]}>View All</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1495,7 +1554,10 @@ const HomeScreen = ({ }) => {
                     marginHorizontal: 15,
                   }}>
                   <View>
-                    <Text style={styles.StockTitle}>Top Bespoke Plans</Text>
+                    {/* Pluralize a custom tenant label here only ("Stock Plan" → "Top Stock
+                        Plans") — the label value stays singular everywhere else (tab,
+                        cards). Naive +s is fine: we control the tenant values. */}
+                    <Text style={styles.StockTitle}>Top {config?.bespokePlanLabel ? `${config.bespokePlanLabel}s` : 'Bespoke Plans'}</Text>
                     <Text style={styles.StockTitlebelow}>
                       Ranked based of user feedbacks
                     </Text>
@@ -1503,8 +1565,8 @@ const HomeScreen = ({ }) => {
 
                   <TouchableOpacity
                     onPress={() => setSeeAllBespokeplan(true)}
-                    style={styles.viewAll}>
-                    <Text style={styles.viewAllText}>View All</Text>
+                    style={[styles.viewAll, { borderColor: mainColor }]}>
+                    <Text style={[styles.viewAllText, { color: mainColor }]}>View All</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1542,8 +1604,8 @@ const HomeScreen = ({ }) => {
                 </View>
                 <TouchableOpacity
                   onPress={() => setSeeAllMP(true)}
-                  style={styles.viewAll}>
-                  <Text style={styles.viewAllText}>View All</Text>
+                  style={[styles.viewAll, { borderColor: mainColor }]}>
+                  <Text style={[styles.viewAllText, { color: mainColor }]}>View All</Text>
                 </TouchableOpacity>
               </View>
               <View style={{ marginLeft: 14 }}>
@@ -1614,13 +1676,13 @@ const HomeScreen = ({ }) => {
                 <View>
                   <Text style={styles.StockTitle}>Recommendations</Text>
                   <Text style={styles.StockTitlebelow}>
-                    Bespoke Active Recommendations
+                    {config?.bespokePlanLabel || 'Bespoke'} Active Recommendations
                   </Text>
                 </View>
                 <TouchableOpacity
                   onPress={() => setSeeAllBespoke(true)}
-                  style={styles.viewAll}>
-                  <Text style={styles.viewAllText}>View All</Text>
+                  style={[styles.viewAll, { borderColor: mainColor }]}>
+                  <Text style={[styles.viewAllText, { color: mainColor }]}>View All</Text>
                 </TouchableOpacity>
               </View>
               <View style={{ marginLeft: 2 }}>
@@ -1691,7 +1753,7 @@ const HomeScreen = ({ }) => {
   // src/screens/Drawer/ModelPortfolioScreen.js — same auth headers,
   // same advisorTag/userEmail dependencies). Returns nulls until the
   // user is authenticated AND the advisor config has resolved.
-  const { heroPlan, bespokePlan, heroPlanRaw, bespokePlanRaw } = useHomePlanSummary({
+  const { heroPlan, bespokePlan, heroPlanRaw, bespokePlanRaw, refetch: refetchPlanSummary } = useHomePlanSummary({
     userEmail,
     advisorTag: configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG,
     headerName: configData?.config?.REACT_APP_HEADER_NAME,

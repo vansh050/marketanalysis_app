@@ -40,7 +40,7 @@ const ChangeAdvisor = ({ viewModel, actions }) => {
 
     if (isInitialLoading) {
         return (
-            <LinearGradient colors={['#002651', '#0056B7']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.container}>
+            <LinearGradient colors={[tokens.colors.brand.gradientStart, tokens.colors.brand.gradientEnd]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.container}>
                 <View style={styles.loadingContainer}>
                     <Spinner size="large" color="#FFFFFF" />
                     <Text variant="body" style={styles.loadingText}>Loading settings...</Text>
@@ -50,9 +50,9 @@ const ChangeAdvisor = ({ viewModel, actions }) => {
     }
 
     return (
-        <LinearGradient colors={['#002651', '#0056B7']} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.container}>
+        <LinearGradient colors={[tokens.colors.brand.gradientStart, tokens.colors.brand.gradientEnd]} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} style={styles.container}>
             <SafeAreaView style={styles.safeArea}>
-                <StatusBar barStyle="light-content" backgroundColor="#002651" />
+                <StatusBar barStyle="light-content" backgroundColor={tokens.colors.brand.gradientStart} />
 
                 <View style={styles.logoContainer} pointerEvents="none">
                     <Image source={tokens.assets.logoFadedPng} style={[styles.logo, { tintColor: '#FFFFFF' }]} resizeMode="contain" />
@@ -116,7 +116,7 @@ const ChangeAdvisor = ({ viewModel, actions }) => {
                     </TouchableOpacity>
 
                     <View style={styles.infoSection}>
-                        <Text variant="caption" style={styles.infoText}>• RA ID must be provided by your financial advisor</Text>
+                        <Text variant="caption" style={styles.infoText}>• RA ID must be provided by your financial manager</Text>
                         <Text variant="caption" style={styles.infoText}>• Spaces and lowercase letters will be automatically corrected</Text>
                         <Text variant="caption" style={styles.infoText}>• App will restart after successful update</Text>
                     </View>

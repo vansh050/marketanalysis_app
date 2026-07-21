@@ -29,6 +29,7 @@ import {
   sdkConnectBroker,
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const AxisConnectModal = ({
   isVisible,
@@ -38,7 +39,7 @@ const AxisConnectModal = ({
   const {configData} = useTrade();
   const sdkBridge = useSdkBridge();
   const auth = getAuth();
-  const userEmail = auth.currentUser?.email;
+  const userEmail = getAccountEmail();
   const [userDetails, setUserDetails] = useState(null);
   const userId = userDetails?._id;
   const [loading, setLoading] = useState(false);

@@ -28,6 +28,7 @@ import { LineChart } from 'react-native-chart-kit';
 import { getAuth } from '@react-native-firebase/auth';
 import { useConfig } from '../../../src/context/ConfigContext';
 import RiaBillingService from '../../../src/FunctionCall/services/RiaBillingService';
+import {useAccountEmail} from '../../../src/utils/accountEmail';
 
 const inr = v => {
     if (v === null || v === undefined || isNaN(Number(v))) return '—';
@@ -49,7 +50,10 @@ const compact = v => {
 
 const AumPerformanceCard = () => {
     const config = useConfig();
-    const email = getAuth().currentUser?.email;
+    // Apple users have no usable currentUser.email (null / relay alias);
+    // this component gates its fetch on `email`, and the identity can
+    // resolve AFTER mount — the reactive hook re-renders when it does.
+    const email = useAccountEmail();
     const [data, setData] = useState(null);
     const [model, setModel] = useState('all');
 

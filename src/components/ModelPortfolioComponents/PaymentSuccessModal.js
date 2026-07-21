@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, Modal, TouchableOpacity, Image, StyleSheet,Dimensions } from "react-native";
 import { X as XIcon } from "lucide-react-native"; // Adjust import if using another library
 import Checked from "../../assets/checked.png"; // Adjust path as needed
+import { useConfig } from "../../context/ConfigContext";
 const { height: screenHeight } = Dimensions.get('window');
 const PaymentSuccessModal = ({
   visible,
@@ -13,6 +14,7 @@ const PaymentSuccessModal = ({
   setOpenSubscribeModel,
 }) => {
   console.log('spoooss:',specificPlanDetails);
+  const config = useConfig();
   return (
     <Modal
       transparent
@@ -50,7 +52,7 @@ const PaymentSuccessModal = ({
             <Text style={styles.successTitle}>Payment Successful!</Text>
             <Text style={styles.successMessage}>
             Your payment for the <Text style={{color:'black',fontFamily:'Satoshi-Bold'}}>{specificPlan?.name}
-              </Text> {specificPlan?.type === "model portfolio" ? "Model Portfolio " : "Bespoke Plan "} 
+              </Text> {specificPlan?.type === "model portfolio" ? "Model Portfolio " : `${config?.bespokePlanLabel || "Bespoke Plan"} `}
              has been processed successfully.
             </Text>
           </View>

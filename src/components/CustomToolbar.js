@@ -34,6 +34,7 @@ import formatCurrency from '../utils/formatCurrency';
 import BrokerSelectionModal from './BrokerSelectionModal';
 import IIFLReviewTradeModal from './IIFLReviewTradeModal';
 import {useConfig} from '../context/ConfigContext';
+import useTokens from '../theme/useTokens';
 import moment from 'moment';
 
 import ICICIUPModal from './BrokerConnectionModal/icicimodal';
@@ -55,6 +56,8 @@ import MotilalModal from './BrokerConnectionModal/MotilalModal';
 import MarketIndices from './HomeScreenComponents/MarketIndices';
 import ProfileModal from './ProfileModal';
 import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
+import {getAccountEmail} from '../utils/accountEmail';
 const {width, height} = Dimensions.get('window');
 
 const CustomToolbar = React.memo(({count, currentRoute}) => {
@@ -64,12 +67,22 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
   const validVariant = APP_VARIANTS[selectedVariant] ? selectedVariant : 'rgxresearch';
   const fallbackConfig = APP_VARIANTS[validVariant] || {};
 
-  // Get toolbarlogo from config (S3) or fallback
-  const toolbarLogo = config?.toolbarlogo || fallbackConfig.toolbarlogo || config?.logo || fallbackConfig.logo;
+  // Toolbar logo: prefer the backend (S3) logo, but fall back to the bundled
+  // variant asset when that URL fails to load. Private/403 S3 objects (e.g. the
+  // markup tenant's Markup_falcon.png, 2026-07-13) would otherwise render a
+  // blank white circle. `remoteLogoFailed` flips on the <Image> onError below.
+  const remoteToolbarLogo = config?.toolbarlogo || config?.logo; // backend URL (may 403)
+  const bundledToolbarLogo = fallbackConfig.toolbarlogo || fallbackConfig.logo; // bundled require
+  const [remoteLogoFailed, setRemoteLogoFailed] = useState(false);
+  const toolbarLogo =
+    !remoteLogoFailed && remoteToolbarLogo ? remoteToolbarLogo : bundledToolbarLogo;
 
-  // Get dynamic gradient colors from config
-  const gradient1 = config?.gradient1 || fallbackConfig.gradient1 || 'rgba(0, 86, 183, 1)';
-  const gradient2 = config?.gradient2 || fallbackConfig.gradient2 || 'rgba(0, 38, 81, 1)';
+  // Header gradient — pulled through useTokens so the active design variant
+  // (moneyman_app green, etc.) supplies the fallback when neither the tenant
+  // nor the APP_VARIANT static config sets gradient1/gradient2.
+  const tokens = useTokens();
+  const gradient1 = config?.gradient1 || fallbackConfig.gradient1 || tokens.colors.brand.gradientStart;
+  const gradient2 = config?.gradient2 || fallbackConfig.gradient2 || tokens.colors.brand.gradientEnd;
 
   const {
     userDetails,
@@ -85,7 +98,8 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
 
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
+  const insets = useSafeAreaInsets();
 
   // Use Firebase displayName as fallback if userDetails not loaded yet
   const name = userDetails?.name || user?.displayName || user?.email?.split('@')[0];
@@ -187,46 +201,65 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
         borderBottomLeftRadius: 15,
         borderBottomRightRadius: 15,
       }}>
-      <View style={styles.toolbar}>
-        <View style={{flexDirection: 'row', alignItems: 'center'}}>
-          <View
-            style={{
-              justifyContent: 'center',
-              alignItems: 'center',
-              alignSelf: 'center',
-              width: 40,
-              height: 40,
-              borderRadius: 20, // half of width/height for perfect circle
-              overflow: 'hidden',
-              backgroundColor: '#fff',
-              marginRight: 10, // spacing between logo and text
-            }}>
-            {toolbarLogo && typeof toolbarLogo === 'string' ? (
-              <Image
-                source={{uri: toolbarLogo}}
-                style={{
-                  width: 30,
-                  height: 30,
-                  resizeMode: 'cover',
-                }}
-              />
-            ) : toolbarLogo ? (
-              <Image
-                source={toolbarLogo}
-                style={{
-                  width: 30,
-                  height: 30,
-                  resizeMode: 'cover',
-                }}
-              />
-            ) : (
-              <View style={{width: 30, height: 30, backgroundColor: '#ddd'}} />
-            )}
-          </View>
+      <View
+        style={[
+          styles.toolbar,
+          {
+            paddingLeft: Math.max(20, insets.left),
+            paddingRight: Math.max(20, insets.right),
+          },
+        ]}>
+        <View
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            flex: 1,
+            marginRight: 8,
+          }}>
+          {/* Left circle renders ONLY when an advisor logo actually resolves.
+              A blank white circle otherwise reads as a broken/duplicate avatar
+              (Markup change #5). */}
+          {toolbarLogo ? (
+            <View
+              style={{
+                justifyContent: 'center',
+                alignItems: 'center',
+                alignSelf: 'center',
+                width: 40,
+                height: 40,
+                borderRadius: 20, // half of width/height for perfect circle
+                overflow: 'hidden',
+                backgroundColor: '#fff',
+                marginRight: 10, // spacing between logo and text
+              }}>
+              {typeof toolbarLogo === 'string' ? (
+                <Image
+                  source={{uri: toolbarLogo}}
+                  onError={() => setRemoteLogoFailed(true)}
+                  style={{
+                    width: 30,
+                    height: 30,
+                    resizeMode: 'cover',
+                  }}
+                />
+              ) : (
+                <Image
+                  source={toolbarLogo}
+                  style={{
+                    width: 30,
+                    height: 30,
+                    resizeMode: 'cover',
+                  }}
+                />
+              )}
+            </View>
+          ) : null}
 
-          <Text style={styles.toolbarText}>Hello, {name}</Text>
+          <Text style={[styles.toolbarText, {flexShrink: 1}]} numberOfLines={1}>
+            Hello, {name}
+          </Text>
         </View>
-        <View style={{}}>
+        <View style={{flexShrink: 0}}>
           <View style={{flexDirection: 'row', alignItems: 'center'}}>
             <TouchableOpacity
               onPress={handleOpenCart}

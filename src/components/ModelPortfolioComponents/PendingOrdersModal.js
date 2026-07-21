@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import {XIcon, RefreshCw} from 'lucide-react-native';
+import useTokens from '../../theme/useTokens';
 
 const getStatusColor = (status) => {
   if (!status) return {text: '#6B7280', bg: '#F3F4F6'};
@@ -37,6 +38,7 @@ const PendingOrdersModal = ({
   onRetryOnly,
   cancelLoading,
 }) => {
+  const brandPrimary = useTokens().colors.brand.primary;
   if (!isOpen) return null;
 
   const isPublisher = broker === 'Zerodha';
@@ -152,7 +154,7 @@ const PendingOrdersModal = ({
                 <TouchableOpacity
                   onPress={onRetryOnly}
                   disabled={cancelLoading}
-                  style={[styles.actionButton, cancelLoading && styles.disabledButton]}>
+                  style={[styles.actionButton, { backgroundColor: brandPrimary }, cancelLoading && styles.disabledButton]}>
                   {cancelLoading ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
@@ -166,7 +168,7 @@ const PendingOrdersModal = ({
                 <TouchableOpacity
                   onPress={onCancelAndRetry}
                   disabled={cancelLoading}
-                  style={[styles.actionButton, cancelLoading && styles.disabledButton]}>
+                  style={[styles.actionButton, { backgroundColor: brandPrimary }, cancelLoading && styles.disabledButton]}>
                   {cancelLoading ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
@@ -183,7 +185,7 @@ const PendingOrdersModal = ({
               <TouchableOpacity
                 onPress={onRetryOnly}
                 disabled={cancelLoading}
-                style={[styles.actionButton, cancelLoading && styles.disabledButton]}>
+                style={[styles.actionButton, { backgroundColor: brandPrimary }, cancelLoading && styles.disabledButton]}>
                 {cancelLoading ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (

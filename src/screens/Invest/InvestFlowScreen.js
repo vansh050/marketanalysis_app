@@ -1,7 +1,11 @@
 /**
  * InvestFlowScreen — 4-step KYC + payment flow for model portfolio subscription.
  * Ported from Tidi's InvestInPlanSheet.dart with NRI/Foreign national support.
- * Keeps Alphab2b's 3 payment gateways (Razorpay, CashFree, PayU).
+ * Keeps Alphab2b's 3 payment gateways (Razorpay, CashFree, PayU) — gateway is
+ * resolved per-tenant from /api/adminControl/get-payment-platform (source of
+ * truth: payment_gateway_config.active_gateway) rather than hardcoded, so a
+ * tenant with Cashfree configured/active routes to Cashfree, not Razorpay.
+ * See docs/PAYMENT_ARCHITECTURE.md changelog 2026-07-16.
  *
  * Steps:
  *   0 — Personal Info (name, email)
@@ -34,11 +38,23 @@ import axios from 'axios';
 import Config from 'react-native-config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RazorpayCheckout from 'react-native-razorpay';
+import { CFPaymentGatewayService } from 'react-native-cashfree-pg-sdk';
+import { CFSubscriptionSession } from 'cashfree-pg-api-contract';
 
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import { getCashfreeEnvironment, isInstallSourceError, friendlyPaymentError } from '../../utils/cashfreeEnv';
+import { CashFreeRecurringPayment } from '../../FunctionCall/services/CashFreeOneTimePayment';
+import {
+  savePendingPayment,
+  clearPendingPayment,
+  createPendingPaymentData,
+  PaymentType,
+} from '../../FunctionCall/services/PendingPaymentManager';
+import { logPayment } from '../../utils/Logging';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const getHeaders = () => ({
   'Content-Type': 'application/json',
@@ -109,7 +125,7 @@ const InvestFlowScreen = () => {
   const showAlert = useModalStore((state) => state.showAlert);
 
   const auth = getAuth();
-  const userEmail = auth.currentUser?.email;
+  const userEmail = getAccountEmail();
 
   // ── Step tracking ──
   const [currentStep, setCurrentStep] = useState(0);
@@ -165,6 +181,25 @@ const InvestFlowScreen = () => {
 
   const selectedAmount = portfolio?.pricing?.[selectedTier] || 0;
   const payableAmount = Math.max(0, selectedAmount - discountAmount);
+
+  // ── Payment gateway (per-tenant, DB-backed — default "razorpay" until loaded) ──
+  const [paymentPlatform, setPaymentPlatform] = useState('razorpay');
+  const configDataShim = useMemo(
+    () => ({ config: { REACT_APP_HEADER_NAME: getAdvisorSubdomain() } }),
+    [],
+  );
+  const pollingShouldStopRef = useRef(false);
+
+  useEffect(() => {
+    axios
+      .get(`${server.server.baseUrl}api/adminControl/get-payment-platform`, { headers: getHeaders(), timeout: 10000 })
+      .then((res) => {
+        if (res?.data?.paymentPlatform) setPaymentPlatform(res.data.paymentPlatform);
+      })
+      .catch((e) => {
+        console.warn('[InvestFlow] get-payment-platform failed, defaulting razorpay:', e.message);
+      });
+  }, []);
 
   // ── Load saved user data ──
   useEffect(() => {
@@ -336,6 +371,134 @@ const InvestFlowScreen = () => {
       setCouponIsError(true);
     }
     setCouponLoading(false);
+  };
+
+  // ── Payment: Cashfree (recurring subscription checkout) ──
+  const handleCashfreeComplete = async (status, subscriptionId) => {
+    if (status !== 'ACTIVE') {
+      setLoading(false);
+      showAlert('error', 'Payment Failed', 'Payment was cancelled or failed. Please try again.');
+      return;
+    }
+    try {
+      await CashFreeRecurringPayment({
+        paymentDetails: subscriptionId,
+        email: email.trim(),
+        name: name.trim(),
+        panNumber: pan.toUpperCase(),
+        mobileNumber: phone.trim(),
+        countryCode: selectedCountry.dialCode,
+        formattedName: name.trim(),
+        specificPlan: { ...portfolio, _id: portfolio?._id || portfolio?.id },
+        telegramId: telegram.trim(),
+        advisorTag: getAdvisorSubdomain(),
+        birthDate: dob,
+        invetAmount: investmentAmount.replace(/,/g, ''),
+        singleStrategyDetails: portfolio,
+        configData: configDataShim,
+        panCategory,
+      });
+      await clearPendingPayment();
+      await onSubscriptionSuccess();
+    } catch (e) {
+      console.error('[InvestFlow][Cashfree] completion error:', e);
+      showAlert('error', 'Payment Failed', e.message || 'Please try again.');
+    }
+    setLoading(false);
+  };
+
+  const initiateCashfreeRecurringInvest = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.post(
+        `${server.server.baseUrl}api/cashfree/subscription/create/payment`,
+        {
+          plan_id: portfolio?.id,
+          user_email: email.trim(),
+          mobileNumber: phone.trim(),
+          name: name.trim(),
+          panNumber: pan.toUpperCase(),
+          countryCode: selectedCountry.dialCode,
+          selectedCard: selectedTier,
+          redirectSpecificLocation: `${Config.REACT_APP_WEBSITE_URL || ''}/pricing`,
+          advisor: getAdvisorSubdomain(),
+          birthDate: dob,
+          telegramId: telegram.trim(),
+          capital: investmentAmount.replace(/,/g, ''),
+        },
+        { headers: getHeaders(), timeout: 15000 },
+      );
+
+      const subsSessionId = response?.data?.data?.subscription_session_id;
+      const subscriptionId = response?.data?.data?.subscription_id;
+      const orderId = response?.data?.data?.order_id;
+      if (!subsSessionId || !subscriptionId) {
+        throw new Error(response?.data?.message || 'Failed to create Cashfree subscription session');
+      }
+
+      const pendingPaymentData = createPendingPaymentData({
+        orderId,
+        subscriptionId,
+        userEmail: email.trim(),
+        planId: portfolio?.id,
+        paymentType: PaymentType.RECURRING,
+        amount: portfolio?.amount,
+        planDetails: { ...portfolio, _id: portfolio?._id || portfolio?.id },
+        userDetails: { email: email.trim(), name: name.trim(), panNumber: pan, mobileNumber: phone, countryCode: selectedCountry.dialCode },
+        digioRequired: false,
+      });
+      await savePendingPayment(pendingPaymentData);
+
+      pollingShouldStopRef.current = false;
+
+      CFPaymentGatewayService.setCallback({
+        onVerify: async (verifiedSubscriptionId) => {
+          pollingShouldStopRef.current = true;
+          CFPaymentGatewayService.removeCallback();
+          CFPaymentGatewayService.removeEventSubscriber();
+          await handleCashfreeComplete('ACTIVE', verifiedSubscriptionId);
+        },
+        onError: async (error, erroredSubscriptionId) => {
+          console.error('[InvestFlow][Cashfree] error:', error);
+          logPayment('CASHFREE_RECURRING_ERROR', {
+            subscriptionId: erroredSubscriptionId,
+            orderId,
+            code: error?.code,
+            type: error?.type,
+            message: error?.message,
+            isInstallSourceError: isInstallSourceError(error),
+            platform: Platform.OS,
+            userEmail: email.trim(),
+          }, configDataShim);
+          pollingShouldStopRef.current = true;
+
+          const isCancellation = error?.code === 'CANCELLED' || error?.code === 'USER_CANCELLED' ||
+            error?.message?.includes('cancelled');
+          if (isCancellation) await clearPendingPayment();
+
+          CFPaymentGatewayService.removeCallback();
+          CFPaymentGatewayService.removeEventSubscriber();
+          await handleCashfreeComplete('FAIL', erroredSubscriptionId);
+        },
+      });
+
+      const session = new CFSubscriptionSession(subsSessionId, subscriptionId, getCashfreeEnvironment());
+      CFPaymentGatewayService.doSubscriptionPayment(session);
+    } catch (e) {
+      setLoading(false);
+      const message = isInstallSourceError(e) ? friendlyPaymentError(e) : (e.message || 'Failed to initialize payment. Please try again.');
+      showAlert('error', isInstallSourceError(e) ? 'Payment unavailable' : 'Payment Failed', message);
+      console.error('[InvestFlow][Cashfree] initiation error:', e);
+    }
+  };
+
+  // ── Payment dispatch — routes by the tenant's configured gateway ──
+  const handlePayDispatch = async () => {
+    if (String(paymentPlatform).trim().toLowerCase() === 'cashfree') {
+      await initiateCashfreeRecurringInvest();
+    } else {
+      await handlePay();
+    }
   };
 
   // ── Payment: Razorpay (primary — keeping existing Alphab2b gateway) ──
@@ -729,7 +892,7 @@ const InvestFlowScreen = () => {
               {/* Pay / Subscribe button */}
               <TouchableOpacity
                 style={[styles.payBtn, (!isStepValid(3) || loading) && styles.payBtnDisabled]}
-                onPress={isFree ? handleFreeSubscribe : handlePay}
+                onPress={isFree ? handleFreeSubscribe : handlePayDispatch}
                 disabled={!isStepValid(3) || loading}
               >
                 {loading ? <ActivityIndicator color="#fff" /> :

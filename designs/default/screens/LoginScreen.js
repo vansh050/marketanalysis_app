@@ -51,8 +51,28 @@ const Glogo = require('../../../src/assets/GLogo.png');
 // `designs/<variant>/tokens/assets.js` can swap it without touching this
 // presentation file. See docs/DESIGN_SYSTEM_ARCHITECTURE.md § Variant assets.
 
+// Remote (backend URL) logo that falls back to the bundled default asset if the
+// URL fails to load — private/403 S3 objects (e.g. the markup tenant's
+// Markup_falcon.png, 2026-07-13) would otherwise render nothing. Self-contained
+// so renderLogo can stay a pure function.
+const RemoteLogoImage = ({ uri, defaultLogo }) => {
+    const [failed, setFailed] = React.useState(false);
+    if (failed) return <Image source={defaultLogo} style={styles.logo} resizeMode="contain" />;
+    return (
+        <Image
+            source={{ uri }}
+            onError={() => setFailed(true)}
+            style={styles.logo}
+            resizeMode="contain"
+        />
+    );
+};
+
 const renderLogo = (LogoComponent, configLoading, defaultLogo) => {
-    if (configLoading) return <View style={styles.logo} />;
+    // While the advisor config loads, show the bundled default logo instead of a
+    // blank box so the brand mark is visible immediately (and stays if the
+    // backend logo URL 403s — see RemoteLogoImage). 2026-07-13.
+    if (configLoading) return <Image source={defaultLogo} style={styles.logo} resizeMode="contain" />;
     if (LogoComponent && typeof LogoComponent === 'function') {
         return <LogoComponent style={styles.logo} />;
     }
@@ -60,10 +80,10 @@ const renderLogo = (LogoComponent, configLoading, defaultLogo) => {
         return <SvgUri uri={LogoComponent} width={styles.logo.width} height={styles.logo.height} />;
     }
     if (LogoComponent && typeof LogoComponent === 'string') {
-        return <Image source={{ uri: LogoComponent }} style={styles.logo} resizeMode="contain" />;
+        return <RemoteLogoImage uri={LogoComponent} defaultLogo={defaultLogo} />;
     }
     if (LogoComponent && typeof LogoComponent === 'object' && LogoComponent.uri) {
-        return <Image source={{ uri: LogoComponent.uri }} style={styles.logo} resizeMode="contain" />;
+        return <RemoteLogoImage uri={LogoComponent.uri} defaultLogo={defaultLogo} />;
     }
     if (LogoComponent && typeof LogoComponent === 'object') {
         return <Image source={LogoComponent} style={styles.logo} resizeMode="contain" />;
@@ -104,7 +124,7 @@ const LoginScreen = ({ viewModel, actions }) => {
         >
             <TouchableWithoutFeedback onPress={dismissKeyboard}>
                 <LinearGradient
-                    colors={['rgba(0, 38, 81, 1)', 'rgba(0, 86, 183, 1)']}
+                    colors={[tokens.colors.brand.gradientStart, tokens.colors.brand.gradientEnd]}
                     start={{ x: 0, y: 0 }}
                     end={{ x: 1, y: 1 }}
                     style={styles.container}
@@ -138,7 +158,7 @@ const LoginScreen = ({ viewModel, actions }) => {
                                 variant="caption"
                                 style={{ color: '#BDCFFF', fontSize: 12, marginBottom: 35 }}
                             >
-                                Its only takes a minute to create your account
+                                It only takes a minute to create your account
                             </Text>
 
                             <View style={styles.inputContainer}>

@@ -18,7 +18,6 @@ import { flattenDiagnosticMessageText } from 'typescript';
 import server from '../../utils/serverConfig';
 import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { black } from 'react-native-paper/lib/typescript/styles/themes/v2/colors';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 

@@ -23,7 +23,7 @@
  */
 
 import React, { useCallback, useDeferredValue, useMemo, useState } from 'react';
-import { View, FlatList, TextInput, ActivityIndicator, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, FlatList, TextInput, ActivityIndicator, TouchableOpacity, StyleSheet, ScrollView } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { ShoppingBasket, ChevronUp, ChevronDown, SearchIcon } from 'lucide-react-native';
 import useTokens from '../../../src/theme/useTokens';
@@ -104,6 +104,9 @@ const OrderScreen = ({ viewModel, actions }) => {
     const { openDdpiHelp = () => {} } = actions || {};
 
     const [searchText, setSearchText] = useState('');
+    const [selectedBroker, setSelectedBroker] = useState('all');
+    const [selectedType, setSelectedType] = useState('all');
+    const [selectedStatus, setSelectedStatus] = useState('all');
     // lowPrice / highPrice filter state preserved from legacy (not currently
     // surfaced in UI, but the math is in place).
     const [lowPrice] = useState('');
@@ -117,23 +120,92 @@ const OrderScreen = ({ viewModel, actions }) => {
     // FlatList diff, which is visibly laggy on lists of 30+ orders.
     const deferredSearchText = useDeferredValue(searchText);
 
+    const getOrderBroker = order =>
+        order?.user_broker || order?.basket_advice?.find(item => item?.user_broker)?.user_broker || null;
+    const getOrderType = order => {
+        if (Array.isArray(order?.basket_advice) && order.basket_advice.length > 0) return 'basket';
+        if (order?.model_id) return 'model_portfolio';
+        return ['NFO', 'BFO'].includes(String(order?.Exchange || '').toUpperCase()) ? 'fno' : 'equity';
+    };
+    const getOrderStatus = order => {
+        const status = String(order?.trade_place_status || '').toLowerCase();
+        // Legacy rows without a recorded status are not pending orders. Treating
+        // the empty value as pending was what produced a large “Pending” count
+        // while each card itself could only say “Unknown”.
+        if (!status) return 'unavailable';
+        if (['rejected', 'failure', 'failed', 'cancelled'].includes(status)) return 'rejected';
+        if (['complete', 'completed', 'executed', 'placed', 'manually_placed'].includes(status)) return 'completed';
+        if (['pending', 'trigger pending', 'trigger_pending', 'requested', 'am', 'after market', 'open', 'transit', 'ordered'].includes(status)) return 'pending';
+        return 'unavailable';
+    };
+
+    const brokerOptions = useMemo(
+        () => [...new Set(orders.map(getOrderBroker).filter(Boolean))].sort(),
+        [orders],
+    );
+
+    // Filter chips are a cascade, not static catalogue counts: choosing a
+    // broker constrains Type; choosing broker + type constrains Status. Keep
+    // the active search/price criteria in those scopes too, so every number
+    // predicts the result the customer will get after the next tap.
+    const filterCounts = useMemo(() => {
+        const low = parseFloat(lowPrice);
+        const high = parseFloat(highPrice);
+        const text = deferredSearchText.toLowerCase();
+        const matchesSearchAndPrice = order => {
+            const matchSymbol = String(order?.Symbol || order?.basketName || '').toLowerCase().includes(text);
+            const orderAvgPrice = parseFloat(order?.AvgPrice);
+            return matchSymbol &&
+                (!isNaN(low) ? orderAvgPrice >= low : true) &&
+                (!isNaN(high) ? orderAvgPrice <= high : true);
+        };
+        const brokerScope = orders.filter(order =>
+            matchesSearchAndPrice(order) &&
+            (selectedBroker === 'all' || getOrderBroker(order) === selectedBroker),
+        );
+        const typeScope = brokerScope.filter(order =>
+            selectedType === 'all' || getOrderType(order) === selectedType,
+        );
+        const type = {all: brokerScope.length, model_portfolio: 0, basket: 0, fno: 0, equity: 0};
+        const status = {all: typeScope.length, completed: 0, pending: 0, rejected: 0, unavailable: 0};
+        brokerScope.forEach(order => {
+            type[getOrderType(order)] += 1;
+        });
+        typeScope.forEach(order => {
+            status[getOrderStatus(order)] += 1;
+        });
+        return {type, status};
+    }, [deferredSearchText, highPrice, lowPrice, orders, selectedBroker, selectedType]);
+
     const filteredOrders = useMemo(() => {
         const low = parseFloat(lowPrice);
         const high = parseFloat(highPrice);
         const text = deferredSearchText.toLowerCase();
         return orders.filter((order) => {
-            const matchSymbol = order?.Symbol?.toLowerCase().includes(text);
+            const matchSymbol = String(order?.Symbol || order?.basketName || '').toLowerCase().includes(text);
             const orderAvgPrice = parseFloat(order?.AvgPrice);
             const passesLow = !isNaN(low) ? orderAvgPrice >= low : true;
             const passesHigh = !isNaN(high) ? orderAvgPrice <= high : true;
-            return matchSymbol && passesLow && passesHigh;
+            const matchesBroker = selectedBroker === 'all' || getOrderBroker(order) === selectedBroker;
+            const matchesType = selectedType === 'all' || getOrderType(order) === selectedType;
+            const matchesStatus = selectedStatus === 'all' || getOrderStatus(order) === selectedStatus;
+            return matchSymbol && passesLow && passesHigh && matchesBroker && matchesType && matchesStatus;
         });
-    }, [deferredSearchText, lowPrice, highPrice, orders]);
+    }, [deferredSearchText, lowPrice, highPrice, orders, selectedBroker, selectedType, selectedStatus]);
 
     const dataToShow =
-        filteredOrders.length > 0 || lowPrice || highPrice || deferredSearchText
+        filteredOrders.length > 0 || lowPrice || highPrice || deferredSearchText ||
+        selectedBroker !== 'all' || selectedType !== 'all' || selectedStatus !== 'all'
             ? filteredOrders
             : orders;
+
+    const hasActiveFilters = selectedBroker !== 'all' || selectedType !== 'all' || selectedStatus !== 'all';
+    const hasFilterQuery = hasActiveFilters || Boolean(deferredSearchText || lowPrice || highPrice);
+    const clearFilters = () => {
+        setSelectedBroker('all');
+        setSelectedType('all');
+        setSelectedStatus('all');
+    };
 
     // useCallback so FlatList sees a stable renderItem reference across
     // keystrokes in the search box. Without this, every keystroke would
@@ -155,42 +227,105 @@ const OrderScreen = ({ viewModel, actions }) => {
     );
 
     return (
-        <View style={{ flex: 1, backgroundColor: '#EFF0EE', overflow: 'hidden' }}>
+        <View style={{ flex: 1, backgroundColor: '#F6F8FB', overflow: 'hidden' }}>
             <View style={{ flex: 1 }}>
-                {/* Search row */}
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 10, marginHorizontal: 15 }}>
-                    <View
-                        style={{
-                            flex: 1,
-                            height: 40,
-                            flexDirection: 'row',
-                            alignItems: 'center',
-                            backgroundColor: tokens.colors.surface.card,
-                            paddingHorizontal: 12,
-                            borderRadius: tokens.radii.md - 2,
-                            borderColor: '#ecf1f8',
-                        }}
-                    >
-                        <Icon Component={SearchIcon} size={18} color="#9FA5B5" style={{ marginRight: 5 }} />
-                        <TextInput
-                            style={{
-                                flex: 1,
-                                fontSize: 14,
-                                color: tokens.colors.text.primary,
-                                backgroundColor: 'transparent',
-                            }}
-                            placeholder="Search for Orders"
-                            placeholderTextColor="#9FA5B5"
-                            value={searchText}
-                            onChangeText={setSearchText}
-                        />
-                    </View>
+                <View style={{paddingHorizontal: 16, paddingTop: 14, paddingBottom: 4}}>
+                    <Text variant="title" style={{fontSize: 19, lineHeight: 26, color: tokens.colors.text.primary}}>
+                        Orders
+                    </Text>
+                    <Text variant="caption" style={{fontSize: 12, color: tokens.colors.text.muted, marginTop: 1}}>
+                        Latest order status from your broker
+                    </Text>
                 </View>
-
                 <FlatList
                     data={dataToShow}
                     keyExtractor={(item) => item._id}
                     renderItem={renderItem}
+                    contentContainerStyle={{paddingBottom: 20}}
+                    // Keep only the compact screen title fixed. Search and filters
+                    // belong to the list, so they scroll away with the first cards
+                    // instead of taking most of a short phone viewport.
+                    ListHeaderComponent={
+                        <View style={{paddingBottom: 8}}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', marginVertical: 10, marginHorizontal: 16 }}>
+                                <View
+                                    style={{
+                                        flex: 1,
+                                        minHeight: 44,
+                                        flexDirection: 'row',
+                                        alignItems: 'center',
+                                        backgroundColor: tokens.colors.surface.card,
+                                        paddingHorizontal: 12,
+                                        borderRadius: 12,
+                                        borderColor: tokens.colors.border.subtle,
+                                        borderWidth: 1,
+                                        ...tokens.shadows.card,
+                                        shadowOpacity: 0.04,
+                                    }}
+                                >
+                                    <Icon Component={SearchIcon} size={18} color="#9FA5B5" style={{ marginRight: 5 }} />
+                                    <TextInput
+                                        style={{
+                                            flex: 1,
+                                            fontSize: 14,
+                                            color: tokens.colors.text.primary,
+                                            backgroundColor: 'transparent',
+                                        }}
+                                        placeholder="Search for Orders"
+                                        placeholderTextColor="#9FA5B5"
+                                        value={searchText}
+                                        onChangeText={setSearchText}
+                                    />
+                                </View>
+                            </View>
+                            <View style={{flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 6}}>
+                                <Text variant="caption" style={{fontSize: 12, color: tokens.colors.text.muted}}>
+                                    {dataToShow.length} of {orders.length} orders
+                                </Text>
+                                {hasActiveFilters ? (
+                                    <TouchableOpacity onPress={clearFilters} hitSlop={8}>
+                                        <Text variant="caption" style={{fontSize: 12, color: tokens.colors.brand.primary, fontFamily: 'Poppins-Medium'}}>
+                                            Clear filters
+                                        </Text>
+                                    </TouchableOpacity>
+                                ) : null}
+                            </View>
+                            {brokerOptions.length > 1 ? (
+                                <FilterChipRow
+                                    label="Broker"
+                                    options={[{key: 'all', label: `All (${orders.length})`}, ...brokerOptions.map(broker => ({key: broker, label: broker}))]}
+                                    selectedKey={selectedBroker}
+                                    onSelect={setSelectedBroker}
+                                    accentColor={tokens.colors.brand.primary}
+                                />
+                            ) : null}
+                            <FilterChipRow
+                                label="Type"
+                                options={[
+                                    {key: 'all', label: `All (${filterCounts.type.all})`},
+                                    {key: 'model_portfolio', label: `Model Portfolio (${filterCounts.type.model_portfolio})`},
+                                    {key: 'basket', label: `Basket (${filterCounts.type.basket})`},
+                                    {key: 'fno', label: `F&O (${filterCounts.type.fno})`},
+                                    {key: 'equity', label: `Equity (${filterCounts.type.equity})`},
+                                ]}
+                                selectedKey={selectedType}
+                                onSelect={setSelectedType}
+                                accentColor={tokens.colors.brand.primary}
+                            />
+                            <FilterChipRow
+                                label="Status"
+                                options={[
+                                    {key: 'all', label: `All (${filterCounts.status.all})`},
+                                    {key: 'completed', label: `Completed (${filterCounts.status.completed})`},
+                                    {key: 'pending', label: `Pending (${filterCounts.status.pending})`},
+                                    {key: 'rejected', label: `Rejected (${filterCounts.status.rejected})`},
+                                ]}
+                                selectedKey={selectedStatus}
+                                onSelect={setSelectedStatus}
+                                accentColor={tokens.colors.brand.primary}
+                            />
+                        </View>
+                    }
                     ListEmptyComponent={
                         isLoading ? (
                             <View
@@ -260,7 +395,7 @@ const OrderScreen = ({ viewModel, actions }) => {
                                         marginBottom: 12,
                                     }}
                                 >
-                                    No Orders Data
+                                    {hasFilterQuery ? 'No matching orders' : 'No orders yet'}
                                 </Text>
                                 <Text
                                     variant="body"
@@ -274,7 +409,9 @@ const OrderScreen = ({ viewModel, actions }) => {
                                         marginBottom: 12,
                                     }}
                                 >
-                                    Orders that are placed will appear here.
+                                    {hasFilterQuery
+                                        ? 'Try changing or clearing the filters to see other orders.'
+                                        : 'Orders you place will appear here. Pending orders are shown only for today, except active GTT orders.'}
                                 </Text>
                             </LinearGradient>
                         )
@@ -286,3 +423,35 @@ const OrderScreen = ({ viewModel, actions }) => {
 };
 
 export default OrderScreen;
+
+const FilterChipRow = ({label, options, selectedKey, onSelect, accentColor}) => (
+    <View style={{marginBottom: 7}}>
+        <Text variant="caption" style={{fontSize: 11, color: '#64748B', fontFamily: 'Poppins-Medium', marginLeft: 16, marginBottom: 4}}>
+            {label}
+        </Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{paddingHorizontal: 16}}>
+            {options.map(option => {
+                const selected = selectedKey === option.key;
+                return (
+                    <TouchableOpacity
+                        key={option.key}
+                        onPress={() => onSelect(option.key)}
+                        style={{
+                            minHeight: 32,
+                            justifyContent: 'center',
+                            paddingHorizontal: 11,
+                            marginRight: 7,
+                            borderRadius: 16,
+                            borderWidth: 1,
+                            borderColor: selected ? accentColor : '#D9E0EA',
+                            backgroundColor: selected ? accentColor : '#fff',
+                        }}>
+                        <Text variant="caption" style={{fontSize: 11, color: selected ? '#fff' : '#475569', fontFamily: 'Poppins-Medium'}}>
+                            {option.label}
+                        </Text>
+                    </TouchableOpacity>
+                );
+            })}
+        </ScrollView>
+    </View>
+);

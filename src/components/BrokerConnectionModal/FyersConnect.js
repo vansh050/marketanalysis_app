@@ -9,6 +9,7 @@ import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import FyersConnectUI from '../../UIComponents/BrokerConnectionUI/FyersConnectUI';
+import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import { useTrade } from '../../screens/TradeContext';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
@@ -17,6 +18,7 @@ import {
   sdkConnectBroker,
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const commonHeight = screenHeight * 0.06;
@@ -48,7 +50,7 @@ const FyersConnect = ({
 
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
   const [helpVisible, setHelpVisible] = useState(false);
 
   const sheet = useRef(null);
@@ -360,139 +362,102 @@ const FyersConnect = ({
     setHelpVisible(true);
   };
 
+  // OAuth phase: keep the existing FyersConnectUI WebView flow untouched.
+  // Credential phase: shared web-parity stepper (RN port of web
+  // BrokerConnectStepper / FyersConnection.js — same guide steps, redirect
+  // URL copy row, and egress static-IP gating). NOTE Fyers naming swap:
+  // "App ID" lives in `secretKey` state (DB clientCode), the OAuth secret
+  // in `apiKey` state (DB secretKey) — see the reauth-hydration comment.
+  if (showWebView) {
+    return (
+      <FyersConnectUI
+        isVisible={isVisible}
+        onClose={onClose}
+        showWebView={showWebView}
+        screenHeight={screenHeight}
+        scrollViewRef={scrollViewRef}
+        handleClose={handleClose}
+        setShowFyersModal={setShowBrokerModal}
+        secretKey={secretKey}
+        isPasswordVisibleup={isPasswordVisibleup}
+        setIsPasswordVisibleup={setIsPasswordVisibleup}
+        OpenHelpModal={OpenHelpModal}
+        setSecretKey={setSecretKey}
+        apiKey={apiKey}
+        isPasswordVisible={isPasswordVisible}
+        setIsPasswordVisible={setIsPasswordVisible}
+        setApiKey={setApiKey}
+        updateSecretKey={updateSecretKey}
+        loading={loading}
+        authUrl={authUrl}
+        handleWebViewNavigationStateChange={handleWebViewNavigationStateChange}
+        helpVisible={helpVisible}
+        setHelpVisible={setHelpVisible}
+        styles={styles}
+        egressUserId={userId}
+        egressUserEmail={userEmail}
+        egressReady={egressReady}
+        setEgressReady={setEgressReady}
+        unmetAck={unmetAck}
+        setUnmetAck={setUnmetAck}
+        configData={configData}
+      />
+    );
+  }
+
   return (
-    <FyersConnectUI
-      isVisible={isVisible}
+    <BrokerConnectStepperSheet
+      isVisible={!!isVisible}
       onClose={onClose}
-      showWebView={showWebView}
-      screenHeight={screenHeight}
-      scrollViewRef={scrollViewRef}
-      handleClose={handleClose}
-      setShowFyersModal={setShowBrokerModal}
-      secretKey={secretKey}
-      isPasswordVisibleup={isPasswordVisibleup}
-      setIsPasswordVisibleup={setIsPasswordVisibleup}
-      OpenHelpModal={OpenHelpModal}
-      setSecretKey={setSecretKey}
-      apiKey={apiKey}
-      isPasswordVisible={isPasswordVisible}
-      setIsPasswordVisible={setIsPasswordVisible}
-      setApiKey={setApiKey}
-      updateSecretKey={updateSecretKey}
-      loading={loading}
-      authUrl={authUrl}
-      handleWebViewNavigationStateChange={handleWebViewNavigationStateChange}
-      helpVisible={helpVisible}
-      setHelpVisible={setHelpVisible}
-      styles={styles}
-      egressUserId={userId}
-      egressUserEmail={userEmail}
+      broker="Fyers"
+      config={{
+        monogram: 'F',
+        brandFrom: '#3d5afe',
+        brandTo: '#1e40af',
+        portalUrl: 'https://fyers.in/web/api-dashboard/user-apps',
+        portalLabel: 'Open Fyers API Dashboard',
+        redirectUrl: brokerConnectRedirectURL,
+        walkthroughVideoId: 'TdadXSWAxeY',
+        guideSteps: [
+          'Log in with your <b>mobile number</b>, OTP/TOTP and <b>PIN</b>',
+          'Open <b>fyers.in/web/api-dashboard/user-apps</b>',
+          'Click <b>Create App</b>',
+          'Set the <b>Redirect URL</b> below',
+          'Paste your <b>IP</b> into <b>Allowed IPs</b>',
+          'Copy your <b>App ID</b> and <b>Secret ID</b>',
+        ],
+        note:
+          'Tick the <b>Order Placement</b> permission when creating the app — without it Fyers rejects orders with "algo orders are not allowed".',
+      }}
+      egressBrokerKey="fyers"
+      customerId={userId}
+      customerEmail={userEmail}
       egressReady={egressReady}
       setEgressReady={setEgressReady}
       unmetAck={unmetAck}
       setUnmetAck={setUnmetAck}
-      configData={configData}
+      fields={[
+        {
+          label: 'App ID',
+          value: secretKey,
+          onChange: (t) => setSecretKey(t.trim()),
+          placeholder: 'Paste your Fyers App ID',
+        },
+        {
+          label: 'Secret ID',
+          value: apiKey,
+          onChange: (t) => setApiKey(t.trim()),
+          password: true,
+          placeholder: 'Paste your Fyers Secret ID',
+        },
+      ]}
+      phase="creds"
+      canSubmit={Boolean(secretKey) && Boolean(apiKey)}
+      submitLabel="Connect Fyers"
+      loading={loading}
+      onSubmit={updateSecretKey}
     />
   );
 };
-
-const styles = StyleSheet.create({
-  sheet: {
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    flex: 1,
-  },
-  modal: {
-    justifyContent: 'flex-end',
-    margin: 0,
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingHorizontal: 10,
-    height: 'auto',
-  },
-  content: {
-    padding: 0,
-  },
-  content1: {
-    justifyContent: 'center',
-  },
-  closeButton: { position: 'absolute', top: 10, right: 10 },
-
-  title: {
-    fontSize: 20,
-    marginHorizontal: 10,
-    fontWeight: 'Poppins-SemiBold',
-    color: 'black',
-  },
-  playerWrapper: {
-    overflow: 'hidden',
-    marginTop: 20,
-    alignSelf: 'center',
-    borderRadius: 20,
-    marginBottom: 20,
-  },
-  instruction: {
-    fontSize: 15,
-    color: 'black',
-    marginVertical: 3,
-    fontFamily: 'Poppins-Regular',
-  },
-  link: {
-    color: 'blue',
-    textDecorationLine: 'underline',
-  },
-  stepGuide: {
-    fontSize: 16,
-    color: 'black',
-    marginRight: 10,
-    marginLeft: 10,
-    fontFamily: 'Poppins-SemiBold',
-  },
-  label: {
-    fontSize: 17,
-    fontWeight: 'bold',
-    color: 'black',
-    marginHorizontal: 10,
-    marginBottom: 5,
-  },
-  inputContainer: {
-    borderColor: '#d5d4d4',
-    alignSelf: 'center',
-    borderWidth: 1,
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    width: '100%',
-    height: commonHeight + 5,
-  },
-  proceedButton: {
-    backgroundColor: 'black',
-    padding: 10,
-    borderRadius: 8,
-    marginHorizontal: 10,
-    height: commonHeight,
-    alignItems: 'center',
-    marginBottom: 20,
-    marginTop: 10,
-    justifyContent: 'center',
-  },
-  proceedButtonText: {
-    fontSize: screenWidth * 0.045,
-    fontWeight: '600',
-    color: 'white',
-  },
-  webViewContainer: {
-    backgroundColor: '#fff',
-    marginTop: 20,
-    height: screenHeight / 1.7,
-    borderTopLeftRadius: 100,
-    borderTopRightRadius: 100,
-  },
-  webView: {
-    flex: 1,
-  },
-});
 
 export default FyersConnect;

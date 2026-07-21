@@ -33,6 +33,7 @@ import moment from 'moment';
 import { useConfig } from '../../context/ConfigContext';
 import { useGstConfig } from '../../context/GstConfigContext';
 import { withGst, gstLabel } from '../../utils/gstHelpers';
+import useTokens from '../../theme/useTokens';
 
 const ACCEPTABLE_DATE_FORMATS = [
   'D MMM YYYY, HH:mm:ss',
@@ -70,11 +71,14 @@ const MPCardBespoke = ({
   const [animation] = useState(new Animated.Value(0)); // Initial height is 0
   const navigation = useNavigation();
 
-  // Get dynamic colors from config
+  // Brand colors flow through useTokens so the active variant supplies the
+  // fallback (default = blue, moneyman_app = green). config.mainColor /
+  // gradient1 / gradient2 still layer through useTokens's legacy branding.
   const config = useConfig();
-  const mainColor = config?.mainColor || '#2053DB';
-  const gradient1 = config?.gradient1 || '#3B82F6';
-  const gradient2 = config?.gradient2 || '#1E3A8A';
+  const tokens = useTokens();
+  const mainColor = tokens.colors.brand.primary;
+  const gradient1 = tokens.colors.brand.gradientStart;
+  const gradient2 = tokens.colors.brand.gradientEnd;
   const stepCompletedColor = config?.paymentModal?.stepCompletedColor || '#29A400';
   const { gstConfigure: configGst, gstWithTextConfigure: configGstWithText } = useGstConfig();
 
@@ -175,8 +179,16 @@ const MPCardBespoke = ({
     if (isValidPrice(data?.pricingWithoutGst?.["half-yearly"])) {
       options.push({ period: "half-yearly", label: "6 Months", value: data.pricingWithoutGst["half-yearly"] });
     }
-    if (isValidPrice(data?.pricing?.yearly)) {
-      options.push({ period: "yearly", label: "Yearly", value: data.pricing.yearly });
+    // Use the pre-GST base like the other frequencies above — data.pricing.yearly
+    // is GST-INCLUSIVE, so reading it here + appending the "+ GST" label
+    // double-counted GST (showed 23600 for a 20000 plan). Fall back to
+    // pricing.yearly only for legacy plans that lack pricingWithoutGst.
+    if (isValidPrice(data?.pricingWithoutGst?.yearly ?? data?.pricing?.yearly)) {
+      options.push({
+        period: "yearly",
+        label: "Yearly",
+        value: data?.pricingWithoutGst?.yearly ?? data.pricing.yearly,
+      });
     }
 
     return options;
@@ -249,12 +261,14 @@ const MPCardBespoke = ({
       const subscriptions = subscriptionData?.subscriptions;
       if (!subscriptions || subscriptions.length === 0) return 'none';
 
+      // Exact match only (post-normalization) — see MPCard.js for why the
+      // previous substring/`.includes()` fallback was removed (falsely
+      // matched an unrelated plan whose name contains a deleted plan's
+      // name as a prefix, e.g. "test" vs "test 1").
       const normalizedPlan = normalizeGroupName(modelName);
       const matchingPlanSubs = subscriptions.filter(sub => {
         const nSub = normalizeGroupName(sub?.plan);
-        return nSub === normalizedPlan ||
-          nSub.includes(normalizedPlan) ||
-          normalizedPlan.includes(nSub);
+        return nSub === normalizedPlan;
       });
       if (matchingPlanSubs.length === 0) return 'none';
 
@@ -300,7 +314,7 @@ const MPCardBespoke = ({
   return (
     <View>
       <LinearGradient
-        colors={['#fff', '#fff', '#fff']}
+        colors={[gradient1, gradient2]}
         start={{ x: 0.2, y: 0 }}
         end={{ x: 0.8, y: 1 }}
         style={[styles.cardContainer, { borderRadius: isExpanded ? 0.5 : 4,flex:1, }]}>
@@ -381,7 +395,7 @@ const MPCardBespoke = ({
                   <Text
                     style={{
                       fontSize: 12,
-                      color: '#9CA3AF',
+                      color: 'rgba(255,255,255,0.7)',
                       fontFamily: 'Poppins-Regular',
                       textDecorationLine: 'line-through',
                     }}
@@ -392,7 +406,7 @@ const MPCardBespoke = ({
                 <Text
                   style={{
                     fontSize: 14,
-                    color: '#1F2937',
+                    color: '#fff',
                     fontFamily: 'Poppins-SemiBold',
                   }}
                 >
@@ -402,7 +416,7 @@ const MPCardBespoke = ({
                   <Text
                     style={{
                       fontSize: 10,
-                      color: '#6B7280',
+                      color: 'rgba(255,255,255,0.8)',
                       fontFamily: 'Poppins-Regular',
                       marginTop: -2,
                     }}
@@ -422,7 +436,7 @@ const MPCardBespoke = ({
             <Text
   style={{
     fontSize: 10,
-    color: '#6B7280',
+    color: 'rgba(255,255,255,0.8)',
     fontFamily: 'Poppins-Regular',
     marginTop: 2,
   }}
@@ -463,21 +477,16 @@ const MPCardBespoke = ({
                   paddingVertical: 2,
                   paddingHorizontal: 16,
                   borderRadius: 999,
-                  backgroundColor: isSelected ? `${mainColor}15` : '#FFFFFF',
+                  backgroundColor: isSelected ? 'rgba(255, 255, 255, 0.3)' : 'transparent',
                   borderWidth: 1,
-                  borderColor: isSelected ? mainColor : '#E5E7EB',
+                  borderColor: isSelected ? 'transparent' : 'rgba(255, 255, 255, 0.6)',
                   marginRight: 8,
                   marginBottom: 8,
-                  shadowColor: '#000',
-                  shadowOffset: { width: 0, height: isSelected ? 2 : 0 },
-                  shadowOpacity: isSelected ? 0.1 : 0,
-                  shadowRadius: isSelected ? 3 : 0,
-                  elevation: isSelected ? 2 : 0,
                 }}
               >
                 <Text
                   style={{
-                    color: isSelected ? mainColor : '#374151',
+                    color: '#fff',
                     fontSize: 10,
                     marginTop: 2,
                     fontFamily: 'Poppins-Medium',
@@ -497,9 +506,9 @@ const MPCardBespoke = ({
             <Text style={styles.buttonText}>View More</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={InvestNow} style={[styles.investButton, { backgroundColor: status === 'renew' ? '#E8976B' : mainColor }]}>
-            {(status === 'renew' || status === 'expired') && <ArrowRight size={10} color={'white'} />}
-            <Text style={styles.investButtonText}>
+          <TouchableOpacity onPress={InvestNow} style={[styles.investButton, { backgroundColor: status === 'renew' ? '#E8976B' : '#fff' }]}>
+            {(status === 'renew' || status === 'expired') && <ArrowRight size={10} color={status === 'renew' ? 'white' : mainColor} />}
+            <Text style={[styles.investButtonText, { color: status === 'renew' ? '#fff' : mainColor }]}>
               {status === 'active'
                 ? 'Subscribed'
                 : status === 'renew'
@@ -599,7 +608,7 @@ cardContainer: {
   },
   title: {
     fontSize: 16,
-    color: '#1F2937',
+    color: '#fff',
     fontFamily: 'Poppins-SemiBold',
     flex: 1,
   },
@@ -634,7 +643,7 @@ buttonContainer: {
   bottom: 0,
   left: 0,
   right: 0,
-  backgroundColor: '#fff',
+  backgroundColor: 'transparent',
 
   gap: 10,
 },
@@ -643,15 +652,14 @@ buttonContainer: {
     flex: 1,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderColor: '#E5E7EB',
-    borderWidth: 1,
+    borderWidth: 0,
     borderRadius: 3,
     flexDirection: 'row',
     alignItems: 'center',
     alignSelf: 'center',
     alignContent: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F9FAFB',
+    backgroundColor: 'rgba(232, 232, 232, 0.58)',
     gap: 4,
   },
   investButton: {
@@ -666,7 +674,7 @@ buttonContainer: {
   },
   buttonText: {
     fontSize: 11,
-    color: '#6B7280',
+    color: '#fff',
     fontFamily: 'Satoshi-Bold',
   },
   investButtonText: {

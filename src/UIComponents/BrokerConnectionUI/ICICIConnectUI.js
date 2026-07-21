@@ -20,6 +20,7 @@ import {
   ChevronLeft,
   ChevronUp,
   ChevronDown,
+  X,
 } from 'lucide-react-native';
 import HelpModal from '../../components/BrokerConnectionModal/HelpModal';
 import LinearGradient from 'react-native-linear-gradient';
@@ -83,22 +84,18 @@ const ICICIConnectUI = ({
           start={{x: 0, y: 0}}
           end={{x: 1, y: 1}}
           style={styles.headerRow}>
-          <View style={{flexDirection: 'row', alignItems: 'center'}}>
+          <View style={styles.headerLeft}>
             <TouchableOpacity style={styles.backButton} onPress={onClose}>
-              <ChevronLeft size={24} color="#000" />
+              <ChevronLeft size={23} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Connect to ICICI</Text>
+            <View style={styles.headerCopy}>
+              <Text style={styles.headerEyebrow}>BROKER AUTHORISATION</Text>
+              <Text style={styles.headerTitle}>Sign in to ICICI Direct</Text>
+            </View>
           </View>
-          <Image
-            source={iciciIcon}
-            style={{
-              width: 35,
-              height: 35,
-              backgroundColor: '#fff',
-              borderRadius: 3,
-            }}
-            resizeMode="contain"
-          />
+          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+            <X size={20} color="#fff" />
+          </TouchableOpacity>
         </LinearGradient>
         {shouldRenderContent && !showWebView && expanded && (
           /* Full Screen Help when expanded */
@@ -228,16 +225,6 @@ const ICICIConnectUI = ({
         {/* WebView Section */}
         {shouldRenderContent && showWebView && (
           <View style={styles.webViewWrapper}>
-            {/* Header */}
-            <View style={styles.webViewHeader}>
-              <TouchableOpacity
-                onPress={onClose}
-                style={{flexDirection: 'row', alignItems: 'center'}}>
-                <ChevronLeft size={24} color="black" />
-                <Text style={{marginLeft: 5, color: '#000'}}>Back</Text>
-              </TouchableOpacity>
-            </View>
-
             {/* WebView */}
             <WebView
               source={{uri: authUrl}}
@@ -283,30 +270,30 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   backButton: {
-    padding: 4,
-    borderRadius: 5,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.15,
-    shadowRadius: 4,
-    elevation: 4,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.16)',
   },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderColor: '#E8E9EC',
-    paddingVertical: 13,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
+  headerLeft: {flexDirection: 'row', alignItems: 'center', flex: 1},
+  headerCopy: {flex: 1, marginLeft: 10},
+  headerEyebrow: {color: 'rgba(255,255,255,0.76)', fontSize: 10, fontWeight: '800', letterSpacing: 0.7},
   headerTitle: {
-    fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
+    fontSize: 16,
+    fontFamily: 'Satoshi-Bold',
     color: '#fff',
-    marginLeft: 20,
+    marginTop: 2,
   },
+  closeButton: {width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)'},
   guideBox: {
     margin: 10,
     borderWidth: 1,

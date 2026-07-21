@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
+import { Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import moment from 'moment';
 import ConsentPopup from './ConsentPopUp';
@@ -25,6 +26,7 @@ const ACCEPTABLE_DATE_FORMATS = [
   'D MMM YYYY, HH:mm:ss',
   'YYYY-MM-DDTHH:mm:ss.SSSZ',
 ];
+const screenWidth = Dimensions.get('window').width;
 
 const normalizeGroupName = (name) => {
   if (!name) return '';
@@ -47,6 +49,7 @@ const MPCard = ({
   subscriptionData,
   setSelectedCard,
   index = 0,
+  isHorizontal = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const navigation = useNavigation();
@@ -81,7 +84,11 @@ const MPCard = ({
   const gradient2 = cardColor || tokens.colors.brand.gradientEnd;
   const mainColor = cardColor || tokens.colors.brand.primary;
   const paymentModalConfig = config?.paymentModal;
-  const { configData } = useTrade();
+  const {
+    configData,
+    modelPortfolioStrategyfinal,
+    modelPortfolioEntitlementsLoaded,
+  } = useTrade();
   const { gstConfigure: configGst, gstWithTextConfigure: configGstWithText } = useGstConfig();
 
   const Presentation = useComponent('composites.MPCard');
@@ -185,62 +192,17 @@ const MPCard = ({
 
   // Subscription status
   const getSubscriptionStatus = () => {
-    if (ele?.subscription) {
-      const sub = ele.subscription;
-      if (sub.status === 'deleted') return 'none';
-      if (sub.expiry === null) return 'active';
-      if (sub.expiry) {
-        const expiryDate = moment(sub.expiry, ACCEPTABLE_DATE_FORMATS);
-        if (expiryDate.isValid()) {
-          const daysLeft = expiryDate.diff(moment(), 'days');
-          if (daysLeft < 0) return 'expired';
-          if (daysLeft <= 7) return 'renew';
-          return 'active';
-        }
-      }
-    }
+    if (!modelPortfolioEntitlementsLoaded) return 'checking';
 
-    const subscriptions = subscriptionData?.subscriptions;
-    if (!subscriptions || subscriptions.length === 0) return 'none';
-
+    // `subscribed-strategies` is server-filtered by paid, active and
+    // unexpired Subscription rows. Catalog `subscription` fields and the
+    // broad client subscription list are historical metadata and therefore
+    // must never independently declare a plan active or expired.
     const normalizedPlan = normalizeGroupName(ele?.name);
-    const matchingPlanSubs = subscriptions.filter((sub) => {
-      const normalizedSubPlan = normalizeGroupName(sub?.plan);
-      return normalizedSubPlan === normalizedPlan ||
-        normalizedSubPlan.includes(normalizedPlan) ||
-        normalizedPlan.includes(normalizedSubPlan);
-    });
-    if (matchingPlanSubs.length === 0) return 'none';
-
-    const activeSubscriptions = matchingPlanSubs.filter(
-      (sub) => sub?.status !== 'deleted',
+    const active = (modelPortfolioStrategyfinal || []).some(portfolio =>
+      normalizeGroupName(portfolio?.model_name) === normalizedPlan,
     );
-    if (activeSubscriptions.length === 0) return 'none';
-
-    const neverExpiringSubscriptions = activeSubscriptions.filter(
-      (sub) => sub.expiry === null,
-    );
-    if (neverExpiringSubscriptions.length > 0) return 'active';
-
-    const validSubscriptions = activeSubscriptions.filter((sub) =>
-      sub.expiry
-        ? moment(sub.expiry, ACCEPTABLE_DATE_FORMATS, true).isValid()
-        : false,
-    );
-    if (validSubscriptions.length === 0) return 'none';
-
-    const latestSub = validSubscriptions.sort(
-      (a, b) =>
-        moment(b.expiry, ACCEPTABLE_DATE_FORMATS) -
-        moment(a.expiry, ACCEPTABLE_DATE_FORMATS),
-    )[0];
-
-    const expiryDate = moment(latestSub?.expiry, ACCEPTABLE_DATE_FORMATS);
-    const daysLeft = expiryDate.diff(moment(), 'days');
-
-    if (daysLeft < 0) return 'expired';
-    if (daysLeft <= 7) return 'renew';
-    return 'active';
+    return active ? 'active' : 'none';
   };
 
   const status = getSubscriptionStatus();
@@ -300,6 +262,9 @@ const MPCard = ({
     if (status === 'expired') {
       return { label: 'Resubscribe', bgColor: '#fff', textColor: mainColor };
     }
+    if (status === 'checking') {
+      return { label: 'Checking status…', bgColor: '#fff', textColor: mainColor, disabled: true };
+    }
     return { label: 'Subscribe', bgColor: '#fff', textColor: mainColor };
   };
 
@@ -333,6 +298,8 @@ const MPCard = ({
         buttonLabel: buttonProps.label,
         buttonBgColor: buttonProps.bgColor,
         buttonTextColor: buttonProps.textColor,
+        subscribeDisabled: !!buttonProps.disabled,
+        cardWidth: isHorizontal ? screenWidth - 52 : null,
       }}
       actions={{
         onSelectPricing: setSelectedPricing,

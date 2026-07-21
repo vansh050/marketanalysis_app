@@ -21,9 +21,11 @@
  * FALLBACK_BESPOKE constants in `designs/alphanomy/screens/HomeScreen.js`)
  * so the cards never render empty during boot.
  *
- * Single-fire fetch on mount + on `userEmail` / `advisorTag` change.
- * Cached in component state — re-mounts re-fetch (acceptable; the catalog
- * is small and the endpoints are cheap).
+ * Fetches on mount + on `userEmail` / `advisorTag` change, and exposes a
+ * `refetch()` so callers can force a fresh catalog pull (e.g. pull-to-refresh
+ * on Home) — otherwise a plan deleted/unpublished on the admin dashboard
+ * after this hook's initial fetch keeps showing on Home indefinitely, since
+ * neither dep changes on a manual refresh (2026-07-16).
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -65,6 +67,7 @@ const fetchCatalog = async (kind, advisorTag, userEmail, headerName) => {
 export default function useHomePlanSummary({ userEmail, advisorTag, headerName }) {
     const [mpList, setMpList] = useState(null);
     const [bespokeList, setBespokeList] = useState(null);
+    const [refreshNonce, setRefreshNonce] = useState(0);
 
     useEffect(() => {
         let cancelled = false;
@@ -86,7 +89,10 @@ export default function useHomePlanSummary({ userEmail, advisorTag, headerName }
         return () => {
             cancelled = true;
         };
-    }, [userEmail, advisorTag, headerName]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userEmail, advisorTag, headerName, refreshNonce]);
+
+    const refetch = () => setRefreshNonce(n => n + 1);
 
     const heroPlan = useMemo(
         () => shapeMpPlan((mpList || [])[0]),
@@ -100,5 +106,5 @@ export default function useHomePlanSummary({ userEmail, advisorTag, headerName }
     const heroPlanRaw = (mpList || [])[0] || null;
     const bespokePlanRaw = (bespokeList || [])[0] || null;
 
-    return { heroPlan, bespokePlan, heroPlanRaw, bespokePlanRaw };
+    return { heroPlan, bespokePlan, heroPlanRaw, bespokePlanRaw, refetch };
 }

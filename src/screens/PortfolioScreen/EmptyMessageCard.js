@@ -3,15 +3,16 @@ import {CandlestickChartIcon} from 'lucide-react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {useNavigation} from '@react-navigation/native';
 import {useConfig} from '../../context/ConfigContext';
+import useTokens from '../../theme/useTokens';
 
 const RenderEmptyMessageCard = ({value}) => {
   const navigation = useNavigation();
 
-  // Get dynamic colors from config
   const config = useConfig();
-  const gradient1 = config?.gradient1 || '#0076FB';
-  const gradient2 = config?.gradient2 || '#002651';
-  const mainColor = config?.mainColor || '#0056B7';
+  const tokens = useTokens();
+  const gradient1 = tokens.colors.brand.gradientStart;
+  const gradient2 = tokens.colors.brand.gradientEnd;
+  const mainColor = tokens.colors.brand.primary;
 
   return (
     <LinearGradient

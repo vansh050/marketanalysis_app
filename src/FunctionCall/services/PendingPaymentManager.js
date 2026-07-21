@@ -15,6 +15,7 @@ import {
   DigioStatus,
 } from './PaymentStatusService';
 import {logPayment} from '../../utils/Logging';
+import {describeStoredPaymentFailure} from '../../utils/cashfreeEnv';
 
 // AsyncStorage keys
 const PENDING_PAYMENT_KEY = '@pending_payment';
@@ -292,11 +293,16 @@ const determineRecoveryAction = (status, pendingPayment) => {
     };
   }
 
-  // Case 3: Payment failed
+  // Case 3: Payment failed.
+  // Reason-aware, not a flat "not successful" — see describeStoredPaymentFailure.
+  // A customer told only "failed" retries the identical method; the whole point
+  // of surfacing the decline reason is to move them to a different one.
   if (payment?.status === PaymentStatus.FAILED) {
+    const described = describeStoredPaymentFailure(payment?.data);
     return {
       action: 'PAYMENT_FAILED',
-      message: 'Payment was not successful. Please try again.',
+      title: described.title,
+      message: described.message,
       canRetry: true,
       shouldClearPending: true,
     };

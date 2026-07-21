@@ -133,7 +133,7 @@
  * See docs/DESIGN_SYSTEM_ARCHITECTURE.md § Registry for resolution rules.
  */
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -146,7 +146,9 @@ import {
   SafeAreaView,
   ScrollView,
   FlatList,
+  Alert,
 } from 'react-native';
+import CrossPlatformOverlay from '../../../src/components/CrossPlatformOverlay';
 import {
   ChevronRight,
   XIcon,
@@ -385,6 +387,8 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
     panNumber = '',
     panError = '',
     isPanValid = false,
+    gstNumber = '',
+    gstError = '',
     birthDate = '',
     userDetails = null,
     isModelPortfolio = false,
@@ -440,6 +444,7 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
     onHideDisclaimer = () => {},
     onApplyCoupon = () => {},
     onCouponCodeChange = () => {},
+    onGstChange = () => {},
 
     onDigioPayment = () => {},
 
@@ -456,6 +461,64 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
     onPayUSuccess = () => {},
     onPayUFailure = () => {},
   } = actions || {};
+
+  // ---- Surface-local UI state: consent-checkbox nudge ----
+  // "Complete Investment" silently did nothing when the disclaimer checkbox
+  // wasn't ticked — a disabled TouchableOpacity swallows the tap with zero
+  // feedback, so the user had no way to tell why nothing happened (markup,
+  // 2026-07-16). This is presentation-local UI feedback only (no app data,
+  // no network) — allowed under the container/presentation split's local
+  // UI-state carve-out (see docs/DESIGN_SYSTEM_ARCHITECTURE.md).
+  const [showConsentNudge, setShowConsentNudge] = useState(false);
+  useEffect(() => {
+    if (consentChecked) setShowConsentNudge(false);
+  }, [consentChecked]);
+  // Payment-step selection validity.
+  //
+  // The rule is "if there is anything to choose, you must choose it" — a card
+  // must be selected whenever the plan offers EITHER frequency/duration cards
+  // OR one-time option cards. Only a plan that offers no choice at all can
+  // proceed without a selection.
+  //
+  // Why not `frequency?.length === 0 || selectedCard !== null` (the 9667304
+  // form this replaces): `onetimeamount` is set ONLY by tapping an option card,
+  // so on a plan with `frequency.length === 0` AND a non-empty `onetimeOptions`
+  // that predicate short-circuited to true with nothing selected and let
+  // Complete fire `POST api/cashfree` with `amount: null`. The plan that
+  // prompted 9667304 wasn't exposed (its frequency was 'Need Basis', length 11)
+  // but that is luck, not design.
+  //
+  // This still fixes the original dead-button bug: the button is no longer
+  // `disabled`, so a plan with genuine choices gives visible "pick one"
+  // feedback instead of silently swallowing the tap, and a plan with no
+  // choices proceeds straight through.
+  const hasSelectableOptions =
+    (specificPlan?.frequency?.length || 0) > 0 ||
+    (planDetails?.onetimeOptions?.length || 0) > 0;
+  const paymentSelectionValid = !hasSelectableOptions || selectedCard !== null;
+  const handleCompleteInvestmentPress = () => {
+    // Breadcrumb — a "dead" Complete tap has burned two debugging sessions
+    // (disabled-swallow 2026-07-16, RN-Modal offset touch targets 2026-07-18).
+    // If this line doesn't appear in logcat, the tap never reached JS.
+    console.log('[Invest] Complete tapped', {
+      paymentSelectionValid,
+      consentChecked,
+      loading,
+    });
+    if (loading) return;
+    if (!paymentSelectionValid) {
+      Alert.alert(
+        'Select a plan option',
+        'Please choose a plan duration to continue.',
+      );
+      return;
+    }
+    if (!consentChecked) {
+      setShowConsentNudge(true);
+      return;
+    }
+    onDigioPayment();
+  };
 
   // ---- Step 0: Personal Info ----
   const renderStep0 = () => (
@@ -956,6 +1019,36 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
           stepCompletedColor={stepCompletedColor}
         />
 
+        {/* Optional GSTIN for the invoice (web parity C3a). Only shown when
+            the advisor charges GST (configGst). Backend records it on the
+            subscription; the amount/label GST is already handled elsewhere. */}
+        {configGst ? (
+          <View style={{ marginTop: 8, paddingHorizontal: 12 }}>
+            <TextInput
+              style={{
+                borderWidth: 1,
+                borderColor: gstError ? '#dc2626' : '#d1d5db',
+                borderRadius: 8,
+                paddingHorizontal: 12,
+                paddingVertical: 10,
+                fontSize: 14,
+                color: '#111827',
+              }}
+              placeholder="GST Number (optional)"
+              placeholderTextColor="#9ca3af"
+              value={gstNumber}
+              onChangeText={onGstChange}
+              autoCapitalize="characters"
+              maxLength={15}
+            />
+            {gstError ? (
+              <Text style={{ color: '#dc2626', fontSize: 12, marginTop: 4 }}>
+                {gstError}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
+
         <View style={styles.consentContainer}>
           <TouchableOpacity
             style={styles.checkboxContainer}
@@ -969,6 +1062,7 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
                   borderColor:
                     currentAppVariant?.paymentModal?.checkboxActiveColor,
                 },
+                showConsentNudge && !consentChecked && styles.enhancedCheckboxNudge,
               ]}>
               {consentChecked && <Check size={12} color="#fff" />}
             </View>
@@ -985,6 +1079,11 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
               </Text>
             </Text>
           </TouchableOpacity>
+          {showConsentNudge && !consentChecked && (
+            <Text style={styles.consentNudgeText}>
+              Please tick the checkbox above to accept the disclaimer before continuing.
+            </Text>
+          )}
         </View>
 
         {/* GST Breakdown */}
@@ -1018,13 +1117,17 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
         </View>
 
         <TouchableOpacity
-          onPress={onDigioPayment}
-          disabled={!selectedCard || loading || !consentChecked}
+          onPress={handleCompleteInvestmentPress}
+          // Only truly-disable during payment. Selection/consent are validated
+          // in handleCompleteInvestmentPress with visible feedback (a disabled
+          // button silently swallows the tap — the dead-button bug). Greying is
+          // cosmetic; the tap still fires so the user always gets a reason.
+          disabled={loading}
           style={[
             styles.stepButton,
             styles.stepButtonGreen,
             { backgroundColor: stepCompletedColor },
-            (!selectedCard || loading || !consentChecked) &&
+            (!paymentSelectionValid || loading || !consentChecked) &&
             styles.stepButtonDisabled,
           ]}>
           {loading ? (
@@ -1054,7 +1157,12 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
 
   return (
     <>
-      <Modal visible={visible} animationType="slide" transparent={false}>
+      {/* RN Modal (NOT CrossPlatformOverlay): this component is mounted
+          mid-tree inside scrolling screens (Home feed etc.), so an
+          absolute-fill overlay renders INLINE in the feed instead of a
+          full-screen window (regression 2026-07-18, reverted same hour).
+          Modal hoists to its own native window regardless of mount point. */}
+      <Modal visible={!!visible} animationType="slide" transparent={false} onRequestClose={onClose}>
         <SafeAreaView style={styles.container}>
           <View style={styles.headerContainer}>
             <LinearGradient
@@ -1092,6 +1200,7 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
           {/* Content */}
           <ScrollView
             style={styles.content}
+            contentContainerStyle={styles.scrollContentContainer}
             showsVerticalScrollIndicator={false}>
             <View style={styles.stepsContainer}>
               {steps.map((step, index) => (
@@ -1188,14 +1297,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   headerContent: {
+    position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
+    // Reserve space for the absolutely positioned close control. This keeps
+    // long plan names from competing with it on narrow Android screens.
+    paddingRight: 76,
     paddingTop: 10,
     paddingBottom: 10,
   },
   closeButton: {
+    position: 'absolute',
+    right: 20,
+    top: '50%',
+    transform: [{ translateY: -20 }],
     padding: 8,
     borderRadius: 8,
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
@@ -1209,6 +1326,11 @@ const styles = StyleSheet.create({
     flexDirection: 'column',
     alignItems: 'flex-start',
     marginHorizontal: 16,
+    // Long plan names ("Long-Term Compounding Architecture") were pushing
+    // the close ✕ off the right edge — constrain the title, never the ✕.
+    flex: 1,
+    flexShrink: 1,
+    marginRight: 0,
   },
   planTypeTag: {
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
@@ -1285,6 +1407,13 @@ const styles = StyleSheet.create({
 
   content: {
     flex: 1,
+  },
+  // Bottom inset so the "Complete Investment" CTA at the end of step 3
+  // clears the Android gesture nav bar instead of sitting flush against
+  // (or partly under) it. The SafeAreaView only insets the outer frame;
+  // the scrollable content needs its own bottom pad. Added 2026-06-12.
+  scrollContentContainer: {
+    paddingBottom: 32,
   },
   stepsContainer: {
     padding: 16,
@@ -1571,6 +1700,10 @@ const styles = StyleSheet.create({
     marginRight: 12,
     marginTop: 2,
   },
+  enhancedCheckboxNudge: {
+    borderColor: '#EF4444',
+    borderWidth: 2,
+  },
 
   consentText: {
     flex: 1,
@@ -1578,6 +1711,13 @@ const styles = StyleSheet.create({
     fontFamily: 'Satoshi-Regular',
     color: '#374151',
     lineHeight: 20,
+  },
+  consentNudgeText: {
+    fontSize: 12,
+    fontFamily: 'Satoshi-Regular',
+    color: '#EF4444',
+    marginTop: 4,
+    marginLeft: 28,
   },
   linkText: {
     fontFamily: 'Satoshi-Bold',

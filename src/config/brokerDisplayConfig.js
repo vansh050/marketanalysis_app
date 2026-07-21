@@ -56,11 +56,10 @@ export const brokerDisplayConfig = [
     key: 'Fyers',
     logo: require('../assets/fyers.png'),
   },
-  {
-    name: 'Motilal Oswal',
-    key: 'Motilal',
-    logo: require('../assets/Motilalicon.png'),
-  },
+  // IIFL Securities is intentionally not listed until its legacy v1
+  // authorisation service is restored and tested end-to-end. It is not the
+  // XTS/App-ID flow, so exposing it with XTS/IP-whitelist instructions would
+  // mislead new customers. Existing connections remain untouched.
   {
     name: 'Groww',
     key: 'Groww',
@@ -70,11 +69,6 @@ export const brokerDisplayConfig = [
     name: 'Axis Securities',
     key: 'Axis Securities',
     logo: require('../assets/axis.png'),
-  },
-  {
-    name: 'IIFL Securities',
-    key: 'IIFL',
-    logo: require('../assets/iifl.png'),
   },
   {
     name: 'Arihant Capital',

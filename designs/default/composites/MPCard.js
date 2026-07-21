@@ -49,11 +49,9 @@
  */
 
 import React from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet, Animated, Dimensions } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import { Gauge, TrendingUp } from 'lucide-react-native';
-
-const { width: screenWidth } = Dimensions.get('window');
 
 // API returns description with HTML tags — render as plain text.
 const stripHtml = (input) => {
@@ -96,6 +94,8 @@ const MPCard = ({ viewModel, actions, slots }) => {
     buttonLabel = 'Subscribe',
     buttonBgColor = '#fff',
     buttonTextColor = '#0056B7',
+    subscribeDisabled = false,
+    cardWidth = null,
   } = viewModel || {};
 
   const {
@@ -108,7 +108,7 @@ const MPCard = ({ viewModel, actions, slots }) => {
   const { ConsentPopupSlot = null } = slots || {};
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, cardWidth ? { width: cardWidth } : null]}>
       <View activeOpacity={0.9}>
         <LinearGradient
           colors={[gradient1, gradient2]}
@@ -130,11 +130,16 @@ const MPCard = ({ viewModel, actions, slots }) => {
                 style={styles.logo}
               />
             </View>
-            <Text style={styles.portfolioTitle}>{modelName || 'ZC Leaders Portfolio'}</Text>
+            <Text
+              style={styles.portfolioTitle}
+              numberOfLines={2}
+              ellipsizeMode="tail">
+              {modelName || 'ZC Leaders Portfolio'}
+            </Text>
           </View>
 
           {/* Price Section */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 0 }}>
+          <View style={styles.priceRow}>
             <View style={styles.priceSection}>
               <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 6 }}>
                 <Text style={styles.currentPrice}>
@@ -245,7 +250,7 @@ const MPCard = ({ viewModel, actions, slots }) => {
                 onPress={onConsentOpen}
                 disabled={!cagrClickable}
               >
-                <Text style={[styles.cagrValue, { color: mainColor }]}>
+                <Text style={styles.cagrValue}>
                   {cagrDisplay}
                 </Text>
               </TouchableOpacity>
@@ -260,6 +265,7 @@ const MPCard = ({ viewModel, actions, slots }) => {
 
             <TouchableOpacity
               onPress={onSubscribe}
+              disabled={subscribeDisabled}
               style={[styles.subscribeButton, { backgroundColor: buttonBgColor }]}
             >
               <Text style={[styles.subscribeText, { color: buttonTextColor }]}>
@@ -287,39 +293,35 @@ const MPCard = ({ viewModel, actions, slots }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { marginHorizontal: 8, marginVertical: 8, elevation: 8 },
+  container: { marginBottom: 14, elevation: 5 },
   cardContainer: {
-    borderTopRightRadius: 8,
-    borderTopLeftRadius: 8,
-    width: screenWidth - 30,
-    maxWidth: screenWidth,
-    paddingVertical: 10,
-    paddingHorizontal: 10,
+    borderRadius: 16,
+    width: '100%',
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 12,
     elevation: 0,
   },
+  priceRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 6},
   saveTag: {
-    position: 'absolute',
-    right: -10,
-    top: 0,
-    paddingHorizontal: 12,
+    marginLeft: 'auto',
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderTopLeftRadius: 20,
-    borderBottomLeftRadius: 20,
+    borderRadius: 14,
   },
-  saveTagText: { color: '#fff', fontSize: 8, fontFamily: 'Poppins-SemiBold', alignSelf: 'center' },
-  headerSection: { flexDirection: 'row', alignItems: 'center', marginBottom: 5 },
+  saveTagText: { color: '#fff', fontSize: 10, fontFamily: 'Poppins-SemiBold', alignSelf: 'center' },
+  headerSection: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   logoContainer: {
     backgroundColor: 'rgba(255,255,255,0.2)',
     borderRadius: 12,
     padding: 0,
     marginRight: 12,
   },
-  logo: { width: 32, height: 32, borderRadius: 8 },
-  portfolioTitle: { color: '#fff', fontSize: 18, fontFamily: 'Poppins-SemiBold', flex: 1 },
+  logo: { width: 40, height: 40, borderRadius: 10 },
+  portfolioTitle: { color: '#fff', fontSize: 16, lineHeight: 22, fontFamily: 'Poppins-SemiBold', flex: 1, flexShrink: 1, minWidth: 0 },
   priceSection: { flexDirection: 'row', alignItems: 'baseline', gap: 8 },
   currentPrice: { color: '#fff', fontSize: 14, fontFamily: 'Poppins-Bold' },
   originalPrice: { color: 'rgba(255,255,255,0.7)', fontSize: 14, fontFamily: 'Poppins-Regular', textDecorationLine: 'line-through' },
@@ -329,21 +331,21 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins-Regular',
     marginTop: -2,
   },
-  statsContainer: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12, padding: 0, marginBottom: 20, alignItems: 'center' },
-  statItem: { flex: 1, alignItems: 'flex-start', paddingVertical: 5, paddingHorizontal: 5, marginRight: 5 },
-  statRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 12 },
-  statIconContainer: { width: 14, height: 14, borderRadius: 14, backgroundColor: 'rgba(255, 255, 255, 1)', alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+  statsContainer: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 12, paddingVertical: 9, paddingHorizontal: 6, marginBottom: 14, alignItems: 'center' },
+  statItem: { flex: 1, alignItems: 'flex-start', paddingHorizontal: 6 },
+  statRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5 },
+  statIconContainer: { width: 15, height: 15, borderRadius: 8, backgroundColor: 'rgba(255, 255, 255, 0.96)', alignItems: 'center', justifyContent: 'center' },
   statIcon: { color: '#000000ff', fontSize: 9, fontFamily: 'Poppins-Bold' },
-  statLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 9, fontFamily: 'Poppins-Medium', textAlign: 'center', marginBottom: 4 },
-  statValue: { color: '#fff', fontSize: 12, fontFamily: 'Poppins-SemiBold', alignSelf: 'flex-start' },
-  volatilityText: { fontSize: 14, fontWeight: '600', textAlign: 'center' },
+  statLabel: { color: 'rgba(255,255,255,0.72)', fontSize: 9, fontFamily: 'Poppins-Medium', marginBottom: 5 },
+  statValue: { color: '#fff', fontSize: 13, fontFamily: 'Poppins-SemiBold', alignSelf: 'flex-start' },
+  volatilityText: { fontSize: 13, fontFamily: 'Poppins-SemiBold', textAlign: 'left' },
   blurText: { opacity: 0.5 },
-  cagrValue: { fontSize: 12, fontFamily: 'Poppins-SemiBold', alignSelf: 'flex-start' },
-  statDivider: { width: 1, height: 40, backgroundColor: 'rgba(255,255,255,0.2)', marginHorizontal: 8 },
-  actionContainer: { flexDirection: 'row', gap: 12 },
-  viewMoreButton: { flex: 1, backgroundColor: 'rgba(232, 232, 232, 0.58)', borderRadius: 3, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
-  viewMoreText: { color: '#fff', fontSize: 12, fontFamily: 'Poppins-Medium' },
-  subscribeButton: { flex: 1, backgroundColor: '#fff', borderRadius: 3, paddingVertical: 8, alignItems: 'center', justifyContent: 'center' },
+  cagrValue: { fontSize: 13, fontFamily: 'Poppins-SemiBold', color: '#fff', alignSelf: 'flex-start' },
+  statDivider: { width: 1, height: 38, backgroundColor: 'rgba(255,255,255,0.18)', marginHorizontal: 4 },
+  actionContainer: { flexDirection: 'row', gap: 10 },
+  viewMoreButton: { flex: 1, backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(255,255,255,0.34)', paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
+  viewMoreText: { color: '#fff', fontSize: 12, fontFamily: 'Poppins-SemiBold' },
+  subscribeButton: { flex: 1, backgroundColor: '#fff', borderRadius: 10, paddingVertical: 10, alignItems: 'center', justifyContent: 'center' },
   subscribeText: { fontSize: 12, fontFamily: 'Poppins-SemiBold' },
   animatedSection: { backgroundColor: '#ECF3FE', elevation: 4, paddingHorizontal: 20, paddingVertical: 20, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, marginHorizontal: 16, borderWidth: 1, borderTopWidth: 0, borderColor: '#F3F4F6' },
   expandedContent: { alignItems: 'flex-start', justifyContent: 'flex-start' },

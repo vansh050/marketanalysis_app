@@ -14,7 +14,7 @@
  *   ok=false → block the gateway; show `message` (e.g. 100%-discount → manual activation).
  */
 const MANUAL_ACTIVATION_MSG =
-    '100% discount coupons require manual activation. Please reach out to your advisor.';
+    '100% discount coupons require manual activation. Please reach out to your manager.';
 
 export function validateChargeableAmount(amount) {
     const n = Number(amount);

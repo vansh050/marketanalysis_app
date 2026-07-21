@@ -110,23 +110,22 @@ export const getSubscriptionStatus = (planName, clientData) => {
   // 1. Authoritative path — does the user have a `groups` entry whose
   // name matches this plan? If yes, restrict to the subscription rows
   // tagged with the same plan and pick the latest non-inactive one.
+  // Exact match only (post-normalization): a substring fallback here
+  // let a deleted plan's group/subscription row (e.g. "test") falsely
+  // match an unrelated plan whose name merely contains it as a prefix
+  // (e.g. "test 1") — see markup tester report 2026-07-16.
+  // normalizeGroupName already collapses spaces/dashes/underscores so
+  // legitimate formatting variants of the SAME name ("MP Test1" vs
+  // "MP-Test1") already compare equal without substring matching.
   const matchingGroup = groups.find(group => {
     const nGroup = normalizeGroupName(group);
-    return (
-      nGroup === normalizedPlan ||
-      nGroup.includes(normalizedPlan) ||
-      normalizedPlan.includes(nGroup)
-    );
+    return nGroup === normalizedPlan;
   });
 
   if (matchingGroup) {
     const groupSubs = subscriptions.filter(sub => {
       const nSub = normalizeGroupName(sub?.plan);
-      return (
-        nSub === normalizedPlan ||
-        nSub.includes(normalizedPlan) ||
-        normalizedPlan.includes(nSub)
-      );
+      return nSub === normalizedPlan;
     });
     const liveGroupSubs = groupSubs.filter(sub => !isInactiveSubStatus(sub));
     if (liveGroupSubs.length === 0) {
@@ -142,15 +141,13 @@ export const getSubscriptionStatus = (planName, clientData) => {
   }
 
   // 2. Fallback — no group match. Some legacy users have subscription
-  // rows without a parallel `groups[]` update. Match by plan name only.
+  // rows without a parallel `groups[]` update. Match by plan name only,
+  // exact (post-normalization) — see note above on why substring
+  // matching was removed.
   if (!subscriptions.length) return {status: 'none'};
   const matchingPlanSubs = subscriptions.filter(sub => {
     const nSub = normalizeGroupName(sub?.plan);
-    return (
-      nSub === normalizedPlan ||
-      nSub.includes(normalizedPlan) ||
-      normalizedPlan.includes(nSub)
-    );
+    return nSub === normalizedPlan;
   });
   if (matchingPlanSubs.length === 0) return {status: 'none'};
   const liveSubs = matchingPlanSubs.filter(sub => !isInactiveSubStatus(sub));

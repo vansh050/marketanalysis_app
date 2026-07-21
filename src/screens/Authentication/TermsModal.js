@@ -18,7 +18,7 @@ const TERMS_DATA = [
     },
     {
         heading: 'Description of Service',
-        text: '2.1. This service is a financial technology software designed to enable financial advisors to send investment recommendations to their clients and facilitate the execution of these recommendations.\n\n2.2. The Service is currently in its launch stage. As such, it may contain minor issues that could affect its performance. We make no guarantees about the availability, reliability, or accuracy of the Service.',
+        text: '2.1. This service is a financial technology software designed to enable managers to send investment recommendations to their clients and facilitate the execution of these recommendations.\n\n2.2. The Service is currently in its launch stage. As such, it may contain minor issues that could affect its performance. We make no guarantees about the availability, reliability, or accuracy of the Service.',
     },
     {
         heading: 'User Responsibilities',

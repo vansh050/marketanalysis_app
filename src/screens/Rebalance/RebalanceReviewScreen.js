@@ -25,6 +25,7 @@ import axios from 'axios';
 import Config from 'react-native-config';
 
 import server from '../../utils/serverConfig';
+import LowFundsRebalanceWarning from '../../components/LowFundsRebalanceWarning';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import {
@@ -330,6 +331,26 @@ const RebalanceReviewScreen = () => {
             ))}
           </>
         )}
+
+        {/* Non-blocking low-funds / T+1-settlement warning (web parity —
+            LowFundsRebalanceWarning). Self-hides unless a real shortfall is
+            known: requiredFund + pendingSellProceeds are computed from the
+            order rows here; availableCash comes from route.params when the
+            caller has broker funds (self-hides when absent, so this is
+            non-breaking — wiring the broker-funds fetch into this flow is a
+            tracked follow-up). */}
+        <LowFundsRebalanceWarning
+          availableCash={route.params?.availableCash}
+          requiredFund={buyOrders.reduce(
+            (s, o) => s + (Number(o.quantity) || 0) * (Number(o.price) || 0),
+            0,
+          )}
+          pendingSellProceeds={sellOrders.reduce(
+            (s, o) => s + (Number(o.quantity) || 0) * (Number(o.price) || 0),
+            0,
+          )}
+          pricesReady={!loading && buyOrders.length > 0}
+        />
 
         {/* Terms */}
         <TouchableOpacity style={styles.checkboxRow} onPress={() => setTermsAccepted(!termsAccepted)}>

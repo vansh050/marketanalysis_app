@@ -255,7 +255,26 @@ export const getConfigData = async (retryCount = 3) => {
       // Add Digio config at top level if not already present
       const enhancedConfig = {
         ...parsedConfig,
-        digioCheck: parsedConfig.digioCheck || digioCheck || parsedConfig?.config?.REACT_APP_DIGIO_CHECK || 'beforePayment',
+        // BOOTSTRAP-KEY GUARANTEE: every authed fetch sends
+        // `X-Advisor-Subdomain: configData.config.REACT_APP_HEADER_NAME`.
+        // On white-label builds the stored config can be missing it (the
+        // legacy /getConfig path is dead + getConfig 404s), which makes the
+        // subdomain header undefined → the backend scopes to the wrong/no DB
+        // → empty plans/holdings/etc. The subdomain is fixed per build and
+        // authoritative in .env (it's the key used to identify the tenant),
+        // so fall back to Config.* when the stored value is absent. Stored
+        // value still WINS when present, so b2b's runtime advisor-switch
+        // (ChangeAdvisor) keeps working.
+        config: {
+          ...(parsedConfig.config || {}),
+          REACT_APP_HEADER_NAME:
+            parsedConfig?.config?.REACT_APP_HEADER_NAME || Config.REACT_APP_HEADER_NAME,
+          REACT_APP_ADVISOR_SPECIFIC_TAG:
+            parsedConfig?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG || Config.REACT_APP_ADVISOR_SPECIFIC_TAG,
+          REACT_APP_DIGIO_CHECK:
+            parsedConfig?.config?.REACT_APP_DIGIO_CHECK || Config.REACT_APP_DIGIO_CHECK,
+        },
+        digioCheck: parsedConfig.digioCheck || digioCheck || parsedConfig?.config?.REACT_APP_DIGIO_CHECK || Config.REACT_APP_DIGIO_CHECK || 'beforePayment',
         digioEnabled: parsedConfig.digioEnabled !== undefined
           ? parsedConfig.digioEnabled
           : (digioEnabled ? JSON.parse(digioEnabled) : true),
@@ -703,8 +722,19 @@ export const tryResolveAdvisor = async email => {
       {
         headers: {
           'Content-Type': 'application/json',
+          // Send the canonical advisor SUBDOMAIN (matches
+          // email_advisor_map.advisor_subdomain on the backend), NOT the
+          // human-facing white-label text. resolve-advisor uses this header
+          // to disambiguate when one email maps to multiple advisors (e.g. a
+          // user subscribed via several advisors, or an internal test
+          // account): each whitelabel build is dedicated to one advisor, so
+          // the backend prefers the mapping whose subdomain matches this
+          // header instead of returning multiple_advisors (which left
+          // advisorSpecificTag empty → no Plans). Previously this sent
+          // REACT_APP_WHITE_LABEL_TEXT ("Alphanomy" / "Zamzam Capital"),
+          // which never matched the subdomain ("alphanomy"/"zamzamcapital").
           'X-Advisor-Subdomain':
-            Config.REACT_APP_WHITE_LABEL_TEXT || 'alphaquark',
+            Config.REACT_APP_HEADER_NAME || 'alphaquark',
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,

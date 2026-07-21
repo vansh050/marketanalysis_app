@@ -21,19 +21,7 @@
  * Cross-ref: docs/BROKER_CONNECTION.md § Arihant Capital.
  */
 import React, { useState, useEffect } from 'react';
-import {
-  Modal,
-  View,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  ActivityIndicator,
-  ScrollView,
-  StyleSheet,
-  KeyboardAvoidingView,
-  Platform,
-  Linking,
-} from 'react-native';
+import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
 import { getAuth } from '@react-native-firebase/auth';
@@ -44,6 +32,7 @@ import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import { useTrade } from '../../screens/TradeContext';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const wrapCredential = (value) =>
   CryptoJS.AES.encrypt(String(value || ''), 'ApiKeySecret').toString();
@@ -56,7 +45,7 @@ const ArihantConnectModal = ({
   const { configData } = useTrade();
   const showAlert = useModalStore((s) => s.showAlert);
   const auth = getAuth();
-  const userEmail = auth.currentUser?.email;
+  const userEmail = getAccountEmail();
 
   const [userId, setUserId] = useState('');
   const [password, setPassword] = useState('');
@@ -241,227 +230,85 @@ const ArihantConnectModal = ({
     }
   };
 
+  // Rendered through the shared BrokerConnectStepperSheet — the RN port of
+  // web's BrokerConnectStepper (same guide steps, brand, portal link, and
+  // EgressIpCallout static-IP gating as prod web's ArihantConnection.js).
+  // NEVER use React Native's <Modal> here: it hard-freezes this app on
+  // Android (New Architecture) — tiny white box top-left + wedged UI thread.
   return (
-    <Modal
-      visible={!!isVisible}
-      animationType="slide"
-      transparent
-      onRequestClose={loading ? undefined : onClose}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.backdrop}
-      >
-        <View style={styles.sheet}>
-          <View style={styles.headerRow}>
-            <Text style={styles.headerTitle}>Connect Arihant Capital</Text>
-            {!loading && (
-              <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
-                <Text style={styles.closeX}>×</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <ScrollView style={styles.scroll} keyboardShouldPersistTaps="handled">
-            <Text style={styles.subtitle}>
-              {step === 'creds'
-                ? "We'll send an OTP to your registered Arihant contact."
-                : 'Enter the OTP Arihant sent to your registered mobile/email.'}
-            </Text>
-
-            <View style={styles.infoBox}>
-              <Text style={styles.infoText}>
-                Log in at{' '}
-                <Text
-                  style={styles.link}
-                  onPress={() => Linking.openURL('https://tradebridge.arihantplus.com/')}
-                >
-                  tradebridge.arihantplus.com
-                </Text>{' '}
-                to generate your API Key (App ID). Arihant sessions expire
-                daily — tap Reconnect from the broker tile if trades fail
-                with "Session Expired".
-              </Text>
-            </View>
-
-            {step === 'creds' ? (
-              <>
-                <Text style={styles.label}>Arihant User ID *</Text>
-                <TextInput
-                  style={styles.input}
-                  value={userId}
-                  onChangeText={(t) => setUserId(t.trim())}
-                  placeholder="Enter your Arihant login ID"
-                  autoCapitalize="none"
-                  editable={!loading}
-                />
-
-                <Text style={styles.label}>Password *</Text>
-                <View style={styles.passwordWrap}>
-                  <TextInput
-                    style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="Enter your Arihant password"
-                    secureTextEntry={!showPassword}
-                    autoCapitalize="none"
-                    editable={!loading}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeBtn}
-                    onPress={() => setShowPassword((v) => !v)}
-                  >
-                    <Text style={styles.eyeBtnText}>{showPassword ? 'Hide' : 'Show'}</Text>
-                  </TouchableOpacity>
-                </View>
-
-                <Text style={styles.label}>API Key (App ID) *</Text>
-                <View style={styles.passwordWrap}>
-                  <TextInput
-                    style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                    value={apiKey}
-                    onChangeText={(t) => setApiKey(t.trim())}
-                    placeholder="Generated at tradebridge.arihantplus.com"
-                    secureTextEntry={!showApiKey}
-                    autoCapitalize="none"
-                    editable={!loading}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeBtn}
-                    onPress={() => setShowApiKey((v) => !v)}
-                  >
-                    <Text style={styles.eyeBtnText}>{showApiKey ? 'Hide' : 'Show'}</Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            ) : (
-              <>
-                <Text style={styles.label}>OTP *</Text>
-                <TextInput
-                  style={[styles.input, styles.otpInput]}
-                  value={otp}
-                  onChangeText={(t) => setOtp(t.replace(/\D/g, '').slice(0, 8))}
-                  placeholder="Enter OTP"
-                  keyboardType="number-pad"
-                  maxLength={8}
-                  editable={!loading}
-                  autoFocus
-                />
-                <View style={styles.resendRow}>
-                  <Text style={styles.resendHint}>
-                    OTP sent to your registered Arihant contact.
-                  </Text>
-                  <TouchableOpacity
-                    onPress={resendOtp}
-                    disabled={resendCooldown > 0 || loading}
-                  >
-                    <Text
-                      style={[
-                        styles.resendCta,
-                        (resendCooldown > 0 || loading) && styles.resendCtaDisabled,
-                      ]}
-                    >
-                      {resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend OTP'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                {!!otpExpiry && (
-                  <Text style={styles.expiryHint}>OTP expires at: {String(otpExpiry)}</Text>
-                )}
-              </>
-            )}
-
-            {!!error && (
-              <View style={styles.errorBox}>
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            )}
-          </ScrollView>
-
-          <View style={styles.footer}>
-            {step === 'otp' && (
-              <TouchableOpacity
-                style={styles.backBtn}
-                onPress={() => {
-                  setStep('creds');
-                  setOtp('');
-                  setTxnId('');
-                  setError('');
-                }}
-                disabled={loading}
-              >
-                <Text style={styles.backBtnText}>Back</Text>
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={[styles.submitBtn, loading && styles.submitBtnDisabled]}
-              onPress={step === 'creds' ? initiateLogin : connectArihant}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <Text style={styles.submitBtnText}>
-                  {step === 'creds' ? 'Send OTP' : 'Connect Arihant'}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+    <BrokerConnectStepperSheet
+      isVisible={!!isVisible}
+      onClose={onClose}
+      broker="Arihant Capital"
+      config={{
+        monogram: 'A',
+        brandFrom: '#ff7a00',
+        brandTo: '#cc5500',
+        portalUrl: 'https://tradebridge.arihantplus.com',
+        portalLabel: 'Open Arihant TradeBridge',
+        walkthroughVideoId: 'kE3nviz2T9k',
+        guideSteps: [
+          'Log in at <b>tradebridge.arihantplus.com</b>',
+          'Open <b>API Keys → New App</b>',
+          'Whitelist the <b>IP</b> below',
+          'Set the app name and redirect',
+          'Copy your <b>App ID / API Key</b>',
+          'Paste credentials here, then verify OTP',
+        ],
+        note: 'Arihant sessions expire daily — tap Reconnect from the broker tile if trades fail with "Session Expired".',
+      }}
+      egressBrokerKey="arihant"
+      customerId={uid}
+      customerEmail={userEmail}
+      fields={[
+        {
+          label: 'Arihant User ID',
+          value: userId,
+          onChange: (t) => setUserId(t.trim()),
+          placeholder: 'Enter your Arihant login ID',
+        },
+        {
+          label: 'Password',
+          value: password,
+          onChange: setPassword,
+          password: true,
+          placeholder: 'Enter your Arihant password',
+        },
+        {
+          label: 'API Key (App ID)',
+          value: apiKey,
+          onChange: (t) => setApiKey(t.trim()),
+          password: true,
+          placeholder: 'Generated at tradebridge.arihantplus.com',
+        },
+      ]}
+      phase={step === 'otp' ? 'otp' : 'creds'}
+      otp={{
+        value: otp,
+        onChange: (t) => setOtp(t.replace(/\D/g, '').slice(0, 8)),
+        sentToText: 'Enter the OTP Arihant sent to your registered mobile/email.',
+        onResend: resendOtp,
+        resendDisabled: resendCooldown > 0,
+        resendLabel: resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend OTP',
+        expiryHint: otpExpiry ? `OTP expires at: ${String(otpExpiry)}` : '',
+      }}
+      error={error}
+      canSubmit={
+        step === 'otp'
+          ? Boolean(otp)
+          : Boolean(userId) && Boolean(password) && Boolean(apiKey)
+      }
+      submitLabel={step === 'otp' ? 'Verify & Connect' : 'Send OTP'}
+      loading={loading}
+      onSubmit={step === 'otp' ? connectArihant : initiateLogin}
+      onBackStep={() => {
+        setStep('creds');
+        setOtp('');
+        setTxnId('');
+        setError('');
+      }}
+    />
   );
 };
-
-const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
-  sheet: {
-    backgroundColor: '#ffffff', borderTopLeftRadius: 18, borderTopRightRadius: 18,
-    paddingHorizontal: 20, paddingTop: 18, paddingBottom: 24, maxHeight: '92%',
-  },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  headerTitle: { fontSize: 17, fontWeight: '700', color: '#111827' },
-  closeX: { fontSize: 28, color: '#9ca3af', paddingHorizontal: 4, lineHeight: 28 },
-  scroll: { maxHeight: 460 },
-  subtitle: { fontSize: 13, color: '#6b7280', marginBottom: 14 },
-  infoBox: {
-    backgroundColor: '#ecfdf5', borderColor: '#a7f3d0', borderWidth: 1,
-    borderRadius: 8, padding: 12, marginBottom: 14,
-  },
-  infoText: { fontSize: 12, color: '#065f46', lineHeight: 18 },
-  link: { color: '#047857', textDecorationLine: 'underline' },
-  label: { fontSize: 12, fontWeight: '600', color: '#374151', marginBottom: 6, marginTop: 8 },
-  input: {
-    borderWidth: 1, borderColor: '#d1d5db', borderRadius: 8,
-    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: '#111827',
-    marginBottom: 4, backgroundColor: '#fafafa',
-  },
-  passwordWrap: { flexDirection: 'row', alignItems: 'center', marginBottom: 4 },
-  eyeBtn: { paddingHorizontal: 12, paddingVertical: 8 },
-  eyeBtnText: { color: '#047857', fontWeight: '600', fontSize: 12 },
-  otpInput: { textAlign: 'center', letterSpacing: 6, fontSize: 18 },
-  resendRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
-  resendHint: { fontSize: 11, color: '#6b7280', flex: 1, marginRight: 8 },
-  resendCta: { fontSize: 12, fontWeight: '600', color: '#047857' },
-  resendCtaDisabled: { color: '#9ca3af' },
-  expiryHint: { fontSize: 11, color: '#9ca3af', marginTop: 6 },
-  errorBox: {
-    marginTop: 12, backgroundColor: '#fef2f2', borderColor: '#fecaca',
-    borderWidth: 1, borderRadius: 6, padding: 10,
-  },
-  errorText: { color: '#991b1b', fontSize: 12 },
-  footer: { flexDirection: 'row', marginTop: 14 },
-  backBtn: {
-    paddingVertical: 12, paddingHorizontal: 18, borderRadius: 8,
-    borderWidth: 1, borderColor: '#d1d5db', marginRight: 8,
-  },
-  backBtnText: { color: '#374151', fontWeight: '600' },
-  submitBtn: {
-    flex: 1, backgroundColor: '#047857', borderRadius: 8,
-    paddingVertical: 14, alignItems: 'center',
-  },
-  submitBtnDisabled: { backgroundColor: '#9ca3af' },
-  submitBtnText: { color: '#ffffff', fontWeight: '700', fontSize: 15 },
-});
 
 export default ArihantConnectModal;

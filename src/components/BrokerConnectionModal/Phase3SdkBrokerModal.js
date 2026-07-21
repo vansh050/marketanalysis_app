@@ -47,15 +47,9 @@
  *   - flow == stub (DummyBroker):
  *       The form auto-succeeds without persistence.
  *
- * KNOWN GAP — useSharedAngelOneKey dual-mode:
- *   When `config.useSharedAngelOneKey === true` (per-advisor backend
- *   config), Angel One uses platform-shared OAuth via ccxt
- *   /angelone/login-url with the env REACT_APP_ANGEL_ONE_API_KEY.
- *   The SDK route family doesn't yet expose a shared-key path —
- *   shared-key advisors should disable Phase 3 Angel One until
- *   /sdk/v1/connections/Angel%20One/login-url has shared-mode
- *   awareness. Tracked separately. Per-customer mode (the new flow
- *   from prod-alphaquark-github 0202f27c) works through this modal.
+ * Angel One is deliberately per-customer only. The host always shows the
+ * customer's SmartAPI credentials and static-IP gate; it never selects the
+ * old platform-shared publisher-login route.
  *
  * SUCCESS CONTRACT — onSuccess calls fetchBrokerStatusModal (existing
  * pattern from every legacy modal) which refreshes the connected-
@@ -71,10 +65,14 @@ import Config from 'react-native-config';
 import {
   BrokerCredentialForm,
   WebViewBrokerAuthFlow,
+  getBrokerFormSchema,
 } from '@alphaquark/mobile-sdk';
 import {useTrade} from '../../screens/TradeContext';
+import {useConfig} from '../../context/ConfigContext';
 import EgressIpCallout from './EgressIpCallout';
 import Phase3BrokerHelp from './Phase3BrokerHelp';
+import BrokerGuideCard, {getBrokerGuideConfig} from './brokerGuideConfigs';
+import BrokerWalkthroughPlayer from './BrokerWalkthroughPlayer';
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {getAdvisorSubdomain} from '../../utils/variantHelper';
@@ -113,6 +111,9 @@ const IP_WHITELIST_BROKERS = new Set([
   'Upstox',
   'Motilal Oswal',
   'Fyers',
+  // IPv4-only brokers (dedicated/static-IP flow) — 2026-07-18.
+  'Arihant Capital',
+  'DefinEdge Securities',
 ]);
 
 // EgressIpCallout expects the lowercase backend broker_key (the same
@@ -139,6 +140,8 @@ const EGRESS_BROKER_KEY = {
   'Motilal Oswal': 'motilaloswal',
   'Angel One': 'angelone',
   'IIFL Securities': 'iifl',
+  'Arihant Capital': 'arihant',
+  'DefinEdge Securities': 'definedge',
 };
 
 const REDIRECT_URL =
@@ -437,10 +440,6 @@ const buildSchemaOverride = (brokerName, userDetails) => {
   }
 
   if (brokerName === 'Angel One') {
-    const sharedKey = Config?.REACT_APP_ANGEL_ONE_API_KEY;
-    if (sharedKey) {
-      return { fields: [], prerequisites: [], intro: null };
-    }
     return {
       fields: [
         {name: 'apiKey', initialValue: stored?.apiKey || ''},
@@ -508,7 +507,32 @@ const Phase3SdkBrokerModal = ({
   fetchBrokerStatusModal,
 }) => {
   const {configData, userEmail: emailFromCtx} = useTrade();
+  const runtimeConfig = useConfig();
+  const brokerName = useMemo(
+    () => visibleModalToBrokerName(brokerNameProp || ''),
+    [brokerNameProp],
+  );
+  // Web-parity setup guide (mirrors prod web BrokerConnectStepper content).
+  // Broker brand paints only the monogram; actions use the app accent.
+  const guideAccent =
+    runtimeConfig?.mainColor ||
+    runtimeConfig?.gradient2 ||
+    runtimeConfig?.buttonColor ||
+    '#0056B7';
+  const guideConfig = getBrokerGuideConfig(brokerName, {
+    whiteLabelText: Config?.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark',
+    brokerConnectRedirectURL:
+      configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL || '',
+    iciciRedirectUrl: `${server.ccxtServer.baseUrl}icici/auth-callback/${getAdvisorSubdomain()}`,
+    ccxtBaseUrl: server.ccxtServer.baseUrl,
+  });
   const [oauthExtraBody, setOauthExtraBody] = useState(null);
+  const [walkthroughVideoId, setWalkthroughVideoId] = useState(null);
+  useEffect(() => {
+    if (!isVisible) {
+      setWalkthroughVideoId(null);
+    }
+  }, [isVisible]);
   // errorInfo is a structured shape `{title, body, technical}` produced by
   // `humanizeSdkError`. Previously this was a flat string built from the
   // wrong `SdkError` fields (`code` / `httpStatus` — neither exists on the
@@ -518,10 +542,11 @@ const Phase3SdkBrokerModal = ({
   // `technical` breadcrumb caption for support diagnostics.
   const [errorInfo, setErrorInfo] = useState(null);
 
-  const brokerName = useMemo(
-    () => visibleModalToBrokerName(brokerNameProp || ''),
-    [brokerNameProp],
-  );
+  // Angel One always uses the customer-owned SmartAPI credentials, and thus
+  // always requires the per-customer static-IP whitelist gate.
+  const angelOnePerCustomer = brokerName === 'Angel One';
+  const showEgressCallout =
+    IP_WHITELIST_BROKERS.has(brokerName) || angelOnePerCustomer;
 
   // Smart-prefill: fetch userDetails once on mount; build a per-broker
   // schemaOverride that pre-fills `initialValue` on stable fields. On
@@ -566,7 +591,12 @@ const Phase3SdkBrokerModal = ({
         if (cancelled) return;
         const u = res?.data?.User || null;
         setUserDetails(u);
-        setSchemaOverride(buildSchemaOverride(brokerName, u));
+        setSchemaOverride(
+          buildSchemaOverride(
+            brokerName,
+            u,
+          ),
+        );
         setSchemaOverridePending(false);
       })
       .catch((err) => {
@@ -629,9 +659,7 @@ const Phase3SdkBrokerModal = ({
   // (b) the user has claimed an IP and ticked the acknowledgment.
   // We block the SDK form submit (via IgnorePointer + opacity) until
   // ready. Mirror of legacy modals' egressReady gate.
-  const [egressReady, setEgressReady] = useState(
-    !IP_WHITELIST_BROKERS.has(brokerName),
-  );
+  const [egressReady, setEgressReady] = useState(!showEgressCallout);
 
   // When the user interacts with the still-locked form, flash the
   // EgressIpCallout acknowledgment checkbox (showUnmetAck) and scroll
@@ -692,6 +720,54 @@ const Phase3SdkBrokerModal = ({
       </TouchableOpacity>
     </View>
   );
+
+  // Defensive guard — last line of defense against the crash class fixed
+  // 2026-07-17 (see SDK_LEGACY_FALLBACK comment in
+  // BrokerConnectModalDispatch.js). If this modal ever mounts for a broker
+  // the SDK has no `BROKER_FORM_SCHEMAS` entry for (a future broker added
+  // to the dispatch/tile list but forgotten in either the SDK schema map
+  // or SDK_LEGACY_FALLBACK), `<BrokerCredentialForm>` would crash hard —
+  // its initial-state seeding does `for (const f of baseSchema.fields)`
+  // where `baseSchema = BROKER_FORM_SCHEMAS[broker]` is `undefined`
+  // (BrokerCredentialForm.tsx:159). Catch it here instead and render a
+  // non-crashing notice using this modal's existing error presentation
+  // (styles.errorBox/errorTitle/errorBody) plus the standard Header close
+  // button, rather than mounting the form at all.
+  const brokerSchema = getBrokerFormSchema(brokerName);
+  if (!brokerSchema) {
+    console.error(
+      `[Phase3SdkBrokerModal] No SDK BROKER_FORM_SCHEMAS entry for broker "${brokerName}". ` +
+        'This broker reached the SDK connect lane but the mobile SDK has no form schema ' +
+        'registered for it. Fix: either add a BROKER_FORM_SCHEMAS entry for this broker in ' +
+        'alphaquark-mobile-sdk (packages/rn/src/components/brokerFormSchema.ts), or add the ' +
+        'broker to SDK_LEGACY_FALLBACK in BrokerConnectModalDispatch.js to route it to its ' +
+        'legacy modal.',
+    );
+    return (
+      <View style={styles.scrim} pointerEvents="box-none">
+        <Pressable
+          style={StyleSheet.absoluteFillObject}
+          onPress={() => {
+            setShowBrokerModal?.(false);
+            onClose?.();
+          }}
+        />
+        <View style={styles.panel}>
+          <Header title={`Connect ${brokerName}`} />
+          <ScrollView contentContainerStyle={styles.scrollPad}>
+            <View style={styles.errorBox}>
+              <Text style={styles.errorTitle}>Not available yet</Text>
+              <Text style={styles.errorBody}>
+                This broker isn't available via the new connection flow yet.
+                Please try again shortly, or contact support if this
+                persists.
+              </Text>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    );
+  }
 
   // OAuth phase — render WebView round-trip after form collected creds.
   if (oauthExtraBody) {
@@ -756,21 +832,21 @@ const Phase3SdkBrokerModal = ({
   }
 
   // Form phase — credential entry / OAuth handoff trigger.
+  // v3 sibling-Pressable touch architecture (same as the OAuth phase
+  // above). The previous v2 layout (panel View claiming the JS responder
+  // with onStartShouldSetResponder + refusing termination) FOUGHT the
+  // inner ScrollView's pan responder — user-visible as erratic/sticky
+  // scrolling on the credential form (2026-07-18 report on Kotak).
   return (
-    <Pressable
-      style={styles.scrim}
-      onPress={() => {
-        setShowBrokerModal?.(false);
-        onClose?.();
-      }}>
-      <View
-        style={styles.panel}
-        // See OAuth-phase comment above — same rationale.
-        // Empty-onPress Pressable wrapper was eating WebView and TextInput
-        // touches on Android via gesture-responder press-tracking. Plain
-        // View + onStartShouldSetResponder claim is the safe equivalent.
-        onStartShouldSetResponder={() => true}
-        onResponderTerminationRequest={() => false}>
+    <View style={styles.scrim} pointerEvents="box-none">
+      <Pressable
+        style={StyleSheet.absoluteFillObject}
+        onPress={() => {
+          setShowBrokerModal?.(false);
+          onClose?.();
+        }}
+      />
+      <View style={styles.panel}>
         <Header title={`Connect ${brokerName}`} />
         {schemaOverridePending ? (
           // Pre-fill in flight — render a small loader inside the
@@ -818,7 +894,16 @@ const Phase3SdkBrokerModal = ({
             </View>
           ) : null}
 
-          {IP_WHITELIST_BROKERS.has(brokerName) ? (
+          {guideConfig ? (
+            <BrokerGuideCard
+              config={guideConfig}
+              accent={guideAccent}
+              brokerName={brokerName}
+              onWatchWalkthrough={setWalkthroughVideoId}
+            />
+          ) : null}
+
+          {showEgressCallout ? (
             <View style={styles.calloutWrap}>
               <EgressIpCallout
                 broker={
@@ -826,6 +911,7 @@ const Phase3SdkBrokerModal = ({
                   String(brokerName).toLowerCase()
                 }
                 customerEmail={emailFromCtx || ''}
+                showSetupGuide={false}
                 onAcknowledgeChange={(ready) => setEgressReady(!!ready)}
                 showUnmetAck={unmetAck}
                 onUnmetAckHandled={() => setUnmetAck(false)}
@@ -833,11 +919,11 @@ const Phase3SdkBrokerModal = ({
             </View>
           ) : null}
 
-          {brokerName !== 'Zerodha' ? (
+          {!guideConfig && brokerName !== 'Zerodha' ? (
             <Phase3BrokerHelp brokerName={brokerName} />
           ) : null}
 
-          {!egressReady && IP_WHITELIST_BROKERS.has(brokerName) ? (
+          {!egressReady && showEgressCallout ? (
             <TouchableOpacity
               activeOpacity={0.85}
               onPress={nudgeEgressAck}
@@ -852,15 +938,41 @@ const Phase3SdkBrokerModal = ({
             </TouchableOpacity>
           ) : null}
 
+          <View style={styles.formSectionHeading}>
+            <View
+              style={[styles.formStepBadge, {backgroundColor: guideAccent}]}>
+              <Text style={styles.formStepBadgeText}>
+                {showEgressCallout ? '3' : '2'}
+              </Text>
+            </View>
+            <View style={styles.formSectionCopy}>
+              <Text style={[styles.formSectionEyebrow, {color: guideAccent}]}>
+                SECURE DETAILS
+              </Text>
+              <Text style={styles.formSectionTitle}>
+                Enter your {brokerName} credentials
+              </Text>
+            </View>
+          </View>
+
           <View
             style={[styles.formWrap, !egressReady && styles.formWrapLocked]}
             pointerEvents={
-              !egressReady && IP_WHITELIST_BROKERS.has(brokerName)
-                ? 'none'
-                : 'auto'
+              !egressReady && showEgressCallout ? 'none' : 'auto'
             }>
+            {brokerName === 'Zerodha' ? (
+              <View style={styles.kiteSessionNotice}>
+                <Text style={[styles.kiteSessionNoticeTitle, {color: guideAccent}]}>KEEP YOUR KITE SESSION ACTIVE</Text>
+                <Text style={styles.kiteSessionNoticeBody}>
+                  On the next screen, select “Login to Kite web”. This keeps your
+                  Kite session active for the next few hours, so you should not
+                  need to sign in again during that time.
+                </Text>
+              </View>
+            ) : null}
             <BrokerCredentialForm
               broker={brokerName}
+              title="Account details"
               schemaOverride={schemaOverride || undefined}
               key={`${brokerName}-${schemaOverride ? 'pre' : 'fresh'}`}
               encrypt={encryptField}
@@ -883,7 +995,13 @@ const Phase3SdkBrokerModal = ({
         </ScrollView>
         )}
       </View>
-    </Pressable>
+      <BrokerWalkthroughPlayer
+        videoId={walkthroughVideoId}
+        title={`${brokerName} walkthrough`}
+        accent={guideAccent}
+        onClose={() => setWalkthroughVideoId(null)}
+      />
+    </View>
   );
 };
 
@@ -936,9 +1054,11 @@ const styles = StyleSheet.create({
   // with no callout/help (Dhan, AliceBlue) showing a blank body (bug 78).
   formScroll: {
     flex: 1,
+    backgroundColor: '#F4F7FB',
   },
   scrollPad: {
-    paddingBottom: 24,
+    paddingTop: 12,
+    paddingBottom: 32,
     // flexGrow lets the content fill at least the viewport so formWrap's
     // flex:1 resolves to a real height for short brokers, while taller
     // brokers (callout + help + form) still overflow and scroll.
@@ -949,8 +1069,59 @@ const styles = StyleSheet.create({
     paddingTop: 12,
   },
   formWrap: {
-    flex: 1,
+    marginHorizontal: 12,
+    marginBottom: 16,
+    borderRadius: 18,
+    overflow: 'hidden',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: {width: 0, height: 3},
+    elevation: 2,
   },
+  kiteSessionNotice: {
+    marginHorizontal: 14,
+    marginTop: 14,
+    marginBottom: 2,
+    padding: 13,
+    borderRadius: 12,
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+  },
+  kiteSessionNoticeTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.55,
+  },
+  kiteSessionNoticeBody: {
+    marginTop: 5,
+    color: '#334155',
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  formSectionHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: 16,
+    marginTop: 18,
+    marginBottom: 10,
+  },
+  formStepBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 9,
+  },
+  formStepBadgeText: {color: '#FFFFFF', fontSize: 13, fontWeight: '800'},
+  formSectionCopy: {flex: 1},
+  formSectionEyebrow: {fontSize: 10, fontWeight: '800', letterSpacing: 0.7},
+  formSectionTitle: {fontSize: 15, fontWeight: '800', color: '#172033', marginTop: 2},
   // Disabled-pending-IP-whitelist state. A gentle dim (not the old
   // unexplained 0.45) PAIRED with the lockNotice banner above so the
   // form reads as "intentionally locked until you finish a step",

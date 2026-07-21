@@ -4,6 +4,17 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
 
+## [unreleased] - 2026-07-21 — fix(metro): correct SDK watchFolder depth (Metro startup crash)
+
+`npm start` crashed immediately with `ENOENT: no such file or directory, watch '.../github/alphaquark-mobile-sdk/packages/rn'` — Metro's `fs.watch` on a nonexistent directory.
+
+Root cause: `metro.config.js` computed `SDK_PATH` with a single `../` from the repo root, resolving to `codes/github/alphaquark-mobile-sdk/packages/rn`, which does not exist on this checkout. The `@alphaquark/mobile-sdk` package actually lives at `codes/alphaquark-mobile-sdk/packages/rn` (two levels up) — the location `package.json`'s `file:../../alphaquark-mobile-sdk/packages/rn` dep and the valid `node_modules/@alphaquark/mobile-sdk` symlink (`../../../../…`) already point at. The metro comment was written against the old Mac `~/PycharmProjects/` layout and had the depth wrong; only Metro's watchFolder + extraNodeModules were affected, which is why module resolution worked in tooling but Metro crashed at watch time.
+
+Files touched:
+- `metro.config.js` — `SDK_PATH` changed from `'../alphaquark-mobile-sdk/packages/rn'` to `'../../alphaquark-mobile-sdk/packages/rn'`; comment rewritten to state the path MUST match `package.json`'s `file:` dep and the symlink, and to explain the ENOENT symptom of getting the depth wrong.
+
+Verified: `npx react-native start` now reaches "Dev server ready" with no ENOENT.
+
 ## [unreleased] - 2026-07-13 — sync(design): mpCardColorMap + variant-aware buildColors (from Alphab2bapp)
 
 Port of Alphab2bapp commit `bfa5175`. Adds per-plan MP card color override and admin-configurable color tokens (via `config.colorTokens` from support.alphaquark.in).

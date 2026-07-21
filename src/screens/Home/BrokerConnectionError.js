@@ -9,7 +9,7 @@ const BrokerConnectionError = () => {
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>Broker not connected</Text>
         <Text style={styles.errorText}>
-          Connect your broker and contact advisor for subscription
+          Connect your broker and contact manager for subscription
         </Text>
       </View>
       <View style={styles.infoContainer}>

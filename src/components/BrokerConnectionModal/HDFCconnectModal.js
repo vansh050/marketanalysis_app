@@ -8,6 +8,7 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 
 import axios from 'axios';
 import HDFCConnectUI from '../../UIComponents/BrokerConnectionUI/HDFCConnectUI';
+import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import { useTrade } from '../../screens/TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
@@ -17,6 +18,7 @@ import {
   sdkConnectBroker,
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const HDFCconnectModal = ({
   isVisible,
@@ -36,7 +38,7 @@ const HDFCconnectModal = ({
   const [authUrl, setAuthUrl] = useState('');
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
   const [isPasswordVisibleup, setIsPasswordVisibleup] = useState(false);
   const sheet = useRef(null);
   const scrollViewRef = useRef(null);
@@ -338,8 +340,12 @@ const HDFCconnectModal = ({
       });
   };
 
-  return (
-    <HDFCConnectUI
+  // OAuth phase keeps the existing HDFCConnectUI WebView flow untouched;
+  // credential phase renders the shared web-parity stepper (mirrors web
+  // connectBroker.js "Hdfc Securities" config). NEVER RN <Modal> here.
+  if (showWebView) {
+    return (
+      <HDFCConnectUI
       isVisible={isVisible}
       onClose={onClose}
       handleClose={onClose}
@@ -368,6 +374,61 @@ const HDFCconnectModal = ({
       unmetAck={unmetAck}
       setUnmetAck={setUnmetAck}
       configData={configData}
+    />
+    );
+  }
+
+  return (
+    <BrokerConnectStepperSheet
+      isVisible={!!isVisible}
+      onClose={onClose}
+      broker="HDFC Securities"
+      config={{
+        monogram: 'H',
+        brandFrom: '#e4002b',
+        brandTo: '#8e0019',
+        portalUrl: 'https://developer.hdfcsky.com/',
+        portalLabel: 'Open HDFC developer portal',
+        redirectUrl:
+          configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL || '',
+        walkthroughVideoId: 'gNp76J0i45A',
+        guideSteps: [
+          'Open <b>developer.hdfcsky.com</b>',
+          'Log in with your <b>Client ID</b>, password and OTP',
+          'Accept the <b>Risk Disclosure</b>',
+          `Click <b>Create</b>, name it <b>${Config.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark'}</b>, set the Redirect URL below`,
+          'Paste your <b>IP</b> into <b>Allowed IPs</b>, then Create',
+          'Copy the <b>API key</b> and <b>Secret key</b>',
+        ],
+      }}
+      egressBrokerKey="hdfcsec"
+      customerId={userId}
+      customerEmail={userEmail}
+      egressReady={egressReady}
+      setEgressReady={setEgressReady}
+      unmetAck={unmetAck}
+      setUnmetAck={setUnmetAck}
+      fields={[
+        {
+          label: 'API Key',
+          value: apiKey,
+          onChange: (t) => setApiKey(t.trim()),
+          password: true,
+          placeholder: 'Paste your HDFC API key',
+        },
+        {
+          label: 'Secret Key',
+          value: secretKey,
+          onChange: (t) => setSecretKey(t.trim()),
+          password: true,
+          placeholder: 'Paste your HDFC secret key',
+        },
+      ]}
+      phase="creds"
+      canSubmit={Boolean(apiKey) && Boolean(secretKey)}
+      submitLabel="Connect HDFC Securities"
+      loading={loading}
+      onSubmit={initiateAuth}
     />
   );
 };

@@ -44,23 +44,26 @@ import { useModal } from '../../components/ModalContext';
 import eventEmitter from '../EventEmitter';
 import BrokerSelectionModal from '../BrokerSelectionModal';
 
-import { OtherBrokerModel } from '../DdpiModal';
+// Single merged import — six separate `from '../DdpiModal'` lines made
+// Metro's inline-requires transform assign the file's LAST dependency two
+// different indices (pre/post-dedupe), leaving one call site pointing past
+// the registered dependency array -> release-only hard crash
+// 'Requiring unknown module "undefined"' on the Zerodha sell gate
+// (2026-07-18, proven via unminified release bundle inspection).
+import DdpiModal, { OtherBrokerModel, ActivateNowModel, DhanTpinModal, AngleOneTpinModal, FyersTpinModal } from '../DdpiModal';
 import { useTrade } from '../../screens/TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import IsMarketHours from '../../utils/isMarketHours';
 import { computeTradeVariant } from '../../utils/tradeVariant';
 
-import { ActivateNowModel } from '../DdpiModal';
-import DdpiModal from '../DdpiModal';
-import { DhanTpinModal } from '../DdpiModal';
-import { AngleOneTpinModal } from '../DdpiModal';
-import { FyersTpinModal } from '../DdpiModal';
 import BrokerConnectModalDispatch from '../BrokerConnectionModal/BrokerConnectModalDispatch';
 import Config from 'react-native-config';
 import notifee, { EventType } from '@notifee/react-native';
 
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../utils/variantHelper';
+import { isZerodhaSellAuthorized } from '../../utils/zerodhaDdpiGate';
+import { isGttNativeBroker, isGttOcoLeg } from '../../utils/gttSupport';
+import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import useSdkClient from '../../sdk/useSdkClient';
 
 const isSdkExecuteAdviceEnabled = () => {
@@ -170,7 +173,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       setEdisStatus(response.data);
       console.log('AngleOne response', response.data);
     } catch (error) {
-      //  console.error("Error verifying eDIS status:", error);
+      //  console.log('[edis] status sync failed (handled):', error?.message);
     }
   };
 
@@ -187,7 +190,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       console.log('Dhan Reponse', response.data);
       setDhanEdisStatus(response.data);
     } catch (error) {
-      //  console.error("Error verifying eDIS status:", error);
+      //  console.log('[edis] status sync failed (handled):', error?.message);
     }
   };
 
@@ -608,9 +611,12 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       return;
     }
     if (broker === 'Zerodha' && hasGttOrders) {
-      // Log only — the user-facing UX still proceeds via REST. No toast
-      // because the user explicitly opted in to GTT and we're honoring it.
-      console.log('[StockAdvices] Zerodha basket contains GTT orders — routing through REST (process-trades) instead of Kite Publisher to preserve GTT semantics.');
+      // Zerodha customer-GTT is OFF (Kite Publisher can't place GTT — see
+      // gttSupport.js). `isGttNativeBroker('Zerodha')` is false, so these
+      // gttCheck orders fall through to regularOrders and place as REGULAR via
+      // REST — matching web. The advisor-side synthetic price-alert rail carries
+      // the GTT intent for Zerodha customers. Log only.
+      console.log('[StockAdvices] Zerodha basket contains GTT-flagged orders — Zerodha customer-GTT is OFF; placing as REGULAR orders via REST (advisor price-alert rail covers the trigger intent).');
     }
 
     // Pre-order EDIS check — equity delivery (CNC) sells only.
@@ -637,12 +643,25 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       return;
     }
 
-    // Split into GTT and regular orders
+    // Split into GTT and regular orders — the customer-facing GTT gate is the
+    // SHARED source of truth `isGttNativeBroker` (src/utils/gttSupport.js,
+    // ported from web / GTT_ARCHITECTURE §4). This replaced the stale hardcoded
+    // ['upstox','zerodha'] list (2026-07-13): Zerodha customer-GTT is OFF (Kite
+    // Publisher can't place GTT), and Upstox/Angel One/Groww/Dhan/ICICI Direct
+    // are native with PER-LEG segment + OCO gating (ICICI = F&O only; Angel One /
+    // Dhan = single-trigger only → an OCO leg is NOT native). A non-native leg
+    // falls into regularOrders exactly like web.
     const gttOrders = stockDetails.filter(
-      stock => stock.gttCheck === true && ['upstox', 'zerodha'].includes(broker.toLowerCase()),
+      stock =>
+        stock.gttCheck === true &&
+        isGttNativeBroker(broker, stock.Exchange || stock.exchange, isGttOcoLeg(stock)),
     );
     const regularOrders = stockDetails.filter(
-      stock => !(stock.gttCheck === true && ['upstox', 'zerodha'].includes(broker.toLowerCase())),
+      stock =>
+        !(
+          stock.gttCheck === true &&
+          isGttNativeBroker(broker, stock.Exchange || stock.exchange, isGttOcoLeg(stock))
+        ),
     );
 
     const getOrderPayload = (isGtt = false) => {
@@ -671,6 +690,23 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
             return { ...gttPayload, apiKey: checkValidApiAnSecret(apiKey), secretKey: checkValidApiAnSecret(secretKey), jwtToken };
           case 'AliceBlue':
             return { ...gttPayload, clientCode, apiKey: checkValidApiAnSecret(apiKey), accessToken: jwtToken };
+          // GTT customer-enabled 2026-07-13 (GTT_ARCHITECTURE §4 shared truth).
+          // Credential shapes mirror each broker's REGULAR payload; apiKey/secretKey
+          // use the GTT path's decrypt convention (checkValidApiAnSecret), except
+          // Angel One's apiKey which is the platform config key (angelOneApiKey),
+          // not an encrypted user credential.
+          // ⚠️ Each of these needs a place+cancel GTT cert on-device (GTT_ARCHITECTURE
+          // §6) before customer-live — flag `kycBlockingEnabled`-style rollout gating
+          // is server-side; verify the credential shape against the ccxt
+          // /{broker}/process-trades GTT handler on first live-fire.
+          case 'Groww':
+            return { ...gttPayload, jwtToken };
+          case 'Dhan':
+            return { ...gttPayload, clientCode, jwtToken };
+          case 'Angel One':
+            return { ...gttPayload, apiKey: angelOneApiKey, secretKey: checkValidApiAnSecret(secretKey), jwtToken };
+          case 'ICICI Direct':
+            return { ...gttPayload, apiKey: checkValidApiAnSecret(apiKey), secretKey: checkValidApiAnSecret(secretKey), jwtToken };
           default:
             return { ...gttPayload, apiKey: checkValidApiAnSecret(apiKey), jwtToken };
         }
@@ -1241,7 +1277,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       Toast.show({
         type: 'error',
         text1: 'Order blocked — missing exchange',
-        text2: `Missing exchange for: ${missingList}. Please contact your advisor.`,
+        text2: `Missing exchange for: ${missingList}. Please contact your manager.`,
         visibilityTime: 8000,
       });
       setOpenReviewTrade(false);
@@ -1785,8 +1821,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       if (allBuy) {
         setOpenReviewTrade(true);
       } else if ((tradeType?.allSell || tradeType?.isMixed) && tradeHasEquityDeliverySells) {
-        const canSell = userDetails?.is_authorized_for_sell ||
-          ['physical', 'ddpi'].includes(userDetails?.ddpi_status);
+        const canSell = isZerodhaSellAuthorized(userDetails);
         if (canSell) {
           setShowDdpiModal(false);
           setOpenReviewTrade(true);
@@ -1878,8 +1913,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
 
     if (broker === 'Zerodha') {
       if ((allSell || isMixed) && basketHasEquityDeliverySells) {
-        const canSellZerodha = userDetails?.is_authorized_for_sell ||
-          ['physical', 'ddpi'].includes(userDetails?.ddpi_status);
+        const canSellZerodha = isZerodhaSellAuthorized(userDetails);
         if (!canSellZerodha) {
           setShowDdpiModal(true);
           return;
@@ -2591,8 +2625,13 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
 
       // If stock is already selected
       if (isStockSelected) {
-        const isBuyOrder = action.toUpperCase() === 'BUY';
-        const isSellOrder = action.toUpperCase() === 'SELL';
+        // `action` was undefined whenever a caller (e.g. StockCardLoading's
+        // "Trade Now" button) didn't pass it through — action.toUpperCase()
+        // on undefined threw and crashed the app. Trade Now now forwards its
+        // own action prop, but default-safe here too for any other caller.
+        const safeAction = (action || '').toUpperCase();
+        const isBuyOrder = safeAction === 'BUY';
+        const isSellOrder = safeAction === 'SELL';
         if (broker === 'Angel One') {
           if (isBuyOrder) {
             openReviewForSingle();
@@ -2623,8 +2662,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
           if (isBuyOrder) {
             openReviewForSingle();
           } else if (isSellOrder && !isDerivative) {
-            const canSellSingle = userDetails?.is_authorized_for_sell ||
-              ['physical', 'ddpi'].includes(userDetails?.ddpi_status);
+            const canSellSingle = isZerodhaSellAuthorized(userDetails);
             if (canSellSingle) {
               setShowDdpiModal(false);
               openReviewForSingle();
@@ -2640,15 +2678,15 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
         return;
       }
 
-      const isBuyOrder = action.toUpperCase() === 'BUY';
-      const isSellOrder = action.toUpperCase() === 'SELL';
+      const safeAction = (action || '').toUpperCase();
+      const isBuyOrder = safeAction === 'BUY';
+      const isSellOrder = safeAction === 'SELL';
       await handleSelectStock(symbol, tradeId, 'add', 'handlesingle');
       // Broker-specific auth gating before opening the review modal.
       if (broker === 'Zerodha') {
         const isDerivativeSingle = ['NFO', 'BFO', 'MCX'].includes((newStock.exchange || '').toUpperCase())
           || ['MIS', 'NRML', 'CARRYFORWARD'].includes((newStock.productType || 'CNC').toUpperCase());
-        const canSellBatch = userDetails?.is_authorized_for_sell ||
-          ['physical', 'ddpi'].includes(userDetails?.ddpi_status);
+        const canSellBatch = isZerodhaSellAuthorized(userDetails);
         if (isSellOrder && !isDerivativeSingle && !canSellBatch) {
           setShowDdpiModal(true);
         } else {
@@ -2811,7 +2849,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
           );
           setZerodhaDdpiStatus(response.data);
         } catch (error) {
-          //    console.error("Error verifying eDIS status:", error);
+          //    console.log('[edis] status sync failed (handled):', error?.message);
         }
       };
 
@@ -2820,7 +2858,14 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
   }, [userDetails, broker]);
 
   useEffect(() => {
-    if (userDetails && userDetails.user_broker === 'Zerodha') {
+    if (
+        userDetails &&
+        userDetails.user_broker === 'Zerodha' &&
+        // Server @extract_keys requires `edis`; the user doc has no such
+        // field today, so an unguarded POST is a guaranteed 400 on every
+        // load. Only sync when a boolean status actually exists.
+        typeof userDetails.edis === 'boolean'
+      ) {
       const verifyZerodhaEdis = async () => {
         try {
           const response = await axios.post(
@@ -2834,7 +2879,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
           console.log('response edit::', response.data);
           setZerodhaDdpiStatus(response.data);
         } catch (error) {
-          //   console.error("Error verifying eDIS status:", error);
+          //   console.log('[edis] status sync failed (handled):', error?.message);
         }
       };
 

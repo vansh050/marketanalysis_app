@@ -30,6 +30,7 @@ import moment from 'moment';
 import { useTrade } from '../TradeContext';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import { setAccountEmail } from '../../utils/accountEmail';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
 import GoogleWebSignInModal from './GoogleWebSignInModal';
@@ -246,6 +247,10 @@ const LoginScreen = () => {
 
             if (response) {
                 const user = response.user;
+                // Hydrate the shared identity module (Apple "Hide My Email" fix).
+                // Google always provides a real email; persist it so getAccountEmail()
+                // serves it synchronously everywhere without a currentUser fallback.
+                try { await setAccountEmail(user.email); } catch (_) {}
                 await axios.post(
                     `${server.server.baseUrl}api/user/`,
                     { email: user.email, name: user.displayName, imageUrl: user.photoURL },
@@ -366,6 +371,9 @@ const LoginScreen = () => {
     const completeAppleSignIn = async (user, userEmail, fullName) => {
         try {
             setLoading(true);
+            // userEmail is the proven identity (Apple relay hides currentUser.email);
+            // persist it to the shared module so every getAccountEmail() reader agrees.
+            try { await setAccountEmail(userEmail); } catch (_) {}
             let displayName = user.displayName;
             if (!displayName && fullName) {
                 const nameParts = [fullName.givenName, fullName.familyName].filter(Boolean);

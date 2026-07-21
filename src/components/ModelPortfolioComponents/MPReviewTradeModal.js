@@ -42,6 +42,7 @@ import { useConfig } from '../../context/ConfigContext';
 import { computeTradeVariant } from '../../utils/tradeVariant';
 import useSdkClient from '../../sdk/useSdkClient';
 import portfolioEvents, { PORTFOLIO_EVENTS } from '../../utils/portfolioEvents';
+import { isZerodhaSellAuthorized } from '../../utils/zerodhaDdpiGate';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -874,8 +875,7 @@ const MPReviewTradeModal = ({
       stockDetails.some(s => s.transactionType === 'SELL');
 
     if ((allSellZerodha || isMixedZerodha) && !allBuyZerodha) {
-      const canSell = userDetails?.is_authorized_for_sell ||
-        ['physical', 'ddpi'].includes(userDetails?.ddpi_status);
+      const canSell = isZerodhaSellAuthorized(userDetails);
       if (!canSell && setShowDdpiModal) {
         setShowDdpiModal(true);
         onCloseReviewTrade();
@@ -891,12 +891,12 @@ const MPReviewTradeModal = ({
     const exchangeCheck = validateStockExchanges(stockDetails);
     if (!exchangeCheck.valid) {
       const missingList = exchangeCheck.missing.join(', ');
-      const userMsg = `Cannot place order — exchange is missing for: ${missingList}. Please contact your advisor to correct the trade before retrying.`;
+      const userMsg = `Cannot place order — exchange is missing for: ${missingList}. Please contact your manager to correct the trade before retrying.`;
       console.error('[ZerodhaPublisher] Blocked due to missing exchange:', missingList);
       const syntheticResponse = stockDetails.map(stock => {
         const stockMissing = !(stock.exchange && String(stock.exchange).trim());
         const perStockMsg = stockMissing
-          ? 'Exchange missing — advisor must correct this trade.'
+          ? 'Exchange missing — manager must correct this trade.'
           : 'Blocked: another trade in this batch was missing exchange.';
         return {
           symbol: stock.tradingSymbol,
@@ -1400,7 +1400,7 @@ const MPReviewTradeModal = ({
       Toast.show({
         type: 'error',
         text1: 'Order blocked — missing exchange',
-        text2: `Missing exchange for: ${missingList}. Please contact your advisor.`,
+        text2: `Missing exchange for: ${missingList}. Please contact your manager.`,
         visibilityTime: 8000,
       });
       onCloseReviewTrade();
@@ -1991,8 +1991,7 @@ const MPReviewTradeModal = ({
                       // If user has completed TPIN authorization (is_authorized_for_sell), allow sell
                       // If DDPI is active (physical/ddpi status), allow sell
                       if (broker === 'Zerodha' &&
-                        !userDetails?.is_authorized_for_sell &&
-                        !['physical', 'ddpi'].includes(userDetails?.ddpi_status) &&
+                        !isZerodhaSellAuthorized(userDetails) &&
                         setShowDdpiModal) {
                         setShowDdpiModal(true);
                         onCloseReviewTrade();

@@ -29,7 +29,6 @@ import { validateBrokerSession } from '../../utils/brokerSessionUtils';
 import { validateStockExchanges, applyKiteMarketProtection, resolveZerodhaSymbol } from '../../utils/brokerPublisher';
 import useZerodhaSymbolMap from '../../hooks/useZerodhaSymbolMap';
 import {useCart} from '../CartContext';
-import {getLTPForSymbol} from './DynamicText/websocketPrice';
 import {getLastKnownPrice} from './DynamicText/websocketPrice';
 import eventEmitter from '../EventEmitter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -51,12 +50,13 @@ import Config from 'react-native-config';
 import { useConfig } from '../../context/ConfigContext';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useModal} from '../ModalContext';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain} from '../../utils/variantHelper';
 import BrokerSelectionModal from '../BrokerSelectionModal';
 import TotalAmountTextRebalance from './DynamicText/totalAmountRebalance';
 import CartFullAmountText from './DynamicText/CartFullAmountText';
 import TotalAmountText from './DynamicText/totalAmount';
 import useSdkClient from '../../sdk/useSdkClient';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -101,7 +101,7 @@ const AddToCartModal = ({
   const {setCartCount} = useCart();
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
   const [cartItemCount, setCartItemCount] = useState();
   //const [brokerStatus, setBrokerStatus] = useState();
 
@@ -294,7 +294,7 @@ const AddToCartModal = ({
       setEdisStatus(response.data);
       console.log('AngleOne response', response.data);
     } catch (error) {
-      console.error('Error verifying eDIS status:', error);
+      console.log('[edis] status sync failed (handled):', error?.message);
     }
   };
 
@@ -311,7 +311,7 @@ const AddToCartModal = ({
       console.log('Dhan Reponse', response.data);
       setDhanEdisStatus(response.data);
     } catch (error) {
-      console.error('Error verifying eDIS status:', error);
+      console.log('[edis] status sync failed (handled):', error?.message);
     }
   };
 
@@ -439,7 +439,7 @@ const AddToCartModal = ({
         setOpenReviewTrade(true);
       } else if ((tradeType?.allSell || tradeType?.isMixed) && cartHasEquityDeliverySells) {
         if (
-          ['consent', 'physical', 'ddpi'].includes(userDetails?.ddpi_status)
+          ['physical', 'ddpi'].includes(userDetails?.ddpi_status)
         ) {
           setShowDdpiModal(false);
           setOpenReviewTrade(true);
@@ -976,7 +976,7 @@ const AddToCartModal = ({
         errorMessage =
           error.response?.data?.details?.[0]?.message_aq ||
           error.response?.data?.details?.[0]?.message ||
-          'There was an issue in placing the trade, please try again after sometime or contact your advisor';
+          'There was an issue in placing the trade, please try again after sometime or contact your manager';
       }
 
       if ((allSell || isMixed) && !allFNO) {
@@ -1066,7 +1066,7 @@ const AddToCartModal = ({
       Toast.show({
         type: 'error',
         text1: 'Order blocked — missing exchange',
-        text2: `Missing exchange for: ${missingList}. Please contact your advisor.`,
+        text2: `Missing exchange for: ${missingList}. Please contact your manager.`,
         visibilityTime: 8000,
       });
       return;
@@ -1141,6 +1141,19 @@ const AddToCartModal = ({
           },
         },
       );
+
+      // F&O/basket margin safety (web parity — BasketModal.js buys-first
+      // sort): place BUY legs before SELL on the Kite/Zerodha Publisher
+      // path so buys reserve margin before sells free it. The ccxt
+      // /order-place path already enforces this server-side; this covers
+      // ONLY the client-side Kite basket, which bypasses the orchestrator.
+      // Stable sort (Hermes/V8) — legs keep their relative order within
+      // each side; closure/exit baskets never reach this publisher path.
+      basket.sort((a, b) => {
+        const aBuy = String(a.transaction_type || '').toUpperCase() === 'BUY' ? 0 : 1;
+        const bBuy = String(b.transaction_type || '').toUpperCase() === 'BUY' ? 0 : 1;
+        return aBuy - bBuy;
+      });
 
       // Generate HTML form content
       const htmlContent = generateHtmlForm(basket, apiKey);
@@ -1291,7 +1304,7 @@ const AddToCartModal = ({
           );
           setZerodhaDdpiStatus(response.data);
         } catch (error) {
-          console.error('Error verifying eDIS status:', error);
+          console.log('[edis] status sync failed (handled):', error?.message);
         }
       };
 
@@ -1300,7 +1313,14 @@ const AddToCartModal = ({
   }, [userDetails]);
 
   useEffect(() => {
-    if (userDetails && userDetails.user_broker === 'Zerodha') {
+    if (
+        userDetails &&
+        userDetails.user_broker === 'Zerodha' &&
+        // Server @extract_keys requires `edis`; the user doc has no such
+        // field today, so an unguarded POST is a guaranteed 400 on every
+        // load. Only sync when a boolean status actually exists.
+        typeof userDetails.edis === 'boolean'
+      ) {
       const verifyZerodhaEdis = async () => {
         try {
           const response = await axios.post(
@@ -1313,7 +1333,7 @@ const AddToCartModal = ({
           );
           setZerodhaDdpiStatus(response.data);
         } catch (error) {
-          console.error('Error verifying eDIS status:', error);
+          console.log('[edis] status sync failed (handled):', error?.message);
         }
       };
 

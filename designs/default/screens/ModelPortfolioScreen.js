@@ -66,6 +66,7 @@ const ModelPortfolioScreen = ({ viewModel, actions, slots }) => {
     selectedPlan = null,
     showHeader = true,
     width = ScreenWidth,
+    config = null,
   } = viewModel || {};
 
   const {
@@ -77,6 +78,7 @@ const ModelPortfolioScreen = ({ viewModel, actions, slots }) => {
   const {
     TabBarSlot,
     MPListSlot,
+    TimeCycleListSlot,
     BespokeListSlot,
     InvestNowModalSlot = null,
     PaymentSuccessSlot = null,
@@ -85,6 +87,7 @@ const ModelPortfolioScreen = ({ viewModel, actions, slots }) => {
 
   const renderScene = ({ route }) => {
     if (route.key === 'modelportfolio' && MPListSlot) return MPListSlot();
+    if (route.key === 'timecycle' && TimeCycleListSlot) return TimeCycleListSlot();
     if (route.key === 'bespoke' && BespokeListSlot) return BespokeListSlot();
     return null;
   };
@@ -112,7 +115,7 @@ const ModelPortfolioScreen = ({ viewModel, actions, slots }) => {
               ]}
             >
               <Text style={styles.planTagText}>
-                {selectedPlan?.type === 'bespoke' ? 'Bespoke' : 'MP'}
+                {selectedPlan?.type === 'bespoke' ? (config?.bespokePlanLabel || 'Bespoke') : 'MP'}
               </Text>
             </View>
           </View>
@@ -123,7 +126,7 @@ const ModelPortfolioScreen = ({ viewModel, actions, slots }) => {
           >
             {/* Advisor */}
             <View style={styles.infoCard}>
-              <Text style={styles.infoLabel}>Advisor</Text>
+              <Text style={styles.infoLabel}>Manager</Text>
               <Text style={styles.infoValue}>{selectedPlan?.advisor}</Text>
             </View>
 
@@ -266,7 +269,7 @@ const ModelPortfolioScreen = ({ viewModel, actions, slots }) => {
           <View style={styles.textWrapper}>
             <Text style={styles.emptyTitle}>No Plans Available</Text>
             <Text style={styles.emptySubtitle}>
-              When your advisor creates a plan, it will appear here.
+              When your manager creates a plan, it will appear here.
             </Text>
           </View>
         </View>

@@ -32,6 +32,7 @@ import { refreshGrowwSession } from '../utils/growwRefresh';
 import eventEmitter from './EventEmitter';
 import AngelOneCautionaryWarning from './AngelOneCautionaryWarning';
 import { useComponent } from '../design/useDesign';
+import {getAccountEmail} from '../utils/accountEmail';
 
 const BrokerSelectionModal = ({
     showBrokerModal,
@@ -63,7 +64,7 @@ const BrokerSelectionModal = ({
     const [userDetails, setUserDetails] = useState();
     const auth = getAuth();
     const user = auth.currentUser;
-    const userEmail = user?.email;
+    const userEmail = getAccountEmail();
     const [loginLoading, setLoginLoading] = useState(false);
     const [brokerStatus, setBrokerStatus] = useState(
         userDetails ? userDetails.connect_broker_status : null,

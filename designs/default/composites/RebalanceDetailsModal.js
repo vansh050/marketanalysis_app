@@ -51,7 +51,7 @@ const RebalanceDetailsModal = ({ visible, onClose, data }) => {
     const latest = data?.latestRebalance;
 
     const rows = [
-        { label: 'Advisor', value: data?.advisor },
+        { label: 'Manager', value: data?.advisor },
         {
             label: 'Rebalance Date',
             value: latest?.rebalanceDate

@@ -34,6 +34,7 @@ import Config from "react-native-config";
 import { generateToken } from "../../../utils/SecurityTokenManager";
 import { useTrade } from "../../TradeContext";
 import { useConfig } from "../../../context/ConfigContext";
+import {getAccountEmail} from '../../../utils/accountEmail';
 
 const NewsScreen = ({isVisible}) => {
   const {configData}=useTrade();
@@ -55,7 +56,7 @@ const NewsScreen = ({isVisible}) => {
 
     const auth = getAuth();
     const user = auth.currentUser;
-    const userEmail = user?.email;
+    const userEmail = getAccountEmail();
 
   const toggleDropdown = () => {
     setDropdownVisible(!dropdownVisible);

@@ -2,6 +2,7 @@
 import React from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import ButtonSwitch from 'rn-switch-button';
+import { useConfig } from '../../context/ConfigContext';
 const PortfolioCard2 = ({
   allHoldingsData,
   formatCurrency,
@@ -9,7 +10,9 @@ const PortfolioCard2 = ({
   pnlPercentage,
   pnlposneg,
   setSelectedInnerTab,
-}) => (
+}) => {
+  const config = useConfig();
+  return (
   <View>
     <View
       style={[
@@ -81,7 +84,7 @@ const PortfolioCard2 = ({
       </View>
     </View>
     <ButtonSwitch
-      leftText="Bespoke"
+      leftText={config?.bespokePlanLabel || "Bespoke"}
       rightText="Model Portfolio"
       unActiveBackColor="#000"
       activeButtonStyle={{
@@ -115,7 +118,8 @@ const PortfolioCard2 = ({
       }}
     />
   </View>
-);
+  );
+};
 
 export default PortfolioCard2;
 

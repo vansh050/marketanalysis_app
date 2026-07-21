@@ -49,6 +49,7 @@ import {useConfig} from '../../context/ConfigContext';
 import { computeTradeVariant } from '../../utils/tradeVariant';
 import {getAdvisorSubdomain} from '../../utils/variantHelper';
 import useSdkClient from '../../sdk/useSdkClient';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -67,7 +68,7 @@ const IgnoreTradesScreen = () => {
   const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user && user.email;
+  const userEmail = getAccountEmail();
 
   const {showAddToCartModal} = useModal();
   const {setCartCount} = useCart();
@@ -687,7 +688,7 @@ const IgnoreTradesScreen = () => {
           type: 'error',
           text1: 'Failed',
           text2:
-            'There was an issue in placing the trade, please try again after sometime or contact your advisor',
+            'There was an issue in placing the trade, please try again after sometime or contact your manager',
           visibilityTime: 5000,
           position: 'bottom',
           bottomOffset: 40,
@@ -746,7 +747,7 @@ const IgnoreTradesScreen = () => {
       Toast.show({
         type: 'error',
         text1: 'Order blocked — missing exchange',
-        text2: `Missing exchange for: ${missingList}. Please contact your advisor.`,
+        text2: `Missing exchange for: ${missingList}. Please contact your manager.`,
         visibilityTime: 8000,
       });
       return;

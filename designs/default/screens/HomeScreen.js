@@ -198,7 +198,7 @@ const HomeScreenPresentation = ({ home }) => {
                             <TouchableOpacity onPress={() => setSeeAllBespokeplan(false)}>
                                 <ArrowLeft size={20} color={'black'} />
                             </TouchableOpacity>
-                            <Text style={styles.StockTitle}>Top Bespoke Plans</Text>
+                            <Text style={styles.StockTitle}>Top {config?.bespokePlanLabel || 'Bespoke Plans'}</Text>
                         </View>
                         <ModelPortfolioScreen type={'bespokevertical'} />
                     </View>
@@ -254,17 +254,25 @@ const HomeScreenPresentation = ({ home }) => {
                     </View>
                 )}
 
-                <View style={{ flex: 1, display: seeAllMP ? 'flex' : 'none' }}>
-                    <View style={[styles.backButton]}>
-                        <TouchableOpacity
-                            style={{ marginRight: 10 }}
-                            onPress={() => setSeeAllMP(false)}>
-                            <ArrowLeft size={20} color={'black'} />
-                        </TouchableOpacity>
-                        <Text style={styles.StockTitle}>Portfolio Recommendations</Text>
+                {/* Conditionally MOUNTED like the sibling seeAll sections —
+                    not display:none. An always-mounted hidden copy keeps a
+                    second RebalanceCard per model alive: it can claim the
+                    'openRebalanceFlow' event, and a Modal opened from inside
+                    a display:none subtree creates a BLANK window that eats
+                    all touches (Home appears frozen). */}
+                {seeAllMP && (
+                    <View style={{ flex: 1 }}>
+                        <View style={[styles.backButton]}>
+                            <TouchableOpacity
+                                style={{ marginRight: 10 }}
+                                onPress={() => setSeeAllMP(false)}>
+                                <ArrowLeft size={20} color={'black'} />
+                            </TouchableOpacity>
+                            <Text style={styles.StockTitle}>Portfolio Recommendations</Text>
+                        </View>
+                        <RebalanceAdvices userEmail={userEmail} type={'All'} />
                     </View>
-                    <RebalanceAdvices userEmail={userEmail} type={'All'} />
-                </View>
+                )}
 
                 {seeAllBlogs && (
                     <View style={{ flex: 1 }}>

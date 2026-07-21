@@ -30,10 +30,49 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 import eventEmitter from '../../components/EventEmitter';
 import { useConfig } from '../../context/ConfigContext';
 import { useTrade } from '../TradeContext';
-import { isOrderRejected } from '../../utils/orderStatusUtils';
+import { isOrderPending, isOrderRejected } from '../../utils/orderStatusUtils';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import { useComponent } from '../../design/useDesign';
 import useHomeMarketSummary from './hooks/useHomeMarketSummary';
+import {useAccountEmail} from '../../utils/accountEmail';
+
+const getOrderTimestamp = (order) =>
+    new Date(order?.exitDate || order?.purchaseDate || order?.date || order?.created_at);
+
+const isToday = (date, today = new Date()) =>
+    !Number.isNaN(date?.getTime?.()) &&
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate();
+
+// A GTT is deliberately long-lived; a normal pending/AMO order is not useful
+// after its trading day. The API has legacy field spellings, so recognise each
+// persisted shape rather than relying on one broker-specific property.
+const isGttOrder = (order) => {
+    const orderType = String(
+        order?.order_type || order?.orderType || order?.productType || '',
+    ).toLowerCase();
+    return Boolean(
+        order?.gttCheck ||
+        order?.gtt_check ||
+        order?.isGTT ||
+        order?.gttId ||
+        order?.gtt_id ||
+        order?.gtt?.id ||
+        orderType === 'gtt' ||
+        orderType === 'gtt_oco' ||
+        orderType === 'gtt oco',
+    );
+};
+
+const isActionablePendingOrder = (order) => {
+    const status = String(order?.trade_place_status || order?.orderStatus || '')
+        .toLowerCase()
+        .trim();
+    // "manually_placed" means the customer completed the order at their broker;
+    // it is presented as completed elsewhere and must stay in history.
+    return !['manually_placed', 'manually placed'].includes(status) && isOrderPending(status);
+};
 
 export default function OrderScreen() {
     const { configData, userDetails: userDetailsTradeCtx } = useTrade();
@@ -41,7 +80,10 @@ export default function OrderScreen() {
     const openModal = useModalStore((state) => state.openModal);
 
     const auth = getAuth();
-    const userEmail = auth.currentUser?.email;
+    // Reactive: this screen gates its fetch on `userEmail`, and on a cold
+    // start / fresh Apple sign-in the identity resolves AFTER mount — a
+    // one-shot read would capture null and never refetch.
+    const userEmail = useAccountEmail();
 
     const [allOrders, setAllOrders] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -65,14 +107,18 @@ export default function OrderScreen() {
             .request(reqConfig)
             .then((response) => {
                 const trades = response.data?.trades || [];
-                const executed = trades.filter(
-                    (t) =>
-                        t.trade_place_status !== 'recommend' &&
-                        t.trade_place_status !== 'ignored',
-                );
+                const executed = trades.filter((t) => {
+                    if (t.trade_place_status === 'recommend' || t.trade_place_status === 'ignored') {
+                        return false;
+                    }
+                    // Do not keep stale failed-to-place orders in the customer
+                    // order book forever. Regular pending/AMO status is relevant
+                    // only on its trading day; GTT is the intentional exception.
+                    return !isActionablePendingOrder(t) || isGttOrder(t) || isToday(getOrderTimestamp(t));
+                });
                 const sorted = [...executed].sort((a, b) => {
-                    const da = new Date(a.exitDate || a.purchaseDate || a.date);
-                    const db = new Date(b.exitDate || b.purchaseDate || b.date);
+                    const da = getOrderTimestamp(a);
+                    const db = getOrderTimestamp(b);
                     if (isNaN(da.getTime()) && isNaN(db.getTime())) return 0;
                     if (isNaN(da.getTime())) return 1;
                     if (isNaN(db.getTime())) return -1;

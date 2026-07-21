@@ -25,20 +25,6 @@ import Checkbox from '../../components/AdviceScreenComponents/Checkbox';
 import {useNavigation} from '@react-navigation/native';
 const Alpha100 = require('../../assets/mpf_1.png');
 const screenWidth = Dimensions.get('window').width;
-import {XIcon, Calendar, Check, X, Info} from 'lucide-react-native';
-import { useConfig } from '../../context/ConfigContext';
-import MPStatusModal from '../../components/AdviceScreenComponents/MPStatusModal';
-import logo from '../../assets/fadedlogo.png';
-
-import {generateToken} from '../../utils/SecurityTokenManager';
-import RebalancePreferenceModal from './RebalancePreferenceModal';
-import { useComponent } from '../../design/useDesign';
-import RebalanceChangeDetailModal from '../../components/RebalanceChangeDetailModal';
-import PendingOrdersModal from '../../components/ModelPortfolioComponents/PendingOrdersModal';
-import {cancelOrder} from '../../services/BrokerOrderBookAPI';
-import {useTrade} from '../../screens/TradeContext';
-import {isFundsErrorOrMissing} from '../../utils/rebalanceHelpers';
-import {useRefreshBrokerStatus} from '../../hooks/useRefreshBrokerStatus';
 
 // API returns overView with HTML tags (e.g. `<p><span style="...">text</span></p>`).
 // Render as plain text — entities decoded, tags stripped, whitespace collapsed.
@@ -55,6 +41,20 @@ const stripHtml = (input) => {
     .replace(/\s+/g, ' ')
     .trim();
 };
+import {XIcon, Calendar, Check, X, Info} from 'lucide-react-native';
+import { useConfig } from '../../context/ConfigContext';
+import MPStatusModal from '../../components/AdviceScreenComponents/MPStatusModal';
+import logo from '../../assets/fadedlogo.png';
+
+import {generateToken} from '../../utils/SecurityTokenManager';
+import RebalancePreferenceModal from './RebalancePreferenceModal';
+import { useComponent } from '../../design/useDesign';
+import RebalanceChangeDetailModal from '../../components/RebalanceChangeDetailModal';
+import PendingOrdersModal from '../../components/ModelPortfolioComponents/PendingOrdersModal';
+import {cancelOrder} from '../../services/BrokerOrderBookAPI';
+import {useTrade} from '../../screens/TradeContext';
+import {isFundsErrorOrMissing} from '../../utils/rebalanceHelpers';
+import {useRefreshBrokerStatus} from '../../hooks/useRefreshBrokerStatus';
 
 const RebalanceCard = ({
   openRebalModal,
@@ -528,6 +528,40 @@ const RebalanceCard = ({
     }
   };
 
+  // Portfolio-tab "Invest" CTA (ModelPFCard pending state) routes here: it
+  // switches to the Home tab and emits this event so the matching card runs
+  // the same Accept Rebalance click. Registered every render (no deps) so the
+  // handler never closes over stale state; cleanup keeps it single-subscribed.
+  useEffect(() => {
+    const normalize = (v) => String(v ?? '').replace(/_/g, ' ').trim().toLowerCase();
+    const handleOpenRebalanceFlow = (payload) => {
+      // _claimed: HomeScreen can mount more than one RebalanceCard for the
+      // same model (multiple sections). Listeners run synchronously on the
+      // same payload object, so the first matching card claims the event —
+      // otherwise every twin opens its own (stacked, touch-eating) modal.
+      if (!payload?.modelName || payload._claimed) return;
+      const myName = typeof modelName === 'string' ? modelName : modelName?.name;
+      if (normalize(payload.modelName) === normalize(myName)) {
+        payload._claimed = true;
+        // Mirror the Accept Rebalance button exactly (same handler pair) —
+        // handleChangeCheck opens the conditionally-mounted change-detail
+        // modal, which is safe to re-open repeatedly. Jumping straight to
+        // handleAcceptClick re-showed the always-mounted preference Modal,
+        // which renders BLANK on re-show under the new architecture and
+        // freezes the screen behind an invisible window.
+        if (isPendingVerification) {
+          handlePendingRefresh();
+        } else {
+          handleChangeCheck();
+        }
+      }
+    };
+    eventEmitter.on('openRebalanceFlow', handleOpenRebalanceFlow);
+    return () => {
+      eventEmitter.off('openRebalanceFlow', handleOpenRebalanceFlow);
+    };
+  });
+
   const handleChangeCheck = () => {
     try {
       console.log("Here DATA----", userExecutionFinal, matchingFailedTrades);
@@ -815,14 +849,20 @@ const RebalanceCard = ({
         </LinearGradient>
       </View>
 
-      {/* Step 1: Rebalance Preference Modal */}
-      <RebalancePreferenceModal
-        showCheckboxModal={showCheckboxModal}
-        setShowCheckboxModal={setShowCheckboxModal}
-        setSelectedOption={setSelectedOption}
-        selectedOption={selectedOption}
-        handleConfirmPreference={handleConfirmPreference}
-      />
+      {/* Step 1: Rebalance Preference Modal. Mounted CONDITIONALLY on
+          purpose: an always-mounted RN Modal that toggles `visible` renders
+          BLANK on re-show under the new architecture — the window exists and
+          eats every touch while showing nothing (screen "freezes"). A fresh
+          mount per open is immune. */}
+      {showCheckboxModal && (
+        <RebalancePreferenceModal
+          showCheckboxModal={showCheckboxModal}
+          setShowCheckboxModal={setShowCheckboxModal}
+          setSelectedOption={setSelectedOption}
+          selectedOption={selectedOption}
+          handleConfirmPreference={handleConfirmPreference}
+        />
+      )}
 
       <Modal
         visible={modalVisible}

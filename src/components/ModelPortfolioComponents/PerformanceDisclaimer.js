@@ -3,11 +3,9 @@ import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import {ShieldAlert, ChevronRight, SquareCheck, Square} from 'lucide-react-native';
 
 const DISCLAIMER_POINTS = [
-  'Past performance is not indicative of future returns. The value of investments can go down as well as up.',
-  'The returns shown are simulated / backtested and do not represent actual returns earned by any investor.',
-  'Investments in the securities market are subject to market risks, including loss of principal.',
-  'This is not investment advice. Please consult your financial advisor before making any investment decisions.',
-  'Registration with SEBI does not guarantee performance of the intermediary or provide any assurance of returns.',
+  'Past performance is not indicative of future returns; figures shown may be simulated/backtested, not actual investor returns.',
+  'Market investments carry risk including loss of principal. This is not investment advice — consult your manager.',
+  'SEBI registration does not guarantee performance or assure any returns.',
 ];
 
 const PerformanceDisclaimer = ({onAccept, accentColor = '#1a1a1a'}) => {

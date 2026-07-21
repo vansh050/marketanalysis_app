@@ -41,6 +41,44 @@ import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 // because we patch on the WebView side, not via origin headers.
 const ALICEBLUE_REDIRECT_INTERCEPTOR = `
 (function () {
+  // ---- WKWebView API shims (iOS blank-page fix, 2026-06-11) ----
+  // AliceBlue's Vue entry module runs firebase-messaging at TOP LEVEL
+  // before mount("#app") — navigator.serviceWorker.addEventListener and a
+  // UA-gated Notification.requestPermission(). iOS WKWebView has NEITHER
+  // API (Service Workers / Web Push are Safari-only), so their module
+  // throws, aborts before mount, and #app stays empty -> blank page.
+  // Android WebView has both APIs -> works. Stub both so the bootstrap
+  // survives; push features are dead weight inside an OAuth WebView.
+  // Mirrors the SDK widget's shim (WebViewBrokerAuthFlow.tsx) — keep in
+  // sync. No-op on Android (both guards are false).
+  if (!navigator.serviceWorker) {
+    var swStub = {
+      addEventListener: function () {},
+      removeEventListener: function () {},
+      register: function () { return Promise.reject(new Error('serviceWorker unavailable')); },
+      getRegistration: function () { return Promise.resolve(undefined); },
+      getRegistrations: function () { return Promise.resolve([]); },
+      ready: new Promise(function () {}),
+      controller: null,
+    };
+    try {
+      Object.defineProperty(navigator, 'serviceWorker', { value: swStub, configurable: true });
+    } catch (e) {
+      try { navigator.serviceWorker = swStub; } catch (e2) {}
+    }
+  }
+  if (typeof window.Notification === 'undefined') {
+    var NotifStub = function () {};
+    NotifStub.permission = 'denied';
+    NotifStub.requestPermission = function (cb) {
+      var p = Promise.resolve('denied');
+      if (typeof cb === 'function') { p.then(cb); }
+      return p;
+    };
+    try { window.Notification = NotifStub; } catch (e) {}
+  }
+  // ---- end WKWebView shims ----
+
   if (window.__aqAliceblueIntercept) return;
   window.__aqAliceblueIntercept = true;
 

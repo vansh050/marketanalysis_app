@@ -127,7 +127,7 @@ const RebalanceAdviceContent = React.memo(
       useState(null);
 
     const defaultRationale =
-      "This recommendation is based on a comprehensive analysis of the company's growth potential and value metrics. This recommendation also accounts for potential future risks, ensuring a balanced approach to maximizing returns while mitigating uncertainties. Please contact your advisor for any queries.";
+      "This recommendation is based on a comprehensive analysis of the company's growth potential and value metrics. This recommendation also accounts for potential future risks, ensuring a balanced approach to maximizing returns while mitigating uncertainties. Please contact your manager for any queries.";
 
     const [storedTradeType, setStoredTradeType] = useState({
       allSell: false,
@@ -330,7 +330,7 @@ const RebalanceAdviceContent = React.memo(
             setEdisStatus(response.data);
             console.log('AngleOne response', response.data);
           } catch (error) {
-            // console.error("Error verifying eDIS status:", error);
+            // console.log('[edis] status sync failed (handled):', error?.message);
           }
         };
 
@@ -367,7 +367,7 @@ const RebalanceAdviceContent = React.memo(
 
             setDhanEdisStatus(response.data);
           } catch (error) {
-            // console.error("Error verifying eDIS status:", error);
+            // console.log('[edis] status sync failed (handled):', error?.message);
           }
         };
 
@@ -401,7 +401,7 @@ const RebalanceAdviceContent = React.memo(
             );
             setZerodhaDdpiStatus(response.data);
           } catch (error) {
-            console.error('Error verifying eDIS status:', error);
+            console.log('[edis] status sync failed (handled):', error?.message);
           }
         };
 
@@ -410,7 +410,14 @@ const RebalanceAdviceContent = React.memo(
     }, [userDetails]);
 
     useEffect(() => {
-      if (userDetails && userDetails.user_broker === 'Zerodha') {
+      if (
+          userDetails &&
+          userDetails.user_broker === 'Zerodha' &&
+          // Server @extract_keys requires `edis`; the user doc has no such
+          // field today, so an unguarded POST is a guaranteed 400 on every
+          // load. Only sync when a boolean status actually exists.
+          typeof userDetails.edis === 'boolean'
+        ) {
         const verifyZerodhaEdis = async () => {
           try {
             const response = await axios.post(
@@ -433,7 +440,7 @@ const RebalanceAdviceContent = React.memo(
 
             setZerodhaDdpiStatus(response.data);
           } catch (error) {
-            console.error('Error verifying eDIS status:', error);
+            console.log('[edis] status sync failed (handled):', error?.message);
           }
         };
 

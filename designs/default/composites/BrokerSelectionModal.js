@@ -179,7 +179,13 @@ const BrokerSelectionModal = ({ viewModel, actions }) => {
                                                                 resizeMode="contain"
                                                             />
                                                         </View>
-                                                        <Text style={styles.brokerName}>{b.name}</Text>
+                                                        <Text
+                                                            style={styles.brokerName}
+                                                            numberOfLines={2}
+                                                            adjustsFontSizeToFit
+                                                            minimumFontScale={0.8}>
+                                                            {b.name}
+                                                        </Text>
                                                     </TouchableOpacity>
                                                 ))}
                                                 {row.length < 4 &&
@@ -405,7 +411,7 @@ const styles = StyleSheet.create({
     brokerCardPressed: { backgroundColor: '#E8F4FF', transform: [{ scale: 0.95 }] },
     brokerLogoContainer: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
     brokerLogo: { width: 36, height: 36 },
-    brokerName: { fontSize: 11, fontFamily: 'Satoshi-Medium', color: '#000', textAlign: 'center' },
+    brokerName: { fontSize: 11, fontFamily: 'Satoshi-Medium', color: '#000', textAlign: 'center', width: '100%' },
     continueButton: {
         backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 12, paddingVertical: 18,
         paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center',

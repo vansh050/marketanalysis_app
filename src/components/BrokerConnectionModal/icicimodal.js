@@ -8,6 +8,7 @@ import CryptoJS from 'react-native-crypto-js';
 import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import ICICIConnectUI from '../../UIComponents/BrokerConnectionUI/ICICIConnectUI';
+import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import { useTrade } from '../../screens/TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
@@ -17,6 +18,7 @@ import {
   sdkConnectBroker,
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const ICICIUPModal = ({
   isVisible,
@@ -44,7 +46,7 @@ const ICICIUPModal = ({
 
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
 
   const checkValidApiAnSecretdecrypt = details => {
     const bytesKey = CryptoJS.AES.decrypt(details, 'ApiKeySecret');
@@ -322,8 +324,12 @@ const ICICIUPModal = ({
     setShowBrokerModal(false);
   };
 
-  return (
-    <ICICIConnectUI
+  // OAuth phase keeps the existing ICICIConnectUI WebView flow untouched;
+  // credential phase renders the shared web-parity stepper (mirrors web
+  // connectBroker.js "ICICI Direct" config). NEVER RN <Modal> here.
+  if (showWebView) {
+    return (
+      <ICICIConnectUI
       isVisible={isVisible}
       onClose={onClose}
       apiKey={apiKey}
@@ -352,6 +358,60 @@ const ICICIUPModal = ({
       unmetAck={unmetAck}
       setUnmetAck={setUnmetAck}
       configData={configData}
+    />
+    );
+  }
+
+  return (
+    <BrokerConnectStepperSheet
+      isVisible={!!isVisible}
+      onClose={onClose}
+      broker="ICICI Direct"
+      config={{
+        monogram: 'I',
+        brandFrom: '#f37e20',
+        brandTo: '#a3231f',
+        portalUrl: 'https://api.icicidirect.com/apiuser/home',
+        portalLabel: 'Open ICICI Breeze portal',
+        redirectUrl: `${server.ccxtServer.baseUrl}icici/auth-callback/${getAdvisorSubdomain()}`,
+        walkthroughVideoId: 'PFiVLkdIhk8',
+        guideSteps: [
+          'Log in to your <b>ICICI Direct</b> account with OTP',
+          'Open the <b>Register an App</b> tab',
+          `Name it <b>${Config.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark'}</b>, set the Redirect URL below`,
+          'Paste your <b>IP</b> into the <b>IP Address</b> field, Submit',
+          'Open the <b>View Apps</b> tab',
+          'Copy the <b>API key</b> and <b>Secret key</b>',
+        ],
+      }}
+      egressBrokerKey="icicidirect"
+      customerId={userDetails?._id}
+      customerEmail={userEmail}
+      egressReady={egressReady}
+      setEgressReady={setEgressReady}
+      unmetAck={unmetAck}
+      setUnmetAck={setUnmetAck}
+      fields={[
+        {
+          label: 'API Key',
+          value: apiKey,
+          onChange: (t) => setApiKey(t.trim()),
+          password: true,
+          placeholder: 'Paste your ICICI API key',
+        },
+        {
+          label: 'Secret Key',
+          value: secretKey,
+          onChange: (t) => setSecretKey(t.trim()),
+          password: true,
+          placeholder: 'Paste your ICICI secret key',
+        },
+      ]}
+      phase="creds"
+      canSubmit={Boolean(apiKey) && Boolean(secretKey)}
+      submitLabel="Connect ICICI Direct"
+      loading={loading}
+      onSubmit={initiateAuth}
     />
   );
 };

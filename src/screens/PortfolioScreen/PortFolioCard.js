@@ -3,21 +3,49 @@ import {View, Text, StyleSheet} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, {Circle} from 'react-native-svg';
 import {useConfig} from '../../context/ConfigContext';
+import useTokens from '../../theme/useTokens';
 
 const PortfolioCard = ({
   allHoldingsData,
   formatCurrency,
   profitAndLoss,
   pnlPercentage,
+  broker,
+  selectedPlan,
 }) => {
-  // Get dynamic colors from config
   const config = useConfig();
-  const gradient1 = config?.gradient1 || 'rgba(0, 38, 81, 1)';
-  const gradient2 = config?.gradient2 || 'rgba(0, 86, 183, 1)';
+  const tokens = useTokens();
+  const gradient1 = tokens.colors.brand.gradientStart;
+  const gradient2 = tokens.colors.brand.gradientEnd;
 
   const invested = Number(allHoldingsData?.totalinvvalue) || 0;
   const pnl = Number(profitAndLoss) || 0;
   const returns = Number(pnlPercentage) || 0;
+
+  // Broker APIs can return IEEE floating-point artefacts such as
+  // 16575.190000000002. Keep the raw numbers for calculations, but never
+  // expose those implementation details in the customer-facing summary.
+  const formatDisplayedMoney = (value, fractionDigits = 2) =>
+    formatCurrency(Number((Number(value) || 0).toFixed(fractionDigits)));
+
+  const formatDisplayedRupees = value =>
+    formatCurrency(Math.round(Number(value) || 0));
+
+  const getHoldingSource = brokerName => {
+    const source = typeof brokerName === 'string' ? brokerName.trim() : '';
+    if (!source) {
+      return 'No broker account is connected';
+    }
+    if (/dummy|demo|paper/i.test(source)) {
+      return 'Simulated portfolio — not a broker account';
+    }
+    return `${source} broker account`;
+  };
+
+  const holdingSource = getHoldingSource(broker);
+  const summaryTitle = selectedPlan
+    ? 'Selected plan holdings'
+    : 'Broker Holdings P&L';
 
   const formatPnL = value => {
     const numValue = Number(value);
@@ -25,7 +53,7 @@ const PortfolioCard = ({
       return '₹0';
     }
     const absValue = Math.abs(numValue);
-    const formattedValue = formatCurrency(absValue);
+    const formattedValue = formatDisplayedMoney(absValue);
     return numValue < 0 ? `-₹${formattedValue}` : `₹${formattedValue}`;
   };
 
@@ -51,19 +79,35 @@ const PortfolioCard = ({
           <Circle cx="130" cy="120" r="96" fill="white" fillOpacity="0.08" />
         </Svg>
 
-        {/* Current Balance Label */}
-        <Text style={portfolioCardStyles.pcLabel}>Current P&amp;L</Text>
+        {/* This card measures LIVE BROKER HOLDINGS (allHoldingsData from the
+            connected broker) — NOT the model-portfolio records below it. An
+            unlabeled ₹0 here right above a summary card showing real value
+            read as contradictory data (2026-07-18 report), so: label the
+            source, and when there are no broker holdings say why instead of
+            bare zeros. */}
+        <Text style={portfolioCardStyles.pcLabel}>{summaryTitle}</Text>
 
-        {/* ✅ Value with proper negative sign placement and NaN handling */}
-        <Text style={portfolioCardStyles.pcAmount}>{formatPnL(pnl)}</Text>
+        {invested === 0 && pnl === 0 ? (
+          <>
+            <Text style={portfolioCardStyles.pcAmount}>—</Text>
+            <Text style={portfolioCardStyles.pcSubLabel}>
+              Source: {holdingSource}
+            </Text>
+          </>
+        ) : (
+          <>
+            {/* ✅ Value with proper negative sign placement and NaN handling */}
+            <Text style={portfolioCardStyles.pcAmount}>{formatPnL(pnl)}</Text>
 
-        {/* Invested */}
-        <Text style={portfolioCardStyles.pcSubLabel}>
-          Invested&nbsp;{' '}
-          <Text style={portfolioCardStyles.pcSubAmount}>
-            ₹ {formatCurrency(invested)}
-          </Text>
-        </Text>
+            {/* Invested */}
+            <Text style={portfolioCardStyles.pcSubLabel}>
+              Source: {holdingSource}{'\n'}Invested&nbsp;{' '}
+              <Text style={portfolioCardStyles.pcSubAmount}>
+                ₹ {formatDisplayedRupees(invested)}
+              </Text>
+            </Text>
+          </>
+        )}
 
         {/* Right P&L pill, returns percent */}
         <View style={portfolioCardStyles.pcRightBox}>
@@ -104,7 +148,7 @@ const portfolioCardStyles = StyleSheet.create({
     marginHorizontal: '1.5%',
     borderRadius: 15,
     overflow: 'hidden',
-    minHeight: 120,
+    minHeight: 138,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
@@ -149,6 +193,8 @@ const portfolioCardStyles = StyleSheet.create({
     fontSize: 12,
     fontFamily: 'Satoshi-Regular',
     letterSpacing: 0.2,
+    width: '55%',
+    lineHeight: 16,
   },
   pcSubAmount: {
     fontFamily: 'Satoshi-Regular',

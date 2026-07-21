@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import LottieView from "lottie-react-native";
 import StockCardLoading from "./AdviceScreenComponents/StockCardLoading";
+import { useConfig } from "./context/ConfigContext";
 
 const { width: screenWidth } = Dimensions.get("window");
 const BATCH_SIZE = 10; // Number of items to render in each batch
@@ -21,6 +22,7 @@ const StockScrollView = ({
   type,
   animationRef,
 }) => {
+  const config = useConfig();
   const [visibleData, setVisibleData] = useState(
     stockRecoNotExecuted.slice(0, BATCH_SIZE)
   );
@@ -104,7 +106,7 @@ const StockScrollView = ({
             alignSelf: "center",
           }}
         >
-          No Bespoke Advice Found!
+          No {config?.bespokePlanLabel || "Bespoke"} Recommendations Found!
         </Text>
       </View>
     )}

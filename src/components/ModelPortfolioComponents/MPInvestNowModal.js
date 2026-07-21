@@ -38,6 +38,7 @@ import APP_VARIANTS from '../../utils/Config';
 import RNFS from 'react-native-fs';
 import { useTrade } from '../../screens/TradeContext';
 import { useConfig } from '../../context/ConfigContext';
+import useTokens from '../../theme/useTokens';
 import { useGstConfig } from '../../context/GstConfigContext';
 import { withGst, gstLabel } from '../../utils/gstHelpers';
 import FormatDateTime, { FormatDate } from '../../utils/formatDateTime';
@@ -57,6 +58,7 @@ import {
   getCashfreeEnvironment,
   isInstallSourceError,
   friendlyPaymentError,
+  describeCashfreeDecline,
 } from '../../utils/cashfreeEnv';
 import {
   CashFreeOneTimePayment,
@@ -144,10 +146,12 @@ const MPInvestNowModal = ({
 
   const { configData } = useTrade();
 
-  // Get dynamic colors from config - use gradient2 as the primary accent color
+  // Brand colors via useTokens — variant supplies the fallback, backend
+  // config.gradient1 / gradient2 still override through legacy branding.
   const config = useConfig();
-  const gradient1 = config?.gradient1 || '#002651';
-  const gradient2 = config?.gradient2 || '#0076FB';
+  const tokens = useTokens();
+  const gradient1 = tokens.colors.brand.gradientStart;
+  const gradient2 = tokens.colors.brand.gradientEnd;
   const mainColor = gradient2;
   const stepCompletedColor = config?.paymentModal?.stepCompletedColor || '#29A400';
 
@@ -218,6 +222,11 @@ const MPInvestNowModal = ({
   const [panNumber, setPanNumber] = useState(
     userDetails?.panNumber || '',
   );
+  // Optional GSTIN capture for the invoice (web parity C3a — collapsed
+  // opt-in). GST pricing/labels already handled via GstConfigService;
+  // this is only the customer's own GST number for input-tax-credit.
+  const [gstNumber, setGstNumber] = useState('');
+  const [gstError, setGstError] = useState('');
   const [open, setOpen] = useState(false);
 
   const [consentChecked, setConsentChecked] = useState(false);
@@ -506,9 +515,11 @@ const MPInvestNowModal = ({
             break;
 
           case 'PAYMENT_FAILED':
-            // Payment failed, inform user
+            // Reason-aware title + message (PendingPaymentManager →
+            // describeStoredPaymentFailure). Falls back to the old generic
+            // title only if the recovery result predates that change.
             Alert.alert(
-              'Payment Failed',
+              result.needsAction.title || 'Payment Failed',
               result.needsAction.message,
               [{ text: 'OK' }],
             );
@@ -678,6 +689,22 @@ const MPInvestNowModal = ({
     return /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/.test(pan);
   };
 
+  const validateGst = gstin => {
+    if (!gstin) return true; // optional
+    return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/.test(
+      gstin.toUpperCase(),
+    );
+  };
+
+  const handleGstChange = value => {
+    const v = (value || '')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]/g, '')
+      .slice(0, 15);
+    setGstNumber(v);
+    setGstError(v && !validateGst(v) ? 'Invalid GST format. e.g. 29ABCDE1234F1Z5' : '');
+  };
+
   const handlePanChange = value => {
     const sanitizedValue = value
       .toUpperCase()
@@ -755,9 +782,177 @@ const MPInvestNowModal = ({
     }
   };
 
+  // Refs mirroring the latest config-loading/kycBlockingEnabled state, kept in
+  // sync via the effect below. Needed because `resolveKycBlockingEnabled` is an
+  // async function that may await across several ticks (polling for a slow
+  // config load) — a plain closed-over `config` value is frozen at call time
+  // and would never observe the load actually finishing, so the wait would
+  // just spin uselessly for the full timeout. Refs mutate in place and are
+  // always read fresh. Mirrors web's resolveKycBlockingEnabled hardening
+  // (prod-alphaquark-github PricingPage.js) and markup_app's parallel fix.
+  const configLoadingRef = useRef(config?.configLoading);
+  const kycBlockingEnabledRef = useRef(config?.kycBlockingEnabled === true);
+  useEffect(() => {
+    configLoadingRef.current = config?.configLoading;
+    kycBlockingEnabledRef.current = config?.kycBlockingEnabled === true;
+  }, [config?.configLoading, config?.kycBlockingEnabled]);
+
+  // Waits out a still-in-flight config load (up to 6s, matching the provider's
+  // own frontend-config fetch timeout) before trusting `kycBlockingEnabled`.
+  // Without this, a user who reaches step 1 before ConfigContext's initial
+  // fetch resolves would read the pre-fetch default (false) and silently skip
+  // the gate. If config is still loading after the wait, treat the gate as OFF
+  // (not a verification failure — most advisors default off anyway, so
+  // "unknown" reasonably means "assume default").
+  const resolveKycBlockingEnabled = async () => {
+    if (!configLoadingRef.current) return kycBlockingEnabledRef.current === true;
+    const start = Date.now();
+    while (configLoadingRef.current && Date.now() - start < 6000) {
+      await new Promise(r => setTimeout(r, 150));
+    }
+    return kycBlockingEnabledRef.current === true;
+  };
+
+  // Checkout-time blocking KYC gate — verify PAN+DoB against the KRA BEFORE
+  // moving past the KYC step to payment/Digio. Gated by `kycBlockingEnabled`
+  // (default OFF). Final policy (product decision 2026-07-16): ONLY a
+  // `verified` outcome allows the user through. Every other classification
+  // BLOCKS — `mismatch`, `not_found`, `service_error`, `unavailable` (incl.
+  // a genuine KRA/CVL outage or missing CVL creds), and a genuine call
+  // failure (network/timeout/malformed response — no verification signal at
+  // all). See the per-outcome comments below for the rationale on each.
+  // Mirrors web PricingPage.runKycBlockingGate.
+  const runKycBlockingGate = async () => {
+    const gateOn = await resolveKycBlockingEnabled();
+    if (!gateOn) return true;
+
+    const pan = (panNumber || '').trim().toUpperCase();
+    if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) {
+      setPanError('Please enter a valid PAN (format ABCDE1234F) to continue.');
+      return false;
+    }
+    // birthDate is a Date object in this modal; the KRA expects a date string.
+    const dobStr =
+      birthDate instanceof Date
+        ? `${birthDate.getFullYear()}-${String(birthDate.getMonth() + 1).padStart(2, '0')}-${String(birthDate.getDate()).padStart(2, '0')}`
+        : String(birthDate || '').trim();
+    if (!dobStr) {
+      Toast.show({
+        type: 'error',
+        text1: 'Date of birth required',
+        text2: 'Please enter your date of birth to verify your PAN with the KRA.',
+      });
+      return false;
+    }
+
+    try {
+      Toast.show({
+        type: 'info',
+        text1: 'Verifying PAN…',
+        text2: 'Checking your PAN and date of birth with the KRA.',
+      });
+      const advisor = configData?.config?.REACT_APP_HEADER_NAME;
+      const res = await axios.post(
+        `${server.ccxtServer.baseUrl}misc/kyc/kra/verify-pan/${advisor}/${encodeURIComponent(
+          userEmail || '',
+        )}`,
+        { panNo: pan, dob: dobStr, mobile: mobileNumber || '' },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
+          },
+          timeout: 15000,
+        },
+      );
+      if (res?.data?.kycOutcome === 'mismatch') {
+        Alert.alert(
+          'PAN verification failed',
+          res?.data?.message ||
+            "We couldn't verify this PAN with the date of birth entered. Please check and enter the correct PAN and date of birth to continue.",
+        );
+        return false;
+      }
+      if (res?.data?.kycOutcome === 'not_found') {
+        // BLOCK (product decision 2026-07-16): the KRA has no record of this
+        // PAN at all — most likely a fake/random PAN (the exact case that
+        // motivated this gate). Standing trade-off, made deliberately: this
+        // also blocks a genuine customer who simply hasn't completed KRA-KYC
+        // yet. Accepted for now; revisit once CVL PAN Inquiry is live and we
+        // have real-world false-positive data on this advisor's traffic.
+        // NOTE: "prod" (this app's default/AlphaQuark advisor) has no CVL
+        // credentials configured at all, so its verify-pan calls never reach
+        // a real not_found/mismatch — they always resolve unavailable, which
+        // fails open below. This gate is effectively a no-op for that
+        // advisor until CVL access exists; known limitation, not a bug.
+        Alert.alert(
+          'PAN not found',
+          "We couldn't find this PAN registered with any KYC Registration Agency. Please check the PAN and try again, or contact support if you believe this is an error.",
+        );
+        return false;
+      }
+      if (res?.data?.kycOutcome === 'service_error') {
+        // BLOCK + surface (product decision 2026-07-16): the KRA/CVL returned a
+        // DEFINITE config/access error (e.g. CVL WEBERR-001 "Access Privilege
+        // Not Set", WEBERR-029 "Invalid IP Address"). The advisor's verification
+        // path is MISCONFIGURED — the customer's PAN may be valid but we can't
+        // confirm it. Unlike a transient outage (fails open below), a config
+        // error is persistent and must not silently pass customers, so we halt
+        // and show it's a verification-SERVICE problem (not their PAN). The raw
+        // WEBERR is in the response + ccxt logs for the advisor to act on.
+        Alert.alert(
+          'Verification unavailable',
+          'PAN verification is currently unavailable due to a verification-service configuration issue on our side. Please contact support so we can enable this for you — we can\'t complete your subscription until it\'s resolved.',
+        );
+        return false;
+      }
+      if (res?.data?.kycOutcome === 'unavailable') {
+        // BLOCK (product decision 2026-07-16, revised — supersedes the
+        // "transient outages allow" call made earlier the same day): a
+        // GENUINE KRA/CVL outage/timeout, or no CVL creds configured at all,
+        // still means we have NO positive verification signal for this PAN.
+        // Letting the customer through on "CVL hasn't given a pass" is
+        // exactly the gap that motivated this gate. Retryable, so the
+        // message invites a retry rather than pointing at support.
+        Alert.alert(
+          'Unable to verify PAN',
+          "We're unable to verify your PAN right now. Please try again in a moment — if this keeps happening, contact support.",
+        );
+        return false;
+      }
+      // verified → allow. Every other outcome is handled above; this is the
+      // only path that actually confirms the PAN with a KRA.
+      return true;
+    } catch (e) {
+      // Fail-CLOSED (product decision 2026-07-16): a network/exception failure
+      // means we have NO verification signal — proceeding would let "skipped"
+      // read as "passed", defeating a SEBI KYC gate. Block; the user can retry.
+      console.error('[MPInvestNow] KYC gate error (blocking, no verification signal):', e?.message);
+      Alert.alert(
+        'Unable to verify PAN',
+        "We're unable to verify your PAN right now. Please try again in a moment — if this keeps happening, contact support.",
+      );
+      return false;
+    }
+  };
+
   const completeStep = async stepId => {
     if (isStepTransitioning) return;
     setIsStepTransitioning(true);
+
+    // Blocking KYC gate (SEBI onboarding): must pass before leaving the
+    // PAN/DoB step (step 1) toward consent/payment/Digio.
+    if (stepId === 1) {
+      const kycOk = await runKycBlockingGate();
+      if (!kycOk) {
+        setIsStepTransitioning(false);
+        return;
+      }
+    }
 
     // Smooth transition animation
     await new Promise(resolve => setTimeout(resolve, 300));
@@ -858,7 +1053,10 @@ const MPInvestNowModal = ({
     'beforePayment'
   );
 
-  const isDigioEnabled = configData?.digioEnabled !== false &&
+  // AlphaB2B does not offer Digio e-signing. Keep it off unless a future
+  // build explicitly opts in through its native build environment.
+  const isDigioEnabled = Config.REACT_APP_DIGIO_ENABLED === 'true' &&
+    configData?.digioEnabled !== false &&
     configData?.config?.REACT_APP_DIGIO_ENABLED !== 'false';
 
   const getInitialAuthMethod = () => {
@@ -963,9 +1161,25 @@ const MPInvestNowModal = ({
                 console.error('[Digio] Failed to update digio_verification:', err);
               }
 
-              // Download signed doc (best-effort, doesn't block success flow)
-              try {
-                await axios.get(
+              // Show the success modal IMMEDIATELY after verification +
+              // digio-mark, BEFORE the signed-doc download. The download is
+              // best-effort but was previously `await`ed here, leaving the
+              // plan-selection sheet visible for the download's full duration
+              // (user-reported "flash back to the plans screen after Digio
+              // confirm", 2026-06-12). Showing the success modal first closes
+              // that gap; the download runs in the background below.
+              setDigioSuccessModal(true);
+              setLoading(false);
+              console.log('this get true----');
+
+              // Clear pending Digio on successful completion
+              await clearPendingDigio();
+              console.log('[Digio] Cleared pending Digio after successful signature');
+
+              // Download signed doc — fire-and-forget (best-effort, MUST NOT
+              // delay the success modal). Errors are swallowed/logged.
+              axios
+                .get(
                   `${server.ccxtServer.baseUrl}misc/digio/download/signed-doc/${storeDigioData?.id}/${advisorTag}`,
                   {
                     headers: {
@@ -979,20 +1193,11 @@ const MPInvestNowModal = ({
                     },
                     responseType: 'blob',
                   },
+                )
+                .then(() => console.log('[Digio] Signed doc downloaded successfully'))
+                .catch(error =>
+                  console.error('[Digio] Error downloading signed PDF (non-blocking):', error),
                 );
-                console.log('[Digio] Signed doc downloaded successfully');
-              } catch (error) {
-                console.error('[Digio] Error downloading signed PDF (non-blocking):', error);
-              }
-
-              // Show success modal with anti-drop-off mechanism instead of direct payment
-              setDigioSuccessModal(true);
-              setLoading(false);
-              console.log('this get true----');
-
-              // Clear pending Digio on successful completion
-              await clearPendingDigio();
-              console.log('[Digio] Cleared pending Digio after successful signature');
             } else {
               setDigioUnsuccessModal(true);
               setRazorpayLoader(false);
@@ -1231,6 +1436,7 @@ const MPInvestNowModal = ({
           advisor: advisorTag,
           name: name,
           panNumber: panNumber,
+          gstNumber: gstNumber || undefined,
           birthDate: birthDate,
           telegramId: telegramId,
           capital: invetAmount,
@@ -1248,6 +1454,29 @@ const MPInvestNowModal = ({
           },
         },
       );
+      // Backend guard refusals (e.g. the CVL pre-payment KYC gate in
+      // aq_backend Routes/CashFree/CashFree.js) come back as HTTP 200 with
+      // `{status: false, message}` via _RS.apiNew — an axios "success" — so
+      // they never reach the catch below. Without this check the refusal
+      // fell through to the generic "Missing payment session data" throw
+      // and the tap looked like a dead button (markup tester, 2026-07-16).
+      if (response?.data?.status === false) {
+        console.error('[OneTime] Order create refused:', response?.data?.message);
+        logPayment('CASHFREE_ONETIME_CREATE_REFUSED', {
+          message: response?.data?.message,
+          userEmail,
+          mobileNumber,
+          advisor: advisorTag,
+          planId: plandata?._id,
+        }, configData);
+        Alert.alert(
+          'Payment could not be started',
+          response?.data?.message || 'Please try again in a moment.',
+        );
+        setLoading(false);
+        return;
+      }
+
       const paymentId = response?.data?.subscription?.cashfree_order_id;
       const paymentSessionId = response?.data?.data?.payment_session_id;
       const subscriptionId = response?.data?.subscription?.id;
@@ -1519,9 +1748,13 @@ const MPInvestNowModal = ({
         setShowPaymentFail(true);
         CFPaymentGatewayService.removeCallback();
         CFPaymentGatewayService.removeEventSubscriber();
-        if (isInstallSourceError(sdkError)) {
-          Alert.alert('Payment unavailable', friendlyPaymentError(sdkError));
-        }
+        // Actionable bank-decline / retry guidance (was: only the
+        // install-source case got a message; every other decline showed
+        // just the generic fail UI, so customers re-tried the same method
+        // blindly). describeCashfreeDecline handles install-source +
+        // cancel + generic-decline.
+        const _d = describeCashfreeDecline(sdkError);
+        Alert.alert(_d.title, _d.message);
       }
     } catch (err) {
       setLoading(false);
@@ -1529,6 +1762,13 @@ const MPInvestNowModal = ({
       console.error(
         '[OneTime] Payment initialization failed:',
         err.response?.data || err.message,
+      );
+      // Surface the failure — a silent catch here made the "Complete
+      // Investment" tap look like a dead button (markup tester, 2026-07-16).
+      Alert.alert(
+        'Payment could not be started',
+        err?.response?.data?.message ||
+          "We couldn't start the payment. Please try again — if this keeps happening, contact support.",
       );
     }
   };
@@ -1607,6 +1847,7 @@ const MPInvestNowModal = ({
           name: name,
           appliedCouponId,
           panNumber: panNumber,
+          gstNumber: gstNumber || undefined,
           countryCode: countryCode,
           selectedCard: selectedCard,
           redirectSpecificLocation: `${configData?.config?.REACT_APP_WEBSITE_URL}/pricing`,
@@ -1629,9 +1870,16 @@ const MPInvestNowModal = ({
       );
       setLoadingmp(false);
 
-      let subsSessionId = response?.data?.data?.subscription_session_id;
-      if (typeof subsSessionId === 'string')
-        subsSessionId = subsSessionId.replace(/(payment){1,2}$/, '');
+      // Pass the subscription_session_id RAW — do NOT strip anything.
+      // A previous build stripped a trailing "payment" token
+      // (.replace(/(payment){1,2}$/, '')), but that suffix is PART of the
+      // ID Cashfree issues: the working web (PricingPage.js
+      // initiateCashfreeRecurringPayment) passes it untouched to
+      // cashfree.subscriptionsCheckout. The strip corrupted the session →
+      // Cashfree's hosted checkout rendered its raw error page
+      // ("payload: <no value> / errorMessage: no referrer…") instead of
+      // the payment UI (alphanomy, 2026-06-12).
+      const subsSessionId = response?.data?.data?.subscription_session_id;
       const orderId = response?.data?.data?.order_id;
       const redirectTarget = '_self';
       console.log('response of CF---', response);
@@ -1740,13 +1988,8 @@ const MPInvestNowModal = ({
       // install-source block as the one-time path. Surface the actionable
       // Play-Store message rather than a generic "Failed to initialize".
       setLoadingmp(false);
-      const message = isInstallSourceError(err)
-        ? friendlyPaymentError(err)
-        : err?.message || 'Failed to initialize payment. Please try again.';
-      Alert.alert(
-        isInstallSourceError(err) ? 'Payment unavailable' : 'Error',
-        message,
-      );
+      const _d = describeCashfreeDecline(err);
+      Alert.alert(_d.title, _d.message);
       console.error('[CF Recurring] Payment failed to initialize:', err?.message, err.response);
     }
   };
@@ -1785,6 +2028,21 @@ const MPInvestNowModal = ({
       });
 
       console.log('[PayU] Order created:', response);
+
+      // Backend guard refusals (e.g. the CVL pre-payment KYC gate in
+      // aq_backend Routes/PayU/PayU.js) come back as HTTP 200 with
+      // `{status: false, message}` via _RS.apiNew (no `success`/`error`
+      // fields), so the generic throw below would discard the
+      // customer-relevant message. Surface it directly.
+      if (response?.status === false) {
+        console.error('[PayU] Order create refused:', response?.message);
+        Alert.alert(
+          'Payment could not be started',
+          response?.message || 'Please try again in a moment.',
+        );
+        setLoading(false);
+        return;
+      }
 
       if (!response.success || !response.data) {
         throw new Error(response.error || 'Failed to create PayU order');
@@ -2012,10 +2270,14 @@ const MPInvestNowModal = ({
       gateway: 'payu',
     });
 
+    const _d = describeCashfreeDecline(
+      typeof error === 'string' ? {message: error} : error,
+    );
     Toast.show({
       type: 'error',
-      text1: 'Payment Failed',
-      text2: error || 'Payment was cancelled or failed. Please try again.',
+      text1: _d.title,
+      text2: _d.message,
+      visibilityTime: 6000,
     });
   };
 
@@ -2617,6 +2879,23 @@ const MPInvestNowModal = ({
 
       console.log('responseee:', response.data);
 
+      // Backend guard refusals (e.g. the CVL pre-payment KYC gate added to
+      // aq_backend SubscriptionRouter POST / on 2026-07-16) come back as
+      // HTTP 200 with `{status: false, message}` via _RS.apiNew. Without
+      // this check, `response.data.data` is undefined, the property read
+      // below throws, and the catch shows only a GENERIC error — discarding
+      // the customer-relevant gate message.
+      if (response?.data?.status === false) {
+        console.error('[Recurring] Subscription create refused:', response?.data?.message);
+        Alert.alert(
+          'Payment could not be started',
+          response?.data?.message || 'Please try again in a moment.',
+        );
+        setLoading(false);
+        setLoadingmp(false);
+        return;
+      }
+
       const subscriptionData = response.data.data;
       console.log('Subs data res:', subscriptionData);
 
@@ -2930,6 +3209,23 @@ const MPInvestNowModal = ({
           },
         },
       );
+
+      // Backend guard refusals (e.g. the CVL pre-payment KYC gate added to
+      // aq_backend SubscriptionRouter POST /one-time-payment/subscription on
+      // 2026-07-16) come back as HTTP 200 with `{status: false, message}` via
+      // _RS.apiNew. Without this check, `response.data.data` is undefined,
+      // the property read below throws, and the catch shows only a GENERIC
+      // error — discarding the customer-relevant gate message.
+      if (response?.data?.status === false) {
+        console.error('[OneTime Razorpay] Order create refused:', response?.data?.message);
+        Alert.alert(
+          'Payment could not be started',
+          response?.data?.message || 'Please try again in a moment.',
+        );
+        setLoading(false);
+        setLoadingmp(false);
+        return;
+      }
 
       const paymentData = response.data.data;
 
@@ -3565,6 +3861,8 @@ const MPInvestNowModal = ({
     panNumber,
     panError,
     isPanValid: panNumber && validatePan(panNumber),
+    gstNumber,
+    gstError,
     birthDate,
     userDetails,
     isModelPortfolio: specificPlan?.type === 'model portfolio',
@@ -3624,6 +3922,7 @@ const MPInvestNowModal = ({
     onHideDisclaimer: () => setShowDisclaimer(false),
     onApplyCoupon: handleApplyCoupon,
     onCouponCodeChange: setCouponCode,
+    onGstChange: handleGstChange,
 
     onDigioPayment: handleDigioPayment,
 

@@ -21,6 +21,7 @@ import {
     Bookmark,
     BookOpen,
     Video,
+    Trash2,
 } from 'lucide-react-native';
 import { getAuth } from '@react-native-firebase/auth';
 import DeviceInfo from 'react-native-device-info';
@@ -95,6 +96,10 @@ const AccountSettingsScreen = ({ navigation }) => {
                         {
                             icon: Tags,
                             label: 'Change Manager',
+                            // Navigation registers this screen as "Advisor Change".
+                            // The former display-label route ("Manager Change") did
+                            // not exist in any navigator and produced a red-screen
+                            // console error instead of opening the manager picker.
                             onPress: () => handleMenuPress('Advisor Change'),
                         },
                     ]
@@ -166,6 +171,15 @@ const AccountSettingsScreen = ({ navigation }) => {
                     icon: Link,
                     label: 'Terms & Conditions',
                     onPress: () => handleMenuPress('Terms & Conditions'),
+                },
+                // In-app account deletion — required by Google Play for any
+                // app with account creation. Soft-delete + SEBI retention
+                // carve-out handled server-side (DELETE /api/account/delete);
+                // see docs/ACCOUNT_DELETION_ARCHITECTURE.md.
+                {
+                    icon: Trash2,
+                    label: 'Delete Account',
+                    onPress: () => handleMenuPress('DeleteAccountScreen'),
                 },
                 {
                     icon: LogOut,

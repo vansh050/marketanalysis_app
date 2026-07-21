@@ -41,7 +41,7 @@ const SDK_STAGE_COPY = {
   },
   rebalance_execute_failed: {
     title: () => 'Rebalance couldn\'t execute',
-    body: 'Some orders failed before reaching the broker. See the detail below and contact your advisor if it keeps happening.',
+    body: 'Some orders failed before reaching the broker. See the detail below and contact your manager if it keeps happening.',
   },
 };
 
@@ -53,7 +53,7 @@ const UPSTREAM_REFINEMENT = {
   internal_error:
     'The server hit an unexpected error. Please try again in a moment.',
   unsupported_broker:
-    'This broker isn\'t supported on your account yet. Contact your advisor.',
+    'This broker isn\'t supported on your account yet. Contact your manager.',
   broker_credential_validate_failed:
     'Your credentials were rejected. Verify the API key, secret, and any client/UCC fields match your broker\'s developer portal exactly.',
   broker_login_url_missing:
@@ -78,9 +78,9 @@ const UPSTREAM_REFINEMENT = {
   tenant_db_connect_failed:
     'We couldn\'t reach your account database. Try again in a moment, then contact support if the problem persists.',
   verify_not_supported:
-    'This broker doesn\'t support the verify step on your account yet. Contact your advisor.',
+    'This broker doesn\'t support the verify step on your account yet. Contact your manager.',
   attest_not_supported:
-    'This broker doesn\'t support the attest step on your account yet. Contact your advisor.',
+    'This broker doesn\'t support the attest step on your account yet. Contact your manager.',
   broker_slug_missing:
     'The broker isn\'t fully wired up server-side. Please contact support.',
   angel_one_connect_requires_post_oauth:
@@ -234,7 +234,7 @@ export function humanizeSdkError(sdkError, brokerName) {
     upstreamCopy ||
     (detailIsActionableText ? detail.trim() : null) ||
     stageBody ||
-    'Please try again. If the problem keeps happening, contact your advisor or support.';
+    'Please try again. If the problem keeps happening, contact your manager or support.';
 
   // Technical breadcrumb — always shown so support can triage without asking
   // the user to dig. Format matches the legacy modal copy where the raw

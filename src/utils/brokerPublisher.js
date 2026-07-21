@@ -86,8 +86,8 @@ export function getPublisherApiKey(broker, userBrokerClientCode) {
  * `Invalid 'api_key'` when the Referer doesn't match the Kite Connect
  * app's registered redirect-URL origin. React Native's `source={{ html }}`
  * defaults the Referer to `about:blank`, which trips that check — the web
- * app doesn't hit this because the form is served from the advisor's own
- * domain. Setting `baseUrl` to the advisor's web origin puts the WebView
+ * app doesn't hit this because the form is served from the manager's own
+ * domain. Setting `baseUrl` to the manager's web origin puts the WebView
  * on the origin Kite expects.
  *
  * Intentionally NOT sourced from `REACT_APP_BROKER_CONNECT_REDIRECT_URL`.

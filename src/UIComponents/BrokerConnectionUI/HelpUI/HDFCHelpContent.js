@@ -7,6 +7,7 @@ const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 const HDFCHelpContent = ({expanded, onExpandChange }) => {
   const brokerConnectRedirectURL=Config.REACT_APP_BROKER_CONNECT_REDIRECT_URL;
+  const appName = Config.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark';
   useEffect(() => {
     onExpandChange?.(expanded);
   }, [expanded]);
@@ -28,7 +29,7 @@ const HDFCHelpContent = ({expanded, onExpandChange }) => {
                             style={styles.instruction}
                           >
                             1. Go to{" "}
-                            <LinkifiedUrl url="https://developer.hdfcsec.com/" />
+                            <LinkifiedUrl url="https://developer.hdfcsky.com/" />
                           </Text>
                           <Text style={styles.instruction}>
                             2. Log in with your ID, password, and OTP.
@@ -43,7 +44,7 @@ const HDFCHelpContent = ({expanded, onExpandChange }) => {
                             3. Accept the *Risk Disclosure *.
                           </Text>
                           <Text style={styles.instruction}>
-                            4. Click *Create* to make a new app. Enter app
+                            4. Click *Create* to make a new app. Name it {appName}, then enter app
             name, paste your dedicated static IP (claimed in the
             IP-whitelist panel above) into the "Allowed IPs" field on the
             InvestRight app form — HDFC rejects orders from non-whitelisted
@@ -53,7 +54,7 @@ const HDFCHelpContent = ({expanded, onExpandChange }) => {
                           </Text>
                           <Text style={styles.instruction}>
                             5. Copy the *API* and *Secret Key* and paste
-            them into the {Config?.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark'} platform to connect
+            them into the {appName} platform to connect
             your broker.
                           </Text>
         </>

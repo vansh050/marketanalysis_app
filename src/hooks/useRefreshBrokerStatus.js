@@ -164,7 +164,10 @@ export function useRefreshBrokerStatus(userEmail) {
         funds: freshFunds ?? funds,
       };
     } catch (error) {
-      console.error('[useRefreshBrokerStatus] error:', error?.message);
+      // console.log, not console.error: this is a handled refresh failure
+      // (typically a transient Network Error) — error-level logging pops a
+      // scary LogBox toast in dev builds for something the flow tolerates.
+      console.log('[useRefreshBrokerStatus] error:', error?.message);
       return {brokerStatus, broker, funds, userDetails};
     }
   }, [

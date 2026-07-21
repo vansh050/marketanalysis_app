@@ -16,6 +16,7 @@ import {
   sdkConnectBroker,
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
+import {getAccountEmail} from '../../utils/accountEmail';
 
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
@@ -45,7 +46,7 @@ const DhanConnectModal = ({
 
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = user?.email;
+  const userEmail = getAccountEmail();
 
   const [userDetails, setUserDetails] = useState(null);
 

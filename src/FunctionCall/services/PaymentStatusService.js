@@ -88,11 +88,40 @@ export const checkCashfreePaymentStatus = async (orderId, configData) => {
         };
       }
 
-      // All payments failed
+      // No payment attempts yet. The order exists but nobody has tried to pay
+      // it (or the attempt hasn't registered with Cashfree yet). This is NOT a
+      // failure — reporting it as one made `checkFullPaymentStatus` tell a
+      // customer "Payment was not successful" about a payment that never
+      // happened. `pollPaymentStatus` already guarded this (it only accepts a
+      // FAILED verdict backed by an explicit FAILED/CANCELLED/USER_DROPPED
+      // payment_status); `checkFullPaymentStatus` did not, and it is what the
+      // pending-payment recovery check calls on every modal open / app resume.
+      if (payments.length === 0) {
+        return {
+          status: PaymentStatus.PENDING,
+          data: {},
+          allPayments: [],
+          reason: 'no_payment_attempts',
+        };
+      }
+
+      // Only call it FAILED when Cashfree explicitly says so. Any other
+      // terminal-looking-but-unrecognised status (a new Cashfree vocabulary
+      // word, say) is treated as PENDING so the customer is never told their
+      // payment failed on the strength of a status we don't understand.
+      const latest = payments[payments.length - 1] || {};
+      const CONFIRMED_FAILURE = ['FAILED', 'CANCELLED', 'USER_DROPPED', 'VOID', 'EXPIRED'];
+      const isConfirmedFailure = payments.every(p =>
+        CONFIRMED_FAILURE.includes(String(p.payment_status || '').toUpperCase()),
+      );
+
       return {
-        status: PaymentStatus.FAILED,
-        data: payments[payments.length - 1] || {},
+        status: isConfirmedFailure ? PaymentStatus.FAILED : PaymentStatus.PENDING,
+        data: latest,
         allPayments: payments,
+        ...(isConfirmedFailure
+          ? {}
+          : {reason: `unrecognised_status:${latest.payment_status || 'none'}`}),
       };
     }
 

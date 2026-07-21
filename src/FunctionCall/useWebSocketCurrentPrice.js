@@ -23,6 +23,7 @@ import axios from 'axios';
 import Config from 'react-native-config';
 import { getAuth } from '@react-native-firebase/auth';
 import server from '../utils/serverConfig';
+import {getAccountEmail} from '../utils/accountEmail';
 
 /**
  * Detect the correct exchange for a symbol.
@@ -57,7 +58,7 @@ const useWebSocketCurrentPrice = (symbols) => {
   const pendingSubscriptionsRef = useRef([]); // symbols queued while socket connects
 
   const auth = getAuth();
-  const userEmail = auth.currentUser?.email;
+  const userEmail = getAccountEmail();
   const dbName =
     Config.REACT_APP_HEADER_NAME ||
     Config.REACT_APP_URL ||

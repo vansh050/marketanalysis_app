@@ -129,6 +129,15 @@ const PerformanceChart = ({ modelName, advisor }) => {
       return;
     }
 
+    // Hosts pass modelName from async-loaded strategy details — on first
+    // render it's undefined, and firing anyway earns a guaranteed 400
+    // ("modelName is missing") console error. The deps effect re-runs
+    // once the real name arrives.
+    if (!normalizedModelName) {
+      console.log('📊 PerformanceChart: Waiting for modelName...');
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSelectedPoint(null);

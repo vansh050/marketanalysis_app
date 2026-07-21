@@ -10,11 +10,11 @@ import {
 import { CheckCircle, AlertTriangle, CreditCard } from 'lucide-react-native';
 import Toast from 'react-native-toast-message';
 import { useConfig } from '../../context/ConfigContext';
+import useTokens from '../../theme/useTokens';
 
 const DigioSuccessModal = ({ visible, onClose, onProceedToPayment }) => {
-    // Get dynamic colors from config
     const config = useConfig();
-    const mainColor = config?.mainColor || '#2563EB';
+    const mainColor = useTokens().colors.brand.primary;
     // 15-second reminder toast (anti-drop-off mechanism)
     useEffect(() => {
         if (visible) {

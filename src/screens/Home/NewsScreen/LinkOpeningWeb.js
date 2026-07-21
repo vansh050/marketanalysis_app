@@ -22,14 +22,15 @@ const LinkOpeningWeb = ({ setWebview,currentUrl,webViewVisible,symbol }) => {
   return (
  
        <Modal visible={webViewVisible} animationType="slide" onRequestClose={() => setWebview(false)}>
-                    <SafeAreaView style={{flexDirection:'row',justifyContent:'space-between',alignContent:'center',alignItems:'center',marginVertical:10,marginHorizontal:10,borderBottomColor:'#e9e9e9',borderBottomWidth:2,}}>
-                    <Text style={styles.headerTitle}>{symbol}</Text>
-                    <XIcon
-                          size={24}
-                          color="black"
-                          style={{marginTop:0,}}
+                    <SafeAreaView style={styles.header}>
+                    <Text numberOfLines={2} ellipsizeMode="tail" style={styles.headerTitle}>{symbol}</Text>
+                    <TouchableOpacity
                           onPress={() => setWebview(false)}
-                        />
+                          accessibilityRole="button"
+                          accessibilityLabel="Close blog"
+                          style={styles.blogHeaderCloseButton}>
+                      <XIcon size={22} color="black" />
+                    </TouchableOpacity>
                     </SafeAreaView>
                     
                    <SafeAreaView style={{flex:1}}>
@@ -103,8 +104,27 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontFamily: 'Satoshi-Bold',
-    marginBottom: 10,
     color: 'black',
+    flex: 1,
+    flexShrink: 1,
+    marginRight: 12,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 10,
+    marginHorizontal: 12,
+    paddingBottom: 8,
+    borderBottomColor: '#e9e9e9',
+    borderBottomWidth: 2,
+  },
+  blogHeaderCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#f1f5f9',
   },
   webView: {
      flex:1,

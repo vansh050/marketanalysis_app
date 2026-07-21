@@ -82,6 +82,7 @@ import {
 
 import BlurredComponent from '../../../src/components/GlassmorphicText';
 import PriceTextAdvice from '../../../src/components/AdviceScreenComponents/DynamicText/PriceTextAdvice';
+import {adviceHeaderLabel, orderTypeDisplay} from '../../../src/utils/adviceDisplay';
 
 const StockCard = ({ viewModel, actions }) => {
   const {
@@ -268,9 +269,11 @@ const StockCard = ({ viewModel, actions }) => {
 
               <View style={styles.row1}>
                 <View style={{flexDirection: 'column', flex: 1}}>
-                  <Text style={styles.label1}>{action} AT {OrderType} PRICE</Text>
+                  <Text style={styles.label1}>
+                    {adviceHeaderLabel({action, orderType: OrderType, price: Price, stopLoss, profitTarget})}
+                  </Text>
                   <Text style={styles.value1}>
-                    {OrderType === 'LIMIT' ? `₹${Price}` : 'MARKET'}
+                    {OrderType === 'LIMIT' ? `₹${Price}` : orderTypeDisplay(OrderType)}
                   </Text>
                 </View>
 

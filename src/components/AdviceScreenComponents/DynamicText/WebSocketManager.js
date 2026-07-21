@@ -2,7 +2,7 @@ import { io } from "socket.io-client";
 import axios from "axios";
 import useLTPStore from "./useLtpStore";
 import server from "../../../utils/serverConfig";
-import {getAuth} from '@react-native-firebase/auth';
+import {getAccountEmail} from '../../../utils/accountEmail';
 
 const WebSocketManager = (() => {
   let instance = null;
@@ -19,7 +19,7 @@ const WebSocketManager = (() => {
 
   // Helper to get current subscription params, with fallback to Firebase auth
   const getSubscriptionParams = () => ({
-    userEmail: userEmail || getAuth()?.currentUser?.email,
+    userEmail: userEmail || getAccountEmail(),
     dbName: configData?.config?.REACT_APP_HEADER_NAME || "prod",
   });
 

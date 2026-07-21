@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { Check, Shield } from "lucide-react-native";
 import { useConfig } from "../../context/ConfigContext";
+import useTokens from "../../theme/useTokens";
 
 const otpBasedMethod = process.env.REACT_APP_OTP_BASED_AUTHENTICATION;
 const aadharBasedMethod = process.env.REACT_APP_AADHAR_BASED_AUTHENTICATION;
@@ -9,7 +10,7 @@ const aadharBasedMethod = process.env.REACT_APP_AADHAR_BASED_AUTHENTICATION;
 const VerificationMethodCheck = ({ authMethod, setAuthMethod }) => {
   // Get dynamic colors from config
   const config = useConfig();
-  const mainColor = config?.mainColor || '#2563EB';
+  const mainColor = useTokens().colors.brand.primary;
   return (
     <View style={[styles.container, { borderColor: `${mainColor}40` }]}>
       <View>

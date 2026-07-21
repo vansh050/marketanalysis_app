@@ -127,10 +127,78 @@ import AngelOneCautionaryWarning from './AngelOneCautionaryWarning';
 //     "WebView lands on AQ login page" issue user-reported on both
 //     apps 2026-05-01.
 //
-// Set is intentionally empty today — keep it so future near-term
-// gaps have a documented home rather than scattering fallback
+// 2026-07-17 added Arihant Capital + DefinEdge Securities — CRASH FIX.
+//   These two brokers were added to the display tile list + normalizeBrokerKey
+//   (2026-06-09 web parity) with purpose-built legacy modals
+//   (ArihantConnectModal 2-step OTP flow, DefinEdgeConnectModal credential
+//   flow) but were NEVER added to the SDK's `BROKER_FORM_SCHEMAS` map
+//   (mobile-sdk packages/rn/src/components/brokerFormSchema.ts — neither
+//   broker is in the `BrokerName` union at all). With the flag on and this
+//   Set empty, every broker routed to Phase3SdkBrokerModal, which mounts
+//   `<BrokerCredentialForm broker={brokerName}>`; that widget's initial-state
+//   seeding does `for (const f of baseSchema.fields)` where
+//   `baseSchema = BROKER_FORM_SCHEMAS[broker]` — `undefined` for these two —
+//   so the app crashed with a TypeError on the very first render
+//   (BrokerCredentialForm.tsx:159), on every tap of "Connect Arihant Capital"
+//   / "Connect DefinEdge Securities". Adding them here routes to their
+//   legacy modals, which is correct and complete today.
+//   RULE: any broker added to normalizeBrokerKey / the display tile list
+//   MUST either get a BROKER_FORM_SCHEMAS entry in the SDK repo, or be
+//   listed in this Set — otherwise the SDK lane crashes on an undefined
+//   schema for that broker. See also the defensive guard added in
+//   Phase3SdkBrokerModal.js the same day, which prevents this crash class
+//   even if a future broker is forgotten here.
+//
+//   UPDATE (same day, 2026-07-17, later commit): the underlying gap is
+//   now closed on the SDK side — `alphaquark-mobile-sdk` `develop` gained
+//   a `BrokerFlowKind: "credentials_otp_two_step"` + `BROKER_FORM_SCHEMAS`
+//   entries for both brokers (derived verbatim from these same legacy
+//   modals + their paired `aq_backend_github` routes), plus the backend
+//   picked up `POST /:broker/initiate-login` + `POST /:broker/resend-otp`
+//   + a `PUT /:broker/connect` dispatch entry for both brokers
+//   (`Routes/sdk/v1/connections.js`, `Ibt-branch`). `npm run build` (tsc)
+//   + the full jest suite pass, and a Metro release-bundle build of THIS
+//   app confirms the rebuilt `lib/` integrates cleanly (both schemas and
+//   `initiateBrokerLogin` are present in the compiled bundle). What's
+//   NOT done: a real-device test of either flow against a live Arihant /
+//   DefinEdge account. Per the "fix the SDK widget — not the allowlist"
+//   rule above, these two entries stay in this Set UNTIL that device
+//   verification passes — flipping to the SDK lane at that point is a
+//   one-line removal of `'Arihant Capital', 'DefinEdge Securities'` from
+//   this Set, nothing else. Do not remove them speculatively.
+//
+// Otherwise the Set is intentionally kept small — keep it so future
+// near-term gaps have a documented home rather than scattering fallback
 // decisions across files.
-const SDK_LEGACY_FALLBACK = new Set([]);
+// 2026-07-18: the SDK lane reached guidance parity IN THE HOST — the six
+// stepper brokers (Kotak/Groww/Fyers/Upstox/HDFC/ICICI) briefly sat in this
+// Set, but per the "fix the SDK widget — not the allowlist" rule above, the
+// polish now lives in Phase3SdkBrokerModal itself: it renders the shared
+// <BrokerGuideCard> (web-parity setup guide from brokerGuideConfigs.js —
+// numbered steps, portal deep-link, walkthrough video, copyable redirect
+// URL) above its existing EgressIpCallout, and the form phase adopted the
+// v3 sibling-Pressable touch layout (fixes the erratic credential-form
+// scrolling). So those six stay on the SDK lane.
+//
+// 2026-07-18 (later): Arihant Capital + DefinEdge Securities REMOVED — the
+// full SDK stack for their `credentials_otp_two_step` flow is verified
+// present end-to-end (compiled lib BROKER_FORM_SCHEMAS + BrokerCredentialForm
+// creds→otp step machine + AqSdkClient.initiateBrokerLogin/resendOtp +
+// backend /sdk/v1/connections routes live on tidi), and the host now carries
+// their guide configs + EGRESS_BROKER_KEY/IP_WHITELIST_BROKERS entries.
+// Device verification in progress; if either flow breaks on-device, re-add
+// that broker here with a PHASE3_PROGRESS.md entry (its stepper-ized legacy
+// modal remains fully functional as the rollback).
+// IIFL is deliberately kept on its native OAuth route. The current SDK
+// schema models IIFL as a credentials/TOTP form, while the live IIFL
+// integration starts at markets.iiflcapital.com and returns auth_token +
+// clientid to /iifl/login/client. Sending customers to the SDK form made
+// IIFL the odd broker out and, more importantly, did not complete the live
+// broker handshake. IIFLModal now owns the same branded guide + static-IP
+// gate as the SDK route, so this is a correctness fallback, not a UI
+// regression. Remove this entry only together with an SDK OAuth schema and
+// matching backend exchange-token route.
+const SDK_LEGACY_FALLBACK = new Set(['IIFL']);
 
 const useSdkBrokerFlow = () => {
   const v = String(Config?.REACT_APP_USE_SDK_BROKER_FLOW || '')
@@ -173,6 +241,9 @@ const BrokerConnectModalDispatch = ({
   if (!isVisible) return null;
 
   const key = normalizeBrokerKey(brokerName);
+  // Angel One is per-customer only. Its legacy sheet signs every customer into
+  // a platform-shared SmartAPI app, so it must never be dispatched again.
+  const angelOnePerCustomer = key === 'Angel One';
   const commonProps = {
     isVisible: true,
     onClose,
@@ -187,7 +258,10 @@ const BrokerConnectModalDispatch = ({
   // pre-connect cautionary-listing warning sheet — fresh connects
   // see it once, re-auth (`reauthConfig` non-null) skips it.
   let modal;
-  if (useSdkBrokerFlow() && !SDK_LEGACY_FALLBACK.has(key)) {
+  if (
+    angelOnePerCustomer ||
+    (useSdkBrokerFlow() && !SDK_LEGACY_FALLBACK.has(key))
+  ) {
     modal = <Phase3SdkBrokerModal {...commonProps} brokerName={key} />;
   } else {
     modal = renderLegacyModal(key, commonProps);

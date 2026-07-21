@@ -11,6 +11,7 @@ import React, { useEffect } from 'react';
 import { getAuth, signOut } from '@react-native-firebase/auth';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearAccountEmail } from '../../utils/accountEmail';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
@@ -52,6 +53,8 @@ const LogoutScreen = ({ navigation }) => {
                 }
                 await signOut(auth);
                 await AsyncStorage.removeItem('cartItems');
+                // Apple sign-in identity fallback — must not leak across accounts.
+                await clearAccountEmail();
                 setUserDetails(null);
                 setHasFetchedTrades(false);
                 setIsProfileCompleted(false);
