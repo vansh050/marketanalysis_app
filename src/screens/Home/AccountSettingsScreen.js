@@ -8,6 +8,8 @@
  */
 
 import React, { useState } from 'react';
+import { Platform } from 'react-native';
+import axios from 'axios';
 import { useConfig } from '../../context/ConfigContext';
 import APP_VARIANTS from '../../utils/Config';
 import {
@@ -22,6 +24,7 @@ import {
     BookOpen,
     Video,
     Trash2,
+    UserPlus,
 } from 'lucide-react-native';
 import { getAuth } from '@react-native-firebase/auth';
 import DeviceInfo from 'react-native-device-info';
@@ -29,6 +32,10 @@ import Config from '../../utils/safeConfig';
 import { useTrade } from '../TradeContext';
 import { useComponent } from '../../design/useDesign';
 import ProfileModal from '../../components/ProfileModal';
+import server from '../../utils/serverConfig';
+import { generateToken } from '../../utils/SecurityTokenManager';
+import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import { getAccountEmail, setAccountEmail } from '../../utils/accountEmail';
 
 const AccountSettingsScreen = ({ navigation }) => {
     const { userDetails, getUserDeatils } = useTrade();
@@ -59,6 +66,58 @@ const AccountSettingsScreen = ({ navigation }) => {
         }
     };
 
+    // Optional, user-initiated account linking for Sign-in-with-Apple
+    // "Hide My Email" users. Their account identity is the
+    // @privaterelay.appleid.com alias (see App-Store-Guideline-4 relay-identity
+    // fix in LoginScreen) — so if they already subscribed under a REAL email,
+    // that subscription lives under a different account. This lets them prove
+    // ownership of the real email (EmailScreenAppleLogin already OTP-verifies)
+    // and re-key the local identity to it. It is NOT a login gate — Guideline 4
+    // only forbids REQUIRING email entry after Sign in with Apple; an opt-in
+    // Settings action is allowed. Row is shown ONLY for relay identities on iOS
+    // (invisible to everyone else — no fleet-wide UX change).
+    const currentIdentity = getAccountEmail();
+    const isRelayIdentity =
+        /@privaterelay\.appleid\.com$/i.test(String(currentIdentity || ''));
+
+    const handleLinkExistingAccount = () => {
+        navigation.navigate('EmailScreenAppleLogin', {
+            onSubmit: async verifiedEmail => {
+                if (!verifiedEmail) return;
+                const email = String(verifiedEmail).trim().toLowerCase();
+                try {
+                    // Idempotent upsert so linking to a not-yet-existing account
+                    // still lands somewhere; if the real-email account already
+                    // exists (the common case) this is a harmless no-op update.
+                    await axios
+                        .post(
+                            `${server.server.baseUrl}api/user/`,
+                            { email, name: userDetails?.name || email.split('@')[0] },
+                            {
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                                    'aq-encrypted-key': generateToken(
+                                        Config.REACT_APP_AQ_KEYS,
+                                        Config.REACT_APP_AQ_SECRET,
+                                    ),
+                                },
+                            },
+                        )
+                        .catch(() => {});
+                    // Re-key: emits ACCOUNT_EMAIL_EVENT so every screen reading
+                    // useAccountEmail() (incl. TradeContext) re-hydrates.
+                    await setAccountEmail(email);
+                    // Belt-and-suspenders explicit refetch under the new identity.
+                    await getUserDeatils?.();
+                    navigation.navigate('AccountSettingsScreen');
+                } catch (e) {
+                    console.warn('Account link failed:', e?.message);
+                }
+            },
+        });
+    };
+
     const menuItems = [
         {
             id: 'account',
@@ -74,6 +133,15 @@ const AccountSettingsScreen = ({ navigation }) => {
                     label: 'My Subscription',
                     onPress: () => handleMenuPress('MySubscriptionsScreen'),
                 },
+                ...(Platform.OS === 'ios' && isRelayIdentity
+                    ? [
+                        {
+                            icon: UserPlus,
+                            label: 'Link an existing account',
+                            onPress: handleLinkExistingAccount,
+                        },
+                    ]
+                    : []),
                 ...((() => {
                     const hideChangeManagerCodes = Config?.REACT_APP_HIDE_CHANGE_MANAGER_FOR_CODES
                         ?.split(',')
