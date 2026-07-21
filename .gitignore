@@ -76,3 +76,6 @@ replay_pid*.log
 # Test artifacts
 coverage/
 .claude/
+
+# Firebase config — machine-local, never commit (holds project API keys)
+android/app/google-services.json

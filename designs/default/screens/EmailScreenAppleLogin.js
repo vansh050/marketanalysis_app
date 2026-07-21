@@ -21,7 +21,7 @@ import {
 } from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Toast from 'react-native-toast-message';
-import { Mail } from 'lucide-react-native';
+import { Mail, ShieldCheck } from 'lucide-react-native';
 import useTokens from '../../../src/theme/useTokens';
 import Text from '../primitives/Text';
 import Icon from '../primitives/Icon';
@@ -29,8 +29,22 @@ import Spinner from '../primitives/Spinner';
 
 const EmailScreenAppleLogin = ({ viewModel, actions }) => {
     const tokens = useTokens();
-    const { email = '', isLoading = false, gradient = {} } = viewModel || {};
-    const { onEmailChange = () => {}, onSubmit = () => {}, onCancel = () => {} } = actions || {};
+    const { email = '', otp = '', step = 'email', isLoading = false, gradient = {} } = viewModel || {};
+    const {
+        onEmailChange = () => {},
+        onOtpChange = () => {},
+        onSubmit = () => {},
+        onSubmitEmail,
+        onSubmitOtp,
+        onResend,
+        onEditEmail,
+        onCancel = () => {},
+    } = actions || {};
+    const isOtpStep = step === 'otp';
+    // Fall back to `onSubmit` so this presentation still works if it is ever
+    // rendered by a container that predates the OTP step.
+    const submitEmail = onSubmitEmail || onSubmit;
+    const submitOtp = onSubmitOtp || onSubmit;
 
     return (
         <KeyboardAvoidingView
@@ -39,8 +53,8 @@ const EmailScreenAppleLogin = ({ viewModel, actions }) => {
         >
             <LinearGradient
                 colors={[
-                    gradient.start || 'rgba(0, 38, 81, 1)',
-                    gradient.end || 'rgba(0, 86, 183, 1)',
+                    gradient.start || tokens.colors.brand.gradientStart,
+                    gradient.end || tokens.colors.brand.gradientEnd,
                 ]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 1 }}
@@ -61,7 +75,7 @@ const EmailScreenAppleLogin = ({ viewModel, actions }) => {
                             fontSize: 22,
                         }}
                     >
-                        Enter Your Email
+                        {isOtpStep ? 'Enter Verification Code' : 'Your Account Email'}
                     </Text>
                     <Text
                         variant="body"
@@ -74,31 +88,70 @@ const EmailScreenAppleLogin = ({ viewModel, actions }) => {
                             paddingHorizontal: 10,
                         }}
                     >
-                        We need your email address to complete the Apple Sign-In process. Apple has hidden your email for privacy.
+                        {isOtpStep
+                            ? `We sent a 6-digit code to ${email}. Enter it below to confirm this email is yours.`
+                            : "We identify your account, plans and subscriptions by email. Enter the email you'd like to use for your account — if you've subscribed before, use that same email so your plans appear here. It's used only to identify your account — never for marketing."}
                     </Text>
 
                     <View style={styles.inputContainer}>
-                        <Icon Component={Mail} size={16} color="rgba(100, 199, 59, 1)" style={{ marginRight: 10 }} />
-                        <TextInput
-                            style={styles.input}
-                            placeholder="Enter your email"
-                            placeholderTextColor="#9E9E9E"
-                            value={email}
-                            onChangeText={(text) => onEmailChange(text.toLowerCase())}
-                            keyboardType="email-address"
-                            autoCapitalize="none"
-                            autoCorrect={false}
-                            autoFocus
+                        <Icon
+                            Component={isOtpStep ? ShieldCheck : Mail}
+                            size={16}
+                            color="rgba(100, 199, 59, 1)"
+                            style={{ marginRight: 10 }}
                         />
+                        {isOtpStep ? (
+                            <TextInput
+                                style={[styles.input, styles.otpInput]}
+                                placeholder="6-digit code"
+                                placeholderTextColor="#9E9E9E"
+                                value={otp}
+                                onChangeText={(text) => onOtpChange(text.replace(/[^0-9]/g, '').slice(0, 6))}
+                                keyboardType="number-pad"
+                                textContentType="oneTimeCode"
+                                autoComplete="sms-otp"
+                                maxLength={6}
+                                autoFocus
+                            />
+                        ) : (
+                            <TextInput
+                                style={styles.input}
+                                placeholder="Email address"
+                                placeholderTextColor="#9E9E9E"
+                                value={email}
+                                onChangeText={(text) => onEmailChange(text.toLowerCase())}
+                                keyboardType="email-address"
+                                autoCapitalize="none"
+                                autoCorrect={false}
+                                autoFocus
+                            />
+                        )}
                     </View>
 
-                    <TouchableOpacity onPress={onSubmit} style={styles.submitButton} disabled={isLoading}>
+                    <TouchableOpacity
+                        onPress={isOtpStep ? submitOtp : submitEmail}
+                        style={styles.submitButton}
+                        disabled={isLoading}
+                    >
                         {isLoading ? (
                             <Spinner size="small" color="#fff" />
                         ) : (
-                            <Text variant="button" style={{ color: '#fff', fontSize: 16 }}>Continue</Text>
+                            <Text variant="button" style={{ color: '#fff', fontSize: 16 }}>
+                                {isOtpStep ? 'Verify' : 'Send Code'}
+                            </Text>
                         )}
                     </TouchableOpacity>
+
+                    {isOtpStep && (
+                        <View style={styles.otpActionsRow}>
+                            <TouchableOpacity onPress={onEditEmail} disabled={isLoading}>
+                                <Text variant="button" style={styles.otpLink}>Change email</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={onResend} disabled={isLoading}>
+                                <Text variant="button" style={styles.otpLink}>Resend code</Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
 
                     <TouchableOpacity onPress={onCancel} style={styles.cancelButton} disabled={isLoading}>
                         <Text variant="button" style={{ color: '#BDCFFF', fontSize: 16 }}>Cancel</Text>
@@ -126,6 +179,14 @@ const styles = StyleSheet.create({
         height: 50,
     },
     input: { flex: 1, height: '100%', color: '#000', fontSize: 14, fontFamily: 'Poppins-Regular' },
+    otpInput: { fontSize: 20, letterSpacing: 6, fontFamily: 'Poppins-SemiBold' },
+    otpActionsRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginBottom: 15,
+        paddingHorizontal: 4,
+    },
+    otpLink: { color: '#BDCFFF', fontSize: 13 },
     submitButton: {
         backgroundColor: 'rgba(41, 164, 0, 1)',
         paddingVertical: 12,

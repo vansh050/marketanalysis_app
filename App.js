@@ -1,4 +1,9 @@
 import 'react-native-gesture-handler';
+// Session-token migration Phase 1: attaches the per-user Firebase ID token to
+// our API calls so backend observe-mode can measure coverage. Enforces nothing;
+// totally fail-open. Must load early, before the app makes any authed request.
+// See src/utils/authTokenInterceptor.js.
+import './src/utils/authTokenInterceptor';
 import React, {useState, useEffect} from 'react';
 import {StatusBar, Text, TextInput, SafeAreaView, Linking, Alert} from 'react-native';
 import Toast from 'react-native-toast-message';
