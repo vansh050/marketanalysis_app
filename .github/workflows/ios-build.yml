@@ -1,0 +1,215 @@
+name: iOS Build
+
+# Reusable iOS TestFlight build+upload workflow (AlphaQuark RN white-label apps).
+# Per-app config: set APP_BUNDLE_ID below to the app's REAL App Store Connect
+# bundle id (verify in App Store Connect — the value in project.pbxproj is often
+# a stale base-template value and may NOT match a registered app).
+#
+# Required repo secrets:
+#   APP_STORE_CONNECT_API_KEY / _ISSUER_ID / _KEY_ID  (App Store Connect API key)
+#   IOS_CERTIFICATE_BASE64 / IOS_CERTIFICATE_PASSWORD (Apple Distribution cert .p12)
+#   IOS_PROVISIONING_PROFILE_BASE64                   (App Store profile for APP_BUNDLE_ID)
+#   APPLE_TEAM_ID
+#   SDK_REPO_TOKEN  (only if this app uses @alphaquark/mobile-sdk — PAT with read
+#                    access to alpha112233/alphaquark-mobile-sdk)
+
+on:
+  workflow_dispatch:
+
+env:
+  # >>> PER-APP CONFIG — set to the real App Store Connect bundle id <<<
+  APP_BUNDLE_ID: com.aq.marketanalysis
+  # Force the standard Xcode toolchain so the Swift back-compat libs
+  # (swiftCompatibility50/51/56/...) that prebuilt Firebase references resolve
+  # under Xcode 26 (the runner otherwise picks an incomplete toolchain).
+  TOOLCHAINS: com.apple.dt.toolchain.XcodeDefault
+
+jobs:
+  build-ios-testflight:
+    runs-on: macos-15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26 (iOS 26 SDK required by App Store Connect)
+        run: |
+          set -euo pipefail
+          XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          if [ -z "$XC" ]; then
+            echo "ERROR: Xcode 26 not found on this runner. Installed Xcodes:"
+            ls -d /Applications/Xcode_*.app
+            exit 1
+          fi
+          sudo xcode-select -s "$XC/Contents/Developer"
+          echo "Selected: $XC"
+          xcodebuild -version
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Checkout & build @alphaquark/mobile-sdk (if used)
+        env:
+          SDK_REPO_TOKEN: ${{ secrets.SDK_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          if ! grep -q '@alphaquark/mobile-sdk' package.json; then
+            echo "App does not depend on @alphaquark/mobile-sdk — skipping."
+            exit 0
+          fi
+          if [ -z "${SDK_REPO_TOKEN:-}" ]; then
+            echo "ERROR: app uses @alphaquark/mobile-sdk but SDK_REPO_TOKEN secret is not set."
+            exit 1
+          fi
+          SDK_DIR="$GITHUB_WORKSPACE/../../alphaquark-mobile-sdk"
+          rm -rf "$SDK_DIR"
+          git clone --depth 1 --branch develop \
+            "https://x-access-token:${SDK_REPO_TOKEN}@github.com/alpha112233/alphaquark-mobile-sdk.git" \
+            "$SDK_DIR"
+          cd "$SDK_DIR/packages/rn"
+          npm install --legacy-peer-deps
+          npm run build
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+
+      - name: Determine version + build number (App Store Connect)
+        env:
+          ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          ASC_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          ASC_BUNDLE_ID: ${{ env.APP_BUNDLE_ID }}
+        run: |
+          set -euo pipefail
+          gem install jwt --no-document
+          export ASC_KEY_PATH="$RUNNER_TEMP/asc_key.p8"
+          printf '%s' "$ASC_API_KEY" > "$ASC_KEY_PATH"
+          export PROJECT_MARKETING_VERSION=$(grep -m1 'MARKETING_VERSION = ' ios/AlphaQuark.xcodeproj/project.pbxproj | sed -E 's/.*MARKETING_VERSION = ([^;]+);.*/\1/' | tr -d ' ')
+          echo "Project marketing version: $PROJECT_MARKETING_VERSION"
+          ruby scripts/asc_versioning.rb | tee -a "$GITHUB_ENV"
+
+      - name: Install CocoaPods
+        run: |
+          gem install cocoapods
+          cd ios
+          rm -rf Pods Podfile.lock
+          pod install --repo-update
+
+      - name: Install Apple Certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+        run: |
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security import $CERTIFICATE_PATH -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security list-keychain -d user -s $KEYCHAIN_PATH
+
+      - name: Install Provisioning Profile
+        env:
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
+          echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode -o $PP_PATH
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c "Print UUID" /dev/stdin <<< $(/usr/bin/security cms -D -i $PP_PATH))
+          echo "Profile UUID: $PROFILE_UUID"
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/${PROFILE_UUID}.mobileprovision
+          echo "PROVISIONING_PROFILE_UUID=$PROFILE_UUID" >> $GITHUB_ENV
+
+      - name: Build Archive
+        env:
+          DEVELOPMENT_TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcodebuild \
+            -workspace ios/AlphaQuark.xcworkspace \
+            -scheme AlphaQuark \
+            -configuration Release \
+            -sdk iphoneos \
+            -archivePath $RUNNER_TEMP/AlphaQuark.xcarchive \
+            archive \
+            CODE_SIGN_STYLE=Manual \
+            DEVELOPMENT_TEAM="$DEVELOPMENT_TEAM" \
+            PROVISIONING_PROFILE="$PROVISIONING_PROFILE_UUID" \
+            CODE_SIGN_IDENTITY="iPhone Distribution" \
+            CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
+            MARKETING_VERSION="$MARKETING_VERSION"
+
+      - name: Export IPA
+        run: |
+          cat > $RUNNER_TEMP/ExportOptions.plist << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>${APP_BUNDLE_ID}</key>
+                  <string>$PROVISIONING_PROFILE_UUID</string>
+              </dict>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>stripSwiftSymbols</key>
+              <true/>
+              <key>uploadSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath $RUNNER_TEMP/AlphaQuark.xcarchive \
+            -exportOptionsPlist $RUNNER_TEMP/ExportOptions.plist \
+            -exportPath $RUNNER_TEMP/export
+
+      - name: Upload to TestFlight
+        env:
+          APP_STORE_CONNECT_API_KEY: ${{ secrets.APP_STORE_CONNECT_API_KEY }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$APP_STORE_CONNECT_API_KEY" > ~/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_KEY_ID}.p8
+          # Exported IPA is named after the app product (white-label forks differ),
+          # not always "AlphaQuark". altool prints "File does not exist" but exits 0,
+          # so a wrong hardcoded name uploads nothing yet shows green. Glob + hard-fail.
+          IPA=$(ls "$RUNNER_TEMP/export/"*.ipa 2>/dev/null | head -1)
+          if [ -z "$IPA" ]; then
+            echo "ERROR: no .ipa found in $RUNNER_TEMP/export"
+            ls -la "$RUNNER_TEMP/export" || true
+            exit 1
+          fi
+          echo "Uploading IPA: $IPA"
+          xcrun altool --upload-app \
+            -f "$IPA" \
+            -t ios \
+            --apiKey "$APP_STORE_CONNECT_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_ISSUER_ID"
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          retention-days: 30
+
+      - name: Cleanup
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
+          rm -rf ~/Library/MobileDevice/Provisioning\ Profiles/* || true
