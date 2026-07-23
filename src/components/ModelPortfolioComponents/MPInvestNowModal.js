@@ -1324,6 +1324,14 @@ const MPInvestNowModal = ({
     } catch (err) {
       console.log('error ---', err, err.response, err.message);
       setLoading(false);
+      // Never leave the user stranded with no signal — a swallowed error here
+      // let payment proceed with an unsigned MITC (compliance gap, 2026-07-23).
+      setDigioModalOpen(false);
+      Toast.show({
+        type: 'error',
+        text1: 'KYC authentication failed',
+        text2: err?.response?.data?.error || 'Could not start authentication. Please try again.',
+      });
     }
   };
 

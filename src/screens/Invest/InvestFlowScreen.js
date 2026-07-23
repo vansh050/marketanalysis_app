@@ -445,7 +445,11 @@ const InvestFlowScreen = () => {
         amount: portfolio?.amount,
         planDetails: { ...portfolio, _id: portfolio?._id || portfolio?.id },
         userDetails: { email: email.trim(), name: name.trim(), panNumber: pan, mobileNumber: phone, countryCode: selectedCountry.dialCode },
-        digioRequired: false,
+        // Was hardcoded false — meant this screen's recurring purchases never
+        // recorded a Digio requirement, so the pending-payment resume flow
+        // (PendingPaymentManager.js:250) could never prompt for a missed
+        // signature. Compliance gap found 2026-07-23.
+        digioRequired: Config.REACT_APP_DIGIO_ENABLED === 'true',
       });
       await savePendingPayment(pendingPaymentData);
 
