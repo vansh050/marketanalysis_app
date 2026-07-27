@@ -76,7 +76,7 @@
  *
  * --- DIGIO CONFIGURATION ---
  * digioCheck: enum('beforePayment', 'afterPayment') - When to trigger Digio
- * digioEnabled: boolean (default: true) - Enable/disable Digio entirely
+ * digioEnabled: boolean (default: false) - Explicit backend opt-in for Digio
  * otpBasedAuthentication: boolean (default: false) - Use OTP instead of Aadhaar
  *
  * --- FEATURE FLAGS ---
@@ -247,7 +247,8 @@ const DEFAULT_ADVISOR_CONFIG = {
   // - beforePayment: Digio verification BEFORE payment flow
   // - afterPayment: Digio verification AFTER successful payment
   digioCheck: 'beforePayment',
-  digioEnabled: true,
+  // Missing tenant policy must not silently enable Digio in shared code.
+  digioEnabled: false,
   otpBasedAuthentication: false,
 
   // ============================================================================

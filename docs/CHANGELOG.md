@@ -4,6 +4,16 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
 
+## [unreleased] - 2026-07-27 — fix(digio): use backend-authoritative tenant policy
+
+- Digio is enabled only when nested backend config explicitly returns boolean
+  `true`; defaults, cached values, checkout, and recovery now share that rule.
+- Removed tenant/build-environment gating from shared checkout code.
+- Market Analysis remains explicitly `true / beforePayment`; deployed backend
+  commit `eb6fe6d` rejects unsigned payment creation with `DIGIO_REQUIRED`.
+
+---
+
 ## [unreleased] - 2026-07-21 — fix(metro): correct SDK watchFolder depth (Metro startup crash)
 
 `npm start` crashed immediately with `ENOENT: no such file or directory, watch '.../github/alphaquark-mobile-sdk/packages/rn'` — Metro's `fs.watch` on a nonexistent directory.
@@ -2518,4 +2528,3 @@ Each entry follows:
 ### Removed (removed features)
 ### Security (security-related changes)
 ```
-

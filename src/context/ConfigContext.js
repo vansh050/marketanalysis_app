@@ -241,9 +241,7 @@ export const ConfigProvider = ({ children }) => {
                         // digioCheck: 'beforePayment' or 'afterPayment'
                         // ============================================================================
                         digioCheck: apiData.digioConfig?.digioCheck || apiData.digioCheck || apiData.REACT_APP_DIGIO_CHECK || Config.REACT_APP_DIGIO_CHECK || 'beforePayment',
-                        digioEnabled: apiData.digioConfig?.digioEnabled !== undefined
-                            ? apiData.digioConfig.digioEnabled
-                            : (apiData.digioEnabled !== undefined ? apiData.digioEnabled : true),
+                        digioEnabled: apiData.digioConfig?.digioEnabled === true,
                         otpBasedAuthentication: apiData.digioConfig?.otpBasedAuthentication || apiData.otpBasedAuthentication || apiData.REACT_APP_OTP_BASED_AUTHENTICATION || false,
                         aadhaarBasedAuthentication: apiData.digioConfig?.aadhaarBasedAuthentication !== undefined
                             ? apiData.digioConfig.aadhaarBasedAuthentication
@@ -521,7 +519,7 @@ export const ConfigProvider = ({ children }) => {
                         googleIosClientId: newConfig.googleIosClientId,
                         // Digio Config
                         digioCheck: newConfig.digioCheck,
-                        digioEnabled: newConfig.digioEnabled,
+                        digioEnabled: newConfig.digioEnabled === true,
                         // Feature Flags
                         modelPortfolioEnabled: newConfig.modelPortfolioEnabled,
                         bespokePlansEnabled: newConfig.bespokePlansEnabled,
@@ -554,6 +552,7 @@ export const ConfigProvider = ({ children }) => {
                                     REACT_APP_ADVISOR_SPECIFIER: newConfig.REACT_APP_ADVISOR_SPECIFIER || stored.config?.REACT_APP_ADVISOR_SPECIFIER,
                                     REACT_APP_RAZORPAY_LIVE_API_KEY: newConfig.REACT_APP_RAZORPAY_LIVE_API_KEY || stored.config?.REACT_APP_RAZORPAY_LIVE_API_KEY,
                                     REACT_APP_DIGIO_CHECK: newConfig.REACT_APP_DIGIO_CHECK || stored.config?.REACT_APP_DIGIO_CHECK,
+                                    digioEnabled: newConfig.digioEnabled === true,
                                     REACT_APP_ADVISOR_LOGO: newConfig.REACT_APP_ADVISOR_LOGO || stored.config?.REACT_APP_ADVISOR_LOGO,
                                     // D3 / Codex T5: persist the parity flags into the same
                                     // AsyncStorage blob TradeContext reads, so useConfig() and

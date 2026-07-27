@@ -91,6 +91,7 @@ import {
   updatePendingPayment,
 } from '../../FunctionCall/services/PendingPaymentManager';
 import {logPayment} from '../../utils/Logging';
+import {isDigioEnabledFromBackend} from '../../utils/digioConfig';
 import {
   Digio,
   DigioConfig,
@@ -1046,18 +1047,16 @@ const MPInvestNowModal = ({
   const lastErrorKeyRef = useRef(null);
   // Digio configuration
   const digioCheck = String(
+    config?.digioCheck ||
     configData?.digioCheck ||
     configData?.config?.REACT_APP_DIGIO_CHECK ||
     configData?.config?.digioCheck ||
-    Config.REACT_APP_DIGIO_CHECK ||
     'beforePayment'
   );
 
-  // AlphaB2B does not offer Digio e-signing. Keep it off unless a future
-  // build explicitly opts in through its native build environment.
-  const isDigioEnabled = Config.REACT_APP_DIGIO_ENABLED === 'true' &&
-    configData?.digioEnabled !== false &&
-    configData?.config?.REACT_APP_DIGIO_ENABLED !== 'false';
+  // AppAdvisor.digioConfig.digioEnabled is authoritative. Tenant behavior is
+  // configured in the backend, never hardcoded in shared checkout.
+  const isDigioEnabled = isDigioEnabledFromBackend(config?.digioEnabled);
 
   const getInitialAuthMethod = () => {
     const aadhaarEnabled = configData?.aadhaarBasedAuthentication === true ||

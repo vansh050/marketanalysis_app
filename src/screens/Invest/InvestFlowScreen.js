@@ -54,6 +54,8 @@ import {
   PaymentType,
 } from '../../FunctionCall/services/PendingPaymentManager';
 import { logPayment } from '../../utils/Logging';
+import { isDigioEnabledFromBackend } from '../../utils/digioConfig';
+import { useConfig } from '../../context/ConfigContext';
 import {getAccountEmail} from '../../utils/accountEmail';
 
 const getHeaders = () => ({
@@ -119,6 +121,7 @@ const NATIONALITIES = [
 ];
 
 const InvestFlowScreen = () => {
+  const appConfig = useConfig();
   const navigation = useNavigation();
   const route = useRoute();
   const { portfolio, onSubscribed } = route.params || {};
@@ -449,7 +452,7 @@ const InvestFlowScreen = () => {
         // recorded a Digio requirement, so the pending-payment resume flow
         // (PendingPaymentManager.js:250) could never prompt for a missed
         // signature. Compliance gap found 2026-07-23.
-        digioRequired: Config.REACT_APP_DIGIO_ENABLED === 'true',
+        digioRequired: isDigioEnabledFromBackend(appConfig?.digioEnabled),
       });
       await savePendingPayment(pendingPaymentData);
 

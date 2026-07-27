@@ -30,6 +30,18 @@ Subscription created on backend
 Portfolio appears in user's subscriptions
 ```
 
+### Backend-owned Digio gate (2026-07-27)
+
+`AppAdvisor.digioConfig.digioEnabled` is the only Digio enablement source. The
+app accepts only the explicit boolean `true`; missing, stale, string, or
+malformed values disable Digio. `ConfigContext` reads the nested value from
+`/api/app-advisor/get`, AsyncStorage normalizes it, and checkout/recovery use the
+same helper. Tenant/build environment flags no longer decide this behavior.
+
+The backend independently enforces `enabled + beforePayment` on Cashfree, PayU,
+and Razorpay order creation, returning `DIGIO_REQUIRED` when no valid signature
+exists. Market Analysis is explicitly configured `true / beforePayment`.
+
 ### 2. Trade Execution Flow
 
 ```

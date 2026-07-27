@@ -275,9 +275,9 @@ export const getConfigData = async (retryCount = 3) => {
             parsedConfig?.config?.REACT_APP_DIGIO_CHECK || Config.REACT_APP_DIGIO_CHECK,
         },
         digioCheck: parsedConfig.digioCheck || digioCheck || parsedConfig?.config?.REACT_APP_DIGIO_CHECK || Config.REACT_APP_DIGIO_CHECK || 'beforePayment',
-        digioEnabled: parsedConfig.digioEnabled !== undefined
-          ? parsedConfig.digioEnabled
-          : (digioEnabled ? JSON.parse(digioEnabled) : true),
+        digioEnabled: parsedConfig.digioEnabled === true ||
+          (parsedConfig.digioEnabled === undefined &&
+            digioEnabled === 'true'),
         otpBasedAuthentication: parsedConfig.otpBasedAuthentication !== undefined
           ? parsedConfig.otpBasedAuthentication
           : (otpBasedAuth ? JSON.parse(otpBasedAuth) : false),
@@ -400,7 +400,7 @@ export const setConfigData = async configData => {
         ],
         [
           STORAGE_KEYS.DIGIO_ENABLED,
-          JSON.stringify(config.REACT_APP_DIGIO_ENABLED !== 'false' && config.digioEnabled !== false),
+          JSON.stringify(config.digioEnabled === true),
         ],
         [
           STORAGE_KEYS.OTP_BASED_AUTH,
@@ -414,7 +414,7 @@ export const setConfigData = async configData => {
       batchData.push([STORAGE_KEYS.DIGIO_CHECK, configData.digioCheck]);
     }
     if (configData?.digioEnabled !== undefined) {
-      batchData.push([STORAGE_KEYS.DIGIO_ENABLED, JSON.stringify(configData.digioEnabled)]);
+      batchData.push([STORAGE_KEYS.DIGIO_ENABLED, JSON.stringify(configData.digioEnabled === true)]);
     }
     if (configData?.otpBasedAuthentication !== undefined) {
       batchData.push([STORAGE_KEYS.OTP_BASED_AUTH, JSON.stringify(configData.otpBasedAuthentication)]);
