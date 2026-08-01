@@ -25,6 +25,9 @@ import {
     Video,
     Trash2,
     UserPlus,
+    MessageSquare,
+    Ban,
+    History,
 } from 'lucide-react-native';
 import { getAuth } from '@react-native-firebase/auth';
 import DeviceInfo from 'react-native-device-info';
@@ -198,12 +201,29 @@ const AccountSettingsScreen = ({ navigation }) => {
                     label: 'Knowledge Hub',
                     onPress: () => handleMenuPress('KnowledgeHub'),
                 },
-                // Courses + Webinars surfaced here (under Insights) because
-                // the legacy right-drawer (Navigation.js:1040) has
-                // swipeEnabled:false and no openDrawer caller anywhere in
-                // src/, so the drawer entries added in commit bf33977 are
-                // unreachable. Account Settings is the existing
-                // bottom-tab-reachable home for ancillary navigation.
+                // Adopted from the retired right-drawer (2026-08-01). These three
+                // had NO other navigation caller anywhere in src/ — the drawer was
+                // their only entry point, so removing it without re-homing them
+                // would have orphaned three live screens.
+                {
+                    icon: MessageSquare,
+                    label: 'Recommendation Messages',
+                    onPress: () => handleMenuPress('RecommendationMessages'),
+                },
+                {
+                    icon: History,
+                    label: 'Executed Trade History',
+                    onPress: () => handleMenuPress('HistoryScreen'),
+                },
+                {
+                    icon: Ban,
+                    label: 'Ignored Trades',
+                    onPress: () => handleMenuPress('Ignored Trades'),
+                },
+                // Courses + Webinars surfaced here (under Insights). The
+                // legacy right-drawer that used to also list them was RETIRED
+                // 2026-08-01 (see Navigation.js) — this screen is now the sole
+                // home for ancillary navigation.
                 // Same coursesEnabled / webinarsEnabled gating as the
                 // drawer rows (Navigation.js:893-917).
                 ...(config?.coursesEnabled
