@@ -26,7 +26,6 @@ import {
   CreditCard,
   Settings,
 } from 'lucide-react-native';
-import * as RNIap from 'react-native-iap';
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
 import server from '../../utils/serverConfig';
@@ -330,7 +329,6 @@ const MPInvestNowModal = ({
     userDetails?.DateofBirth || '',
   );
 
-  const isIOS = Platform.OS === 'ios';
   const { gstConfigure: configGst, gstWithTextConfigure: configGstWithText } = useGstConfig();
 
   // Get app variant configuration - use dynamic config colors (gradient2) from API
@@ -981,15 +979,6 @@ const MPInvestNowModal = ({
   };
 
   // Payment functions
-
-  const IOS_PRODUCT_IDS = {
-    growth: 'com.ali.magnus.growth_plan',
-    prime: 'com.ali.magnus.prime_plan',
-    advanced: 'com.ali.magnus.advanced_plan',
-    priorRecommendationPlan: 'com.ali.mangus.priorRecommendationPlan',
-    ipoEdgeSmeMainboard: 'com.ali.mangus.ipoEdgeSmeMainboard',
-    ipoEdge: 'com.ali.mangus.ipoEdge',
-  };
 
   const [amount, setAmount] = useState('');
   const tick = require('../../assets/checked.png');
@@ -2466,18 +2455,17 @@ const MPInvestNowModal = ({
     };
 
     try {
-      if (isIOS) {
-        if (selectedPlanType === 'recurring') {
-          await handleIOSSubscription(selectedCard, sip_amount);
-        } else {
-          await handleIOSOneTimePurchase(onetimeamount);
-        }
+      // Both platforms go through the advisor's configured payment gateway.
+      // iOS used to be forked onto StoreKit in-app purchase here, which meant
+      // the customer paid Apple (minus Apple's cut) instead of the advisor's
+      // own merchant account — and it only ever fired for Razorpay/unconfigured
+      // tenants, since handlePaymentType() short-circuits PayU and Cashfree
+      // before reaching this function. See the commit message for the
+      // App Store Guideline 3.1.1 consideration.
+      if (selectedPlanType === 'recurring') {
+        await subscribeToPlan(selectedCard, sip_amount);
       } else {
-        if (selectedPlanType === 'recurring') {
-          await subscribeToPlan(selectedCard, sip_amount);
-        } else {
-          await handleSinglePayment(onetimeamount);
-        }
+        await handleSinglePayment(onetimeamount);
       }
 
       let config = {
@@ -2499,295 +2487,6 @@ const MPInvestNowModal = ({
     } catch (error) {
       console.error('Payment error:', error);
       setLoadingmp(false);
-    }
-  };
-
-  const getIOSProductId = planName => {
-    const planMapping = {
-      growth: 'growth',
-      prime: 'prime',
-      priorRecommendationPlan: 'priorRecommendationPlan',
-      advanced: 'advanced',
-      ipoEdgeSmeMainboard: 'ipoEdgeSmeMainboard',
-      ipoEdge: 'ipoEdge',
-    };
-
-    const productKey = planMapping[planName?.toLowerCase()] || 'stockOption';
-    const productId = IOS_PRODUCT_IDS[productKey];
-    return productId;
-  };
-
-  useEffect(() => {
-    const initializeIAP = async () => {
-      if (!isIOS) return;
-
-      try {
-        console.log('Initializing iOS IAP for sandbox testing...');
-        const result = await RNIap.initConnection();
-        console.log('IAP Connection result:', result);
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        const productIds = Object.values(IOS_PRODUCT_IDS);
-        console.log('Testing product IDs:', productIds);
-
-        const products = await RNIap.getProducts({
-          skus: productIds,
-        });
-
-        console.log('Available products:', products.length);
-        products.forEach(product => {
-          console.log(
-            `- ${product.productId}: ${product.title} (${product.localizedPrice})`,
-          );
-        });
-
-        if (products.length === 0) {
-          console.warn(
-            'No products found - this might be normal for first-time sandbox testing',
-          );
-        }
-      } catch (error) {
-        console.error('IAP initialization failed:', error);
-
-        if (error.code === 'E_IAP_NOT_AVAILABLE') {
-          console.log(
-            'IAP not available - ensure you are on a physical device',
-          );
-        }
-      }
-    };
-
-    if (visible) {
-      initializeIAP();
-    }
-
-    return () => {
-      if (isIOS) {
-        RNIap.endConnection().catch(console.error);
-      }
-    };
-  }, [visible]);
-
-  const handleIOSSubscription = async (frequency, amount) => {
-    try {
-      await RNIap.initConnection();
-
-      const products = await RNIap.getSubscriptions({
-        skus: [`${formattedName}_${frequency}`],
-      });
-
-      if (products.length === 0) {
-        throw new Error('No subscription products available');
-      }
-
-      await RNIap.requestSubscription({
-        sku: products[0].productId,
-      });
-
-      const purchaseUpdateSubscription = RNIap.purchaseUpdatedListener(
-        async purchase => {
-          console.log('iOS Subscription purchase:', purchase);
-          await completeIOSSubscription(purchase, frequency, amount);
-        },
-      );
-
-      const purchaseErrorSubscription = RNIap.purchaseErrorListener(error => {
-        console.error('iOS Subscription error:', error);
-        setLoadingmp(false);
-        Alert.alert('Purchase Failed', error.message);
-      });
-
-      setTimeout(() => {
-        purchaseUpdateSubscription?.remove();
-        purchaseErrorSubscription?.remove();
-      }, 300000);
-    } catch (error) {
-      console.error('iOS subscription error:', error);
-      setLoadingmp(false);
-      Alert.alert('Error', 'Could not initialize iOS subscription');
-    }
-  };
-
-  const completeIOSSubscription = async (purchase, frequency, amount) => {
-    try {
-      await RNIap.finishTransaction({ purchase, isConsumable: false });
-
-      const response = await axios.post(
-        `${server.server.baseUrl}api/admin/subscription/complete-payment`,
-        {
-          receipt: purchase.transactionReceipt,
-          transactionId: purchase.transactionId,
-          productId: purchase.productId,
-          plan_id: planDetails._id,
-          frequency,
-          user_email: userEmail,
-          amount,
-          advisor: advisorTag,
-          name: name,
-          birthDate: birthDate,
-          capital: invetAmount,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
-          },
-        },
-      );
-
-      console.log('iOS Subscription completed:', response.data);
-      await handlePostPaymentSuccess(response.data, 'subscription');
-    } catch (error) {
-      console.error('Error completing iOS subscription:', error);
-      setLoadingmp(false);
-    }
-  };
-
-  const handleIOSOneTimePurchase = async amount => {
-    try {
-      setLoading(true);
-
-      const connectionResult = await RNIap.initConnection();
-
-      const productId = getIOSProductId(specificPlan?.name);
-
-      if (!productId) {
-        throw new Error(`No product ID found for plan: ${specificPlan?.name}`);
-      }
-
-      const products = await Promise.race([
-        RNIap.getProducts({ skus: [productId] }),
-        new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Product fetch timeout')), 15000),
-        ),
-      ]);
-
-      if (products.length === 0) {
-        throw new Error(`Product not available: ${productId}`);
-      }
-
-      const purchaseUpdateSubscription = RNIap.purchaseUpdatedListener(
-        async purchase => {
-          const subscriptionResponse = await axios.post(
-            `${server.server.baseUrl}api/admin/subscription/one-time-payment/subscription`,
-            {
-              plan_id: specificPlan?._id,
-              user_email: userEmail,
-              name: name,
-              countryCode: userDetails?.countryCode || '+91',
-              panNumber: userDetails?.panNumber,
-              mobileNumber: userDetails?.mobileNumber,
-              amount: amount,
-              advisor: specificPlan?.advisor_email,
-              birthDate: userDetails?.birthDate,
-              telegramId: userDetails?.telegramId,
-              capital: invetAmount,
-              duration: oneTimeDurationPlan,
-
-              is_apple_iap: true,
-              iap_product_id: purchase?.productId,
-              iap_transaction_receipt: purchase?.transactionReceipt,
-              iap_transaction_id: purchase?.transactionId,
-            },
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Advisor-Subdomain':
-                  configData?.config?.REACT_APP_HEADER_NAME,
-                'aq-encrypted-key': generateToken(
-                  Config.REACT_APP_AQ_KEYS,
-                  Config.REACT_APP_AQ_SECRET,
-                ),
-              },
-            },
-          );
-
-          try {
-            await completeIOSPurchase(purchase, amount);
-          } catch (error) {
-            console.error('Error completing purchase:', error);
-            setLoading(false);
-            Alert.alert('Error', 'Purchase validation failed');
-          }
-        },
-      );
-
-      const purchaseErrorSubscription = RNIap.purchaseErrorListener(error => {
-        console.error('Purchase error:', error);
-        setLoading(false);
-
-        if (error.code === 'E_USER_CANCELLED') {
-          Alert.alert('Purchase Cancelled', 'You cancelled the purchase.');
-        } else {
-          Alert.alert('Purchase Failed', `Error: ${error.message}`);
-        }
-      });
-
-      await RNIap.requestPurchase({
-        sku: productId,
-        andDangerouslyFinishTransactionAutomaticallyIOS: false,
-      });
-
-      setTimeout(() => {
-        purchaseUpdateSubscription?.remove();
-        purchaseErrorSubscription?.remove();
-      }, 300000);
-    } catch (error) {
-      console.error('Purchase initialization failed:', error);
-      setLoading(false);
-      Alert.alert('Error', `Purchase failed: ${error.message}`);
-    }
-  };
-
-  const completeIOSPurchase = async (purchase, amount) => {
-    try {
-      const response = await axios.post(
-        `${server.server.baseUrl}api/apple-iap/ios-purchase/validate`,
-        {
-          receipt: purchase.transactionReceipt,
-          transactionId: purchase.transactionId,
-          productId: purchase.productId,
-          user_email: userEmail,
-          plan_id: specificPlan?._id,
-          amount,
-          duration: oneTimeDurationPlan,
-          advisor_email: specificPlan?.advisor_email,
-          is_sandbox: true,
-          name: name,
-          capital: invetAmount,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
-          },
-        },
-      );
-
-      console.log('Backend validation successful');
-
-      await RNIap.finishTransaction({
-        purchase,
-        isConsumable: false,
-      });
-
-      console.log('Transaction finished');
-      await handlePostPaymentSuccess(response.data, 'onetime');
-    } catch (error) {
-      console.error('Purchase completion failed:', error);
-      setLoadingmp(false);
-      Alert.alert(
-        'Purchase Validation Failed',
-        `Your purchase could not be validated. Transaction ID: ${purchase.transactionId}. Please contact support.`,
-      );
     }
   };
 
