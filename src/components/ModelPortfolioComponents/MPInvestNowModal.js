@@ -801,10 +801,15 @@ const MPInvestNowModal = ({
   // (prod-alphaquark-github PricingPage.js) and markup_app's parallel fix.
   const configLoadingRef = useRef(config?.configLoading);
   const kycBlockingEnabledRef = useRef(config?.kycBlockingEnabled === true);
+  // Whether /api/admin/frontend-config actually answered. Without this the
+  // gate cannot tell "this advisor has KYC blocking OFF" from "we never found
+  // out" — ConfigContext collapses both to `kycBlockingEnabled: false`.
+  const parityFlagsLoadedRef = useRef(config?.parityFlagsLoaded === true);
   useEffect(() => {
     configLoadingRef.current = config?.configLoading;
     kycBlockingEnabledRef.current = config?.kycBlockingEnabled === true;
-  }, [config?.configLoading, config?.kycBlockingEnabled]);
+    parityFlagsLoadedRef.current = config?.parityFlagsLoaded === true;
+  }, [config?.configLoading, config?.kycBlockingEnabled, config?.parityFlagsLoaded]);
 
   // Waits out a still-in-flight config load (up to 6s, matching the provider's
   // own frontend-config fetch timeout) before trusting `kycBlockingEnabled`.
@@ -813,13 +818,18 @@ const MPInvestNowModal = ({
   // the gate. If config is still loading after the wait, treat the gate as OFF
   // (not a verification failure — most advisors default off anyway, so
   // "unknown" reasonably means "assume default").
+  // Returns 'on' | 'off' | 'unknown'. 'unknown' means the flags fetch never
+  // succeeded, so we genuinely do not know this advisor's policy — the caller
+  // must NOT treat that as 'off'.
   const resolveKycBlockingEnabled = async () => {
-    if (!configLoadingRef.current) return kycBlockingEnabledRef.current === true;
-    const start = Date.now();
-    while (configLoadingRef.current && Date.now() - start < 6000) {
-      await new Promise(r => setTimeout(r, 150));
+    if (configLoadingRef.current) {
+      const start = Date.now();
+      while (configLoadingRef.current && Date.now() - start < 6000) {
+        await new Promise(r => setTimeout(r, 150));
+      }
     }
-    return kycBlockingEnabledRef.current === true;
+    if (!parityFlagsLoadedRef.current) return 'unknown';
+    return kycBlockingEnabledRef.current === true ? 'on' : 'off';
   };
 
   // Checkout-time blocking KYC gate — verify PAN+DoB against the KRA BEFORE
@@ -832,8 +842,23 @@ const MPInvestNowModal = ({
   // all). See the per-outcome comments below for the rationale on each.
   // Mirrors web PricingPage.runKycBlockingGate.
   const runKycBlockingGate = async () => {
-    const gateOn = await resolveKycBlockingEnabled();
-    if (!gateOn) return true;
+    const gateState = await resolveKycBlockingEnabled();
+    if (gateState === 'off') return true;
+    if (gateState === 'unknown') {
+      // BLOCK, retryable. Previously this fell through to `false` and the gate
+      // SKIPPED SILENTLY with no verify-pan call at all — a customer could
+      // reach payment/Digio on an unverified PAN+DoB whenever
+      // /api/admin/frontend-config failed or timed out (6s). That is the same
+      // silent-bypass class fixed on web in 2026-07-16 `b85eccc8`, which the
+      // mobile side never got. Consistent with every other branch of this
+      // gate: no positive signal => do not proceed.
+      console.warn('[MPInvestNow] KYC gate: advisor policy unknown (frontend-config unavailable) — blocking');
+      Alert.alert(
+        'Unable to verify PAN',
+        "We couldn't load your verification settings just now. Please check your connection and try again — if this keeps happening, contact support.",
+      );
+      return false;
+    }
 
     const pan = (panNumber || '').trim().toUpperCase();
     if (!/^[A-Z]{5}[0-9]{4}[A-Z]$/.test(pan)) {

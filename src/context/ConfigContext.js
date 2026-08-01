@@ -153,9 +153,18 @@ export const ConfigProvider = ({ children }) => {
                             // (+ per-customer egress IP whitelist). Mirrors web's
                             // loginRoutes.js /frontend-config + AppConfigContext gate.
                             useSharedAngelOneKey:    d.useSharedAngelOneKey === false ? false : true,
+                            // Did this fetch actually SUCCEED? Consumers that gate a
+                            // COMPLIANCE decision (the checkout KYC gate) must be able to
+                            // tell "advisor has the flag off" from "we never found out" —
+                            // `?? false` collapses both to false, which silently skipped
+                            // the SEBI PAN/DoB gate whenever this call failed.
+                            _parityFlagsLoaded: true,
                         };
                     } catch (e) {
                         console.warn('[ConfigContext] frontend-config flags unavailable, defaulting OFF:', e?.message);
+                        // NB: _parityFlagsLoaded is deliberately absent (falsy) here —
+                        // that is the signal a compliance gate needs to refuse to
+                        // silently skip. See _parityFlagsLoaded above.
                         return {};
                     }
                 })();
@@ -295,6 +304,9 @@ export const ConfigProvider = ({ children }) => {
                         // Checkout-time blocking KYC gate — DEFAULT-OFF. A failed
                         // frontend-config fetch (parityFlags == {}) leaves it OFF.
                         kycBlockingEnabled:      parityFlags.kycBlockingEnabled ?? false,
+                        // Whether the flags fetch above succeeded at all. The KYC gate
+                        // blocks (retryable) rather than skipping when this is false.
+                        parityFlagsLoaded:       parityFlags._parityFlagsLoaded === true,
                         // Phone-first login flow — DEFAULT-OFF. A failed
                         // frontend-config fetch (parityFlags == {}) leaves it OFF,
                         // so SplashScreen's default (loading/off/error) always
