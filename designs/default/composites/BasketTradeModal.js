@@ -10,6 +10,8 @@
  *     visible, mode: 'closure' | 'basket' | 'bespoke',
  *     basketName, totalAmount, hasZeroQuantity, hasInvalidClosureQty,
  *     loading, totalQuantity,
+ *     surveillanceStocks: [{symbol, surveillance}] — Angel One scrips the
+ *       broker will refuse via API; renders nothing when empty
  *     stockDetails: [{
  *       tradeId, tradingSymbol, exchange, Type/transactionType,
  *       quantity, orderType, isClosure?, currentHolding?,
@@ -56,6 +58,7 @@ import { RadioButton } from 'react-native-paper';
 import useTokens from '../../../src/theme/useTokens';
 import ModalShell from '../primitives/ModalShell';
 import Text from '../primitives/Text';
+import SurveillanceWarning from '../../../src/components/SurveillanceWarning';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -71,6 +74,7 @@ const BasketTradeModal = ({ viewModel, actions }) => {
         loading = false,
         totalQuantity = 1,
         stockDetails = [],
+        surveillanceStocks = [],
         selectedOption = '',
         inputFixSizeValue = '',
     } = viewModel || {};
@@ -307,6 +311,7 @@ const BasketTradeModal = ({ viewModel, actions }) => {
                 </View>
                 <View style={{ borderWidth: 1, borderColor: tokens.colors.border.default, marginTop: 5 }} />
 
+                <SurveillanceWarning surveillanceStocks={surveillanceStocks} />
                 <View style={styles.tableContainer}>
                     <View style={styles.tableHeader}>
                         <Text style={styles.tableHeaderText}>Stocks</Text>

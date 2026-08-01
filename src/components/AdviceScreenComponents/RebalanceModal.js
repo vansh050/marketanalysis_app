@@ -43,6 +43,8 @@ import { useTrade } from '../../screens/TradeContext';
 import Toast from 'react-native-toast-message';
 import debounce from 'lodash.debounce';
 import { isOrderSuccess, isOrderRejected } from '../../utils/orderStatusUtils';
+import useAngelOneSurveillance from '../../hooks/useAngelOneSurveillance';
+import SurveillanceWarning from '../SurveillanceWarning';
 import { validateBrokerSession } from '../../utils/brokerSessionUtils';
 import { validateStockExchanges, applyKiteMarketProtection, getPublisherWebViewBaseUrl, resolveZerodhaSymbol } from '../../utils/brokerPublisher';
 import useZerodhaSymbolMap from '../../hooks/useZerodhaSymbolMap';
@@ -105,6 +107,15 @@ const RebalanceModal = ({
   // since both refer to the same value. See docs/APP_ARCHITECTURE.md
   // § 4.5.2 Trade variant field.
   const { allowAfterHoursOrders } = useConfig() || {};
+
+  // Angel One pre-trade surveillance (web parity: UpdateRebalanceModal).
+  // Warn-only and fail-open — see hooks/useAngelOneSurveillance.
+  const { surveillanceStocks } = useAngelOneSurveillance({
+    broker,
+    stocks: dataArray,
+    enabled: visible,
+    configData,
+  });
   const sdkClient = useSdkClient();
   const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
   const advisorTag = configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG;
@@ -2304,6 +2315,11 @@ const RebalanceModal = ({
             </View>
           ) : (
           <View style={{ flex: 1 }}>
+            {/* Angel One refuses API orders on scrips under surveillance. Warn
+                BEFORE the rebalance is fired — web has always done this on the
+                equivalent surface (UpdateRebalanceModal); the app previously
+                only learned from the post-hoc rejection message. */}
+            <SurveillanceWarning surveillanceStocks={surveillanceStocks} />
             <FlatList
               data={isBrokerDisconnected ? editableData : dataArray}
               keyExtractor={item => item.symbol}
