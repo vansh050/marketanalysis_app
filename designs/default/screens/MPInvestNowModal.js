@@ -10,6 +10,14 @@
  * payment state. It renders the step wizard UI and delegates every
  * user interaction back to the container via `actions`.
  *
+ * NOT rendered here: the Digio signing WebView (`DigioModal`). The container
+ * mounts it directly, outside the design contract — it is a third-party
+ * WebView with nothing brandable in it, and routing its wiring through
+ * `viewModel`/`actions` meant a variant fork could silently no-op the
+ * signature-completion path. `DigioSuccessModal` DOES stay here: it is a
+ * branded surface a variant may legitimately restyle.
+ * See docs/DESIGN_SYSTEM_ARCHITECTURE.md § "What does NOT belong in a variant".
+ *
  * Contract:
  *   viewModel = {
  *     // Modal state
@@ -71,13 +79,12 @@
  *     displayAmount,           // function(base) => number
  *
  *     // Sub-modals state
- *     digioModalOpen,          // boolean
  *     digioSuccessModal,       // boolean
+ *     digioAfterPayment,       // boolean — advisor signs AFTER checkout
  *     showTelegramModal,       // boolean
  *     showPayUWebView,         // boolean
  *
  *     // Sub-modal props
- *     authUrl,                 // string — Digio auth URL
  *     payuFormData,            // object — PayU form data
  *     payuIsSI,                // boolean — PayU standing instructions
  *     whiteLabelText,          // string — for DisclaimerModal
@@ -116,10 +123,6 @@
  *     onDigioPayment,          // () => void — triggers the Digio/payment flow
  *
  *     // Sub-modal actions
- *     onDigioModalClose,       // () => void
- *     onDigioVerificationComplete, // () => void
- *     onDigioSuccess,          // (documentId) => void
- *     onDigioError,            // (error) => void
  *     onDigioSuccessModalClose,// () => void
  *     onDigioSuccessPayment,   // () => void
  *     onTelegramModalClose,    // () => void
@@ -163,7 +166,6 @@ import {
 } from 'lucide-react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import DisclaimerModal from '../../../src/components/ModelPortfolioComponents/DisclaimerModal';
-import DigioModal from '../../../src/components/ModelPortfolioComponents/DigioModal';
 import DigioSuccessModal from '../../../src/components/ModelPortfolioComponents/DigioSuccessModal';
 import TelegramCollectionModal from '../../../src/components/ModelPortfolioComponents/TelegramCollectionModal';
 import DatePickerSection from '../../../src/components/ModelPortfolioComponents/DatePickerSection';
@@ -409,12 +411,11 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
     gstText = '',
     displayAmount = (v) => v,
 
-    digioModalOpen = false,
     digioSuccessModal = false,
+    digioAfterPayment = false,
     showTelegramModal = false,
     showPayUWebView = false,
 
-    authUrl = '',
     payuFormData = null,
     payuIsSI = false,
     whiteLabelText = '',
@@ -448,10 +449,6 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
 
     onDigioPayment = () => {},
 
-    onDigioModalClose = () => {},
-    onDigioVerificationComplete = () => {},
-    onDigioSuccess = () => {},
-    onDigioError = () => {},
     onDigioSuccessModalClose = () => {},
     onDigioSuccessPayment = () => {},
     onTelegramModalClose = () => {},
@@ -1221,17 +1218,6 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
         </SafeAreaView>
       </Modal>
 
-      {digioModalOpen ? (
-        <DigioModal
-          authenticationUrl={authUrl}
-          digioModalOpen={digioModalOpen}
-          onClose={onDigioModalClose}
-          onVerificationComplete={onDigioVerificationComplete}
-          onSuccess={onDigioSuccess}
-          onError={onDigioError}
-        />
-      ) : null}
-
       {/* PayU WebView Modal */}
       <PayUWebView
         visible={showPayUWebView}
@@ -1248,6 +1234,7 @@ const MPInvestNowModal = ({ viewModel, actions }) => {
           visible={digioSuccessModal}
           onClose={onDigioSuccessModalClose}
           onProceedToPayment={onDigioSuccessPayment}
+          afterPayment={digioAfterPayment}
         />
       )}
 

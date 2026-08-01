@@ -414,6 +414,154 @@ export const pollDigioStatus = async (
 };
 
 /**
+ * Ask Digio DIRECTLY what the state of a document is.
+ *
+ * This is the authoritative check and the one the web app has always used
+ * (prod-alphaquark-github src/services/Digio/DigioWebhookService.js →
+ * `misc/digio/doc-detail/{docId}/{advisorTag}`). ccxt-india proxies straight
+ * through to Digio's API (apps/app_misc.py `get_doc_status`), so the answer
+ * depends on NOTHING of ours — no subscription row, no webhook delivery.
+ *
+ * Contrast with `checkSubscriptionStatus` below, which reads
+ * `subscription.digio_status` out of our own Mongo. That field is only ever
+ * written by the Digio webhook (aq_backend Routes/Digio/DigioWebhook.js), and
+ * in the beforePayment MITC flow the subscription does not exist yet at all —
+ * which is why the subscription-backed poller could never observe a completed
+ * signature and the app silently stranded customers after signing.
+ *
+ * @param {string} documentId - Digio document ID (e.g. "DID2606...")
+ * @param {string} advisorTag - Advisor tag used by the ccxt route
+ * @param {object} configData - Configuration data
+ * @returns {Promise<{digioStatus: string, agreementStatus: string, raw: object}>}
+ */
+export const checkDigioDocumentStatus = async (
+  documentId,
+  advisorTag,
+  configData,
+) => {
+  try {
+    const response = await axios.get(
+      `${server.ccxtServer.baseUrl}misc/digio/doc-detail/${documentId}/${advisorTag}`,
+      {headers: getHeaders(configData)},
+    );
+
+    const result = response?.data?.result || {};
+    const agreementStatus = String(
+      result.agreement_status || result.signing_status || result.status || '',
+    ).toLowerCase();
+
+    if (agreementStatus === 'completed' || agreementStatus === 'signed') {
+      return {digioStatus: DigioStatus.COMPLETED, agreementStatus, raw: result};
+    }
+
+    // Terminal failures. Anything we don't recognise stays PENDING so a new
+    // Digio vocabulary word never tells a customer their signature failed.
+    if (['expired', 'declined', 'failed', 'cancelled'].includes(agreementStatus)) {
+      return {digioStatus: DigioStatus.FAILED, agreementStatus, raw: result};
+    }
+
+    return {digioStatus: DigioStatus.PENDING, agreementStatus, raw: result};
+  } catch (error) {
+    console.error(
+      '[PaymentStatusService] Error checking Digio document status:',
+      error?.message,
+    );
+    return {
+      digioStatus: DigioStatus.PENDING,
+      agreementStatus: null,
+      error: error.message,
+    };
+  }
+};
+
+/**
+ * Poll Digio directly for document completion.
+ *
+ * Mirrors the web smart-poller (DigioModal.js → createSmartPoller). Works
+ * identically for beforePayment and afterPayment advisors because it is keyed
+ * on the Digio document ID, not on our subscription state.
+ *
+ * @param {string} documentId - Digio document ID
+ * @param {string} advisorTag - Advisor tag
+ * @param {object} configData - Configuration data
+ * @param {object} options - Polling options
+ * @returns {Promise<{digioStatus: string, stopped?: boolean, attempts: number}>}
+ */
+export const pollDigioDocumentStatus = async (
+  documentId,
+  advisorTag,
+  configData,
+  options = {},
+) => {
+  const {
+    maxAttempts = 60,           // 5 minutes at 5-second intervals
+    intervalMs = 5000,
+    onStatusUpdate = null,
+    shouldStop = () => false,
+  } = options;
+
+  let attempts = 0;
+
+  while (attempts < maxAttempts) {
+    if (shouldStop()) {
+      return {
+        digioStatus: DigioStatus.PENDING,
+        stopped: true,
+        attempts,
+        message: 'Polling stopped by caller',
+      };
+    }
+
+    attempts++;
+
+    const result = await checkDigioDocumentStatus(
+      documentId,
+      advisorTag,
+      configData,
+    );
+
+    if (onStatusUpdate) {
+      onStatusUpdate({
+        attempt: attempts,
+        maxAttempts,
+        digioStatus: result.digioStatus,
+        agreementStatus: result.agreementStatus,
+      });
+    }
+
+    if (result.digioStatus === DigioStatus.COMPLETED) {
+      await logPayment('DIGIO_DOC_POLL_SUCCESS', {
+        documentId,
+        attempts,
+        agreementStatus: result.agreementStatus,
+      }, configData);
+      return {...result, attempts, success: true};
+    }
+
+    if (result.digioStatus === DigioStatus.FAILED) {
+      await logPayment('DIGIO_DOC_POLL_FAILED', {
+        documentId,
+        attempts,
+        agreementStatus: result.agreementStatus,
+      }, configData);
+      return {...result, attempts, success: false};
+    }
+
+    if (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+  }
+
+  await logPayment('DIGIO_DOC_POLL_TIMEOUT', {documentId, attempts}, configData);
+
+  return {
+    digioStatus: DigioStatus.PENDING,
+    attempts,
+    message: 'Digio document status check timed out',
+  };
+};
+
+/**
  * Combined status check - checks both payment and Digio status
  * @param {object} params - Parameters
  * @returns {Promise<object>}
@@ -450,5 +598,7 @@ export default {
   checkSubscriptionByOrderId,
   pollPaymentStatus,
   pollDigioStatus,
+  checkDigioDocumentStatus,
+  pollDigioDocumentStatus,
   checkFullPaymentStatus,
 };

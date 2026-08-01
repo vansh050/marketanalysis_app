@@ -1,4 +1,4 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useState } from "react";
 import {
   Modal,
   View,
@@ -8,12 +8,21 @@ import {
   ActivityIndicator,
   SafeAreaView,
   StatusBar,
+  Alert,
 } from "react-native";
 import { WebView } from "react-native-webview";
 import { X } from "lucide-react-native";
 import { useConfig } from "../../context/ConfigContext";
 import useTokens from "../../theme/useTokens";
 
+/**
+ * @param {Function} [verifyDocumentStatus] - async () => 'completed' |
+ *   'pending' | 'failed'. When supplied, tapping X asks Digio whether the
+ *   document is actually signed BEFORE the modal is torn down — mirroring the
+ *   web app (components/DigioModel.js `handleManualComplete`). Without this,
+ *   a customer whose completion the WebView failed to detect taps X and is
+ *   dropped back to the plan sheet with no way forward.
+ */
 const DigioModal = ({
   authenticationUrl,
   digioModalOpen,
@@ -21,6 +30,7 @@ const DigioModal = ({
   onSuccess,
   onError,
   onVerificationComplete,
+  verifyDocumentStatus,
 }) => {
   const config = useConfig();
   const tokens = useTokens();
@@ -29,11 +39,13 @@ const DigioModal = ({
 
   const webviewRef = useRef(null);
   const hasTriggeredRef = useRef(false);
+  const [isVerifying, setIsVerifying] = useState(false);
 
   // Reset the trigger flag when modal opens
   useEffect(() => {
     if (digioModalOpen) {
       hasTriggeredRef.current = false;
+      setIsVerifying(false);
     }
   }, [digioModalOpen]);
 
@@ -54,6 +66,47 @@ const DigioModal = ({
     console.log("❌ Digio Error triggered", data);
     if (onError) onError(data);
     onClose();
+  };
+
+  // Tapping X is ambiguous: it means "I'm done" as often as "I give up", and
+  // the WebView's own detection is unreliable enough that we must not assume
+  // the latter. So: verify with Digio while KEEPING the modal mounted (the
+  // WebView keeps its state, so "keep signing" resumes exactly where they
+  // were), then either complete or ask.
+  //
+  // Web stays open indefinitely when unsigned, which traps a customer who
+  // genuinely wants out. The confirm dialog below is the mobile improvement —
+  // it protects the mid-signing mis-tap without removing the exit.
+  const handleClosePress = async () => {
+    if (hasTriggeredRef.current) return;
+
+    if (typeof verifyDocumentStatus !== "function") {
+      onClose();
+      return;
+    }
+
+    setIsVerifying(true);
+    let status = null;
+    try {
+      status = await verifyDocumentStatus();
+    } catch (err) {
+      console.error("Close-time Digio verification failed:", err?.message);
+    }
+    setIsVerifying(false);
+
+    if (status === "completed") {
+      handleSuccess({ source: "close_check" });
+      return;
+    }
+
+    Alert.alert(
+      "Signature not complete",
+      "We couldn't confirm your signature yet. If you've already signed, give it a moment and it will complete on its own.",
+      [
+        { text: "Keep signing", style: "cancel" },
+        { text: "Leave", style: "destructive", onPress: () => onClose() },
+      ],
+    );
   };
 
   const handleWebViewMessage = (event) => {
@@ -112,8 +165,11 @@ const DigioModal = ({
         {/* Header with Close Button */}
         <View style={[styles.header, { backgroundColor: gradient2 }]}>
           <Text style={styles.headerTitle}>Digio Authentication</Text>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-            <X size={24} color="#fff" />
+          <TouchableOpacity
+            onPress={handleClosePress}
+            disabled={isVerifying}
+            style={styles.closeBtn}>
+            <X size={24} color={isVerifying ? "rgba(255,255,255,0.4)" : "#fff"} />
           </TouchableOpacity>
         </View>
 
@@ -254,6 +310,19 @@ const DigioModal = ({
             <Text style={styles.loaderText}>Loading authentication...</Text>
           </View>
         )}
+
+        {/* Overlaid, not swapped in — unmounting the WebView here would throw
+            away the customer's place in the Digio flow if they chose to keep
+            signing. */}
+        {isVerifying && (
+          <View style={styles.verifyingOverlay}>
+            <ActivityIndicator size="large" color={mainColor} />
+            <Text style={styles.verifyingText}>Verifying your signature...</Text>
+            <Text style={styles.verifyingSubtext}>
+              This usually takes 2-5 seconds
+            </Text>
+          </View>
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -299,6 +368,23 @@ const styles = StyleSheet.create({
     marginTop: 12,
     color: "#6B7280",
     fontSize: 14,
+  },
+  verifyingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  verifyingText: {
+    marginTop: 16,
+    color: "#374151",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  verifyingSubtext: {
+    marginTop: 6,
+    color: "#9CA3AF",
+    fontSize: 13,
   },
 });
 

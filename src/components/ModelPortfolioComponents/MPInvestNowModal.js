@@ -76,6 +76,8 @@ import {
   checkSubscriptionStatus,
   pollPaymentStatus,
   pollDigioStatus,
+  checkDigioDocumentStatus,
+  pollDigioDocumentStatus,
   PaymentStatus,
   DigioStatus,
 } from '../../FunctionCall/services/PaymentStatusService';
@@ -103,6 +105,9 @@ import moment from 'moment';
 import { encode as btoa } from 'base-64';
 import { addISTOffset } from '../../utils/dateUtils';
 import { useComponent } from '../../design/useDesign';
+// Rendered by the container, not the presentation — see the note at the
+// return statement (third-party WebView surfaces are not design surfaces).
+import DigioModal from './DigioModal';
 
 function arrayBufferToBase64(buffer) {
   let binary = '';
@@ -249,6 +254,10 @@ const MPInvestNowModal = ({
   const appStateRef = useRef(AppState.currentState);
   const pollingShouldStopRef = useRef(false);
   const digioPollingShouldStopRef = useRef(false);
+  // Indirection so the background poller (defined above handleDigioSuccess) can
+  // route completion through the exact same handler the WebView callback uses.
+  // Assigned on every render, read only at call time — no TDZ risk.
+  const handleDigioSuccessRef = useRef(null);
 
   // Save Telegram ID function
   const saveTelegramId = async (id) => {
@@ -449,28 +458,38 @@ const MPInvestNowModal = ({
       if (pendingDigio) {
         console.log('[MPInvestNowModal] Found pending Digio signature:', pendingDigio.documentId);
 
-        // Check Digio status from backend
-        const subscriptionStatus = await checkSubscriptionStatus(
-          pendingDigio.userEmail || userEmail,
-          pendingDigio.planId || specificPlan?._id,
-          configData,
-        );
+        // Ask Digio directly rather than reading subscription.digio_status —
+        // same reason as startDigioBackgroundPolling: in the beforePayment
+        // flow there is no subscription yet, so the subscription read returned
+        // null and NONE of the branches below ever fired. A customer who
+        // signed and then backgrounded the app got no recovery prompt at all.
+        const digioResult = pendingDigio.documentId
+          ? await checkDigioDocumentStatus(
+              pendingDigio.documentId,
+              pendingDigio.advisorTag || advisorTag,
+              configData,
+            )
+          : {digioStatus: DigioStatus.PENDING};
 
-        if (subscriptionStatus.digioStatus === DigioStatus.COMPLETED) {
-          // Already completed via webhook, clear pending
+        if (digioResult.digioStatus === DigioStatus.COMPLETED) {
+          // Signed. Clear pending and carry the customer forward instead of
+          // silently dropping them — this is the dropped-callback case.
           await clearPendingDigio();
-          console.log('[MPInvestNowModal] Digio already completed, cleared pending');
-        } else if (subscriptionStatus.digioStatus === DigioStatus.FAILED) {
+          console.log('[MPInvestNowModal] Digio already completed, resuming flow');
+          if (handleDigioSuccessRef.current) {
+            await handleDigioSuccessRef.current(pendingDigio.documentId);
+          }
+        } else if (digioResult.digioStatus === DigioStatus.FAILED) {
           // Failed, offer to retry
           Alert.alert(
             'Signature Failed',
-            subscriptionStatus.subscription?.digio_failure_reason || 'E-signature failed. Would you like to try again?',
+            `E-signature ${digioResult.agreementStatus || 'failed'}. Would you like to try again?`,
             [
               { text: 'Later', style: 'cancel', onPress: () => clearPendingDigio() },
               { text: 'Retry', onPress: () => openDigioModal() },
             ],
           );
-        } else if (subscriptionStatus.digioStatus === DigioStatus.PENDING) {
+        } else if (digioResult.digioStatus === DigioStatus.PENDING) {
           // Still pending, offer to complete
           Alert.alert(
             'Complete Signature',
@@ -593,10 +612,32 @@ const MPInvestNowModal = ({
     }
   };
 
-  // Background polling for Digio status while modal is open
+  // Background polling for Digio status while the signing WebView is open.
+  //
+  // 2026-08-01: repointed at Digio itself. This used to poll
+  // `pollDigioStatus(userEmail, planId)` → GET /api/subscription-check/user/
+  // :email/plan/:planId → `subscription.digio_status`, which could never
+  // report completion:
+  //   1. that route filters `is_active: true`, and in the beforePayment MITC
+  //      flow no subscription exists yet (payment runs AFTER signing), so it
+  //      always returned `{subscription: null}` → digioStatus null; and
+  //   2. `digio_status` is only ever written by the Digio webhook
+  //      (aq_backend Routes/Digio/DigioWebhook.js), which has been observed
+  //      not to fire reliably.
+  // So the "fallback" was a double no-op: it burned 60 polls and returned.
+  // That left WebView URL-substring matching in DigioModal.js as the ONLY
+  // completion detector — device- and flow-dependent, which is why some
+  // customers reached payment after signing and others were stranded.
+  //
+  // `pollDigioDocumentStatus` asks Digio directly (ccxt
+  // misc/digio/doc-detail/{docId}/{advisorTag}), exactly as the web app has
+  // always done. It is keyed on the Digio document ID, so it is correct for
+  // beforePayment AND afterPayment advisors and needs neither a subscription
+  // row nor a webhook.
   const startDigioBackgroundPolling = async (documentId) => {
-    // Wait 15 seconds before starting polling (give WebView time to respond)
-    await new Promise(resolve => setTimeout(resolve, 15000));
+    // Give the WebView a short head start — its own callback is faster when it
+    // fires. Web uses 5s (DigioModal.js smart-poller start delay); match it.
+    await new Promise(resolve => setTimeout(resolve, 5000));
 
     if (digioPollingShouldStopRef.current) {
       console.log('[Digio Polling] Stopped before starting');
@@ -606,16 +647,16 @@ const MPInvestNowModal = ({
     console.log('[Digio Polling] Starting background polling for document:', documentId);
 
     // Poll for up to 5 minutes
-    const pollResult = await pollDigioStatus(
-      userEmail,
-      specificPlan?._id,
+    const pollResult = await pollDigioDocumentStatus(
+      documentId,
+      advisorTag,
       configData,
       {
         maxAttempts: 60, // 5 minutes at 5-second intervals
         intervalMs: 5000,
         shouldStop: () => digioPollingShouldStopRef.current,
         onStatusUpdate: (update) => {
-          console.log('[Digio Polling] Status update:', update.digioStatus, 'attempt:', update.attempt);
+          console.log('[Digio Polling] Status update:', update.agreementStatus, 'attempt:', update.attempt);
         },
       },
     );
@@ -626,55 +667,24 @@ const MPInvestNowModal = ({
       return;
     }
 
-    // Handle poll result
     if (pollResult.digioStatus === DigioStatus.COMPLETED) {
-      console.log('[Digio Polling] Signature completed via webhook!');
+      console.log('[Digio Polling] Signature completed (confirmed by Digio)');
       digioPollingShouldStopRef.current = true;
-
-      // Clear pending Digio
-      await clearPendingDigio();
-
-      // Close Digio modal and trigger success flow
       setDigioModalOpen(false);
-
-      // Update user verification status (same as handleDigioSuccess does)
-      try {
-        await fetch(
-          `${server.server.baseUrl}api/digio/update-user`,
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              email: userEmail,
-              digio_verification: true,
-            }),
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-              'aq-encrypted-key': generateToken(
-                Config.REACT_APP_AQ_KEYS,
-                Config.REACT_APP_AQ_SECRET,
-              ),
-            },
-          },
-        );
-        // Update local state so the same session won't re-ask for Digio
-        setAdvisorSpecificUserDetails(prev => ({
-          ...prev,
-          digio_verification: true,
-        }));
-      } catch (err) {
-        console.error('[Digio Polling] Error updating user:', err);
-      }
-
-      // Show success modal
-      setDigioSuccessModal(true);
 
       await logPayment('DIGIO_COMPLETED_VIA_POLLING', {
         documentId,
         userEmail,
       }, configData);
+
+      // Route through the SAME handler the WebView callback uses so the
+      // update-user write, success modal, pending-Digio clear and signed-doc
+      // download can never drift between the two detection paths.
+      if (handleDigioSuccessRef.current) {
+        await handleDigioSuccessRef.current(documentId);
+      }
     } else if (pollResult.digioStatus === DigioStatus.FAILED) {
-      console.log('[Digio Polling] Signature failed via webhook');
+      console.log('[Digio Polling] Signature failed (confirmed by Digio):', pollResult.agreementStatus);
       digioPollingShouldStopRef.current = true;
 
       // Close modal and show failure
@@ -1055,7 +1065,7 @@ const MPInvestNowModal = ({
   );
 
   // AppAdvisor.digioConfig.digioEnabled is authoritative. Tenant behavior is
-  // configured in the backend, never hardcoded in shared checkout.
+  // configured in the backend, never hardcoded in this shared checkout.
   const isDigioEnabled = isDigioEnabledFromBackend(config?.digioEnabled);
 
   const getInitialAuthMethod = () => {
@@ -1103,16 +1113,23 @@ const MPInvestNowModal = ({
   }, [digioModalOpen, documentId, identifier, tokenId]);
 
   const [razorpayLoader, setRazorpayLoader] = useState(false);
-  const handleDigioSuccess = async () => {
+  // `docIdOverride` lets the recovery path (app relaunched, storeDigioData
+  // lost) drive this handler with the document id persisted by
+  // savePendingDigio. Guarded with a typeof check because this is also passed
+  // straight to onVerificationComplete, which may hand back an event object.
+  const handleDigioSuccess = async (docIdOverride) => {
     // Stop background polling since WebView callback was received
     digioPollingShouldStopRef.current = true;
     console.log('Handle success hit final-------------------------1111111');
+    const effectiveDocId =
+      (typeof docIdOverride === 'string' && docIdOverride) ||
+      storeDigioData?.id;
     try {
       setRazorpayLoader(true);
-      if (storeDigioData?.id) {
+      if (effectiveDocId) {
         let config = {
           method: 'get',
-          url: `${server.ccxtServer.baseUrl}misc/digio/doc-detail/${storeDigioData?.id}/${advisorTag}`,
+          url: `${server.ccxtServer.baseUrl}misc/digio/doc-detail/${effectiveDocId}/${advisorTag}`,
           headers: {
             'Content-Type': 'multipart/form-data',
             'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
@@ -1179,7 +1196,7 @@ const MPInvestNowModal = ({
               // delay the success modal). Errors are swallowed/logged.
               axios
                 .get(
-                  `${server.ccxtServer.baseUrl}misc/digio/download/signed-doc/${storeDigioData?.id}/${advisorTag}`,
+                  `${server.ccxtServer.baseUrl}misc/digio/download/signed-doc/${effectiveDocId}/${advisorTag}`,
                   {
                     headers: {
                       'Content-Type': 'application/json',
@@ -1216,6 +1233,10 @@ const MPInvestNowModal = ({
       setRazorpayLoader(false);
     }
   };
+
+  // Keep the ref current so startDigioBackgroundPolling (declared earlier) can
+  // reach the canonical success handler.
+  handleDigioSuccessRef.current = handleDigioSuccess;
 
   const [authUrl, setAuthUrl] = useState('');
 
@@ -3890,12 +3911,16 @@ const MPInvestNowModal = ({
     gstText,
     displayAmount,
 
-    digioModalOpen,
+    // NB: `digioModalOpen` / `authUrl` are intentionally absent — DigioModal is
+    // rendered by the container, outside the design contract.
     digioSuccessModal,
+    // Drives the success modal's copy: an afterPayment advisor's customer has
+    // already paid, so "your plan is NOT yet activated / Proceed to Payment"
+    // is wrong for them.
+    digioAfterPayment: digioCheck === 'afterPayment',
     showTelegramModal,
     showPayUWebView,
 
-    authUrl,
     payuFormData,
     payuIsSI,
     whiteLabelText,
@@ -3933,23 +3958,23 @@ const MPInvestNowModal = ({
 
     onDigioPayment: handleDigioPayment,
 
-    onDigioModalClose: () => {
-      digioPollingShouldStopRef.current = true;
-      setDigioModalOpen(false);
-    },
-    onDigioVerificationComplete: handleDigioSuccess,
-    onDigioSuccess: (docId) => {
-      console.log('Document signed successfully:', docId);
-    },
-    onDigioError: (error) => {
-      console.error('Digio verification failed:', error);
-      digioPollingShouldStopRef.current = true;
-      setDigioUnsuccessModal(true);
-      setDigioModalOpen(false);
-    },
     onDigioSuccessModalClose: () => setDigioSuccessModal(false),
     onDigioSuccessPayment: () => {
       setDigioSuccessModal(false);
+
+      // afterPayment advisors sign AFTER money has already been taken
+      // (handlePaymentSuccessWithTelegram → openDigioModal). Calling
+      // handlePaymentType() here would re-open checkout for an already-paid
+      // subscription. Continue the post-payment tail instead.
+      if (digioCheck === 'afterPayment') {
+        if (!telegramId && !userDetails?.telegram_id) {
+          setShowTelegramModal(true);
+        } else {
+          setPaymentSuccess(true);
+        }
+        return;
+      }
+
       handlePaymentType();
     },
     onTelegramModalClose: () => {
@@ -3970,7 +3995,68 @@ const MPInvestNowModal = ({
     onPayUFailure: handlePayUFailure,
   };
 
-  return <Presentation viewModel={viewModel} actions={actions} />;
+  // DigioModal is rendered HERE, not handed to <Presentation>, and is
+  // deliberately NOT part of the design contract.
+  //
+  // It is a full-screen WebView hosting digio.in plus a header bar — an
+  // external service's UI. There is nothing advisor-brandable inside it, so a
+  // `designs/<variant>` fork of it would only ever be a stale copy. Keeping it
+  // in the presentation layer meant its wiring (`verifyDocumentStatus`,
+  // `onVerificationComplete`, …) crossed the variant boundary, where every
+  // prop silently defaults to a no-op: a fork that overrode
+  // `screens.MPInvestNowModal` and forgot one would quietly reinstate the
+  // 2026-08-01 "customer signs, never reaches payment" bug with no error.
+  //
+  // Contrast DigioSuccessModal, which stays in the presentation: it is a
+  // branded surface (tokens, brand colour, progress rail) that an advisor may
+  // legitimately want to restyle.
+  //
+  // Rule: third-party WebView surfaces are not design surfaces.
+  // See docs/DESIGN_SYSTEM_ARCHITECTURE.md § "What does NOT belong in a variant".
+  return (
+    <>
+      <Presentation viewModel={viewModel} actions={actions} />
+
+      {digioModalOpen ? (
+        <DigioModal
+          authenticationUrl={authUrl}
+          digioModalOpen={digioModalOpen}
+          onClose={() => {
+            // Reached only after DigioModal's own verify-then-confirm step has
+            // established the customer is leaving unsigned.
+            digioPollingShouldStopRef.current = true;
+            setDigioModalOpen(false);
+          }}
+          verifyDocumentStatus={async () => {
+            const docId = storeDigioData?.id;
+            if (!docId) return null;
+            const result = await checkDigioDocumentStatus(
+              docId,
+              advisorTag,
+              configData,
+            );
+            if (result.digioStatus === DigioStatus.COMPLETED) {
+              await logPayment('DIGIO_COMPLETED_VIA_CLOSE_CHECK', {
+                documentId: docId,
+                userEmail,
+              }, configData);
+            }
+            return result.digioStatus;
+          }}
+          onVerificationComplete={handleDigioSuccess}
+          onSuccess={(docId) => {
+            console.log('Document signed successfully:', docId);
+          }}
+          onError={(error) => {
+            console.error('Digio verification failed:', error);
+            digioPollingShouldStopRef.current = true;
+            setDigioUnsuccessModal(true);
+            setDigioModalOpen(false);
+          }}
+        />
+      ) : null}
+    </>
+  );
 };
 
 export default MPInvestNowModal;

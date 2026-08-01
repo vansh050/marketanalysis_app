@@ -12,12 +12,22 @@ import Toast from 'react-native-toast-message';
 import { useConfig } from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
 
-const DigioSuccessModal = ({ visible, onClose, onProceedToPayment }) => {
+/**
+ * @param {boolean} afterPayment - true for advisors on `digioCheck:
+ *   'afterPayment'`, where the customer has ALREADY paid before signing.
+ *   Every "you still owe us a payment" affordance in this modal is wrong in
+ *   that mode: the anti-drop-off toast, the "NOT yet activated" warning, the
+ *   step-3-is-payment progress rail, the "Proceed to Payment" CTA and the
+ *   footer note all told an already-paid customer their plan was inactive.
+ *   Default false keeps the original beforePayment behaviour untouched.
+ */
+const DigioSuccessModal = ({ visible, onClose, onProceedToPayment, afterPayment = false }) => {
     const config = useConfig();
     const mainColor = useTokens().colors.brand.primary;
-    // 15-second reminder toast (anti-drop-off mechanism)
+    // 15-second reminder toast (anti-drop-off mechanism). Only meaningful when
+    // a payment is genuinely still outstanding.
     useEffect(() => {
-        if (visible) {
+        if (visible && !afterPayment) {
             const timer = setTimeout(() => {
                 Toast.show({
                     type: 'warning',
@@ -29,7 +39,7 @@ const DigioSuccessModal = ({ visible, onClose, onProceedToPayment }) => {
 
             return () => clearTimeout(timer);
         }
-    }, [visible]);
+    }, [visible, afterPayment]);
 
     return (
         <Modal
@@ -56,100 +66,143 @@ const DigioSuccessModal = ({ visible, onClose, onProceedToPayment }) => {
                         </View>
 
                         {/* Title */}
-                        <Text style={styles.title}>MITC Signing Completed! ✓</Text>
+                        <Text style={styles.title}>
+                            {afterPayment
+                                ? "You're all set! ✓"
+                                : 'MITC Signing Completed! ✓'}
+                        </Text>
 
-                        {/* Important Notice Box (Anti-Drop-Off) */}
-                        <View style={styles.warningBox}>
-                            <View style={styles.warningHeader}>
-                                <AlertTriangle size={20} color="#F59E0B" />
-                                <Text style={styles.warningTitle}>Important:</Text>
+                        {/* Notice box. beforePayment: anti-drop-off warning —
+                            a payment is genuinely still outstanding.
+                            afterPayment: confirmation — the customer paid
+                            BEFORE signing, so nothing is owed. */}
+                        {afterPayment ? (
+                            <View style={styles.successBox}>
+                                <View style={styles.warningHeader}>
+                                    <CheckCircle size={20} color="#10B981" />
+                                    <Text style={styles.successTitle}>All done:</Text>
+                                </View>
+                                <Text style={[styles.warningText, styles.successBodyText]}>
+                                    Your payment and document signing are both{' '}
+                                    <Text style={styles.boldText}>complete</Text>.
+                                </Text>
+                                <Text style={[styles.warningSubtext, styles.successBodyText]}>
+                                    Your plan is active. A signed copy of your document
+                                    will be emailed to you.
+                                </Text>
                             </View>
-                            <Text style={styles.warningText}>
-                                Your document signing is completed, but your plan is{' '}
-                                <Text style={styles.boldText}>NOT yet activated</Text>.
-                            </Text>
-                            <Text style={styles.warningSubtext}>
-                                To finish your joining process and activate your plan, you{' '}
-                                <Text style={styles.boldText}>
-                                    must complete the payment
-                                </Text>{' '}
-                                in the next step.
-                            </Text>
-                        </View>
+                        ) : (
+                            <View style={styles.warningBox}>
+                                <View style={styles.warningHeader}>
+                                    <AlertTriangle size={20} color="#F59E0B" />
+                                    <Text style={styles.warningTitle}>Important:</Text>
+                                </View>
+                                <Text style={styles.warningText}>
+                                    Your document signing is completed, but your plan is{' '}
+                                    <Text style={styles.boldText}>NOT yet activated</Text>.
+                                </Text>
+                                <Text style={styles.warningSubtext}>
+                                    To finish your joining process and activate your plan, you{' '}
+                                    <Text style={styles.boldText}>
+                                        must complete the payment
+                                    </Text>{' '}
+                                    in the next step.
+                                </Text>
+                            </View>
+                        )}
 
                         {/* Visual Workflow Progress */}
                         <View style={styles.progressSection}>
                             <Text style={styles.progressTitle}>Your Progress</Text>
+                            {/* Step order follows the advisor's actual sequence.
+                                beforePayment: Join → e-Sign → Payment (current)
+                                → Activation (pending).
+                                afterPayment: Join → Payment → e-Sign →
+                                Activation, all complete. */}
                             <View style={styles.progressContainer}>
-                                {/* Step 1 - Completed */}
-                                <View style={styles.stepContainer}>
-                                    <View style={[styles.stepCircle, styles.stepCompleted]}>
-                                        <Text style={styles.stepCompletedText}>✓</Text>
-                                    </View>
-                                    <Text style={styles.stepLabel}>Start{'\n'}Joining</Text>
-                                </View>
-
-                                {/* Arrow */}
-                                <Text style={styles.arrow}>→</Text>
-
-                                {/* Step 2 - Completed */}
-                                <View style={styles.stepContainer}>
-                                    <View style={[styles.stepCircle, styles.stepCompleted]}>
-                                        <Text style={styles.stepCompletedText}>✓</Text>
-                                    </View>
-                                    <Text style={styles.stepLabel}>MITC /{'\n'}e-Sign</Text>
-                                </View>
-
-                                {/* Arrow */}
-                                <Text style={styles.arrow}>→</Text>
-
-                                {/* Step 3 - Current (Payment) */}
-                                <View style={styles.stepContainer}>
-                                    <View style={[styles.stepCircle, styles.stepCurrent, { backgroundColor: mainColor }]}>
-                                        <Text style={styles.stepCurrentText}>3</Text>
-                                    </View>
-                                    <Text style={[styles.stepLabel, styles.stepCurrentLabel, { color: mainColor }]}>
-                                        Payment{'\n'}(Mandatory)
-                                    </Text>
-                                </View>
-
-                                {/* Arrow */}
-                                <Text style={[styles.arrow, styles.arrowInactive]}>→</Text>
-
-                                {/* Step 4 - Pending */}
-                                <View style={styles.stepContainer}>
-                                    <View style={[styles.stepCircle, styles.stepPending]}>
-                                        <Text style={styles.stepPendingText}>4</Text>
-                                    </View>
-                                    <Text style={[styles.stepLabel, styles.stepPendingLabel]}>
-                                        Plan{'\n'}Activation
-                                    </Text>
-                                </View>
+                                {(afterPayment
+                                    ? [
+                                          { label: `Start${'\n'}Joining`, state: 'done' },
+                                          { label: `Payment`, state: 'done' },
+                                          { label: `MITC /${'\n'}e-Sign`, state: 'done' },
+                                          { label: `Plan${'\n'}Activation`, state: 'done' },
+                                      ]
+                                    : [
+                                          { label: `Start${'\n'}Joining`, state: 'done' },
+                                          { label: `MITC /${'\n'}e-Sign`, state: 'done' },
+                                          { label: `Payment${'\n'}(Mandatory)`, state: 'current', index: 3 },
+                                          { label: `Plan${'\n'}Activation`, state: 'pending', index: 4 },
+                                      ]
+                                ).map((step, i, steps) => (
+                                    <React.Fragment key={step.label}>
+                                        {i > 0 && (
+                                            <Text
+                                                style={[
+                                                    styles.arrow,
+                                                    steps[i].state === 'pending' && styles.arrowInactive,
+                                                ]}>
+                                                →
+                                            </Text>
+                                        )}
+                                        <View style={styles.stepContainer}>
+                                            {step.state === 'done' && (
+                                                <View style={[styles.stepCircle, styles.stepCompleted]}>
+                                                    <Text style={styles.stepCompletedText}>✓</Text>
+                                                </View>
+                                            )}
+                                            {step.state === 'current' && (
+                                                <View style={[styles.stepCircle, styles.stepCurrent, { backgroundColor: mainColor }]}>
+                                                    <Text style={styles.stepCurrentText}>{step.index}</Text>
+                                                </View>
+                                            )}
+                                            {step.state === 'pending' && (
+                                                <View style={[styles.stepCircle, styles.stepPending]}>
+                                                    <Text style={styles.stepPendingText}>{step.index}</Text>
+                                                </View>
+                                            )}
+                                            <Text
+                                                style={[
+                                                    styles.stepLabel,
+                                                    step.state === 'current' && styles.stepCurrentLabel,
+                                                    step.state === 'current' && { color: mainColor },
+                                                    step.state === 'pending' && styles.stepPendingLabel,
+                                                ]}>
+                                                {step.label}
+                                            </Text>
+                                        </View>
+                                    </React.Fragment>
+                                ))}
                             </View>
                         </View>
 
-                        {/* Action Buttons */}
+                        {/* Action Buttons. afterPayment has nothing to cancel
+                            out of and nothing left to pay — a single Continue
+                            (still routed through onProceedToPayment, which the
+                            container branches on digioCheck). */}
                         <View style={styles.buttonContainer}>
-                            <TouchableOpacity
-                                onPress={onClose}
-                                style={[styles.button, styles.cancelButton]}>
-                                <Text style={styles.cancelButtonText}>Cancel</Text>
-                            </TouchableOpacity>
+                            {!afterPayment && (
+                                <TouchableOpacity
+                                    onPress={onClose}
+                                    style={[styles.button, styles.cancelButton]}>
+                                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                                </TouchableOpacity>
+                            )}
 
                             <TouchableOpacity
                                 onPress={onProceedToPayment}
                                 style={[styles.button, styles.paymentButton, { backgroundColor: mainColor, shadowColor: mainColor }]}>
-                                <CreditCard size={20} color="#fff" />
+                                {!afterPayment && <CreditCard size={20} color="#fff" />}
                                 <Text style={styles.paymentButtonText}>
-                                    Proceed to Payment →
+                                    {afterPayment ? 'Continue' : 'Proceed to Payment →'}
                                 </Text>
                             </TouchableOpacity>
                         </View>
 
                         {/* Footer Note */}
                         <Text style={styles.footerNote}>
-                            Your plan will be activated only after successful payment
-                            completion
+                            {afterPayment
+                                ? 'Your plan is active. You can start using it right away.'
+                                : 'Your plan will be activated only after successful payment completion'}
                         </Text>
                     </View>
                 </ScrollView>
@@ -212,6 +265,26 @@ const styles = StyleSheet.create({
         padding: 16,
         borderRadius: 8,
         marginBottom: 24,
+    },
+    // afterPayment counterpart of warningBox — green/confirmatory rather than
+    // amber/urgent, since nothing is outstanding.
+    successBox: {
+        backgroundColor: '#D1FAE5',
+        borderLeftWidth: 4,
+        borderLeftColor: '#10B981',
+        padding: 16,
+        borderRadius: 8,
+        marginBottom: 24,
+    },
+    successTitle: {
+        fontSize: 14,
+        fontFamily: 'Satoshi-Bold',
+        color: '#065F46',
+        marginLeft: 8,
+    },
+    // Overrides the amber body colour inherited from warningText/warningSubtext.
+    successBodyText: {
+        color: '#065F46',
     },
     warningHeader: {
         flexDirection: 'row',
