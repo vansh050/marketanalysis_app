@@ -17,6 +17,8 @@ import {isSellAuthRejection} from '../../utils/sellAuthMessage';
 import {getBrokerDdpiHelp} from '../../config/brokerDdpiHelp';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import {useComponent} from '../../design/useDesign';
+import StandaloneManualPlacementModal from '../../components/StandaloneManualPlacementModal';
+import {useTrade} from '../../screens/TradeContext';
 
 const StockCard = React.memo(
   ({
@@ -70,6 +72,8 @@ const StockCard = React.memo(
     fileUrls = [],
   }) => {
     const [showAttachmentModal, setShowAttachmentModal] = useState(false);
+    const [showManualPlacement, setShowManualPlacement] = useState(false);
+    const {getAllTrades} = useTrade();
     const price = useLTPStore(state => state.ltps[symbol]);
 
     // P&L and Change% calculation (matching web app logic)
@@ -219,9 +223,19 @@ const StockCard = React.memo(
       onCloseAttachmentModal: () => setShowAttachmentModal(false),
       onOpenDdpiHelp: (broker) =>
         useModalStore.getState().openModal('DdpiHelp', {broker}),
+      onOpenManualPlacement: () => setShowManualPlacement(true),
     };
 
-    return <StockCardPresentation viewModel={viewModel} actions={actions} />;
+        return <>
+      <StockCardPresentation viewModel={viewModel} actions={actions} />
+      <StandaloneManualPlacementModal
+        visible={showManualPlacement}
+        trade={{id, symbol, action, quantity}}
+        configData={config}
+        onClose={() => setShowManualPlacement(false)}
+        onSuccess={getAllTrades}
+      />
+    </>;
   },
 );
 

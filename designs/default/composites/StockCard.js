@@ -149,6 +149,7 @@ const StockCard = ({ viewModel, actions }) => {
     onOpenAttachmentModal = () => {},
     onCloseAttachmentModal = () => {},
     onOpenDdpiHelp = () => {},
+    onOpenManualPlacement = () => {},
   } = actions || {};
 
   return (
@@ -638,6 +639,11 @@ const StockCard = ({ viewModel, actions }) => {
                     </View>
                   </TouchableOpacity>
                 </View>
+              {!cancel && String(closurestatus || '').toLowerCase() !== 'fullclose' && ['recommend', 'rejected', 'failure', 'failed'].includes(String(tradePlaceStatus || '').toLowerCase()) && (
+                <TouchableOpacity onPress={onOpenManualPlacement} style={styles.manualPlacementButton}>
+                  <Text style={styles.manualPlacementText}>I placed this trade manually</Text>
+                </TouchableOpacity>
+              )}
               </View>
             </Animated.View>
           )}
@@ -1061,6 +1067,18 @@ const styles = StyleSheet.create({
     fontSize: 10,
     color: '#64748B',
     fontFamily: 'Poppins-Medium',
+  },
+  manualPlacementButton: {
+    alignSelf: 'flex-start',
+    marginHorizontal: 15,
+    marginBottom: 10,
+    paddingVertical: 4,
+  },
+  manualPlacementText: {
+    fontSize: 12,
+    color: '#1D4ED8',
+    fontFamily: 'Poppins-Medium',
+    textDecorationLine: 'underline',
   },
   slPtValue: {
     fontSize: 11,

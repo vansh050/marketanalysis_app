@@ -4,6 +4,20 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
 
+## 2026-08-17 — standalone manual placement
+
+- Active / rejected / failed standalone (single-stock) recommendation cards
+  now offer **I placed this trade manually**, recording the broker's actual
+  filled quantity, average price, order ID and execution time via
+  `POST /api/recommendation/customer/manual-placement`. Ported from upstream
+  Alphab2bapp.
+
+# Changelog
+
+All notable changes to the AlphaQuark B2B Mobile App are documented here.
+
+---
+
 ## [unreleased] - 2026-07-27 — fix(digio): use backend-authoritative tenant policy
 
 - Digio is enabled only when nested backend config explicitly returns boolean
