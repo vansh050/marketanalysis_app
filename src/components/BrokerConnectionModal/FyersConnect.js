@@ -460,4 +460,44 @@ const FyersConnect = ({
   );
 };
 
+// The credential step uses BrokerConnectStepperSheet, but the OAuth phase
+// still renders the legacy FyersConnectUI. Keep its style contract local to
+// this container. Removing this object made both fresh connect and smart
+// re-auth crash as soon as showWebView became true.
+const styles = StyleSheet.create({
+  sheet: {borderTopLeftRadius: 20, borderTopRightRadius: 20, flex: 1},
+  modal: {justifyContent: 'flex-end', margin: 0},
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 10,
+    height: 'auto',
+  },
+  content: {padding: 0},
+  content1: {justifyContent: 'center'},
+  closeButton: {position: 'absolute', top: 10, right: 10},
+  title: {fontSize: 20, marginHorizontal: 10, fontWeight: 'Poppins-SemiBold', color: 'black'},
+  playerWrapper: {overflow: 'hidden', marginTop: 20, alignSelf: 'center', borderRadius: 20, marginBottom: 20},
+  instruction: {fontSize: 15, color: 'black', marginVertical: 3, fontFamily: 'Poppins-Regular'},
+  link: {color: 'blue', textDecorationLine: 'underline'},
+  stepGuide: {fontSize: 16, color: 'black', marginRight: 10, marginLeft: 10, fontFamily: 'Poppins-SemiBold'},
+  label: {fontSize: 17, fontWeight: 'bold', color: 'black', marginHorizontal: 10, marginBottom: 5},
+  inputContainer: {
+    borderColor: '#d5d4d4', alignSelf: 'center', borderWidth: 1, borderRadius: 10,
+    paddingHorizontal: 10, width: '100%', height: commonHeight + 5,
+  },
+  proceedButton: {
+    backgroundColor: 'black', padding: 10, borderRadius: 8, marginHorizontal: 10,
+    height: commonHeight, alignItems: 'center', marginBottom: 20, marginTop: 10,
+    justifyContent: 'center',
+  },
+  proceedButtonText: {fontSize: screenWidth * 0.045, fontWeight: '600', color: 'white'},
+  webViewContainer: {
+    backgroundColor: '#fff', marginTop: 20, height: screenHeight / 1.7,
+    borderTopLeftRadius: 100, borderTopRightRadius: 100,
+  },
+  webView: {flex: 1},
+});
+
 export default FyersConnect;

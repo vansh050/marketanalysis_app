@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-08-29 — fleet release: Fyers OAuth and rebalance retry safety
+
+- Fyers OAuth connect/reconnect retains a defined WebView style contract, so
+  entering the broker authorization phase cannot crash the app.
+- Modern rebalance screens classify an all-skipped low-allocation result as
+  **Investment Amount Needs Review**, never **Portfolio Already Aligned**.
+- Android release version/build incremented for synchronized fleet rollout.
+
 All notable changes to the AlphaQuark B2B Mobile App are documented here.
 
 ---
