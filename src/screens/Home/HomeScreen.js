@@ -248,7 +248,9 @@ const HomeScreen = ({ }) => {
       const matchingFailedTrades = modelPortfolioRepairTrades?.find(
         trade =>
           trade.modelId === latest?.model_Id &&
-          trade.failedTrades.length !== 0,
+          ((trade.failedTrades?.length || 0) > 0 ||
+            trade.requiresFreshRebalance === true ||
+            trade.reconciliationPending === true),
       );
 
       //  console.log('mathcignL',modelPortfolioRepairTrades);
