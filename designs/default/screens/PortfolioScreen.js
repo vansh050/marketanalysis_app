@@ -19,13 +19,12 @@
  * Contract — `portfolio` prop bag (~25 keys):
  *   - selectedInnerTab, setSelectedInnerTab    (Holdings vs Model Portfolios)
  *   - tabIndex, setTabIndex                    (Holdings vs Positions inside MP-off lane)
- *   - modelPortfolioStrategy, processedData    (MP catalogs)
- *   - showPlanPicker, setShowPlanPicker, selectedPlan, setSelectedPlan
- *   - broker, BrokerHoldingsData, PositionsData, planHoldings, planHoldingsLoading
+ *   - processedData                            (MP catalog)
+ *   - broker, BrokerHoldingsData, PositionsData
  *   - profitAndLoss, pnlPercentage, pnlposneg, effectiveHoldingsData, Loading
  *   - refreshing, onRefresh, panResponder
  *   - renderAllHoldings, renderPositions, renderModalPFCard (closures over container scope)
- *   - mainColor, navigation, modelPortfolioEnabled
+ *   - mainColor, modelPortfolioEnabled
  *   - HoldingScoreModal mount: modalVisible, scoreSymbol, setModalVisible
  */
 
@@ -35,10 +34,8 @@ import {
     Text,
     SafeAreaView,
     FlatList,
-    Modal,
     TouchableOpacity,
     RefreshControl,
-    ActivityIndicator,
 } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
@@ -65,18 +62,9 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
         pnlposneg,
 
         // Lists
-        modelPortfolioStrategy,
         processedData,
         BrokerHoldingsData,
         PositionsData,
-        planHoldings,
-        planHoldingsLoading,
-
-        // Plan picker
-        showPlanPicker,
-        setShowPlanPicker,
-        selectedPlan,
-        setSelectedPlan,
         broker,
 
         // Refresh + gestures
@@ -89,9 +77,8 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
         renderPositions,
         renderModalPFCard,
 
-        // Theme + navigation
+        // Theme
         mainColor,
-        navigation,
         modelPortfolioEnabled,
 
         // Modal
@@ -111,17 +98,10 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
             profitAndLoss={profitAndLoss}
             pnlPercentage={pnlPercentage}
             pnlposneg={pnlposneg}
-            broker={selectedPlan ? planHoldings?.[0]?.broker || broker : broker}
-            selectedPlan={selectedPlan}
+            broker={broker}
+            selectedPlan={null}
         />
     );
-
-    const getHoldingSourceName = source => {
-        if (!source) return 'No broker connected';
-        return /dummy|demo|paper/i.test(source)
-            ? 'Simulated portfolio (not a broker)'
-            : source;
-    };
 
     return (
         <GestureHandlerRootView style={{ flex: 1 }}>
@@ -176,77 +156,13 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
 
                             {selectedInnerTab === 0 && (
                                 <>
-                                    {modelPortfolioStrategy?.length > 0 && (
-                                        <View style={styles.planSelectorRow}>
-                                            <TouchableOpacity
-                                                style={styles.planDropdown}
-                                                onPress={() => setShowPlanPicker(true)}
-                                                activeOpacity={0.7}>
-                                                <Text style={styles.planDropdownLabel}>Plan</Text>
-                                                <Text style={styles.planDropdownValue} numberOfLines={1}>
-                                                    {selectedPlan || 'Select Plan'}
-                                                </Text>
-                                                <Text style={styles.planDropdownArrow}>&#9660;</Text>
-                                            </TouchableOpacity>
-                                            <View style={styles.brokerBadge}>
-                                                <Text style={styles.planDropdownLabel}>Holdings source</Text>
-                                                <Text style={styles.brokerBadgeValue} numberOfLines={1}>
-                                                    {getHoldingSourceName(
-                                                        selectedPlan
-                                                            ? planHoldings?.[0]?.broker || broker
-                                                            : broker,
-                                                    )}
-                                                </Text>
-                                            </View>
-                                        </View>
-                                    )}
-
-                                    <Modal
-                                        visible={showPlanPicker}
-                                        transparent
-                                        animationType="fade"
-                                        onRequestClose={() => setShowPlanPicker(false)}>
-                                        <TouchableOpacity
-                                            style={styles.pickerOverlay}
-                                            activeOpacity={1}
-                                            onPress={() => setShowPlanPicker(false)}>
-                                            <View style={styles.pickerContainer}>
-                                                <Text style={styles.pickerTitle}>Select Plan</Text>
-                                                {modelPortfolioStrategy.map((item, index) => (
-                                                    <TouchableOpacity
-                                                        key={item.model_name || index}
-                                                        style={[
-                                                            styles.pickerItem,
-                                                            selectedPlan === item.model_name && [
-                                                                styles.pickerItemSelected,
-                                                                { backgroundColor: mainColor },
-                                                            ],
-                                                        ]}
-                                                        onPress={() => {
-                                                            setSelectedPlan(item.model_name);
-                                                            setShowPlanPicker(false);
-                                                        }}>
-                                                        <Text
-                                                            style={[
-                                                                styles.pickerItemText,
-                                                                selectedPlan === item.model_name &&
-                                                                    styles.pickerItemTextSelected,
-                                                            ]}>
-                                                            {item.model_name}
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                ))}
-                                            </View>
-                                        </TouchableOpacity>
-                                    </Modal>
-
                                     <View style={styles.tabContainer}>
                                         <TouchableOpacity
                                             style={[styles.tabButton, tabIndex === 2 && styles.activeTab]}
                                             onPress={() => setTabIndex(2)}>
                                             <View style={{ flexDirection: 'row' }}>
                                                 <Text style={[styles.tabText, tabIndex === 2 && styles.activeTabText]}>Holdings</Text>
-                                                {(selectedPlan ? planHoldings : BrokerHoldingsData?.holding)?.length > 0 && (
+                                                {BrokerHoldingsData?.holding?.length > 0 && (
                                                     <View
                                                         style={{
                                                             backgroundColor: tabIndex === 2 ? '#C84444' : 'grey',
@@ -258,7 +174,7 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                                             marginLeft: 5,
                                                         }}>
                                                         <Text style={styles.badgeText}>
-                                                            {selectedPlan ? planHoldings.length : BrokerHoldingsData?.holding?.length}
+                                                            {BrokerHoldingsData?.holding?.length}
                                                         </Text>
                                                     </View>
                                                 )}
@@ -316,17 +232,9 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                 </SafeAreaView>
                             ) : (
                                 <SafeAreaView style={styles.containerfi}>
-                                    {planHoldingsLoading && selectedPlan ? (
-                                        <View style={{ padding: 40, alignItems: 'center' }}>
-                                            <ActivityIndicator size="large" color={mainColor} />
-                                            <Text style={{ marginTop: 12, color: '#666', fontFamily: 'Satoshi-Regular' }}>
-                                                Loading holdings...
-                                            </Text>
-                                        </View>
-                                    ) : (
-                                        <FlatList
+                                    <FlatList
                                             style={styles.list}
-                                            data={selectedPlan ? planHoldings : BrokerHoldingsData?.holding}
+                                            data={BrokerHoldingsData?.holding}
                                             ListHeaderComponent={renderBrokerSummary}
                                             refreshControl={
                                                 <RefreshControl
@@ -341,7 +249,6 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                             keyExtractor={(item, index) => `${item?.symbol || index}_${index}`}
                                             scrollEventThrottle={16}
                                         />
-                                    )}
                                 </SafeAreaView>
                             )
                         ) : (
@@ -351,27 +258,7 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                     style={styles.list}
                                     renderItem={renderModalPFCard}
                                     keyExtractor={(item, index) => `${item?.modelName || index}_${index}`}
-                                    ListHeaderComponent={
-                                        <>
-                                            <TouchableOpacity
-                                                onPress={() => navigation.navigate('TradePnLScreen')}
-                                                style={{
-                                                    flexDirection: 'row',
-                                                    alignItems: 'center',
-                                                    justifyContent: 'center',
-                                                    marginHorizontal: 16,
-                                                    marginTop: 8,
-                                                    paddingVertical: 8,
-                                                    backgroundColor: mainColor,
-                                                    borderRadius: 8,
-                                                }}>
-                                                <Text style={{ color: '#fff', fontSize: 12, fontFamily: 'Poppins-Medium' }}>
-                                                    📊 View Trade P&L Report
-                                                </Text>
-                                            </TouchableOpacity>
-                                            <PortfolioSummaryCard />
-                                        </>
-                                    }
+                                    ListHeaderComponent={<PortfolioSummaryCard />}
                                     ListEmptyComponent={null}
                                     scrollEventThrottle={16}
                                 />
