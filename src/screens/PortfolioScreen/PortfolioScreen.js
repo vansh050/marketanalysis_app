@@ -4,6 +4,9 @@ import {
   Text,
   PanResponder,
   Animated,
+  Modal,
+  TouchableOpacity,
+  StyleSheet,
 } from 'react-native';
 import eventEmitter from '../../components/EventEmitter';
 import {getAuth} from '@react-native-firebase/auth';
@@ -20,7 +23,11 @@ import PortfolioPositionText from '../../components/AdviceScreenComponents/Dynam
 import HoldingDynamicText from '../../components/AdviceScreenComponents/DynamicText/HoldingDynamicText';
 import {useConfig} from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
-import {useNavigation, useFocusEffect} from '@react-navigation/native';
+import {
+  useFocusEffect,
+  useIsFocused,
+  useNavigation,
+} from '@react-navigation/native';
 import useWebSocketCurrentPrice from '../../FunctionCall/useWebSocketCurrentPrice';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
 import portfolioEvents, {PORTFOLIO_EVENTS} from '../../utils/portfolioEvents';
@@ -32,6 +39,7 @@ import {getAccountEmail} from '../../utils/accountEmail';
 
 const PortfolioScreen = () => {
   const navigation = useNavigation();
+  const isScreenFocused = useIsFocused();
   const {
     userDetails,
     getUserDeatils,
@@ -467,6 +475,71 @@ const PortfolioScreen = () => {
   };
 
   const [selectedInnerTab, setSelectedInnerTab] = useState(0);
+  const [showDisconnectedHoldingsWarning, setShowDisconnectedHoldingsWarning] =
+    useState(false);
+
+  const brokerConnectionResolved = Boolean(
+    userDetails &&
+      (userDetails._id ||
+        userDetails.email ||
+        userDetails.user_email ||
+        userDetails.connect_broker_status != null),
+  );
+  const normalizedConnectionStatus = String(
+    userDetails?.connect_broker_status || brokerStatus || '',
+  )
+    .trim()
+    .toLowerCase();
+  const primaryBrokerEntry = Array.isArray(userDetails?.connected_brokers)
+    ? userDetails.connected_brokers.find(
+        entry =>
+          String(entry?.broker || '').trim().toLowerCase() ===
+          String(broker || '').trim().toLowerCase(),
+      )
+    : null;
+  const normalizedEntryStatus = String(primaryBrokerEntry?.status || '')
+    .trim()
+    .toLowerCase();
+  const tokenExpiry = primaryBrokerEntry?.token_expire
+    ? new Date(primaryBrokerEntry.token_expire).getTime()
+    : NaN;
+  const disconnectedStatuses = new Set([
+    'disconnected',
+    'expired',
+    'error',
+    'failure',
+    'failed',
+    'inactive',
+    'not connected',
+    'not_connected',
+  ]);
+  const brokerSessionUsable =
+    Boolean(broker) &&
+    !disconnectedStatuses.has(normalizedConnectionStatus) &&
+    !disconnectedStatuses.has(normalizedEntryStatus) &&
+    (!Number.isFinite(tokenExpiry) || tokenExpiry > Date.now());
+
+  useEffect(() => {
+    if (
+      brokerConnectionResolved &&
+      isScreenFocused &&
+      selectedInnerTab === 0 &&
+      !brokerSessionUsable
+    ) {
+      setShowDisconnectedHoldingsWarning(true);
+    } else if (
+      !isScreenFocused ||
+      brokerSessionUsable ||
+      selectedInnerTab !== 0
+    ) {
+      setShowDisconnectedHoldingsWarning(false);
+    }
+  }, [
+    brokerConnectionResolved,
+    brokerSessionUsable,
+    isScreenFocused,
+    selectedInnerTab,
+  ]);
 
   // Client-side MP P&L aggregation (matching web app behavior)
   const [mpHoldings, setMpHoldings] = useState([]);
@@ -725,7 +798,9 @@ const PortfolioScreen = () => {
 
   // Switch between broker data, plan data, and MP data based on tab/plan state
   const isMP = selectedInnerTab === 1;
-  const usePlanSummary = !isMP && selectedPlan && planSummary;
+  // All Holdings is broker-scoped and must never inherit a remembered model
+  // plan selection. Model-specific summaries belong to Model Portfolios.
+  const usePlanSummary = false;
   const profitAndLoss = isMP
     ? (mpSummary?.totalReturns ?? 0).toFixed(2)
     : usePlanSummary
@@ -1507,8 +1582,99 @@ const PortfolioScreen = () => {
     modalVisible, scoreSymbol, setModalVisible,
   };
 
-  return <Presentation portfolio={portfolio} />;
+  return (
+    <>
+      <Presentation portfolio={portfolio} />
+      <Modal
+        visible={showDisconnectedHoldingsWarning}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDisconnectedHoldingsWarning(false)}>
+        <View style={brokerWarningStyles.backdrop}>
+          <View style={brokerWarningStyles.card}>
+            <Text style={brokerWarningStyles.title}>Broker not connected</Text>
+            <Text style={brokerWarningStyles.message}>
+              These holdings may be stale because your broker is not connected.
+              Connect your broker to refresh and verify the latest holdings.
+            </Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Connect broker"
+              activeOpacity={0.85}
+              style={[brokerWarningStyles.primaryButton, {backgroundColor: mainColor}]}
+              onPress={() => {
+                setShowDisconnectedHoldingsWarning(false);
+                navigation.navigate('Broker Setting');
+              }}>
+              <Text style={brokerWarningStyles.primaryButtonText}>
+                Connect Broker
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss stale holdings warning"
+              activeOpacity={0.8}
+              style={brokerWarningStyles.secondaryButton}
+              onPress={() => setShowDisconnectedHoldingsWarning(false)}>
+              <Text style={brokerWarningStyles.secondaryButtonText}>
+                View stale data
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </>
+  );
 };
+
+const brokerWarningStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.42)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    padding: 20,
+  },
+  title: {
+    color: '#1F2937',
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 18,
+    marginBottom: 8,
+  },
+  message: {
+    color: '#4B5563',
+    fontFamily: 'Satoshi-Regular',
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 18,
+  },
+  primaryButton: {
+    alignItems: 'center',
+    borderRadius: 9,
+    paddingVertical: 12,
+  },
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontFamily: 'Satoshi-Bold',
+    fontSize: 14,
+  },
+  secondaryButton: {
+    alignItems: 'center',
+    paddingTop: 13,
+  },
+  secondaryButtonText: {
+    color: '#4B5563',
+    fontFamily: 'Satoshi-Medium',
+    fontSize: 13,
+  },
+});
 
 
 export default PortfolioScreen;
