@@ -33,4 +33,10 @@ describe('SDK executeAdvice forwards the reviewed frozen plan', () => {
   test('forwarding is conditional so a no-freeze advisor is unchanged', () => {
     expect(source).toMatch(/\.\.\.\((payload|additionalPayload)\.plan_id\s*\n?\s*\?/);
   });
+
+
+  test('an SDK rejection joins the common error handler and releases loading', () => {
+    expect(source).toMatch(/sdkExecutionError\s*=\s*sdkErr/);
+    expect(source).toMatch(/sdkExecutionError\s*\n?\s*\? Promise\.reject\(sdkExecutionError\)/);
+  });
 });

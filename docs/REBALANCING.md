@@ -1,5 +1,11 @@
 # Rebalancing Architecture
 
+## 2026-09-22 SDK sell authorization and error ownership
+
+The shared SDK verifies broker sell authorization before placement, so a
+server-confirmed Groww/DDPI session proceeds without a redundant local gate.
+SDK failures use the terminal error handler and never resubmit through legacy.
+
 > **Last updated**: 2026-04-07
 
 ## Overview

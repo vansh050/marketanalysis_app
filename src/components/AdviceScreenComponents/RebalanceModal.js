@@ -1531,6 +1531,7 @@ const RebalanceModal = ({
     // in a response-shaped object so the downstream .then() handler
     // works unchanged.
     let sdkResponse = null;
+    let sdkExecutionError = null;
     if (sdkExecuteAdviceEnabled) {
       try {
         const sdkResult = await sdkClient.executeAdvice(
@@ -1600,11 +1601,16 @@ const RebalanceModal = ({
         };
         console.log('[RebalanceModal] SDK executeAdvice (main) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
       } catch (sdkErr) {
-        console.error('[RebalanceModal] SDK executeAdvice (main) failed, falling back to legacy:', sdkErr?.message);
+        console.error('[RebalanceModal] SDK owns this attempt; legacy fallback blocked:', sdkErr?.message);
+        sdkExecutionError = sdkErr;
       }
     }
 
-    await (sdkResponse ? Promise.resolve(sdkResponse) : axios.request(config))
+    await (sdkExecutionError
+      ? Promise.reject(sdkExecutionError)
+      : sdkResponse
+        ? Promise.resolve(sdkResponse)
+        : axios.request(config))
       .then(async response => {
         const checkData = response?.data?.results;
         console.log('[RebalanceModal] process-trade response:', JSON.stringify({
