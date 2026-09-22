@@ -435,15 +435,16 @@ const FyersConnect = ({
         guideSteps: [
           'Log in with your <b>mobile number</b>, OTP/TOTP and <b>PIN</b>',
           'Open <b>fyers.in/web/api-dashboard/user-apps</b>',
-          'Click <b>Create App</b> and create the <b>Algo trading</b> app',
+          'On that list, click the app named <b>\u201cAlgo trading app\u201d</b> (it sits at the top). <b>Do not</b> press <b>Create App</b> \u2014 that makes an ordinary app which can never place orders',
           'Set the <b>Redirect URL</b> below',
-          'Paste your <b>IP</b> into <b>Allowed IPs</b>',
-          'Click <b>Activate</b> \u2014 Fyers only issues an order-capable App ID once the app is activated',
-          'Copy your <b>App ID</b> \u2014 it must end in <b>-200</b>, and it is <b>not</b> your YR\u2026/XL\u2026 login ID',
-          'Copy your <b>Secret ID</b>',
+          'Paste the <b>static IP</b> below into <b>Static IP</b> \u2014 it must match exactly',
+          'Tick the permissions, including <b>Order Placement</b>',
+          'Click <b>Activate</b>',
+          'Fyers now issues a <b>new App ID and Secret</b>. Copy the <b>App ID</b> \u2014 it ends in <b>-200</b> and is <b>not</b> your YR\u2026/XL\u2026 login ID',
+          'Copy the new <b>Secret ID</b>',
         ],
         note:
-          'Since April 2026 Fyers only accepts an <b>App ID ending in -200</b> (the activated Algo-trading app) and only with <b>Order Placement</b> ticked \u2014 without either, Fyers rejects every order with "algo orders are not allowed". If you already have an older app, ticking Order Placement on it will <b>not</b> help: create the Algo trading app, which issues a <b>new App ID and Secret ID</b>.',
+          'Since April 2026 Fyers only accepts orders from the <b>activated \u201cAlgo trading app\u201d</b> \u2014 its App ID ends in <b>-200</b>. Any older app still logs in and shows your holdings, then rejects every order with "algo orders are not allowed". Ticking Order Placement on an older app does <b>not</b> fix it: open the \u201cAlgo trading app\u201d entry and Activate it, which issues a <b>new App ID and Secret ID</b>. A static IP that does not match the one shown here causes the same error.',
       }}
       egressBrokerKey="fyers"
       customerId={userId}

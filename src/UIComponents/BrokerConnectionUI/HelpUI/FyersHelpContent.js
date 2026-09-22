@@ -43,9 +43,11 @@ const FyersHelpContent = ({expanded, onExpandChange }) => {
       {expanded && (
         <>
         <Text style={styles.instruction}>
-                          3. Click on the "Create App" button and create the <Text style={{fontWeight: '700'}}>Algo trading app</Text>. Provide an app name, paste the redirect URL as specified in the instructions, add a description, and delete the webhook. {"\n\n"}
+                          3. On that page, click the app already listed as <Text style={{fontWeight: '700'}}>"Algo trading app"</Text> (it sits at the top). {"\n\n"}
+                          ⚠️ <Text style={{fontWeight: '700'}}>Do NOT press "Create App"</Text> — that makes an ordinary app which can never place orders, and it is the most common reason a Fyers connection looks fine but every sell fails. {"\n\n"}
+                          Paste the redirect URL as specified in the instructions. {"\n\n"}
                           ⚠️ <Text style={{fontWeight: '700'}}>You MUST tick the "Order Placement" permission</Text> — without it Fyers rejects every basket order with "algo orders are not allowed for this app". The checkbox is OFF by default. {"\n\n"}
-                          ⚠️ <Text style={{fontWeight: '700'}}>Enter the static IP shown on the connect screen</Text> under Allowed IPs, then click <Text style={{fontWeight: '700'}}>Activate</Text>. Fyers only issues an order-capable App ID once the app is activated. {"\n\n"}
+                          ⚠️ <Text style={{fontWeight: '700'}}>Enter the static IP shown on the connect screen</Text> under Static IP — it must match exactly, or Fyers rejects orders with the same "algo orders are not allowed" message. Then click <Text style={{fontWeight: '700'}}>Activate</Text>. Fyers only issues an order-capable App ID once the app is activated. {"\n\n"}
                           Tick all other permissions you want (Holdings, Funds, Orders read, etc.), accept the API Usage Terms and Conditions, and click "Create App."
                         </Text>
                         <Text style={styles.instruction}>
