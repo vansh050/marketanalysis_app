@@ -1084,6 +1084,16 @@ const RebalanceModal = ({
               modelId: additionalPayload.model_id || modelPortfolioModelId,
               modelName: additionalPayload.modelName,
               uniqueId: additionalPayload.unique_id,
+              // Same contract as the main path above: never let the SDK
+              // route drop the reviewed plan.
+              ...(additionalPayload.plan_id
+                ? {
+                    planId: additionalPayload.plan_id,
+                    ...(additionalPayload.plan_version != null
+                      ? {planVersion: additionalPayload.plan_version}
+                      : {}),
+                  }
+                : {}),
               trades: payload.trades,
             },
             // skipReview + presentResult=false — host owns both UIs.
@@ -1531,6 +1541,19 @@ const RebalanceModal = ({
             modelId: payload.model_id,
             modelName: payload.modelName,
             uniqueId: payload.unique_id,
+            // Forward the reviewed frozen plan when this fork's calculate
+            // produced one. Dropping it makes ccxt fall back to server
+            // correlation, which cannot recover a `kind: "repair"` plan and
+            // refuses the placement `409 PLAN_REQUIRED` (markup, 22 Sep 2026).
+            ...(payload.plan_id
+              ? {
+                  planId: payload.plan_id,
+                  ...(payload.plan_version != null
+                    ? {planVersion: payload.plan_version}
+                    : {}),
+                  ...(payload.plan_hash ? {planHash: payload.plan_hash} : {}),
+                }
+              : {}),
             trades: payload.trades,
           },
           // 2026-05-07:
