@@ -3,6 +3,12 @@ import { StyleSheet, Dimensions } from 'react-native';
 
 import { getAuth } from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
+import {
+  isValidFyersAppId,
+  fyersAppIdFieldError,
+  normalizeFyersAppId,
+  FYERS_APP_ID_ENTERED_MESSAGE,
+} from '../../utils/fyersAppId';
 import CryptoJS from 'react-native-crypto-js';
 import axios from 'axios';
 import Config from 'react-native-config';
@@ -170,7 +176,7 @@ const FyersConnect = ({
         uid: userId,
         user_broker: 'Fyers',
         jwtToken: fyersAccessToken,
-        clientCode: secretKey,
+        clientCode: normalizeFyersAppId(secretKey),
         secretKey: checkValidApiAnSecret(apiKey),
       };
       let config = {
@@ -286,6 +292,14 @@ const FyersConnect = ({
   };
 
   const updateSecretKey = () => {
+    // Fyers places orders only from an activated Algo-trading app whose
+    // App ID ends in -200; any other app connects and reads funds fine,
+    // then rejects every order (-50) and every eDIS call (-96). Catch it
+    // here so the customer is told now, not at their first SELL.
+    if (!isValidFyersAppId(secretKey)) {
+      showAlert('error', 'Check your Fyers App ID', FYERS_APP_ID_ENTERED_MESSAGE);
+      return;
+    }
     if (!egressReady) {
       setUnmetAck(true);
       return;
@@ -294,7 +308,7 @@ const FyersConnect = ({
     let data = JSON.stringify({
       uid: userId,
       redirect_url: brokerConnectRedirectURL,
-      clientCode: secretKey,
+      clientCode: normalizeFyersAppId(secretKey),
       secretKey: checkValidApiAnSecret(apiKey),
     });
     let config = {
@@ -424,10 +438,11 @@ const FyersConnect = ({
           'Click <b>Create App</b>',
           'Set the <b>Redirect URL</b> below',
           'Paste your <b>IP</b> into <b>Allowed IPs</b>',
-          'Copy your <b>App ID</b> and <b>Secret ID</b>',
+          'Copy your <b>App ID</b> \u2014 it must end in <b>-200</b>',
+          'Copy your <b>Secret ID</b>',
         ],
         note:
-          'Tick the <b>Order Placement</b> permission when creating the app — without it Fyers rejects orders with "algo orders are not allowed".',
+          'Since April 2026 Fyers only accepts an <b>App ID ending in -200</b> (the activated Algo-trading app). Tick the <b>Order Placement</b> permission when creating it \u2014 without either, Fyers rejects every order with "algo orders are not allowed".',
       }}
       egressBrokerKey="fyers"
       customerId={userId}
@@ -441,7 +456,8 @@ const FyersConnect = ({
           label: 'App ID',
           value: secretKey,
           onChange: (t) => setSecretKey(t.trim()),
-          placeholder: 'Paste your Fyers App ID',
+          placeholder: 'e.g. ABCDE12345-200',
+          error: fyersAppIdFieldError(secretKey),
         },
         {
           label: 'Secret ID',
@@ -452,7 +468,7 @@ const FyersConnect = ({
         },
       ]}
       phase="creds"
-      canSubmit={Boolean(secretKey) && Boolean(apiKey)}
+      canSubmit={isValidFyersAppId(secretKey) && Boolean(apiKey)}
       submitLabel="Connect Fyers"
       loading={loading}
       onSubmit={updateSecretKey}
