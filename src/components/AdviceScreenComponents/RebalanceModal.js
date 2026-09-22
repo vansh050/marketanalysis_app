@@ -1556,7 +1556,25 @@ const RebalanceModal = ({
         // cautionary-listing detection in RecommendationSuccessModal,
         // etc.) consume the broker-flavoured fields directly — same
         // code path as the legacy axios flow, no second translation.
-        sdkResponse = { data: { results: sdkResult?.rows || [] } };
+        // A refusal before dispatch (MARKET_CLOSED, expired broker session,
+        // drifted plan) comes back with zero rows and the server's own
+        // sentence in `recovery.message`. Carry it into the legacy envelope
+        // so the empty-results branch below says why instead of "No orders
+        // were processed by the broker. Please try again." (2026-09-22).
+        sdkResponse = {
+          data: {
+            results: sdkResult?.rows || [],
+            ...(sdkResult?.notSent === true
+              ? {
+                  code: sdkResult.code,
+                  message: sdkResult?.recovery?.message,
+                  notSent: true,
+                  sessionExpired:
+                    sdkResult?.recovery?.reason === 'broker_session_expired',
+                }
+              : {}),
+          },
+        };
         console.log('[RebalanceModal] SDK executeAdvice (main) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
       } catch (sdkErr) {
         console.error('[RebalanceModal] SDK executeAdvice (main) failed, falling back to legacy:', sdkErr?.message);
@@ -1618,6 +1636,21 @@ const RebalanceModal = ({
             setLoading(false);
             setOpenSucessModal(true);
             getModelPortfolioStrategyDetails();
+            return;
+          }
+
+          // A server refusal before dispatch is not a TPIN problem and not a
+          // broker rejection: nothing was sent. Say why and let them retry
+          // when the reason clears (market hours, reconnect, recalculate).
+          if (response?.data?.notSent === true) {
+            Toast.show({
+              type: 'info',
+              text1: 'Orders not placed',
+              text2: errorMsg || 'Your broker did not receive these orders. Nothing was placed.',
+              visibilityTime: 6000,
+            });
+            setOpenRebalanceModal(false);
+            setLoading(false);
             return;
           }
 
