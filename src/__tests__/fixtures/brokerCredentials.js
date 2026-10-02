@@ -32,6 +32,7 @@ export const KOTAK_CREDENTIALS = {
   sid: 'kotak-sid-303',
   serverId: 'kotak-server-id',
   viewToken: 'kotak-view-token',
+  baseUrl: 'https://e43.kotaksecurities.com',
 };
 
 export const DHAN_CREDENTIALS = {

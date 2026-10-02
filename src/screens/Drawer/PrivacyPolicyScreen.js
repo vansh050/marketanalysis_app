@@ -10,16 +10,18 @@ import { useNavigation } from '@react-navigation/native';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
+import Config from 'react-native-config';
+
+import { designColor } from '../../design/literalTokens';
 
 const PrivacyPolicyScreen = () => {
     const { configData } = useTrade();
     const navigation = useNavigation();
-    const privacyURL = configData?.config?.REACT_APP_ADVISOR_PRIVACY_POLICY;
-
     const config = useConfig();
-    const gradient1 = config?.gradient1 || '#0056B7';
-    const gradient2 = config?.gradient2 || '#002651';
-    const mainColor = config?.mainColor || '#0056B7';
+    const privacyURL = configData?.config?.REACT_APP_ADVISOR_PRIVACY_POLICY || config?.privacyPolicy || config?.privacy_policy || Config.REACT_APP_ADVISOR_PRIVACY_POLICY;
+    const gradient1 = config?.gradient1 || designColor('0056b7');
+    const gradient2 = config?.gradient2 || designColor('002651');
+    const mainColor = config?.mainColor || designColor('0056b7');
     const [isValidUrl, setIsValidUrl] = useState(true);
 
     useEffect(() => {

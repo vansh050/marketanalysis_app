@@ -18,6 +18,8 @@ import {
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import {CONFLICT_TYPES} from '../services/ReconciliationService';
 
+import { designColor, designFont } from '../design/literalTokens';
+
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 
 /**
@@ -40,7 +42,7 @@ const ConflictCard = ({conflict, index, userChoice, onChoiceChange}) => {
           <Icon
             name={isPendingOrderConflict ? 'clock-alert-outline' : 'chart-pie'}
             size={24}
-            color={isPendingOrderConflict ? '#F59E0B' : '#3B82F6'}
+            color={isPendingOrderConflict ? designColor('f59e0b') : designColor('3b82f6')}
           />
         </View>
         <View style={styles.conflictHeaderText}>
@@ -50,7 +52,6 @@ const ConflictCard = ({conflict, index, userChoice, onChoiceChange}) => {
           <Text style={styles.conflictSymbol}>{closureTrade.symbol}</Text>
         </View>
       </View>
-
       {/* Details */}
       <View style={styles.conflictDetails}>
         {/* Pending Order Info */}
@@ -99,7 +100,7 @@ const ConflictCard = ({conflict, index, userChoice, onChoiceChange}) => {
           <Icon
             name={isPendingOrderConflict ? 'alert-circle-outline' : 'information-outline'}
             size={16}
-            color={isPendingOrderConflict ? '#B45309' : '#6B7280'}
+            color={isPendingOrderConflict ? designColor('b45309') : designColor('6b7280')}
           />
           <Text style={[
             styles.messageText,
@@ -109,7 +110,6 @@ const ConflictCard = ({conflict, index, userChoice, onChoiceChange}) => {
           </Text>
         </View>
       </View>
-
       {/* Action Selection */}
       <View style={styles.actionSelection}>
         <Text style={styles.actionTitle}>Choose action:</Text>
@@ -294,7 +294,7 @@ const PendingOrderWarningModal = ({
               {/* Header */}
               <View style={styles.indicator} />
               <View style={styles.modalHeader}>
-                <Icon name="clock-alert-outline" size={28} color="#F59E0B" />
+                <Icon name="clock-alert-outline" size={28} color={designColor('f59e0b')} />
                 <Text style={styles.modalTitle}>Pending Orders Found</Text>
               </View>
               <Text style={styles.modalSubtitle}>
@@ -305,7 +305,7 @@ const PendingOrderWarningModal = ({
 
               {/* Info Banner */}
               <View style={styles.infoBanner}>
-                <Icon name="information" size={18} color="#1E40AF" />
+                <Icon name="information" size={18} color={designColor('1e40af')} />
                 <Text style={styles.infoBannerText}>
                   The position may not be open yet. Cancel the pending order or refresh to check status.
                 </Text>
@@ -343,7 +343,7 @@ const PendingOrderWarningModal = ({
                   onPress={handleConfirm}
                   disabled={isLoading}>
                   {isLoading ? (
-                    <ActivityIndicator color="#FFFFFF" size="small" />
+                    <ActivityIndicator color={designColor('ffffff')} size="small" />
                   ) : (
                     <Text style={styles.confirmButtonText}>
                       Apply & Continue
@@ -376,7 +376,7 @@ const styles = StyleSheet.create({
   indicator: {
     width: 40,
     height: 5,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: designColor('e0e0e0'),
     borderRadius: 2.5,
     alignSelf: 'center',
     marginBottom: 15,
@@ -389,30 +389,30 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 20,
     fontWeight: '700',
-    fontFamily: 'Poppins-SemiBold',
-    color: '#1F2937',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('1f2937'),
     marginLeft: 10,
   },
   modalSubtitle: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#6B7280',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('6b7280'),
     marginBottom: 12,
   },
   infoBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EFF6FF',
+    backgroundColor: designColor('eff6ff'),
     borderRadius: 8,
     padding: 12,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: designColor('bfdbfe'),
   },
   infoBannerText: {
     fontSize: 13,
-    fontFamily: 'Poppins-Regular',
-    color: '#1E40AF',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('1e40af'),
     marginLeft: 10,
     flex: 1,
   },
@@ -420,12 +420,12 @@ const styles = StyleSheet.create({
     maxHeight: screenHeight * 0.45,
   },
   conflictCard: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: designColor('f9fafb'),
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: designColor('e5e7eb'),
   },
   conflictHeader: {
     flexDirection: 'row',
@@ -436,12 +436,12 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#DBEAFE',
+    backgroundColor: designColor('dbeafe'),
     justifyContent: 'center',
     alignItems: 'center',
   },
   pendingIconContainer: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: designColor('fef3c7'),
   },
   conflictHeaderText: {
     marginLeft: 12,
@@ -450,13 +450,13 @@ const styles = StyleSheet.create({
   conflictTitle: {
     fontSize: 16,
     fontWeight: '600',
-    fontFamily: 'Poppins-Medium',
-    color: '#1F2937',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('1f2937'),
   },
   conflictSymbol: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#6B7280',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('6b7280'),
   },
   conflictDetails: {
     marginBottom: 12,
@@ -467,74 +467,74 @@ const styles = StyleSheet.create({
   orderSectionTitle: {
     fontSize: 12,
     fontWeight: '600',
-    fontFamily: 'Poppins-Medium',
-    color: '#374151',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('374151'),
     marginBottom: 4,
   },
   orderInfo: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     borderRadius: 8,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: designColor('e5e7eb'),
   },
   orderText: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#1F2937',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('1f2937'),
     fontWeight: '500',
   },
   orderStatus: {
     fontSize: 13,
-    fontFamily: 'Poppins-Regular',
-    color: '#6B7280',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('6b7280'),
     marginTop: 2,
   },
   orderTime: {
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: '#9CA3AF',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('9ca3af'),
     marginTop: 2,
   },
   suggestedText: {
     fontSize: 13,
-    fontFamily: 'Poppins-Regular',
-    color: '#059669',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('059669'),
     marginTop: 4,
     fontWeight: '500',
   },
   messageContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: '#F3F4F6',
+    backgroundColor: designColor('f3f4f6'),
     borderRadius: 8,
     padding: 10,
     marginTop: 8,
   },
   warningMessageContainer: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: designColor('fef3c7'),
   },
   messageText: {
     fontSize: 13,
-    fontFamily: 'Poppins-Regular',
-    color: '#4B5563',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('4b5563'),
     marginLeft: 8,
     flex: 1,
     lineHeight: 18,
   },
   warningMessageText: {
-    color: '#B45309',
+    color: designColor('b45309'),
   },
   actionSelection: {
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: designColor('e5e7eb'),
     paddingTop: 12,
   },
   actionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    fontFamily: 'Poppins-Medium',
-    color: '#374151',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('374151'),
     marginBottom: 10,
   },
   actionOption: {
@@ -542,21 +542,21 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     padding: 12,
     borderRadius: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: designColor('e5e7eb'),
     marginBottom: 8,
   },
   actionOptionSelected: {
-    borderColor: '#2563EB',
-    backgroundColor: '#EFF6FF',
+    borderColor: designColor('2563eb'),
+    backgroundColor: designColor('eff6ff'),
   },
   radioOuter: {
     width: 20,
     height: 20,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: '#9CA3AF',
+    borderColor: designColor('9ca3af'),
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -566,7 +566,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#2563EB',
+    backgroundColor: designColor('2563eb'),
   },
   actionOptionText: {
     flex: 1,
@@ -574,13 +574,13 @@ const styles = StyleSheet.create({
   actionOptionLabel: {
     fontSize: 14,
     fontWeight: '600',
-    fontFamily: 'Poppins-Medium',
-    color: '#1F2937',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('1f2937'),
   },
   actionOptionDesc: {
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: '#6B7280',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('6b7280'),
     marginTop: 2,
     lineHeight: 16,
   },
@@ -594,16 +594,16 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: designColor('d1d5db'),
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
   },
   cancelAllButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    fontFamily: 'Poppins-Medium',
-    color: '#374151',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('374151'),
   },
   confirmButton: {
     flex: 1,
@@ -611,13 +611,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#2563EB',
+    backgroundColor: designColor('2563eb'),
   },
   confirmButtonText: {
     fontSize: 16,
     fontWeight: '600',
-    fontFamily: 'Poppins-Medium',
-    color: '#FFFFFF',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('ffffff'),
   },
   buttonDisabled: {
     opacity: 0.6,

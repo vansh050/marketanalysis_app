@@ -1,7 +1,15 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { StyleSheet, Dimensions } from 'react-native';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import {
+  StyleSheet,
+  Dimensions,
+  View,
+  Text,
+  ActivityIndicator,
+  TouchableOpacity,
+} from 'react-native';
 
-import { getAuth } from '@react-native-firebase/auth';
+import {getAuth} from '@react-native-firebase/auth';
+import crashlytics from '@react-native-firebase/crashlytics';
 import server from '../../utils/serverConfig';
 import {
   isValidFyersAppId,
@@ -13,9 +21,10 @@ import CryptoJS from 'react-native-crypto-js';
 import axios from 'axios';
 import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import FyersConnectUI from '../../UIComponents/BrokerConnectionUI/FyersConnectUI';
 import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
+import CrossPlatformOverlay from '../CrossPlatformOverlay';
 import { useTrade } from '../../screens/TradeContext';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
@@ -25,9 +34,29 @@ import {
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
 import {getAccountEmail} from '../../utils/accountEmail';
+import {
+  FYERS_REDIRECT_MISMATCH,
+  isFyersRedirectMismatch,
+} from '../../utils/fyersOAuthErrors';
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 const commonHeight = screenHeight * 0.06;
+
+const recordFyersBreadcrumb = (event, details = {}) => {
+  const safe = {
+    broker: 'Fyers',
+    event,
+    phase: details.phase || undefined,
+    errorCode: details.errorCode || undefined,
+  };
+  try {
+    crashlytics().log(`[BrokerConnect] ${JSON.stringify(safe)}`);
+  } catch (_) {
+    // Diagnostics must never interfere with broker connection.
+  }
+};
 
 const FyersConnect = ({
   isVisible,
@@ -36,12 +65,17 @@ const FyersConnect = ({
   setShowBrokerModal,
   fetchBrokerStatusModal,
   reauthConfig,
+  initialCredentials,
+  initialEgressReady = false,
+  autoStart = false,
+  initialUserId,
+  onBackToQuickReconnect,
 }) => {
   const { configData } = useTrade();
   const showAlert = useModalStore((state) => state.showAlert);
   const sdkBridge = useSdkBridge();
-  const [apiKey, setApiKey] = useState('');
-  const [secretKey, setSecretKey] = useState('');
+  const [apiKey, setApiKey] = useState(() => initialCredentials?.appSecret || '');
+  const [secretKey, setSecretKey] = useState(() => initialCredentials?.appId || '');
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [showWebView, setShowWebView] = useState(false);
   const [authUrl, setAuthUrl] = useState('');
@@ -50,12 +84,17 @@ const FyersConnect = ({
   const [fyersAuthCode, setFyersAuthCode] = useState(null);
   const [fyersAccessToken, setFyersAccessToken] = useState(null);
   const hasConnectedFyers = useRef(false);
+  const redirectMismatchHandled = useRef(false);
+  const autoStartHandled = useRef(false);
+  // Set when the staged (auto-start) hand-off cannot finish — update-key
+  // rejected, redirect mismatch, token exchange failed, or the WebView
+  // renderer died. Only then does the credential sheet render; until then the
+  // hand-off shows one lightweight surface instead of a second full sheet.
+  const [autoStartFailed, setAutoStartFailed] = useState(false);
 
   const brokerConnectRedirectURL =
     configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL;
 
-  const auth = getAuth();
-  const user = auth.currentUser;
   const userEmail = getAccountEmail();
   const [helpVisible, setHelpVisible] = useState(false);
 
@@ -69,19 +108,32 @@ const FyersConnect = ({
       : queryString;
     const pairs = query.split('&');
     pairs.forEach(pair => {
-      const [key, value] = pair.split('=');
-      params[decodeURIComponent(key)] = decodeURIComponent(value);
+      const separator = pair.indexOf('=');
+      if (separator <= 0) return;
+      try {
+        const key = decodeURIComponent(pair.slice(0, separator));
+        const value = decodeURIComponent(pair.slice(separator + 1));
+        params[key] = value;
+      } catch (_) {
+        // Ignore malformed third-party query segments instead of crashing the
+        // JS runtime while the Fyers WebView is navigating.
+      }
     });
     return params;
   };
 
-  const [userDetails, setUserDetails] = useState();
+  // The Fyers flow only needs the Mongo id. Keeping an account's entire user
+  // document in this modal doubled a large account's live object graph while
+  // mounting the OAuth WebView and made low-memory Android crashes more likely.
+  // DeviceTotpReconnectGate passes the id it already fetched (initialUserId),
+  // so the combined onboarding path downloads the user document only once.
+  const [userId, setUserId] = useState(initialUserId);
   const getUserDeatils = () => {
     axios
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -89,33 +141,43 @@ const FyersConnect = ({
         },
       })
       .then(res => {
-        setUserDetails(res.data.User);
+        setUserId(res.data?.User?._id);
+        recordFyersBreadcrumb('user_id_loaded', {phase: 'prepare'});
       })
-      .catch(err => console.log(err));
+      .catch(error => {
+        setAutoStartFailed(true);
+        recordFyersBreadcrumb('user_id_load_failed', {
+          phase: 'prepare',
+          errorCode: error?.response?.status
+            ? `http_${error.response.status}`
+            : 'client_error',
+        });
+      });
   };
   useEffect(() => {
+    if (initialUserId) {
+      recordFyersBreadcrumb('user_id_reused', {phase: 'prepare'});
+      return;
+    }
     getUserDeatils();
-  }, [userEmail, server.server.baseUrl]);
-
-  const userId = userDetails && userDetails._id;
+  }, [initialUserId, userEmail, server.server.baseUrl]);
 
   // Egress-IP gate (see EgressIpCallout). Fyers requires a dedicated
   // static IP whitelisted in the user's Fyers API dashboard.
-  const [egressReady, setEgressReady] = useState(false);
+  const [egressReady, setEgressReady] = useState(Boolean(initialEgressReady));
   const [unmetAck, setUnmetAck] = useState(false);
 
   // Step 1: Extract auth_code from OAuth callback URL
   const handleWebViewNavigationStateChange = newNavState => {
     const { url } = newNavState;
-    console.log('[Fyers] WebView URL:', url);
 
-    if (url.includes('auth_code=')) {
+    if (typeof url === 'string' && url.includes('auth_code=')) {
       const queryString = url.split('?')[1];
       if (queryString) {
         const queryParams = parseQueryString(queryString);
         const authcode = queryParams.auth_code;
         if (authcode) {
-          console.log('[Fyers] Authorization code received');
+          recordFyersBreadcrumb('oauth_callback_received', {phase: 'oauth'});
           setFyersAuthCode(authcode);
           setShowWebView(false);
         }
@@ -123,43 +185,104 @@ const FyersConnect = ({
     }
   };
 
+  const handleWebViewMessage = event => {
+    if (redirectMismatchHandled.current) return;
+
+    const raw = event?.nativeEvent?.data || '';
+    let type = '';
+    try {
+      type = JSON.parse(raw)?.type || '';
+    } catch (_error) {
+      // Keep compatibility with a plain-text message if WebView serialisation
+      // changes in a future react-native-webview upgrade.
+    }
+
+    if (
+      type !== FYERS_REDIRECT_MISMATCH &&
+      !isFyersRedirectMismatch(raw)
+    ) {
+      return;
+    }
+
+    redirectMismatchHandled.current = true;
+    setShowWebView(false);
+    setLoading(false);
+    setAutoStartFailed(true);
+    showAlert(
+      'error',
+      'Fyers Redirect URL Needs Update',
+      `Open your Fyers API Dashboard and set the Redirect URL for this App ID exactly to:\n\n${brokerConnectRedirectURL}\n\nSave it, then tap Connect Fyers again.`,
+    );
+  };
+
+  // Android can kill (or crash) the WebView renderer under memory pressure
+  // while the Fyers login page is open. A dead WebView left mounted is a blank
+  // or crashing surface, so unmount it and let the customer retry. iOS
+  // reports the same event as a terminated content process.
+  const handleWebViewRenderProcessGone = event => {
+    recordFyersBreadcrumb('webview_render_process_gone', {
+      phase: 'oauth',
+      errorCode: event?.nativeEvent?.didCrash ? 'renderer_crashed' : 'renderer_killed',
+    });
+    setShowWebView(false);
+    setLoading(false);
+    setAutoStartFailed(true);
+    showAlert(
+      'error',
+      'Fyers login page closed',
+      'Your phone closed the Fyers login page to free memory. Tap Connect Fyers to try again.',
+    );
+  };
+
   // Step 2: Exchange auth_code for access token
   const connectFyers = () => {
-    if (fyersAuthCode !== null && apiKey && secretKey) {
-      let data = JSON.stringify({
-        user_email: userEmail,
-        clientId: secretKey,
-        clientSecret: apiKey,
-        authCode: fyersAuthCode,
-      });
-      console.log('[Fyers] Exchanging auth code for access token...');
-      let config = {
-        method: 'post',
-        url: `${server.ccxtServer.baseUrl}fyers/gen-access-token`,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
-          'aq-encrypted-key': generateToken(
-            Config.REACT_APP_AQ_KEYS,
-            Config.REACT_APP_AQ_SECRET,
-          ),
-        },
-        data: data,
-      };
-      axios
-        .request(config)
+    if (
+      fyersAuthCode !== null &&
+      userId &&
+      apiKey &&
+      secretKey &&
+      !hasConnectedFyers.current
+    ) {
+      hasConnectedFyers.current = true;
+      recordFyersBreadcrumb('token_exchange_started', {phase: 'exchange'});
+      Promise.resolve(getAuth().currentUser?.getIdToken?.())
+        .then(firebaseToken => {
+          if (!firebaseToken) {
+            throw new Error('Please sign in again before connecting Fyers.');
+          }
+          return axios.request({
+            method: 'post',
+            url: `${server.server.baseUrl}api/fyers/exchange-token`,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': getTenantSubdomain(configData),
+              'aq-encrypted-key': generateToken(
+                Config.REACT_APP_AQ_KEYS,
+                Config.REACT_APP_AQ_SECRET,
+              ),
+              Authorization: `Bearer ${firebaseToken}`,
+            },
+            data: JSON.stringify({uid: userId, authCode: fyersAuthCode}),
+          });
+        })
         .then(response => {
           if (response.data) {
             const session_token = response.data.accessToken;
-            console.log('[Fyers] Access token received');
+            recordFyersBreadcrumb('token_exchange_succeeded', {phase: 'exchange'});
             setFyersAccessToken(session_token);
           }
         })
         .catch(error => {
-          console.error('[Fyers] Token exchange error:', error);
+          hasConnectedFyers.current = false;
+          setAutoStartFailed(true);
+          recordFyersBreadcrumb('token_exchange_failed', {
+            phase: 'exchange',
+            errorCode: error?.response?.status
+              ? `http_${error.response.status}`
+              : 'client_error',
+          });
           showAlert('error', 'Connection Error', 'Failed to connect to Fyers. Please try again.');
         });
-      hasConnectedFyers.current = true;
     }
   };
 
@@ -167,7 +290,7 @@ const FyersConnect = ({
     if (fyersAuthCode !== null && apiKey && secretKey) {
       connectFyers();
     }
-  }, [fyersAuthCode, userDetails]);
+  }, [apiKey, fyersAuthCode, secretKey, userId]);
 
   // Step 3: Save broker connection to DB
   const connectBrokerDbUpdate = () => {
@@ -184,7 +307,7 @@ const FyersConnect = ({
         url: `${server.server.baseUrl}api/user/connect-broker`,
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -208,29 +331,35 @@ const FyersConnect = ({
       axios
         .request(config)
         .then(async response => {
-          console.log('[Fyers] Broker connection saved successfully');
+          recordFyersBreadcrumb('connection_saved', {phase: 'persist'});
 
           // Update model portfolio with broker information
-          try {
-            axios.request({
-              method: 'post',
-              url: `${server.ccxtServer.baseUrl}rebalance/change_broker_model_pf`,
-              data: JSON.stringify({
-                user_email: userEmail,
-                user_broker: 'Fyers',
-              }),
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
-                'aq-encrypted-key': generateToken(
-                  Config.REACT_APP_AQ_KEYS,
-                  Config.REACT_APP_AQ_SECRET,
-                ),
-              },
+          recordFyersBreadcrumb('reconciliation_started', {phase: 'post_connect'});
+          axios.request({
+            method: 'post',
+            url: `${server.ccxtServer.baseUrl}rebalance/change_broker_model_pf`,
+            data: JSON.stringify({
+              user_email: userEmail,
+              user_broker: 'Fyers',
+            }),
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': getTenantSubdomain(configData),
+              'aq-encrypted-key': generateToken(
+                Config.REACT_APP_AQ_KEYS,
+                Config.REACT_APP_AQ_SECRET,
+              ),
+            },
+          }).then(() => {
+            recordFyersBreadcrumb('reconciliation_completed', {phase: 'post_connect'});
+          }).catch(error => {
+            recordFyersBreadcrumb('reconciliation_failed', {
+              phase: 'post_connect',
+              errorCode: error?.response?.status
+                ? `http_${error.response.status}`
+                : 'client_error',
             });
-          } catch (modelPortfolioError) {
-            console.warn('[Fyers] Model portfolio update failed (non-critical):', modelPortfolioError);
-          }
+          });
 
           onClose();
           setShowBrokerModal(false);
@@ -252,7 +381,12 @@ const FyersConnect = ({
           }
         })
         .catch(error => {
-          console.error('[Fyers] connect-broker error:', error);
+          recordFyersBreadcrumb('connection_save_failed', {
+            phase: 'persist',
+            errorCode: error?.response?.status
+              ? `http_${error.response.status}`
+              : 'client_error',
+          });
           const isHttpError = !!error?.response;
           const rawMessage =
             error.response?.data?.message ||
@@ -317,7 +451,7 @@ const FyersConnect = ({
 
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -326,21 +460,47 @@ const FyersConnect = ({
 
       data: data,
     };
-    console.log(userId, apiKey, secretKey, brokerConnectRedirectURL);
     axios
       .request(config)
       .then(response => {
         if (response) {
-          console.log('[Fyers] Auth URL received:', response.data);
+          recordFyersBreadcrumb('oauth_url_received', {phase: 'oauth'});
           setAuthUrl(response.data.response);
           setShowWebView(true);
         }
       })
       .catch(error => {
-        console.log(error);
+        recordFyersBreadcrumb('oauth_url_failed', {
+          phase: 'oauth',
+          errorCode: error?.response?.status
+            ? `http_${error.response.status}`
+            : 'client_error',
+        });
+        setLoading(false);
+        setAutoStartFailed(true);
         showAlert('error', 'Incorrect Credentials', 'Please check your API Key and Secret Key and try again.');
       });
   };
+
+  // First-time device-TOTP onboarding already collected the API app fields
+  // and static-IP acknowledgement. Start the canonical OAuth request directly
+  // instead of displaying a second credential form. Normal-login callers do
+  // not pass autoStart and retain the existing form.
+  useEffect(() => {
+    if (
+      !isVisible ||
+      !autoStart ||
+      autoStartHandled.current ||
+      !userId ||
+      !apiKey ||
+      !isValidFyersAppId(secretKey) ||
+      !egressReady
+    ) {
+      return;
+    }
+    autoStartHandled.current = true;
+    updateSecretKey();
+  }, [apiKey, autoStart, egressReady, isVisible, secretKey, userId]);
 
   const [shouldRenderContent, setShouldRenderContent] = React.useState(false);
   useEffect(() => {
@@ -350,8 +510,16 @@ const FyersConnect = ({
     } else {
       sheet.current?.dismiss();
       reauthHydratedRef.current = false;
+      redirectMismatchHandled.current = false;
     }
   }, [isVisible]);
+
+  useEffect(() => {
+    if (!isVisible) return;
+    recordFyersBreadcrumb(showWebView ? 'webview_mounted' : 'webview_unmounted', {
+      phase: 'oauth',
+    });
+  }, [isVisible, showWebView]);
 
   // Smart-reauth hydration. Fyers swaps modal terminology vs. DB:
   //   modal `apiKey` state  = OAuth secret (stored as credentials.secretKey)
@@ -375,6 +543,32 @@ const FyersConnect = ({
   const OpenHelpModal = () => {
     setHelpVisible(true);
   };
+
+  const fyersSheetConfig = useMemo(
+    () => ({
+      monogram: 'F',
+      brandFrom: designColor('3d5afe'),
+      brandTo: designColor('1e40af'),
+      portalUrl: 'https://fyers.in/web/api-dashboard/user-apps',
+      portalLabel: 'Open Fyers API Dashboard',
+      redirectUrl: brokerConnectRedirectURL,
+      walkthroughVideoId: 'TdadXSWAxeY',
+      guideSteps: [
+        'Log in with your <b>mobile number</b>, OTP/TOTP and <b>PIN</b>',
+        'Open <b>fyers.in/web/api-dashboard/user-apps</b>',
+        'On that list, click the app named <b>“Algo trading app”</b> (it sits at the top). <b>Do not</b> press <b>Create App</b> — that makes an ordinary app which can never place orders',
+        'Set the <b>Redirect URL</b> below',
+        'Paste the <b>static IP</b> below into <b>Static IP</b> — it must match exactly',
+        'Tick the permissions, including <b>Order Placement</b>',
+        'Click <b>Activate</b>',
+        'Fyers now issues a <b>new App ID and Secret</b>. Copy the <b>App ID</b> — it ends in <b>-200</b> and is <b>not</b> your YR…/XL… login ID',
+        'Copy the new <b>Secret ID</b>',
+      ],
+      note:
+        'Since April 2026 Fyers only accepts orders from the <b>activated “Algo trading app”</b> — its App ID ends in <b>-200</b>. Any older app still logs in and shows your holdings, then rejects every order with "algo orders are not allowed". Ticking Order Placement on an older app does <b>not</b> fix it: open the “Algo trading app” entry and Activate it, which issues a <b>new App ID and Secret ID</b>. A static IP that does not match the one shown here causes the same error.',
+    }),
+    [brokerConnectRedirectURL],
+  );
 
   // OAuth phase: keep the existing FyersConnectUI WebView flow untouched.
   // Credential phase: shared web-parity stepper (RN port of web
@@ -404,7 +598,9 @@ const FyersConnect = ({
         updateSecretKey={updateSecretKey}
         loading={loading}
         authUrl={authUrl}
+        handleWebViewMessage={handleWebViewMessage}
         handleWebViewNavigationStateChange={handleWebViewNavigationStateChange}
+        handleWebViewRenderProcessGone={handleWebViewRenderProcessGone}
         helpVisible={helpVisible}
         setHelpVisible={setHelpVisible}
         styles={styles}
@@ -419,33 +615,33 @@ const FyersConnect = ({
     );
   }
 
+  // Staged hand-off from DeviceTotpReconnectGate: the gate already showed the
+  // guide, egress callout and credential fields. Rendering the full sheet
+  // again would remount EgressIpCallout (another /egress/me) on the way to the
+  // WebView, so show a single light progress surface until OAuth opens or the
+  // token exchange completes.
+  if (autoStart && initialCredentials && !autoStartFailed) {
+    return (
+      <CrossPlatformOverlay visible={!!isVisible} onClose={onClose}>
+        <View style={styles.handoff}>
+          <ActivityIndicator size="large" color={designColor('3d5afe')} />
+          <Text style={styles.handoffText}>
+            {fyersAuthCode ? 'Connecting Fyers…' : 'Opening Fyers login…'}
+          </Text>
+          <TouchableOpacity onPress={onClose} style={styles.handoffCancel}>
+            <Text style={styles.handoffCancelText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </CrossPlatformOverlay>
+    );
+  }
+
   return (
     <BrokerConnectStepperSheet
       isVisible={!!isVisible}
       onClose={onClose}
       broker="Fyers"
-      config={{
-        monogram: 'F',
-        brandFrom: '#3d5afe',
-        brandTo: '#1e40af',
-        portalUrl: 'https://fyers.in/web/api-dashboard/user-apps',
-        portalLabel: 'Open Fyers API Dashboard',
-        redirectUrl: brokerConnectRedirectURL,
-        walkthroughVideoId: 'TdadXSWAxeY',
-        guideSteps: [
-          'Log in with your <b>mobile number</b>, OTP/TOTP and <b>PIN</b>',
-          'Open <b>fyers.in/web/api-dashboard/user-apps</b>',
-          'On that list, click the app named <b>\u201cAlgo trading app\u201d</b> (it sits at the top). <b>Do not</b> press <b>Create App</b> \u2014 that makes an ordinary app which can never place orders',
-          'Set the <b>Redirect URL</b> below',
-          'Paste the <b>static IP</b> below into <b>Static IP</b> \u2014 it must match exactly',
-          'Tick the permissions, including <b>Order Placement</b>',
-          'Click <b>Activate</b>',
-          'Fyers now issues a <b>new App ID and Secret</b>. Copy the <b>App ID</b> \u2014 it ends in <b>-200</b> and is <b>not</b> your YR\u2026/XL\u2026 login ID',
-          'Copy the new <b>Secret ID</b>',
-        ],
-        note:
-          'Since April 2026 Fyers only accepts orders from the <b>activated \u201cAlgo trading app\u201d</b> \u2014 its App ID ends in <b>-200</b>. Any older app still logs in and shows your holdings, then rejects every order with "algo orders are not allowed". Ticking Order Placement on an older app does <b>not</b> fix it: open the \u201cAlgo trading app\u201d entry and Activate it, which issues a <b>new App ID and Secret ID</b>. A static IP that does not match the one shown here causes the same error.',
-      }}
+      config={fyersSheetConfig}
       egressBrokerKey="fyers"
       customerId={userId}
       customerEmail={userEmail}
@@ -474,19 +670,31 @@ const FyersConnect = ({
       submitLabel="Connect Fyers"
       loading={loading}
       onSubmit={updateSecretKey}
+      alternateAction={onBackToQuickReconnect ? {
+        label: 'Back to quick reconnect setup',
+        onPress: onBackToQuickReconnect,
+      } : null}
     />
   );
 };
 
 // The credential step uses BrokerConnectStepperSheet, but the OAuth phase
 // still renders the legacy FyersConnectUI. Keep its style contract local to
-// this container. Removing this object made both fresh connect and smart
-// re-auth crash as soon as showWebView became true.
+// this container. Removing this object made both fresh connect (after the
+// credential submit) and smart re-auth crash as soon as showWebView became
+// true because `styles` was evaluated as an undefined identifier.
 const styles = StyleSheet.create({
-  sheet: {borderTopLeftRadius: 20, borderTopRightRadius: 20, flex: 1},
-  modal: {justifyContent: 'flex-end', margin: 0},
+  sheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    flex: 1,
+  },
+  modal: {
+    justifyContent: 'flex-end',
+    margin: 0,
+  },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 10,
@@ -495,27 +703,88 @@ const styles = StyleSheet.create({
   content: {padding: 0},
   content1: {justifyContent: 'center'},
   closeButton: {position: 'absolute', top: 10, right: 10},
-  title: {fontSize: 20, marginHorizontal: 10, fontWeight: 'Poppins-SemiBold', color: 'black'},
-  playerWrapper: {overflow: 'hidden', marginTop: 20, alignSelf: 'center', borderRadius: 20, marginBottom: 20},
-  instruction: {fontSize: 15, color: 'black', marginVertical: 3, fontFamily: 'Poppins-Regular'},
+  title: {
+    fontSize: 20,
+    marginHorizontal: 10,
+    fontWeight: 'Poppins-SemiBold',
+    color: 'black',
+  },
+  playerWrapper: {
+    overflow: 'hidden',
+    marginTop: 20,
+    alignSelf: 'center',
+    borderRadius: 20,
+    marginBottom: 20,
+  },
+  instruction: {
+    fontSize: 15,
+    color: 'black',
+    marginVertical: 3,
+    fontFamily: designFont('Poppins-Regular'),
+  },
   link: {color: 'blue', textDecorationLine: 'underline'},
-  stepGuide: {fontSize: 16, color: 'black', marginRight: 10, marginLeft: 10, fontFamily: 'Poppins-SemiBold'},
-  label: {fontSize: 17, fontWeight: 'bold', color: 'black', marginHorizontal: 10, marginBottom: 5},
+  stepGuide: {
+    fontSize: 16,
+    color: 'black',
+    marginRight: 10,
+    marginLeft: 10,
+    fontFamily: designFont('Poppins-SemiBold'),
+  },
+  label: {
+    fontSize: 17,
+    fontWeight: 'bold',
+    color: 'black',
+    marginHorizontal: 10,
+    marginBottom: 5,
+  },
   inputContainer: {
-    borderColor: '#d5d4d4', alignSelf: 'center', borderWidth: 1, borderRadius: 10,
-    paddingHorizontal: 10, width: '100%', height: commonHeight + 5,
+    borderColor: designColor('d5d4d4'),
+    alignSelf: 'center',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    width: '100%',
+    height: commonHeight + 5,
   },
   proceedButton: {
-    backgroundColor: 'black', padding: 10, borderRadius: 8, marginHorizontal: 10,
-    height: commonHeight, alignItems: 'center', marginBottom: 20, marginTop: 10,
+    backgroundColor: 'black',
+    padding: 10,
+    borderRadius: 8,
+    marginHorizontal: 10,
+    height: commonHeight,
+    alignItems: 'center',
+    marginBottom: 20,
+    marginTop: 10,
     justifyContent: 'center',
   },
-  proceedButtonText: {fontSize: screenWidth * 0.045, fontWeight: '600', color: 'white'},
+  proceedButtonText: {
+    fontSize: screenWidth * 0.045,
+    fontWeight: '600',
+    color: 'white',
+  },
   webViewContainer: {
-    backgroundColor: '#fff', marginTop: 20, height: screenHeight / 1.7,
-    borderTopLeftRadius: 100, borderTopRightRadius: 100,
+    backgroundColor: designColor('fff'),
+    marginTop: 20,
+    height: screenHeight / 1.7,
+    borderTopLeftRadius: 100,
+    borderTopRightRadius: 100,
   },
   webView: {flex: 1},
+  handoff: {
+    flex: 1,
+    backgroundColor: designColor('fff'),
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  handoffText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: designColor('111827'),
+    fontFamily: designFont('Poppins-SemiBold'),
+  },
+  handoffCancel: {marginTop: 24, padding: 10},
+  handoffCancelText: {fontSize: 15, color: designColor('6b7280')},
 });
 
 export default FyersConnect;

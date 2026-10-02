@@ -24,7 +24,7 @@ import Config from 'react-native-config';
 
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 import {
   generateState,
   registerCallback,
@@ -35,9 +35,11 @@ import useModalStore from '../../GlobalUIModals/modalStore';
 import CryptoJS from 'react-native-crypto-js';
 import {getAccountEmail} from '../../utils/accountEmail';
 
+import { designColor } from '../../design/literalTokens';
+
 const getHeaders = () => ({
   'Content-Type': 'application/json',
-  'X-Advisor-Subdomain': getAdvisorSubdomain(),
+  'X-Advisor-Subdomain': getTenantSubdomain(),
   'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
 });
 
@@ -86,7 +88,7 @@ const BrokerAuthScreen = () => {
         case 'zerodha': {
           const resp = await axios.post(
             `${server.ccxtServer.baseUrl}zerodha/login-url`,
-            { apiKey: Config.REACT_APP_ZERODHA_API_KEY, site: getAdvisorSubdomain() },
+            { apiKey: Config.REACT_APP_ZERODHA_API_KEY, site: getTenantSubdomain() },
             { headers: getHeaders(), timeout: 10000 },
           );
           return resp.data?.data?.loginUrl || resp.data?.loginUrl ||
@@ -121,7 +123,7 @@ const BrokerAuthScreen = () => {
 
         case 'dhan': {
           return `${server.ccxtServer.baseUrl}dhan/login?origin=${encodeURIComponent(
-            getAdvisorSubdomain()
+            getTenantSubdomain()
           )}&returnPath=/stock-recommendation`;
         }
 
@@ -312,7 +314,7 @@ const BrokerAuthScreen = () => {
   if (state === 'loading') {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1A237E" />
+        <ActivityIndicator size="large" color={designColor('1a237e')} />
         <Text style={styles.loadingText}>Connecting to {brokerName}...</Text>
       </View>
     );
@@ -382,7 +384,7 @@ const BrokerAuthScreen = () => {
             : 'Mozilla/5.0 (iPhone; CPU iPhone OS 15_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Mobile Safari/604.1'
         }
         renderLoading={() => (
-          <ActivityIndicator style={styles.webviewLoading} size="large" color="#1A237E" />
+          <ActivityIndicator style={styles.webviewLoading} size="large" color={designColor('1a237e')} />
         )}
         style={styles.webview}
       />
@@ -391,36 +393,36 @@ const BrokerAuthScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#fff' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: '#F8F9FC' },
-  loadingText: { marginTop: 12, color: '#666', fontSize: 14 },
+  container: { flex: 1, backgroundColor: designColor('fff') },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24, backgroundColor: designColor('f8f9fc') },
+  loadingText: { marginTop: 12, color: designColor('666'), fontSize: 14 },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingTop: 50, paddingBottom: 12,
-    backgroundColor: '#1A237E',
+    backgroundColor: designColor('1a237e'),
   },
   backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  backBtnText: { color: '#fff', fontSize: 22, fontWeight: '600' },
-  headerTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  backBtnText: { color: designColor('fff'), fontSize: 22, fontWeight: '600' },
+  headerTitle: { color: designColor('fff'), fontSize: 17, fontWeight: '700' },
 
   webview: { flex: 1 },
   webviewLoading: { position: 'absolute', top: '50%', left: '50%', marginLeft: -20, marginTop: -20 },
 
   errorIcon: {
-    width: 56, height: 56, borderRadius: 28, backgroundColor: '#EF5350',
-    color: '#fff', fontSize: 28, fontWeight: '700', textAlign: 'center', lineHeight: 56,
+    width: 56, height: 56, borderRadius: 28, backgroundColor: designColor('ef5350'),
+    color: designColor('fff'), fontSize: 28, fontWeight: '700', textAlign: 'center', lineHeight: 56,
     marginBottom: 16,
   },
-  errorTitle: { fontSize: 20, fontWeight: '700', color: '#333', marginBottom: 8 },
-  errorMsg: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
+  errorTitle: { fontSize: 20, fontWeight: '700', color: designColor('333'), marginBottom: 8 },
+  errorMsg: { fontSize: 14, color: designColor('666'), textAlign: 'center', marginBottom: 24, lineHeight: 20 },
   retryBtn: {
-    paddingVertical: 12, paddingHorizontal: 32, backgroundColor: '#1A237E',
+    paddingVertical: 12, paddingHorizontal: 32, backgroundColor: designColor('1a237e'),
     borderRadius: 12, marginBottom: 12,
   },
-  retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  retryBtnText: { color: designColor('fff'), fontSize: 15, fontWeight: '700' },
   goBackBtn: { paddingVertical: 10, paddingHorizontal: 24 },
-  goBackBtnText: { color: '#1A237E', fontSize: 14, fontWeight: '600' },
+  goBackBtnText: { color: designColor('1a237e'), fontSize: 14, fontWeight: '600' },
 });
 
 export default BrokerAuthScreen;

@@ -29,6 +29,8 @@ import KotakHelpContent from './HelpUI/KotakHelpContent';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 const commonHeight = 40;
 
@@ -84,13 +86,13 @@ const KotakConnectUI = ({
         <View style={{flex: 1, paddingTop: insets.top}}>
           {/* Gradient Header */}
           <LinearGradient
-            colors={['#0B3D91', '#0056B7']}
+            colors={[designColor('0b3d91'), designColor('0056b7')]}
             start={{x: 0, y: 0}}
             end={{x: 1, y: 1}}
             style={styles.headerRow}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <TouchableOpacity onPress={onClose} style={styles.backButton}>
-                <ChevronLeft size={24} color="#000" />
+                <ChevronLeft size={24} color={designColor('000')} />
               </TouchableOpacity>
               <Text style={styles.headerTitle}>Connect to Kotak</Text>
             </View>
@@ -112,7 +114,7 @@ const KotakConnectUI = ({
                     onPress={() => setExpanded(false)}>
                     <Text style={styles.toggleText}>See Less</Text>
                     <View style={styles.toggleIconContainer}>
-                      <ChevronUp size={14} color="#000" />
+                      <ChevronUp size={14} color={designColor('000')} />
                     </View>
                   </TouchableOpacity>
                 </View>
@@ -140,7 +142,7 @@ const KotakConnectUI = ({
                   onPress={() => setExpanded(true)}>
                   <Text style={styles.toggleText}>Read More</Text>
                   <View style={styles.toggleIconContainer}>
-                    <ChevronDown size={14} color="#000" />
+                    <ChevronDown size={14} color={designColor('000')} />
                   </View>
                 </TouchableOpacity>
 
@@ -214,9 +216,9 @@ const KotakConnectUI = ({
                         {input.toggle && input.value ? (
                           <TouchableOpacity onPress={input.toggle}>
                             {input.secure ? (
-                              <EyeOffIcon size={22} color="#000" />
+                              <EyeOffIcon size={22} color={designColor('000')} />
                             ) : (
-                              <EyeIcon size={22} color="#000" />
+                              <EyeIcon size={22} color={designColor('000')} />
                             )}
                           </TouchableOpacity>
                         ) : null}
@@ -233,7 +235,7 @@ const KotakConnectUI = ({
                     style={[
                       styles.proceedButton,
                       (!apiKey || !mobileNumber || !mpin || !ucc || !totp || !egressReady || isLoading) && {
-                        backgroundColor: '#d3d3d3',
+                        backgroundColor: designColor('d3d3d3'),
                       },
                     ]}
                     // `isLoading` MUST be in the disabled list — without it
@@ -247,7 +249,7 @@ const KotakConnectUI = ({
                     // class that produced the 2026-04-25 screenshot.
                     disabled={!apiKey || !mobileNumber || !mpin || !ucc || !totp || !egressReady || isLoading}>
                     {isLoading ? (
-                      <ActivityIndicator size="small" color="#fff" />
+                      <ActivityIndicator size="small" color={designColor('fff')} />
                     ) : (
                       <Text style={styles.proceedButtonText}>Connect Kotak</Text>
                     )}
@@ -273,7 +275,7 @@ const styles = StyleSheet.create({
   fullScreen: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   headerRow: {
     flexDirection: 'row',
@@ -283,16 +285,16 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#fff',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('fff'),
     marginLeft: 10,
   },
-  headerIcon: {width: 35, height: 35, borderRadius: 3, backgroundColor: '#fff'},
+  headerIcon: {width: 35, height: 35, borderRadius: 3, backgroundColor: designColor('fff')},
   backButton: {
     padding: 4,
     borderRadius: 5,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
+    backgroundColor: designColor('fff'),
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
@@ -300,15 +302,15 @@ const styles = StyleSheet.create({
   },
   guideBox: {
     borderWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
     borderRadius: 8,
     padding: 10,
   },
-  fullScreenHelp: {flex: 1, backgroundColor: '#fff'},
+  fullScreenHelp: {flex: 1, backgroundColor: designColor('fff')},
   toggleWrapper: {
     borderTopWidth: 1,
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
     paddingVertical: 5,
   },
   toggleContainer: {
@@ -316,13 +318,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 10,
   },
-  toggleText: {fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#0056B7'},
+  toggleText: {fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), color: designColor('0056b7')},
   toggleIconContainer: {
     marginLeft: 5,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 20,
     padding: 3,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.12,
     shadowRadius: 3,
@@ -331,46 +333,46 @@ const styles = StyleSheet.create({
   bottomContainer: {
     padding: 15,
     borderTopWidth: 1,
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
   },
   inputCard: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 12,
     padding: 15,
     marginTop: 10,
     borderWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
   },
   inputWrapper: {marginBottom: 10},
   headerLabel: {
     fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-    color: '#000',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('000'),
     marginBottom: 5,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     borderRadius: 8,
     paddingHorizontal: 10,
     height: commonHeight,
   },
   inputStyles: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#000',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('000'),
     paddingVertical: 5,
   },
   inputBox: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     borderRadius: 8,
     padding: 10,
-    backgroundColor: '#fff',
-    fontFamily: 'Poppins-Regular',
+    backgroundColor: designColor('fff'),
+    fontFamily: designFont('Poppins-Regular'),
     marginBottom: 10,
   },
   proceedButton: {
@@ -379,13 +381,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 10,
-    backgroundColor: '#0056B7',
+    backgroundColor: designColor('0056b7'),
   },
   proceedButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
     fontWeight: '600',
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
 });
 

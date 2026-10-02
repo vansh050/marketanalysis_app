@@ -40,6 +40,8 @@ import FyersConnect from '../components/BrokerConnectionModal/FyersConnect';
 import GrowwConnectModal from '../components/BrokerConnectionModal/GrowwConnectModal';
 import AxisConnectModal from '../components/BrokerConnectionModal/AxisConnectModal';
 
+import { designColor, designFont } from '../design/literalTokens';
+
 // Dummy creds used by the "smoke test" path — every broker accepts a
 // different shape; the backend rejects all of them, but we get to
 // observe the network round-trip and verify the SDK route exists,
@@ -214,85 +216,84 @@ export default function SdkBrokerTestScreen({navigation}) {
   // root sibling restores the intended cover-everything behaviour
   // and matches how BrokerModalRenderer mounts these in production.
   return (
-    <View style={{flex: 1, backgroundColor: '#f0f0f0'}}>
-    <ScrollView contentContainerStyle={styles.root}>
-      <Text style={styles.title}>SDK Broker connect — pilot</Text>
-      <Text style={styles.subtle}>
-        Bound user: {userRef || '(none — log in first)'}
-        {'\n'}Provider ready: {String(ready)}
-      </Text>
-
-      {PILOT_BROKERS.map(b => (
-        <Pressable
-          key={b.key}
-          style={styles.btn}
-          onPress={() => {
-            setLastResult(null);
-            setActiveBroker(b.key);
-          }}>
-          <Text style={styles.btnText}>{b.label}</Text>
-        </Pressable>
-      ))}
-
-      <Pressable
-        style={[styles.btn, styles.smokeBtn, smokeBusy && styles.btnBusy]}
-        disabled={smokeBusy}
-        onPress={runSmokeTest}>
-        <Text style={styles.btnText}>
-          {smokeBusy
-            ? 'Running smoke test…'
-            : '🧪 Smoke-test all 4 (per-broker endpoint)'}
+    <View style={{flex: 1, backgroundColor: designColor('f0f0f0')}}>
+      <ScrollView contentContainerStyle={styles.root}>
+        <Text style={styles.title}>SDK Broker connect — pilot</Text>
+        <Text style={styles.subtle}>
+          Bound user: {userRef || '(none — log in first)'}
+          {'\n'}Provider ready: {String(ready)}
         </Text>
-      </Pressable>
 
-      {lastResult ? (
-        <View style={styles.resultBox}>
-          <Text style={styles.resultLabel}>Last result</Text>
-          <Text style={styles.resultBody}>{JSON.stringify(lastResult, null, 2)}</Text>
-        </View>
-      ) : null}
+        {PILOT_BROKERS.map(b => (
+          <Pressable
+            key={b.key}
+            style={styles.btn}
+            onPress={() => {
+              setLastResult(null);
+              setActiveBroker(b.key);
+            }}>
+            <Text style={styles.btnText}>{b.label}</Text>
+          </Pressable>
+        ))}
 
-      {navigation && (
         <Pressable
-          style={styles.backBtn}
-          onPress={() => {
-            // SdkBrokerTest is set as the initial route via
-            // REACT_APP_SDK_BROKER_TEST_FIRST, so goBack() no-ops
-            // (no previous screen). Use replace to drop into the
-            // real app stack — Splash starts the normal Login → Home
-            // flow.
-            if (navigation.canGoBack && navigation.canGoBack()) {
-              navigation.goBack();
-            } else if (navigation.replace) {
-              navigation.replace('Splash');
-            } else {
-              navigation.navigate?.('Splash');
-            }
-          }}>
-          <Text style={styles.backBtnText}>
-            ← Exit test screen (boot into normal app)
+          style={[styles.btn, styles.smokeBtn, smokeBusy && styles.btnBusy]}
+          disabled={smokeBusy}
+          onPress={runSmokeTest}>
+          <Text style={styles.btnText}>
+            {smokeBusy
+              ? 'Running smoke test…'
+              : '🧪 Smoke-test all 4 (per-broker endpoint)'}
           </Text>
         </Pressable>
-      )}
 
-    </ScrollView>
+        {lastResult ? (
+          <View style={styles.resultBox}>
+            <Text style={styles.resultLabel}>Last result</Text>
+            <Text style={styles.resultBody}>{JSON.stringify(lastResult, null, 2)}</Text>
+          </View>
+        ) : null}
 
-    {PILOT_BROKERS.map(b => {
-      if (activeBroker !== b.key) return null;
-      const LegacyComponent = b.LegacyComponent;
-      return (
-        <LegacyComponent
-          key={b.key}
-          isVisible={true}
-          onClose={() => setActiveBroker(null)}
-          fetchBrokerStatusModal={() => {
-            setLastResult({status: 'connect_success', broker: b.key});
-            return Promise.resolve({migrationWillShow: false});
-          }}
-          setShowBrokerModal={() => setActiveBroker(null)}
-        />
-      );
-    })}
+        {navigation && (
+          <Pressable
+            style={styles.backBtn}
+            onPress={() => {
+              // SdkBrokerTest is set as the initial route via
+              // REACT_APP_SDK_BROKER_TEST_FIRST, so goBack() no-ops
+              // (no previous screen). Use replace to drop into the
+              // real app stack — Splash starts the normal Login → Home
+              // flow.
+              if (navigation.canGoBack && navigation.canGoBack()) {
+                navigation.goBack();
+              } else if (navigation.replace) {
+                navigation.replace('Splash');
+              } else {
+                navigation.navigate?.('Splash');
+              }
+            }}>
+            <Text style={styles.backBtnText}>
+              ← Exit test screen (boot into normal app)
+            </Text>
+          </Pressable>
+        )}
+
+      </ScrollView>
+      {PILOT_BROKERS.map(b => {
+        if (activeBroker !== b.key) return null;
+        const LegacyComponent = b.LegacyComponent;
+        return (
+          <LegacyComponent
+            key={b.key}
+            isVisible={true}
+            onClose={() => setActiveBroker(null)}
+            fetchBrokerStatusModal={() => {
+              setLastResult({status: 'connect_success', broker: b.key});
+              return Promise.resolve({migrationWillShow: false});
+            }}
+            setShowBrokerModal={() => setActiveBroker(null)}
+          />
+        );
+      })}
     </View>
   );
 }
@@ -300,32 +301,32 @@ export default function SdkBrokerTestScreen({navigation}) {
 const styles = StyleSheet.create({
   root: {padding: 20, paddingBottom: 40},
   title: {fontSize: 22, fontWeight: '700', marginBottom: 6},
-  subtle: {color: '#666', marginBottom: 18, fontFamily: 'monospace', fontSize: 12},
+  subtle: {color: designColor('666'), marginBottom: 18, fontFamily: designFont('monospace'), fontSize: 12},
   btn: {
-    backgroundColor: '#1976d2',
+    backgroundColor: designColor('1976d2'),
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderRadius: 8,
     marginBottom: 12,
   },
-  btnText: {color: '#fff', fontWeight: '600', fontSize: 14},
-  smokeBtn: {backgroundColor: '#7b1fa2', marginTop: 12},
+  btnText: {color: designColor('fff'), fontWeight: '600', fontSize: 14},
+  smokeBtn: {backgroundColor: designColor('7b1fa2'), marginTop: 12},
   btnBusy: {opacity: 0.6},
   resultBox: {
-    backgroundColor: '#f5f7fa',
+    backgroundColor: designColor('f5f7fa'),
     borderRadius: 8,
     padding: 12,
     marginTop: 12,
   },
   resultLabel: {fontWeight: '600', marginBottom: 6},
-  resultBody: {fontFamily: 'monospace', fontSize: 12, color: '#333'},
+  resultBody: {fontFamily: designFont('monospace'), fontSize: 12, color: designColor('333')},
   backBtn: {
     marginTop: 24,
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: '#666',
+    borderColor: designColor('666'),
     borderRadius: 6,
     alignItems: 'center',
   },
-  backBtnText: {color: '#666', fontWeight: '600'},
+  backBtnText: {color: designColor('666'), fontWeight: '600'},
 });

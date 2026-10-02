@@ -9,21 +9,41 @@ import React, {
 } from 'react';
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
+import {AppState} from 'react-native';
+import {subscribePortfolioResume} from '../utils/portfolioResume';
+import {getAuth} from '@react-native-firebase/auth';
 import server from '../utils/serverConfig';
 import {fetchFunds} from '../FunctionCall/fetchFunds';
+import {holdingsRefreshKey} from '../utils/holdingsRefreshKey';
 import {fetchBrokerAllHoldings} from '../FunctionCall/fetchBrokerAllHoldings';
 import {fetchBrokerSpecificHoldings} from '../FunctionCall/fetchBrokerSpecificHoldings';
 import {fetchOrderBook, fetchPendingOrders} from '../services/BrokerOrderBookAPI';
-import {getAccountEmail, useAccountEmail} from '../utils/accountEmail';
 
 import {getConfigData, isUserDataComplete} from '../utils/storageUtils';
 import Config from 'react-native-config';
 const TradeContext = createContext();
 
 import {generateToken} from '../utils/SecurityTokenManager';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
-import {isOrderSuccess, isOrderRejected} from '../utils/orderStatusUtils';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
+import {getAccountEmailAsync, useAccountEmail} from '../utils/accountEmail';
+import {isRetiredEntryLeg, hasClosureContext, collapseRetiredEntries} from '../utils/basketUtils';
+import {isOrderRejected} from '../utils/orderStatusUtils';
+import {isBasketCustomerVisibleStatus} from '../utils/basketOrderState';
+import {isWithdrawnUnfilledEntry} from '../utils/adviceDisplay';
 import {saveBrokerSessionTime} from '../utils/brokerSessionUtils';
+import {
+  loadBrokerHoldingsSnapshot,
+  loadBrokerHoldingsSummary,
+  saveBrokerHoldingsSnapshot,
+  saveBrokerHoldingsSummary,
+} from '../utils/brokerHoldingsSnapshot';
+import {
+  normalizeRepairError,
+  normalizeRepairResponse,
+} from '../utils/rebalanceReconciliation';
+import {confirmedFundsSnapshot} from '../utils/fundsDisplay';
+import eventEmitter from '../components/EventEmitter';
+import {getCustomerAuthHeaders} from '../utils/customerAuthHeaders';
 export const useTrade = () => {
   return useContext(TradeContext);
 };
@@ -39,7 +59,9 @@ const checkValidApiAnSecret = data => {
   } catch (error) {
     console.error('Error during decryption:', error.message);
   }
-  return null;
+  // Decrypt-or-passthrough: plaintext credentials (e.g. Zerodha's API key)
+  // must be sent as-is (2026-08-13).
+  return data;
 };
 
 export const TradeProvider = ({children}) => {
@@ -53,22 +75,22 @@ export const TradeProvider = ({children}) => {
   const [ignoredTrades, setIgnoredTrades] = useState([]);
   const [isBrokerConnected, setIsBrokerConnected] = useState(false);
 
-  // Apple sign-in identity: Firebase-first, falling back to the typed
-  // identity persisted by completeAppleSignIn (Apple "Hide My Email" —
-  // auth.currentUser.email is null/relay-aliased for the life of the
-  // Firebase user, while every backend record is keyed by the real typed
-  // email). useAccountEmail is the shared reactive resolver in
-  // src/utils/accountEmail.js — it re-renders when the identity resolves
-  // (auth-state change or the completeAppleSignIn event), which is what
-  // lets the [userEmail, configData] effects below fire once the identity
-  // is known instead of capturing null forever (2026-07-20). This used to
-  // be a module-private fallback here; it is now the single shared
-  // resolver every screen uses.
+  const auth = getAuth();
+  const user = auth.currentUser;
+  // Identity comes from the shared resolver: a usable Firebase email wins,
+  // otherwise the address the user verified on EmailScreenAppleLogin. This is
+  // reactive because the identity can resolve AFTER mount (cold start, or an
+  // Apple sign-in where the auth listener fires before the email is confirmed)
+  // and the effects below gate on it. See src/utils/accountEmail.js.
   const userEmail = useAccountEmail();
 
   const [configData, setConfigData] = useState(null);
   const [configLoading, setConfigLoading] = useState(true);
   const [adviceShowDays, setAdviceShowDays] = useState(15);
+  // Closed/withdrawn records stay visible this many days AFTER their closure
+  // (product rule 2026-08-21), configurable via Admin Settings like the
+  // advice window. Fallback 7.
+  const [terminalClosedExtraDays, setTerminalClosedExtraDays] = useState(7);
 
   // ENHANCED: Load stored data with retry mechanism and better logging
   const loadStoredData = useCallback(async (retryCount = 3) => {
@@ -139,11 +161,16 @@ export const TradeProvider = ({children}) => {
               Config.REACT_APP_AQ_SECRET,
             ),
           },
+          timeout: 15000,
         },
       );
       const days = Number(response.data?.data?.adviceShowLatestDays);
       if (days && days >= 1 && days <= 365) {
         setAdviceShowDays(days);
+      }
+      const terminalDays = Number(response.data?.data?.terminalClosedExtraDays);
+      if (terminalDays && terminalDays >= 0 && terminalDays <= 365) {
+        setTerminalClosedExtraDays(terminalDays);
       }
     } catch (error) {
       console.warn('Failed to fetch frontend config, using default 15 days:', error.message);
@@ -168,6 +195,22 @@ export const TradeProvider = ({children}) => {
   // historical holdings or catalog metadata while it is unresolved.
   const [modelPortfolioEntitlementsLoaded, setModelPortfolioEntitlementsLoaded] =
     useState(false);
+  const [modelPortfolioEntitlementsStatus, setModelPortfolioEntitlementsStatus] =
+    useState('idle');
+  const modelPortfolioRequestRef = useRef(null);
+  const modelPortfolioRequestGenerationRef = useRef(0);
+  const modelPortfolioHasSuccessfulResponseRef = useRef(false);
+
+  useEffect(() => {
+    modelPortfolioRequestGenerationRef.current += 1;
+    modelPortfolioRequestRef.current = null;
+    modelPortfolioHasSuccessfulResponseRef.current = false;
+    // Last-known-good data is preserved across transient failures, but never
+    // across an account/advisor identity boundary.
+    setModelPortfolioStrategyfinal([]);
+    setModelPortfolioEntitlementsLoaded(false);
+    setModelPortfolioEntitlementsStatus('idle');
+  }, [userEmail, configData?.config?.REACT_APP_HEADER_NAME]);
 
   // Repair-trades state — auto-fetched after MP strategies load.
   // Each entry: { modelName, uniqueId, userBroker, failedTrades[], message, modelId }
@@ -177,6 +220,32 @@ export const TradeProvider = ({children}) => {
     [],
   );
   const [isDatafetchinRepair, setIsDatafetchingRepair] = useState(false);
+  const [repairReconciliation, setRepairReconciliation] = useState({
+    pending: false,
+    unknown: false,
+    checking: false,
+    autoRetryScheduled: false,
+    retryAfterSeconds: 0,
+    accountRecovery: null,
+  });
+  const repairRetryTimerRef = useRef(null);
+  const repairRetryCountRef = useRef(0);
+  const repairWasReconcilingRef = useRef(false);
+  const repairRequestSequenceRef = useRef(0);
+  // Only one broker-backed Repair verification may run at a time. Screen
+  // refreshes can arrive from several effects at once; letting each one call
+  // the broker independently made Groww queue the same order-book read and
+  // left the cards spinning. A manual card action supersedes the background
+  // request, while duplicate background requests simply reuse the active
+  // verification window.
+  const repairRequestInFlightRef = useRef(null);
+  // Last CLEAN get-repair answer (2026-10-02). The Home refresh usually asks
+  // seconds before an Accept tap; the tap may reuse it instead of a second
+  // 4-10 s server round-trip. Only clean answers are kept (nothing pending or
+  // unknown, account not blocked); any reconnect, broker change or placed
+  // order drops it. /rebalance/calculate still runs its own server barrier.
+  const lastRepairResultRef = useRef(null);
+  const repairEpochRef = useRef(0);
   // Bypass repair-mode shortcut on a card after the user explicitly clicks
   // Accept on a fresh rebalance. Keyed by `model_Id` of the rebalance event;
   // value is `true` when that card should ignore its repair entry for the
@@ -253,67 +322,6 @@ export const TradeProvider = ({children}) => {
   };
 
   // Updated helper function to filter out conflicting BUY/SELL orders for same symbol in basket
-  const filterConflictingOrders = basketAdvice => {
-    if (!basketAdvice || basketAdvice.length === 0) {
-      return basketAdvice;
-    }
-
-    // Group basket advice by symbol
-    const symbolGroups = basketAdvice.reduce((groups, advice) => {
-      const symbol = advice.Symbol;
-      if (!groups[symbol]) {
-        groups[symbol] = {
-          buy: [],
-          sell: [],
-          all: [],
-        };
-      }
-
-      groups[symbol].all.push(advice);
-
-      if (advice.Type === 'BUY') {
-        groups[symbol].buy.push(advice);
-      } else if (advice.Type === 'SELL') {
-        groups[symbol].sell.push(advice);
-      }
-
-      return groups;
-    }, {});
-
-    // Filter out symbols that have both BUY and SELL orders AND BOTH have complete status
-    const validAdvice = [];
-
-    Object.entries(symbolGroups).forEach(([symbol, orders]) => {
-      const hasBuy = orders.buy.length > 0;
-      const hasSell = orders.sell.length > 0;
-
-      // Check if ALL BUY orders have COMPLETE status
-      const allBuyComplete =
-        orders.buy.length > 0 &&
-        orders.buy.every(order =>
-          isOrderSuccess(order.trade_place_status),
-        );
-
-      // Check if ALL SELL orders have COMPLETE status
-      const allSellComplete =
-        orders.sell.length > 0 &&
-        orders.sell.every(order =>
-          isOrderSuccess(order.trade_place_status),
-        );
-
-      // NEW LOGIC: Remove only if has both BUY/SELL AND both types are complete
-      if (hasBuy && hasSell && allBuyComplete && allSellComplete) {
-        // Filter out - both BUY and SELL orders have complete status
-        // Don't add to validAdvice
-      } else {
-        // Keep all orders for this symbol
-        validAdvice.push(...orders.all);
-      }
-    });
-
-    return validAdvice;
-  };
-
   // Add this debug function in your TradeProvider
   const debugBasketProcessing = (basketAdvice, basketName) => {
     // Debug logging can be enabled/disabled here
@@ -329,9 +337,15 @@ export const TradeProvider = ({children}) => {
   const netBasketTrades = (trades) => {
     if (!trades || trades.length === 0) return [];
 
-    // Separate closure trades from regular trades
-    const closureTrades = trades.filter(t => t.isClosure === true);
-    const regularTrades = trades.filter(t => t.isClosure !== true);
+    // 2026-08-21: closure rows gate on REAL closure context (advisor exit
+    // advice / executed closure), never on the feed's POSITION_OPEN
+    // projection flag — the lifecycle stamps isClosure=true + toTradeQty on
+    // every leg of a symbol the customer holds, even with no closure
+    // instruction. Retired manual-entry advice rows are history and never
+    // enter the net (their fill lives on the linked manual_entry leg).
+    const liveTrades = collapseRetiredEntries(trades);
+    const closureTrades = liveTrades.filter(t => hasClosureContext(t));
+    const regularTrades = liveTrades.filter(t => !hasClosureContext(t));
 
     // Process closure trades - de-duplicate by symbol
     const closureBySymbol = {};
@@ -411,51 +425,123 @@ export const TradeProvider = ({children}) => {
     });
   };
 
-  const getModelPortfolioStrategyDetails = async () => {
-    // Firebase-first, typed-identity fallback — see src/utils/accountEmail.js.
-    const userEmail = getAccountEmail();
+  const getModelPortfolioStrategyDetails = async (options = {}) => {
+    // `silent` — periodic background refresh (usePeriodicRefresh, web F-10
+    // parity). Silent refetches skip the loading flag so the 30s poll never
+    // flickers the MP skeleton.
+    const silent = options?.silent === true;
+    // Firebase preserves the case of Apple's identityToken email (Google
+    // always issues lowercase). Lowercase once at the source.
+    const userEmail = await getAccountEmailAsync();
+    const tenantSubdomain = getTenantSubdomain(configData);
 
+    let requestEntry = null;
     try {
-      setIsDatafetchingMP(true);
-      if (userEmail && configData) {
-        setModelPortfolioEntitlementsLoaded(false);
+      if (!silent) setIsDatafetchingMP(true);
+      if (userEmail && tenantSubdomain) {
+        if (!modelPortfolioHasSuccessfulResponseRef.current) {
+          setModelPortfolioEntitlementsLoaded(false);
+          setModelPortfolioEntitlementsStatus('loading');
+        }
         console.log(
           '📊 TradeContext: Getting model portfolio with config:',
-          configData?.config?.REACT_APP_HEADER_NAME,
+          tenantSubdomain,
         );
 
         const requesturl = `${server.server.baseUrl}api/model-portfolio/subscribed-strategies/${userEmail}`;
-        const response = await axios.get(requesturl, {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
-          },
-        });
+        const requestKey = `${userEmail}|${tenantSubdomain}`;
+        requestEntry = modelPortfolioRequestRef.current;
+        if (!requestEntry || requestEntry.key !== requestKey) {
+          const generation = modelPortfolioRequestGenerationRef.current + 1;
+          modelPortfolioRequestGenerationRef.current = generation;
+          requestEntry = {
+            key: requestKey,
+            generation,
+            repairStarted: false,
+            promise: axios.get(requesturl, {
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Advisor-Subdomain': tenantSubdomain,
+                'aq-encrypted-key': generateToken(
+                  Config.REACT_APP_AQ_KEYS,
+                  Config.REACT_APP_AQ_SECRET,
+                ),
+              },
+              timeout: 10000,
+            }),
+          };
+          modelPortfolioRequestRef.current = requestEntry;
+        }
 
-        setModelPortfolioStrategyfinal(response?.data?.subscribedPortfolios || []);
+        const response = await requestEntry.promise;
+        const subscribedPortfolios = response?.data?.subscribedPortfolios;
+        if (!Array.isArray(subscribedPortfolios)) {
+          throw new Error('Malformed subscribed-strategies response');
+        }
+        if (
+          requestEntry.generation !==
+          modelPortfolioRequestGenerationRef.current
+        ) {
+          return subscribedPortfolios;
+        }
+
+        setModelPortfolioStrategyfinal(subscribedPortfolios);
+        modelPortfolioHasSuccessfulResponseRef.current = true;
         setModelPortfolioEntitlementsLoaded(true);
+        setModelPortfolioEntitlementsStatus(
+          subscribedPortfolios.length > 0 ? 'ready' : 'confirmedEmpty',
+        );
 
         // Best-effort: fetch repair-trades alongside strategies so the
         // RebalanceCard can flag any partial executions. Failures here MUST
         // NOT block the strategy list — repair is a UI shortcut, not the
         // source of truth. See docs/WEB_MP_PARITY_TASKS.md § Task 4.
-        getModelPortfolioRepairTrades(
-          response?.data?.subscribedPortfolios,
-        ).catch(() => {});
+        // Silent strategy polling keeps the catalogue fresh but must not also
+        // poll the broker every 30 seconds. Repair is loaded on the initial
+        // foreground fetch, on broker change, and for the selected card when
+        // the customer explicitly asks to retry.
+        if (
+          !options?.skipRepair &&
+          (!silent || options?.refreshRepair === true) &&
+          !requestEntry.repairStarted
+        ) {
+          requestEntry.repairStarted = true;
+          await getModelPortfolioRepairTrades(
+            subscribedPortfolios,
+          ).catch(() => {});
+        }
+        return subscribedPortfolios;
       } else {
-        console.warn('TradeContext: User email or config data is not provided');
+        console.warn('TradeContext: User email or tenant subdomain is not provided');
         console.log('TradeContext: userEmail:', userEmail);
-        console.log('TradeContext: configData:', !!configData);
+        console.log('TradeContext: tenantSubdomain:', !!tenantSubdomain);
+        // No request can run without both values, so resolve the readiness
+        // gate instead of leaving every portfolio on "Checking status…".
+        setModelPortfolioEntitlementsLoaded(true);
+        if (!modelPortfolioHasSuccessfulResponseRef.current) {
+          setModelPortfolioEntitlementsStatus('error');
+        }
+        return null;
       }
     } catch (error) {
-      setModelPortfolioStrategyfinal([]);
-      // The request completed, but no stale catalog/holdings result is allowed
-      // to override this source of truth.
+      // A timeout, 401, or 5xx is not proof that the customer has no active
+      // portfolio. Preserve the last confirmed response; only a successful
+      // 200 with [] may transition Home to the catalogue state.
       setModelPortfolioEntitlementsLoaded(true);
+      // 403 MF_CUSTOMER_IDENTITY_MISMATCH is not a transient failure: the
+      // server proved a different customer than this request asked for, and
+      // the interceptor has already replayed it once with a fresh token. A
+      // "Retry" here re-issues the identical request and fails identically,
+      // which is what stranded a customer on 2026-09-18. Separate it so Home
+      // can offer the only action that can actually work — signing in again.
+      const isIdentityMismatch =
+        error?.response?.status === 403 &&
+        error?.response?.data?.code === 'MF_CUSTOMER_IDENTITY_MISMATCH';
+      if (!modelPortfolioHasSuccessfulResponseRef.current) {
+        setModelPortfolioEntitlementsStatus(
+          isIdentityMismatch ? 'identityMismatch' : 'error',
+        );
+      }
       if (error.response) {
         console.error(
           'TradeContext: Model Portfolio API Error:',
@@ -469,72 +555,330 @@ export const TradeProvider = ({children}) => {
           error.message,
         );
       }
+      return null;
     } finally {
-      setIsDatafetchingMP(false);
+      if (modelPortfolioRequestRef.current === requestEntry) {
+        modelPortfolioRequestRef.current = null;
+      }
+      // A stale request from a previous identity must not clear the loading
+      // state of the replacement request.
+      if (
+        !silent &&
+        (!requestEntry ||
+          requestEntry.generation ===
+            modelPortfolioRequestGenerationRef.current)
+      ) {
+        setIsDatafetchingMP(false);
+      }
     }
   };
 
-  // Fetch repair-trades for all subscribed MP strategies. Result is stored
+  // Fetch repair-trades for the requested MP strategies. Result is stored
   // in `modelPortfolioRepairTrades`; consumers (RebalanceCard) match by
   // `modelId === rebalanceHistory[latest].model_Id`.
   //
   // Mirrors web's `getRebalanceRepair` in prod-alphaquark-github/
   // src/Home/LivePortfolioSection/Home.js:364-393.
-  const getModelPortfolioRepairTrades = async portfolios => {
-    // Firebase-first, typed-identity fallback — see src/utils/accountEmail.js.
-    const userEmail = getAccountEmail();
+  const getRecentRepairResult = ({modelName, broker: forBroker, maxAgeMs = 30000} = {}) => {
+    const cached = lastRepairResultRef.current;
+    if (!cached || Date.now() - cached.at > maxAgeMs) return null;
+    const norm = value => String(value || '').trim().toLowerCase();
+    if (!modelName || !cached.models.has(norm(modelName))) return null;
+    if (forBroker && norm(forBroker) !== cached.broker) return null;
+    return cached.result;
+  };
 
-    if (!userEmail || !configData) return;
-    const list = Array.isArray(portfolios) ? portfolios : [];
+  const getModelPortfolioRepairTrades = async (portfolios, options = {}) => {
+    const auth = getAuth();
+    const user = auth.currentUser;
+    // Firebase preserves the case of Apple's identityToken email
+  // (Google always issues lowercase). Backend GET /api/user/getUser/:email
+  // auto-lowercases but backend POST /api/user/ stores VERBATIM — so every
+  // downstream URL that embeds userEmail must match the lowercase record
+  // we now write in completeAppleSignIn. Lowercase once at the source.
+  const userEmail = await getAccountEmailAsync();
+    const tenantSubdomain = getTenantSubdomain(configData);
+
+    if (!userEmail || !tenantSubdomain) {
+      return {models: [], pending: false, unknown: true};
+    }
+    const list = Array.isArray(portfolios)
+      ? portfolios
+      : portfolios
+        ? [portfolios]
+        : [];
     if (list.length === 0) {
       setModelPortfolioRepairTrades([]);
-      return;
+      return {models: [], pending: false, unknown: false};
     }
 
-    const modelNames = list
-      .map(p => p?.model_name)
-      .filter(Boolean);
+    const modelNames = [...new Set(
+      list.map(p => p?.model_name).filter(Boolean),
+    )];
     const advisor =
       list[0]?.advisor ||
       configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG;
-    const userBroker = broker || 'DummyBroker';
+    // Re-derive broker at call time from userDetails (the source of truth)
+    // rather than the possibly-stale `broker` state. On a cold start the
+    // [userEmail, configData] effect fires getModelPortfolioStrategyDetails ->
+    // getModelPortfolioRepairTrades BEFORE getUserDeatils() has setBroker(),
+    // so `broker` is null -> userBroker became 'DummyBroker' -> the call was
+    // skipped -> no "Repair"/rejected section even though orders were
+    // rejected (ajay.j.bhatia 2026-08-10, markup FlexiCap/LargeMid).
+    const userBroker = broker || userDetails?.user_broker || 'DummyBroker';
 
     if (userBroker === 'DummyBroker') {
       // Backend returns 404 for DummyBroker; skip the call.
       setModelPortfolioRepairTrades([]);
-      return;
+      return {models: [], pending: false, unknown: false};
     }
 
+    const normalizeModelName = value => String(value || '').trim().toLowerCase();
+    const requestedModelNames = new Set(modelNames.map(normalizeModelName));
+    const replaceRequestedRepairModels = models => {
+      setModelPortfolioRepairTrades(previous => [
+        ...previous.filter(
+          model => !requestedModelNames.has(normalizeModelName(model?.modelName)),
+        ),
+        ...(Array.isArray(models) ? models : []),
+      ]);
+    };
+
+    const requestKey = [
+      String(userEmail).toLowerCase(),
+      String(userBroker).toLowerCase(),
+      ...[...modelNames].sort(),
+    ].join('|');
+    const activeRequest = repairRequestInFlightRef.current;
+    if (activeRequest) {
+      if (options.manual === true || activeRequest.requestKey !== requestKey) {
+        activeRequest.controller.abort();
+      } else {
+        return {
+          skipped: true,
+          inFlight: true,
+          pending: false,
+          unknown: false,
+          models: [],
+        };
+      }
+    }
+
+    const requestSequence = ++repairRequestSequenceRef.current;
+    const requestEpoch = repairEpochRef.current;
+    const controller = new AbortController();
+    repairRequestInFlightRef.current = {
+      requestKey,
+      requestSequence,
+      controller,
+    };
+
     try {
+      if (options.manual === true) {
+        repairRetryCountRef.current = 0;
+        clearTimeout(repairRetryTimerRef.current);
+      }
       setIsDatafetchingRepair(true);
+      setRepairReconciliation(previous => ({
+        ...previous,
+        checking: true,
+        autoRetryScheduled: false,
+      }));
       const response = await axios.post(
         `${server.ccxtServer.baseUrl}rebalance/get-repair`,
-        {modelName: modelNames, advisor, userEmail, userBroker},
+        {modelName: modelNames, advisor, userEmail, userBroker,
+          refreshAccount: options.manual === true,
+          // One Accept tap: lets this tap's calculate reuse the broker
+          // holdings/positions read here (server keeps them <=15 s, tap-only).
+          ...(options.brokerReadSession
+            ? {brokerReadSession: options.brokerReadSession}
+            : {})},
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+            'X-Advisor-Subdomain': tenantSubdomain,
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
             ),
           },
+          signal: controller.signal,
+          timeout: options.manual === true ? 45000 : 10000,
         },
       );
-      setModelPortfolioRepairTrades(response?.data?.models || []);
+      const repair = normalizeRepairResponse(response?.data);
+      if (requestSequence !== repairRequestSequenceRef.current) {
+        return {models: [], pending: false, unknown: true, superseded: true};
+      }
+      clearTimeout(repairRetryTimerRef.current);
+      if (repair.pending || repair.unknown) {
+        repairWasReconcilingRef.current = true;
+        const scheduleRetry =
+          options.manual !== true && repairRetryCountRef.current < 1;
+        setRepairReconciliation({
+          pending: repair.pending,
+          unknown: repair.unknown,
+          checking: false,
+          autoRetryScheduled: scheduleRetry,
+          retryAfterSeconds: repair.retryAfterSeconds,
+          accountRecovery: repair.accountRecovery || null,
+        });
+        replaceRequestedRepairModels(repair.models);
+        if (scheduleRetry) {
+          repairRetryCountRef.current += 1;
+          repairRetryTimerRef.current = setTimeout(
+            () => getModelPortfolioRepairTrades(list).catch(() => {}),
+            repair.retryAfterSeconds * 1000,
+          );
+        }
+        return repair;
+      }
+
+      const resolvedAfterReconciliation = repairWasReconcilingRef.current;
+      repairWasReconcilingRef.current = false;
+      repairRetryCountRef.current = 0;
+      setRepairReconciliation({
+        pending: false,
+        unknown: false,
+        checking: false,
+        autoRetryScheduled: false,
+        retryAfterSeconds: 0,
+        accountRecovery: null,
+      });
+      replaceRequestedRepairModels(repair.models);
+      lastRepairResultRef.current =
+        repair?.accountRecovery?.blocked || requestEpoch !== repairEpochRef.current
+        ? null
+        : {
+            at: Date.now(),
+            email: String(userEmail).toLowerCase(),
+            broker: String(userBroker).toLowerCase(),
+            models: new Set(modelNames.map(normalizeModelName)),
+            result: repair,
+          };
+      if (resolvedAfterReconciliation) {
+        getModelPortfolioStrategyDetails({
+          silent: true,
+          skipRepair: true,
+        }).catch(() => {});
+      }
+      return repair;
     } catch (error) {
+      if (axios.isCancel(error) || error?.code === 'ERR_CANCELED') {
+        return {
+          cancelled: true,
+          pending: false,
+          unknown: false,
+          models: [],
+        };
+      }
+      if (requestSequence !== repairRequestSequenceRef.current) {
+        return {
+          cancelled: true,
+          pending: false,
+          unknown: false,
+          models: [],
+        };
+      }
+      const repairError = normalizeRepairError(error);
+      if (repairError) {
+        clearTimeout(repairRetryTimerRef.current);
+        const scheduleRetry =
+          options.manual !== true && repairRetryCountRef.current < 1;
+        replaceRequestedRepairModels([]);
+        setRepairReconciliation({
+          pending: false,
+          unknown: true,
+          checking: false,
+          autoRetryScheduled: scheduleRetry,
+          retryAfterSeconds: repairError.retryAfterSeconds,
+          accountRecovery: repairError.accountRecovery || null,
+        });
+        if (scheduleRetry) {
+          repairRetryCountRef.current += 1;
+          repairRetryTimerRef.current = setTimeout(
+            () => getModelPortfolioRepairTrades(list).catch(() => {}),
+            repairError.retryAfterSeconds * 1000,
+          );
+        }
+        return {
+          ...repairError,
+          unavailable: true,
+          message:
+            error?.response?.data?.message ||
+            `${userBroker} verification timed out`,
+        };
+      }
       // 404 = no documents needing repair → not an error
+      const resolvedAfterReconciliation =
+        error?.response?.status === 404 && repairWasReconcilingRef.current;
       if (error?.response?.status !== 404) {
         console.warn(
           '[TradeContext] get-repair failed:',
           error?.response?.data?.message || error.message,
         );
       }
-      setModelPortfolioRepairTrades([]);
+      clearTimeout(repairRetryTimerRef.current);
+      repairWasReconcilingRef.current = false;
+      repairRetryCountRef.current = 0;
+      setRepairReconciliation({
+        pending: false,
+        unknown: false,
+        checking: false,
+        autoRetryScheduled: false,
+        retryAfterSeconds: 0,
+        accountRecovery: null,
+      });
+      replaceRequestedRepairModels([]);
+      if (resolvedAfterReconciliation) {
+        getModelPortfolioStrategyDetails({
+          silent: true,
+          skipRepair: true,
+        }).catch(() => {});
+      }
+      if (error?.response?.status === 404) {
+        return {
+          verified: true,
+          notFound: true,
+          pending: false,
+          unknown: false,
+          models: [],
+        };
+      }
+      throw error;
     } finally {
-      setIsDatafetchingRepair(false);
+      if (requestSequence === repairRequestSequenceRef.current) {
+        repairRequestInFlightRef.current = null;
+        setIsDatafetchingRepair(false);
+      }
     }
   };
+
+  useEffect(() => {
+    repairRequestSequenceRef.current += 1;
+    clearTimeout(repairRetryTimerRef.current);
+    repairWasReconcilingRef.current = false;
+    repairRetryCountRef.current = 0;
+    setRepairReconciliation({
+      pending: false,
+      unknown: false,
+      checking: false,
+      autoRetryScheduled: false,
+      retryAfterSeconds: 0,
+      accountRecovery: null,
+    });
+    if (broker && modelPortfolioStrategyfinal.length > 0) {
+      getModelPortfolioRepairTrades(modelPortfolioStrategyfinal).catch(() => {});
+    }
+    return () => {
+      clearTimeout(repairRetryTimerRef.current);
+      repairRequestInFlightRef.current?.controller?.abort();
+      repairRequestInFlightRef.current = null;
+    };
+    // Intentionally broker-keyed: depending on the mutable strategy array or
+    // function identity would continuously restart authoritative verification.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userEmail, broker]);
 
   // Mark a model_Id as "skip repair shortcut" — called when the user
   // explicitly accepts a fresh (non-repair) rebalance. Prevents the repair
@@ -557,9 +901,31 @@ export const TradeProvider = ({children}) => {
       );
     }
   }
-const getAllTrades = async () => {
-  // Firebase-first, typed-identity fallback — see src/utils/accountEmail.js.
-  const userEmail = getAccountEmail();
+// Several screens request the same account-wide feed on mount. Do the heavy
+// response parse/filter pass once per in-flight refresh so a cold launch does
+// not queue duplicate work ahead of taps on the JS thread.
+const tradesInFlightRef = useRef(null);
+const tradesRequestGenerationRef = useRef(0);
+const fetchAllTrades = async (options = {}) => {
+  // `silent` — used by the periodic background refresh (usePeriodicRefresh,
+  // web F-10 parity). A silent refetch must not flip isDatafetching: that
+  // flag gates the skeleton/empty-state and a 30s poll would flicker the
+  // whole list. Only explicit user/mount-triggered fetches show loading.
+  const silent = options?.silent === true;
+  const requestGeneration =
+    options?.requestGeneration ?? tradesRequestGenerationRef.current;
+  const auth = getAuth();
+  const user = auth.currentUser;
+  // Firebase preserves the case of Apple's identityToken email
+  // (Google always issues lowercase). Backend GET /api/user/getUser/:email
+  // auto-lowercases but backend POST /api/user/ stores VERBATIM — so every
+  // downstream URL that embeds userEmail must match the lowercase record
+  // we now write in completeAppleSignIn. Lowercase once at the source.
+  const userEmail = await getAccountEmailAsync();
+
+  // The provider can outlive a logout/login account switch. Never let the
+  // previous account's async work parse or publish into the new account.
+  if (requestGeneration !== tradesRequestGenerationRef.current) return;
 
   if (!userEmail) {
     // TradeProvider mounts before auth resolves. The [userEmail, configData]
@@ -569,13 +935,13 @@ const getAllTrades = async () => {
     // fires again with a valid user. Warn (not error) so we don't red-
     // banner LogBox for a transient startup state.
     console.warn('[Trade Fetch] Skipped — auth not ready yet');
-    setIsDatafetching(false);
+    if (!silent) setIsDatafetching(false);
     return;
   }
 
   if (!server?.server.baseUrl) {
     console.error('[Trade Fetch] Error: Server base URL is missing');
-    setIsDatafetching(false);
+    if (!silent) setIsDatafetching(false);
     return;
   }
 
@@ -588,11 +954,26 @@ const getAllTrades = async () => {
     return;
   }
 
-  setIsDatafetching(true);
+  if (!silent) setIsDatafetching(true);
 
-  const planValid = await getPlanList();
+  const customerAuthHeaders = await getCustomerAuthHeaders();
+  if (requestGeneration !== tradesRequestGenerationRef.current) return;
+  if (!customerAuthHeaders) {
+    setstockRecoNotExecutedfinal([]);
+    setrecommendationStockfinal([]);
+    setrejectedTrades([]);
+    setIgnoredTrades([]);
+    if (!silent) setIsDatafetching(false);
+    return;
+  }
 
-  const requestUrl = `${server.server.baseUrl}api/user/trade-reco-for-user?user_email=${userEmail}`;
+  // Bound the server response before it reaches the React Native bridge. The
+  // backend deliberately keeps older executed/open positions in this response,
+  // so this reduces historical recommendation bulk without hiding live state.
+  const recommendationHistoryDays = Number.isFinite(Number(adviceShowDays))
+    ? Math.min(365, Math.max(1, Math.trunc(Number(adviceShowDays))))
+    : 15;
+  const requestUrl = `${server.server.baseUrl}api/user/trade-reco-for-user?user_email=${encodeURIComponent(userEmail)}&days=${recommendationHistoryDays}`;
 
   try {
     console.log(
@@ -603,14 +984,16 @@ const getAllTrades = async () => {
     const response = await axios.get(requestUrl, {
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain':
-          configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+        ...customerAuthHeaders,
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
         ),
       },
     });
+
+    if (requestGeneration !== tradesRequestGenerationRef.current) return;
 
     const trades = response.data?.trades || [];
 
@@ -639,47 +1022,55 @@ const getAllTrades = async () => {
           const tradeDate = item.date?.$date
             ? new Date(item.date.$date)
             : new Date(item.date);
+          const lifecycleStatus = item?.basketLifecycle?.displayStatus;
+          const managerClosed =
+            lifecycleStatus === 'CLOSED' &&
+            item?.basketLifecycle?.reason === 'MANAGER_CLOSED_ZERO_FILL';
+          const terminalClosed = lifecycleStatus === 'CLOSED';
+          const remainsCustomerVisible =
+            lifecycleStatus === 'POSITION_OPEN' ||
+            lifecycleStatus === 'CLOSURE_PENDING';
 
-          console.log('🔍 Checking Basket:', {
-            basketName: item.basketName,
-            basketId: item.basketId,
-            date: tradeDate,
-            cutoffDate: cutoffDate,
-            isAfterCutoff: tradeDate >= cutoffDate
-          });
 
-          // Check date on the parent basket
-          if (tradeDate < cutoffDate) {
-            console.log('❌ Basket filtered out - date before cutoff');
+          // Check date on the parent basket. A closed basket stays
+          // visible until the LATER of entry + advice window and closure +
+          // terminalClosedExtraDays (lifecycle closedAt = latest closure-leg
+          // date) so the terminal "Closed by manager" record never silently
+          // vanishes.
+          if (terminalClosed) {
+            const closedAt = item?.basketLifecycle?.closedAt
+              ? new Date(item.basketLifecycle.closedAt).getTime()
+              : tradeDate.getTime();
+            const entryCutoff = new Date(cutoffDate.getTime());
+            const closureCutoff = new Date(
+              closedAt + terminalClosedExtraDays * 24 * 60 * 60 * 1000
+            );
+            const effectiveCutoff = closureCutoff > entryCutoff
+              ? closureCutoff
+              : entryCutoff;
+            if (new Date() > effectiveCutoff && !remainsCustomerVisible) {
+              return [];
+            }
+          } else if (tradeDate < cutoffDate && !remainsCustomerVisible) {
             return [];
           }
 
-          console.log('🟢 Basket Found:', {
-            basketName: item.basketName,
-            basketId: item.basketId,
-            adviceCount: item.basket_advice.length
-          });
 
           // Filter basket advice for expiry validation
           const validExpiryAdvice = item.basket_advice.filter(advice => {
             const isValid = isValidSymbolExpiry(advice?.Symbol, advice?.Exchange);
-            if (!isValid) {
-              console.log('⚠️ Symbol filtered (expired):', advice?.Symbol);
-            }
             return isValid;
           });
 
-          console.log(`✅ Valid symbols after expiry check: ${validExpiryAdvice.length}/${item.basket_advice.length}`);
-
           debugBasketProcessing(validExpiryAdvice, item.basketName);
 
-          // Filter out conflicting BUY/SELL orders for same symbol
-          const validBasketAdvice = filterConflictingOrders(validExpiryAdvice);
+          // Completed BUY/SELL pairs are the evidence for the Closed card.
+          // Keep every valid leg: the server lifecycle owns position state,
+          // and completed opposite sides can also have unequal filled sizes.
+          const validBasketAdvice = validExpiryAdvice;
 
-          console.log(`✅ Valid symbols after conflict check: ${validBasketAdvice.length}/${validExpiryAdvice.length}`);
 
           if (validBasketAdvice.length === 0) {
-            console.log('❌ Basket has no valid advice after filtering');
             return [];
           }
 
@@ -704,17 +1095,34 @@ const getAllTrades = async () => {
               date: item.date,
               lastUpdated: item.lastUpdated,
               description: item.description,
+              basketLifecycle: item.basketLifecycle,
+              basketSchemaVersion: item.basketSchemaVersion,
+              recommendationIntent: item.recommendationIntent,
+              entryBlockedAt: item.entryBlockedAt,
+              entryBlockedReason: item.entryBlockedReason,
+              entryGate: item.entryGate,
+              entryNarrative: item.entryNarrative,
+              exitNarrative: item.exitNarrative,
               toTradeQty: toTradeQty,
               // Closure-specific fields
               isClosure: isClosure,
               currentHolding: currentHolding,
               closurestatus: advice.closurestatus || null,
+              // Two SEPARATE cancel flags, mirroring web
+              // StockRecommendation.js flatten (2026-05-17 split):
+              //   cancel — leg-level only (advisor cancel-leg on this row)
+              //   basketCancelled — parent doc-level (basket Reject / admin
+              //                      cancelled the whole basket)
+              // The customer Reject flow sets cancel=true on the PARENT
+              // tradereco row only, so legs carry basketCancelled. The
+              // BasketCard + groupTrades consumers read both.
+              cancel: advice.cancel === true,
+              basketCancelled: item.cancel === true || item.basketCancelled === true,
               // For basket metadata
               isEdited: isBasketEdited(item),
             };
           });
 
-          console.log(`🎯 Returning ${mappedTrades.length} trades from basket ${item.basketName}`);
           return mappedTrades;
         }
 
@@ -734,11 +1142,83 @@ const getAllTrades = async () => {
       return isValidSymbolExpiry(trade?.Symbol, trade?.Exchange);
     });
 
+    // A broadcast close may legitimately arrive with Quantity=0/blank, so it
+    // must remain visible. Two narrower rules prevent that safety behaviour
+    // from resurrecting stale cards: show only the newest pending full-close
+    // for a symbol, and hide it once a positive-quantity full-close execution
+    // has already flattened the latest advised position.
+    const lifecycleTime = trade =>
+      new Date(
+        trade?.exitDate ||
+          trade?.purchaseDate ||
+          trade?.updatedAt ||
+          trade?.createdAt ||
+          trade?.date ||
+          0,
+      ).getTime() || 0;
+    const symbolKey = trade => String(trade?.Symbol || '').trim().toUpperCase();
+    const effectiveExecutedQty = trade =>
+      Math.max(
+        0,
+        Number(trade?.tradedQty || 0),
+        Number(trade?.filledQty || 0),
+        Number(trade?.executedQty || 0),
+        Number(trade?.Quantity || 0),
+      );
+    const completedStatuses = new Set([
+      'complete',
+      'completed',
+      'executed',
+      'success',
+      'filled',
+      'manually_placed',
+    ]);
+    const isFullExit = trade =>
+      String(trade?.Type || '').toUpperCase() === 'SELL' &&
+      (String(trade?.closurestatus || '').toLowerCase() === 'fullclose' ||
+        String(trade?.purpose || '').toUpperCase() === 'EXIT');
+    const isPendingFullExit = trade =>
+      isFullExit(trade) &&
+      String(trade?.trade_place_status || '').toLowerCase() === 'recommend';
+    const latestPendingExit = new Map();
+    const latestCompletedExitAt = new Map();
+    const latestCompletedEntryAt = new Map();
+    validTrades.forEach(trade => {
+      if (trade?.basketId || trade?.basket_advice) return;
+      const key = symbolKey(trade);
+      if (!key) return;
+      const at = lifecycleTime(trade);
+      if (isPendingFullExit(trade)) {
+        const current = latestPendingExit.get(key);
+        if (!current || at >= lifecycleTime(current)) latestPendingExit.set(key, trade);
+      }
+      const status = String(trade?.trade_place_status || '').toLowerCase();
+      if (!completedStatuses.has(status) || effectiveExecutedQty(trade) <= 0) return;
+      if (isFullExit(trade)) {
+        latestCompletedExitAt.set(key, Math.max(latestCompletedExitAt.get(key) || 0, at));
+      } else if (String(trade?.Type || '').toUpperCase() === 'BUY') {
+        latestCompletedEntryAt.set(key, Math.max(latestCompletedEntryAt.get(key) || 0, at));
+      }
+    });
+
     const isRejectedStatus = (status) => isOrderRejected(status);
 
     const processedTrades = validTrades?.reduce(
       (acc, trade) => {
         const tradeDate = new Date(trade?.date);
+
+        // A manager full-close paired with an unfilled single-stock entry is a
+        // withdrawal, not an actionable sell. Keep basket lifecycle handling
+        // below separate because it is based on broker net positions.
+        if (isWithdrawnUnfilledEntry(trade, validTrades)) return acc;
+
+        if (isPendingFullExit(trade) && !trade?.basketId) {
+          const key = symbolKey(trade);
+          if (latestPendingExit.get(key) !== trade) return acc;
+          const completedExitAt = latestCompletedExitAt.get(key) || 0;
+          const completedEntryAt = latestCompletedEntryAt.get(key) || 0;
+          if (completedExitAt > 0 && completedExitAt >= completedEntryAt) return acc;
+        }
 
         // BASKET TRADES: Have basketId and toTradeQty property
         if (trade.basketId && trade.hasOwnProperty('toTradeQty')) {
@@ -754,25 +1234,104 @@ const getAllTrades = async () => {
           // The downstream netBasketTrades + BasketTradeModal's actionable
           // filter handle the render-table split (partial/recommend/rejected
           // shown as actionable; complete shown in banner only).
-          if (tradeDate < cutoffDate) return acc;
-          if (trade?.cancel === true) return acc;
+          const lifecycleStatus = trade?.basketLifecycle?.displayStatus;
+          const terminalClosed = lifecycleStatus === 'CLOSED';
+          const remainsCustomerVisible =
+            lifecycleStatus === 'POSITION_OPEN' ||
+            lifecycleStatus === 'CLOSURE_PENDING';
+          // A manager-closed zero-fill basket (auto-cancel zero-fill closure:
+          // every leg cancelled, no fills) must stay visible as its terminal
+          // "Closed by manager" card instead of vanishing. The auto-cancel
+          // stamps `cancel: true` on the legs, so the customer-Reject drop
+          // below must not fire for it — the Reject drop exists for a
+          // customer's own "I don't want this trade" intent, which the
+          // backend marks via the PARENT row (basketCancelled), not for
+          // leg-level auto-cancels.
+          const managerClosed =
+            lifecycleStatus === 'CLOSED' &&
+            trade?.basketLifecycle?.reason === 'MANAGER_CLOSED_ZERO_FILL';
+          // Closed records stay visible until the LATER of entry +
+          // advice window and closure + terminalClosedExtraDays (lifecycle
+          // closedAt = latest closure-leg date) so the terminal card never
+          // silently vanishes.
+          if (terminalClosed) {
+            const closedAt = trade?.basketLifecycle?.closedAt
+              ? new Date(trade.basketLifecycle.closedAt).getTime()
+              : tradeDate.getTime();
+            const entryCutoff = new Date(cutoffDate.getTime());
+            const closureCutoff = new Date(
+              closedAt + terminalClosedExtraDays * 24 * 60 * 60 * 1000
+            );
+            const effectiveCutoff = closureCutoff > entryCutoff
+              ? closureCutoff
+              : entryCutoff;
+            if (new Date() > effectiveCutoff && !remainsCustomerVisible) return acc;
+          } else if (tradeDate < cutoffDate && !remainsCustomerVisible) return acc;
+          // AlphaB2B groups lifecycle-aware closed cards from this same feed.
+          if (terminalClosed) {
+            acc.recommended.push(trade);
+            return acc;
+          }
+          // A customer Reject sets cancel=true on the PARENT tradereco row;
+          // the flatten surfaces it as basketCancelled on every leg. The
+          // customer's intent is "I don't want this trade" — drop the whole
+          // basket from the feed immediately after the first successful
+          // refetch, instead of leaving it visible (backend keeps returning
+          // the row until its customer_visible_until cutoff).
+          if (!managerClosed && (trade?.cancel === true || trade?.basketCancelled === true)) return acc;
           const status = (trade?.trade_place_status || '').toLowerCase();
-          if (
-            status === 'recommend' ||
-            status === 'partial' ||
-            status === 'rejected' ||
-            status === 'failure' ||
-            status === 'complete' ||
-            status === 'executed' ||
-            status === 'success' ||
-            status === 'filled'
-          ) {
+          if (managerClosed || isBasketCustomerVisibleStatus(status)) {
             acc.recommended.push(trade);
           }
           return acc;
         }
 
         // REGULAR TRADES: Process normally
+        // Closed/withdrawn single-stock rows (advisor-cancelled or
+        // manager-closed) stay visible until the LATER of entry + advice
+        // window and closure + terminalClosedExtraDays (exit/purchase date,
+        // else advice date).
+        const stockStatus = String(trade?.trade_place_status || '').toLowerCase();
+        const stockClosureStatus = String(trade?.closurestatus || '').toLowerCase();
+        // `fullClose` describes the advisor's intent as well as the eventual
+        // terminal outcome. A fresh SELL row is still an ACTION even when its
+        // broadcast quantity is blank/zero; the customer must see it and
+        // verify quantity before placement. Only terminal status/cancel
+        // evidence may move that row out of Current Recommendations.
+        const isPendingSingleStockExit =
+          stockStatus === 'recommend' &&
+          String(trade?.Type || '').toUpperCase() === 'SELL' &&
+          (['fullclose', 'partialclose'].includes(stockClosureStatus) ||
+            String(trade?.purpose || '').toUpperCase() === 'EXIT');
+        const isTerminalSingleStock =
+          trade?.cancel === true ||
+          ['cancelled', 'canceled', 'closed'].includes(stockStatus) ||
+          (!isPendingSingleStockExit &&
+            ['fullclose', 'closed'].includes(stockClosureStatus));
+        const stockWithinWindow = isTerminalSingleStock
+          ? (() => {
+              const closureAnchor =
+                trade?.exitDate || trade?.purchaseDate || trade?.date || cutoffDate;
+              const entryCutoff = new Date(cutoffDate.getTime());
+              const closureCutoff = new Date(
+                new Date(closureAnchor).getTime() +
+                  terminalClosedExtraDays * 24 * 60 * 60 * 1000
+              );
+              const effectiveCutoff = closureCutoff > entryCutoff
+                ? closureCutoff
+                : entryCutoff;
+              return new Date() <= effectiveCutoff;
+            })()
+          : tradeDate >= cutoffDate;
+
+        // Terminal records must never fall through to the active
+        // recommendation checks. Legacy full-close rows can retain
+        // trade_place_status="recommend", which otherwise resurrects a
+        // Closed card on Home.
+        if (isTerminalSingleStock) {
+          return acc;
+        }
+
         // REJECTED
         if (
           isRejectedStatus(trade?.trade_place_status) &&
@@ -780,16 +1339,34 @@ const getAllTrades = async () => {
           (trade?.rebalance_status === undefined ||
             trade?.rebalance_status === null) &&
           !trade?.model_id &&
-          tradeDate >= cutoffDate
+          stockWithinWindow
         ) {
           acc.rejected.push(trade);
+        }
+
+        // OPEN POSITIONS — an executed single-stock BUY the backend resolved
+        // to positionStatus "Open" (2026-08-25 web parity). Admitted read-only
+        // so a held position stays visible with its SL/PT until the advisor
+        // closes it. Exempt from the advice date window: a position is
+        // visible for as long as it is held.
+        const executedSingleStatus = ['complete', 'executed', 'success', 'filled'].includes(stockStatus);
+        const isOpenPosition =
+          executedSingleStatus &&
+          String(trade?.positionStatus || '').toLowerCase() === 'open' &&
+          String(trade?.Type || '').toUpperCase() === 'BUY' &&
+          trade?.cancel !== true &&
+          trade?.basketCancelled !== true &&
+          trade?.Basket === undefined;
+        if (isOpenPosition) {
+          acc.recommended.push({...trade, isOpenPosition: true});
+          return acc;
         }
 
         // RECOMMENDED — only active recommendations; rejected bespoke lives
         // exclusively in acc.rejected and is surfaced via the Rejected tab.
         if (
           trade?.trade_place_status === 'recommend' &&
-          tradeDate >= cutoffDate
+          stockWithinWindow
         ) {
           acc.recommended.push(trade);
         }
@@ -804,9 +1381,23 @@ const getAllTrades = async () => {
       {recommended: [], rejected: [], ignored: []},
     );
 
-    // Sort recommended by latest date
+    // Sort recommended by LATEST ACTIVITY, descending: for a basket leg the
+    // activity is the lifecycle closedAt (exit datetime) when present, else
+    // the leg's own exit/purchase/advice date. A basket whose exit happened
+    // on 20 Aug must sort above one advised on 13 Aug — container `date` is
+    // the advice date and would misorder. The downstream basket grouping
+    // preserves first-encounter order, so the latest-activity basket lands
+    // first; stocks sort by their own date.
+    const activityTimestamp = (t) => {
+      if (t?.basketLifecycle?.closedAt) {
+        return new Date(t.basketLifecycle.closedAt).getTime();
+      }
+      return new Date(
+        t?.exitDate || t?.purchaseDate || t?.date || 0
+      ).getTime();
+    };
     processedTrades.recommended.sort(
-      (a, b) => new Date(b.date) - new Date(a.date),
+      (a, b) => activityTimestamp(b) - activityTimestamp(a),
     );
 
     setrejectedTrades(processedTrades.rejected);
@@ -814,16 +1405,32 @@ const getAllTrades = async () => {
     setstockRecoNotExecutedfinal(processedTrades.recommended);
     setrecommendationStockfinal(processedTrades.recommended);
 
-    console.log("Process Recommend-----", processedTrades.recommended);
-
     if (trades.length === 0 && !hasFetchedTrades) {
       await handleNoTrades(userEmail, trades);
     }
   } catch (error) {
     console.error('[Trade Fetch] Error:', error);
   } finally {
-    setIsDatafetching(false);
+    if (!silent && requestGeneration === tradesRequestGenerationRef.current) {
+      setIsDatafetching(false);
+    }
   }
+};
+const getAllTrades = (options = {}) => {
+  // Do not ever reuse another account/tenant's in-flight response when the
+  // provider survives an identity or advisor switch.
+  const requestKey = `${userEmail || ''}:${configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || ''}:${adviceShowDays}`;
+  if (tradesInFlightRef.current?.key === requestKey) {
+    return tradesInFlightRef.current.promise;
+  }
+  const requestGeneration = ++tradesRequestGenerationRef.current;
+  const request = fetchAllTrades({...options, requestGeneration});
+  tradesInFlightRef.current = {key: requestKey, promise: request};
+  const clear = () => {
+    if (tradesInFlightRef.current?.promise === request) tradesInFlightRef.current = null;
+  };
+  request.then(clear, clear);
+  return request;
 };
   const [hasFetchedTrades, setHasFetchedTrades] = useState(false);
   const [planList, setPlanList] = useState(null);
@@ -836,8 +1443,7 @@ const getAllTrades = async () => {
         url: `${server.server.baseUrl}api/sendnotification/${userEmail}`,
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain':
-            configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -861,8 +1467,7 @@ const getAllTrades = async () => {
       //   await axios.post(sendRecoUrl, payload, {
       //     headers: {
       //       'Content-Type': 'application/json',
-      //       'X-Advisor-Subdomain':
-      //         configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+      //       'X-Advisor-Subdomain': getTenantSubdomain(),
       //       'aq-encrypted-key': generateToken(
       //         Config.REACT_APP_AQ_KEYS,
       //         Config.REACT_APP_AQ_SECRET,
@@ -903,7 +1508,9 @@ const getAllTrades = async () => {
     // after Apple login even though the same account showed plans fine
     // after a subsequent Google login (Firebase cached currentUser
     // populates the closure early enough for Google flows).
-    const userEmail = getAccountEmail();
+    const authNow = getAuth();
+    const currentUser = authNow.currentUser;
+    const userEmail = await getAccountEmailAsync();
     if (!userEmail) {
       console.warn('[getPlanList] skipped — auth not ready yet');
       return;
@@ -914,8 +1521,7 @@ const getAllTrades = async () => {
         url: `${server.server.baseUrl}api/sendnotification/${userEmail}`,
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain':
-            configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -948,6 +1554,21 @@ const getAllTrades = async () => {
   const [userDetails, setUserDetails] = useState(null);
   const [brokerStatus, setBrokerStatus] = useState(null);
   const [funds, setFunds] = useState({});
+  // Keep presentation state separate from the latest broker probe. A failed
+  // probe must remain visible to execution safety checks through `funds`, but
+  // it must never turn a previously verified balance into an invented zero.
+  const [confirmedFunds, setConfirmedFunds] = useState(null);
+  const [fundsLoading, setFundsLoading] = useState(false);
+  const [fundsError, setFundsError] = useState(null);
+  const userDetailsInFlightRef = useRef(null);
+  const fundsRequestSequenceRef = useRef(0);
+  const fundsInFlightRef = useRef(null);
+  const confirmedFundsRef = useRef(null);
+  // Wall-clock of the most recent order-placement round-trip. Any cash
+  // snapshot verified BEFORE this moment predates the order and must not be
+  // served from the `maxAgeMs` cache — see `getAllFunds` and the axios
+  // interceptor below.
+  const lastOrderPlacedAtRef = useRef(0);
   const [showMigrationModal, setShowMigrationModal] = useState(false);
   const [migrationBroker, setMigrationBroker] = useState(null);
 
@@ -958,6 +1579,23 @@ const getAllTrades = async () => {
   const [lastOrderBookRefresh, setLastOrderBookRefresh] = useState(null);
   const [orderBookError, setOrderBookError] = useState(null);
   const autoRefreshTimerRef = useRef(null);
+
+  // TradeProvider remains mounted across some identity transitions. Clear the
+  // previous account's recommendation working set synchronously at that
+  // boundary and invalidate every older response. Device credential vaults
+  // are intentionally untouched: they are separately encrypted and scoped by
+  // advisor, broker and email.
+  useEffect(() => {
+    tradesRequestGenerationRef.current += 1;
+    tradesInFlightRef.current = null;
+    setstockRecoNotExecutedfinal([]);
+    setrecommendationStockfinal([]);
+    setrejectedTrades([]);
+    setIgnoredTrades([]);
+    setHasFetchedTrades(false);
+    hasFetchedTradesRef.current = false;
+    setPlanList(null);
+  }, [userEmail, configData?.config?.REACT_APP_HEADER_NAME]);
 
   /**
    * Fetch broker order book for reconciliation and status refresh
@@ -1062,23 +1700,16 @@ const getAllTrades = async () => {
     }
   }, []);
 
-  const getUserDeatils = async (attempt = 0) => {
-    // Re-derive at call time via the shared resolver — see
-    // src/utils/accountEmail.js. TradeProvider mounts BEFORE auth resolves
-    // (it wraps the app in App.js), so a top-level closure would be
-    // `undefined` when a fresh Apple sign-in lands.
-    const userEmail = getAccountEmail();
-    if (!userEmail) {
-      console.warn('[getUserDeatils] skipped — no authenticated user yet');
-      return;
-    }
+  const fetchUserDetailsRequest = async (userEmail, attempt = 0) => {
+    // The email is resolved by getUserDeatils at call time because the
+    // provider can mount before Firebase/Apple identity hydration finishes.
     try {
       const response = await axios.get(
         `${server.server.baseUrl}api/user/getUser/${userEmail}`,
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -1088,23 +1719,12 @@ const getAllTrades = async () => {
       );
       const user = response.data.User;
 
-      // DEBUG: Log the entire user object and broker status
-      console.log('🔍 [BROKER DEBUG] Full API Response User:', JSON.stringify(user, null, 2));
-      console.log('🔍 [BROKER DEBUG] user_broker:', user?.user_broker);
-      console.log('🔍 [BROKER DEBUG] connect_broker_status from API:', user?.connect_broker_status);
-      console.log('🔍 [BROKER DEBUG] connect_broker_status type:', typeof user?.connect_broker_status);
-
       setBroker(user?.user_broker);
       setUserDetails(user);
       setIsBrokerConnected(!!user?.user_broker);
       if (user?.user_broker && user?.jwtToken) {
         saveBrokerSessionTime(user.user_broker);
       }
-      console.log(
-        'user details i get final-------:',
-        !!user?.user_broker,
-        user?.user_broker,
-      );
       if (
         response?.data?.phone_number &&
         response?.data?.phone_number.toString().length >= 9
@@ -1112,7 +1732,6 @@ const getAllTrades = async () => {
         setIsProfileCompleted(true);
       }
       setBrokerStatus(user?.connect_broker_status);
-      console.log('🔍 [BROKER DEBUG] brokerStatus SET TO:', user?.connect_broker_status);
       return user;
     } catch (error) {
       // 404 on first-time Apple sign-in: TradeProvider's [userEmail,
@@ -1127,9 +1746,35 @@ const getAllTrades = async () => {
           `[getUserDeatils] 404 on attempt ${attempt + 1} — retrying in ${delayMs}ms`,
         );
         await new Promise(r => setTimeout(r, delayMs));
-        return getUserDeatils(attempt + 1);
+        return fetchUserDetailsRequest(userEmail, attempt + 1);
       }
       console.error('Error fetching user details:', error.message);
+    }
+  };
+
+  const getUserDeatils = async () => {
+    // App launch, mounted screens and broker reconnect events frequently ask
+    // for the same user document in the same frame. Joining that request
+    // avoids repeated JSON parsing and global context updates that can starve
+    // bottom-tab presses for several seconds on lower-end Android devices.
+    const requestEmail = await getAccountEmailAsync();
+    if (!requestEmail) {
+      console.warn('[getUserDeatils] skipped — no authenticated user yet');
+      return;
+    }
+    const requestKey = `${requestEmail}:${getTenantSubdomain(configData)}`;
+    if (userDetailsInFlightRef.current?.requestKey === requestKey) {
+      return userDetailsInFlightRef.current.promise;
+    }
+
+    const promise = fetchUserDetailsRequest(requestEmail);
+    userDetailsInFlightRef.current = {requestKey, promise};
+    try {
+      return await promise;
+    } finally {
+      if (userDetailsInFlightRef.current?.promise === promise) {
+        userDetailsInFlightRef.current = null;
+      }
     }
   };
 
@@ -1137,17 +1782,21 @@ const getAllTrades = async () => {
     userDetails ? userDetails?.user_broker : null,
   );
 
-  const getAllFunds = async () => {
-    if (!userDetails) {
-      return;
+  const getAllFunds = async (options = {}) => {
+    const force = options?.force === true;
+    const maxAgeMs = Number(options?.maxAgeMs) || 0;
+    const details = options?.userDetailsOverride || userDetails;
+    if (!details) {
+      return null;
     }
+    const targetBroker = details.user_broker || broker;
     if (
-      broker === null ||
-      broker === undefined ||
-      broker === ''
+      targetBroker === null ||
+      targetBroker === undefined ||
+      targetBroker === ''
     ) {
       setBrokerHoldingsData([]);
-      return;
+      return null;
     }
 
     const {
@@ -1157,31 +1806,105 @@ const getAllTrades = async () => {
       secretKey,
       sid,
       serverId,
-    } = userDetails;
+    } = details;
 
-    // Re-derive at call time — see comment in getUserDeatils.
-    const userEmail = getAccountEmail();
+    const userEmail = await getAccountEmailAsync();
+    const requestKey = `${userEmail || ''}:${targetBroker}`;
+    // A reconnect can replace the broker token while an older funds request
+    // for the same user+broker is still in flight.  Do not join that request:
+    // its expired-token response would otherwise win the post-login refresh
+    // and immediately reopen "Authentication Required" behind the success
+    // alert.  Keep the display/cache key account-scoped, but make the
+    // single-flight identity credential-scoped.  This value stays in memory
+    // only and is never logged or persisted.
+    const credentialsKey = [
+      clientCode,
+      apiKey,
+      jwtToken,
+      secretKey,
+      sid,
+      serverId,
+    ]
+      .map(value => String(value ?? ''))
+      .join('\u001f');
 
-    try {
-      const fetchedFunds = await fetchFunds(
-        broker,
-        clientCode,
-        apiKey,
-        jwtToken,
-        secretKey,
-        sid,
-        serverId,
-        userEmail,
-      );
-      console.log("Fetched Funds-----",fetchedFunds);
-      if (fetchedFunds) {
-        setFunds(fetchedFunds);
-      } else {
-        console.error('No funds fetched.');
-      }
-    } catch (error) {
-      console.error('Error fetching funds:', error);
+    const cached = confirmedFundsRef.current;
+    if (
+      !force &&
+      maxAgeMs > 0 &&
+      cached?.requestKey === requestKey &&
+      Date.now() - cached.verifiedAt < maxAgeMs &&
+      // An order placed after this snapshot was taken has changed buying
+      // power. Serving the cached value here is what made the broker screen
+      // show pre-order cash for up to `maxAgeMs` after an execution
+      // (user-reported on ICICI Direct, 2026-09-02).
+      cached.verifiedAt > lastOrderPlacedAtRef.current
+    ) {
+      return cached.funds;
     }
+
+    // Screen focus, reconnect events and navigation can request funds at the
+    // same time. Join the existing call rather than increasing broker load.
+    if (
+      fundsInFlightRef.current?.requestKey === requestKey &&
+      fundsInFlightRef.current?.credentialsKey === credentialsKey
+    ) {
+      return fundsInFlightRef.current.promise;
+    }
+
+    const requestSequence = ++fundsRequestSequenceRef.current;
+    setFundsLoading(true);
+    setFundsError(null);
+    const promise = (async () => {
+      try {
+        const fetchedFunds = await fetchFunds(
+          targetBroker,
+          clientCode,
+          apiKey,
+          jwtToken,
+          secretKey,
+          sid,
+          serverId,
+          userEmail,
+        );
+        if (requestSequence !== fundsRequestSequenceRef.current) {
+          return fetchedFunds;
+        }
+
+        // `funds` intentionally receives broker errors for execution/session
+        // classification. Only a response containing a real numeric cash
+        // value is allowed into the display snapshot.
+        if (fetchedFunds) setFunds(fetchedFunds);
+        const snapshot = confirmedFundsSnapshot(fetchedFunds);
+        if (snapshot) {
+          const verified = {...snapshot, requestKey};
+          confirmedFundsRef.current = verified;
+          setConfirmedFunds(verified);
+          setFundsError(null);
+        } else {
+          setFundsError(
+            fetchedFunds?.message || 'Balance is temporarily unavailable',
+          );
+        }
+        return fetchedFunds || null;
+      } catch (error) {
+        if (requestSequence === fundsRequestSequenceRef.current) {
+          setFundsError(error?.message || 'Balance is temporarily unavailable');
+        }
+        return null;
+      } finally {
+        if (requestSequence === fundsRequestSequenceRef.current) {
+          setFundsLoading(false);
+        }
+      }
+    })();
+    fundsInFlightRef.current = {requestKey, credentialsKey, promise};
+    promise.finally(() => {
+      if (fundsInFlightRef.current?.promise === promise) {
+        fundsInFlightRef.current = null;
+      }
+    });
+    return promise;
   };
 
   const fetchBrokerStatusModal = async (opts = {}) => {
@@ -1192,11 +1915,13 @@ const getAllTrades = async () => {
     // just reconnect. Migration modal should only fire after an
     // explicit reconnect action by the user. User-reported 2026-04-29.
     const silent = opts.silent === true;
+    const refreshFunds = opts.refreshFunds !== false;
     // Re-derive at call time — see comment in getUserDeatils.
-    const userEmail = getAccountEmail();
+    const userEmail = await getAccountEmailAsync();
     if (!userEmail) return;
     try {
       const updatedUser = await getUserDeatils();
+      let refreshedFunds = null;
       // After a reconnect we must refresh funds immediately. Relying on
       // the [userDetails, configData] useEffect alone is flaky: it gates
       // on the stale `broker` state (so a reconnect into the same broker
@@ -1205,30 +1930,13 @@ const getAllTrades = async () => {
       // `handleCheckStatus` / `isFundsErrorOrMissing` in RebalanceCard
       // then reads stale funds and re-pops the TokenExpire modal — the
       // "Login to {broker} loops forever after successful reconnect"
-      // bug. Call fetchFunds directly with the fresh user object.
-      if (updatedUser?.user_broker) {
+      // bug. Run the single-flight funds loader with the fresh user object.
+      if (updatedUser?.user_broker && refreshFunds) {
         try {
-          const {
-            clientCode,
-            apiKey,
-            jwtToken,
-            secretKey,
-            sid,
-            serverId,
-          } = updatedUser;
-          const fetchedFunds = await fetchFunds(
-            updatedUser.user_broker,
-            clientCode,
-            apiKey,
-            jwtToken,
-            secretKey,
-            sid,
-            serverId,
-            userEmail,
-          );
-          if (fetchedFunds) {
-            setFunds(fetchedFunds);
-          }
+          refreshedFunds = await getAllFunds({
+            force: true,
+            userDetailsOverride: updatedUser,
+          });
         } catch (fundsErr) {
           console.warn(
             '[fetchBrokerStatusModal] funds refresh failed:',
@@ -1244,7 +1952,7 @@ const getAllTrades = async () => {
               params: {newBroker: updatedUser.user_broker},
               headers: {
                 'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+                'X-Advisor-Subdomain': getTenantSubdomain(configData),
                 'aq-encrypted-key': generateToken(
                   Config.REACT_APP_AQ_KEYS,
                   Config.REACT_APP_AQ_SECRET,
@@ -1262,15 +1970,31 @@ const getAllTrades = async () => {
             // after user clicks "Continue" on the success dialog — the delay
             // here achieves the same settled-screen guarantee on mobile.
             setTimeout(() => setShowMigrationModal(true), 700);
-            return {migrationWillShow: true};
+            return {
+              migrationWillShow: true,
+              userDetails: updatedUser,
+              funds: refreshedFunds,
+            };
           }
-          return {migrationWillShow: false};
+          return {
+            migrationWillShow: false,
+            userDetails: updatedUser,
+            funds: refreshedFunds,
+          };
         } catch (migErr) {
           console.warn('[fetchBrokerStatusModal] migration check failed:', migErr?.message);
-          return {migrationWillShow: false};
+          return {
+            migrationWillShow: false,
+            userDetails: updatedUser,
+            funds: refreshedFunds,
+          };
         }
       }
-      return {migrationWillShow: false};
+      return {
+        migrationWillShow: false,
+        userDetails: updatedUser,
+        funds: refreshedFunds,
+      };
     } catch (error) {
       setIsBrokerConnected(false);
       return {migrationWillShow: false};
@@ -1288,8 +2012,7 @@ const getAllTrades = async () => {
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain':
-              configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -1307,23 +2030,33 @@ const getAllTrades = async () => {
 
   const [isNotificationLoading, setIsNotificationLoading] = useState(false);
   const [allNotifications, setAllNotifications] = useState(null);
+  const notificationsInFlightRef = useRef(null);
 
-  const getAllNotifcations = async () => {
+  const getAllNotifcations = async (options = {}) => {
     // Don't fetch with an unresolved email — on login this can fire before
     // userEmail hydrates and would hit /get-user-notifications/undefined → 404.
     if (!userEmail) {
       setIsNotificationLoading(false);
       return;
     }
-    try {
-      setIsNotificationLoading(true);
+    const requestKey = `${userEmail}:${getTenantSubdomain(configData)}`;
+    if (notificationsInFlightRef.current?.requestKey === requestKey) {
+      return notificationsInFlightRef.current.promise;
+    }
+
+    const request = (async () => {
+      try {
+      // Cached notifications remain visible during background refreshes.
+      // Blocking the entire screen on every mark-as-read caused the Alerts
+      // list to flash a loader and lose its scroll position between taps.
+      const shouldBlockScreen = !options.background && !allNotifications;
+      if (shouldBlockScreen) setIsNotificationLoading(true);
       const response = await axios.get(
         `${server.server.baseUrl}api/sendnotification/get-user-notifications/${userEmail}`,
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain':
-              configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -1332,19 +2065,30 @@ const getAllTrades = async () => {
         },
       );
 
-      setAllNotifications(response.data.data);
-    } catch (error) {
+        setAllNotifications(response.data.data);
+        return response.data.data;
+      } catch (error) {
       // 404 is the backend's "this user has no notification record yet" —
       // the normal state for a new / freshly-migrated account, not a
       // failure. Logging it at error level raised a red LogBox on every
       // launch. Treat it as an empty list; keep error level for the rest.
-      if (error?.response?.status === 404) {
-        setAllNotifications([]);
-      } else {
+        if (error?.response?.status === 404) {
+          setAllNotifications([]);
+          return [];
+        }
         console.error('Error fetching notifications', error);
+        return null;
+      } finally {
+        setIsNotificationLoading(false);
       }
+    })();
+    notificationsInFlightRef.current = {requestKey, promise: request};
+    try {
+      return await request;
     } finally {
-      setIsNotificationLoading(false);
+      if (notificationsInFlightRef.current?.promise === request) {
+        notificationsInFlightRef.current = null;
+      }
     }
   };
 
@@ -1357,8 +2101,7 @@ const getAllTrades = async () => {
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain':
-              configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -1387,8 +2130,7 @@ const getAllTrades = async () => {
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain':
-              configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -1429,8 +2171,7 @@ const getAllTrades = async () => {
         const response = await axios.get(endpoint, {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain':
-              configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -1495,14 +2236,13 @@ const getAllTrades = async () => {
   useEffect(() => {
     if (userEmail && configData) {
       console.log('✅ TradeContext: Config available, fetching user data...');
-      getUserDeatils();
       getPlanList();
       // Refresh broker status on app launch — silent mode so the
       // migration modal doesn't pop "Reconnected to {broker}" at app
       // start (misleading; broker may actually need re-auth and user
       // didn't just reconnect). Migration modal only fires after an
       // explicit user reconnect action.
-      fetchBrokerStatusModal({silent: true});
+      fetchBrokerStatusModal({silent: true, refreshFunds: false});
     } else {
       console.log(
         '⚠️ TradeContext: Waiting for config data before fetching user data...',
@@ -1511,9 +2251,11 @@ const getAllTrades = async () => {
   }, [userEmail, configData]);
 
   useEffect(() => {
-    if (userDetails && broker && configData) {
+    if (userDetails && configData) {
+      // Broker identity belongs in global state, but balances are fetched by
+      // funds-sensitive screens (or execution preflight), not on every global
+      // user/config refresh.
       setBroker(userDetails?.user_broker);
-      getAllFunds();
     }
   }, [userDetails, configData]);
 
@@ -1525,6 +2267,102 @@ const getAllTrades = async () => {
       getModelPortfolioStrategyDetails();
     }
   }, [userEmail, configData]);
+
+  // Order-placement chokepoint. `OrderPlacedReferesh` covers only the screens
+  // that remembered to emit it; several real placement paths never do
+  // (MPReviewTradeModal, OrderService, ModelPortfolioService, AddtoCartModal,
+  // IgnoreTradesScreen, and two of RebalanceModal's four submits). Rather than
+  // sprinkle emits that the next new path will forget again, stamp every
+  // */process-trade round-trip here. `getAllFunds` refuses to serve a cash
+  // snapshot older than this stamp, so the next read — including the broker
+  // screen's `maxAgeMs: 30000` focus read — always hits the broker.
+  // Errors stamp too: a request can fail after the broker accepted the order.
+  useEffect(() => {
+    const isOrderPlacement = config =>
+      typeof config?.url === 'string' && config.url.includes('process-trade');
+    const stamp = config => {
+      if (isOrderPlacement(config)) {
+        lastOrderPlacedAtRef.current = Date.now();
+      }
+    };
+    const interceptorId = axios.interceptors.response.use(
+      response => {
+        stamp(response?.config);
+        return response;
+      },
+      error => {
+        stamp(error?.config || error?.response?.config);
+        return Promise.reject(error);
+      },
+    );
+    return () => axios.interceptors.response.eject(interceptorId);
+  }, []);
+
+  // Account-wide invalidation boundary. Broker switches/connections and order
+  // completion happen in several screens, but all of them already publish one
+  // of these legacy events. Refresh broker identity first, then force cash and
+  // home datasets with that same fresh user snapshot so no request is sent to
+  // the previously active broker. A short second cash read covers brokers that
+  // update buying power just after acknowledging the final order.
+  useEffect(() => {
+    if (!userEmail || !configData) return undefined;
+
+    let cashRetryTimer;
+    const refreshAccountState = async event => {
+      // Reconnect / broker change / placed order: a cached get-repair answer
+      // no longer describes the account.
+      repairEpochRef.current += 1;
+      lastRepairResultRef.current = null;
+      const updatedUser = event?.freshUser || (await getUserDeatils());
+      const refreshes = [
+        getAllTrades(),
+        getModelPortfolioStrategyDetails(),
+        // Holdings no longer re-fetch on every user refresh (see
+        // holdingsSessionKey), so order/refresh events request them here.
+        getAllBrokerSpecificHoldings(),
+        getAllHoldings(),
+      ];
+      if (event?.fundsAlreadyRefreshed !== true) {
+        refreshes.push(
+          getAllFunds({
+            force: true,
+            userDetailsOverride: updatedUser || userDetails,
+          }),
+        );
+      }
+      await Promise.allSettled(refreshes);
+      clearTimeout(cashRetryTimer);
+      if (event?.fundsAlreadyRefreshed === true) return;
+      cashRetryTimer = setTimeout(() => {
+        getAllFunds({
+          force: true,
+          userDetailsOverride: updatedUser || userDetails,
+        }).catch(() => {});
+      }, 2000);
+    };
+
+    eventEmitter.on('refreshEvent', refreshAccountState);
+    eventEmitter.on('OrderPlacedReferesh', refreshAccountState);
+    return () => {
+      clearTimeout(cashRetryTimer);
+      eventEmitter.removeListener('refreshEvent', refreshAccountState);
+      eventEmitter.removeListener('OrderPlacedReferesh', refreshAccountState);
+    };
+    // Context loaders are recreated on render and would churn these global
+    // subscriptions. Fresh user data is passed explicitly to the funds call.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userEmail, configData, userDetails]);
+
+  // Re-read subscriber and Repair status after broker reconciliation while suspended.
+  const foregroundPortfolioRefreshRef = useRef(null);
+  foregroundPortfolioRefreshRef.current = () => {
+    if (userEmail && configData) {
+      return getModelPortfolioStrategyDetails({silent: true, refreshRepair: true});
+    }
+  };
+  useEffect(() => {
+    return subscribePortfolioResume(AppState, () => foregroundPortfolioRefreshRef.current?.());
+  }, []);
 
   // Re-fetch only trades when adviceShowDays changes (don't re-trigger everything)
   const adviceShowDaysInitialized = useRef(false);
@@ -1540,6 +2378,8 @@ const getAllTrades = async () => {
 
   // for broker specigfic Holdings
   const [BrokerHoldingsData, setBrokerHoldingsData] = useState([]);
+  const [lastBrokerHoldingsRefresh, setLastBrokerHoldingsRefresh] =
+    useState(null);
 
   const getAllBrokerSpecificHoldings = async () => {
     if (
@@ -1548,7 +2388,11 @@ const getAllTrades = async () => {
       broker === '' ||
       brokerStatus === 'Disconnected'
     ) {
-      setBrokerHoldingsData([]);
+      const snapshot = await loadBrokerHoldingsSnapshot(userEmail, broker);
+      if (snapshot) {
+        setBrokerHoldingsData(snapshot.holdings);
+        setLastBrokerHoldingsRefresh(snapshot.refreshedAt);
+      }
       return;
     }
     const {
@@ -1573,9 +2417,18 @@ const getAllTrades = async () => {
         viewToken,
         serverId,
         configData,
+        userEmail,
       );
       if (brokerSpecificHolding) {
+        const refreshedAt = new Date().toISOString();
         setBrokerHoldingsData(brokerSpecificHolding);
+        setLastBrokerHoldingsRefresh(refreshedAt);
+        saveBrokerHoldingsSnapshot({
+          email: userEmail,
+          broker,
+          holdings: brokerSpecificHolding,
+          refreshedAt,
+        }).catch(() => {});
       } else {
         console.error('No funds fetched.');
       }
@@ -1594,7 +2447,11 @@ const getAllTrades = async () => {
       broker === '' ||
       brokerStatus === 'Disconnected'
     ) {
-      setAllHoldingsData();
+      const snapshot = await loadBrokerHoldingsSummary(userEmail, broker);
+      if (snapshot) {
+        setAllHoldingsData(snapshot.summary);
+        setLastBrokerHoldingsRefresh(current => current || snapshot.refreshedAt);
+      }
       return;
     }
     const {
@@ -1619,24 +2476,43 @@ const getAllTrades = async () => {
         viewToken,
         serverId,
         configData,
+        userEmail,
       );
       if (allHoldings) {
+        const refreshedAt = new Date().toISOString();
         setAllHoldingsData(allHoldings);
+        saveBrokerHoldingsSummary({
+          email: userEmail,
+          broker,
+          summary: allHoldings,
+          refreshedAt,
+        }).catch(() => {});
+        return allHoldings;
       } else {
         console.error('No funds fetched.');
+        return null;
       }
     } catch (error) {
       console.error('Error fetching funds:', error);
+      return null;
     }
   };
 
+  // Re-fetch broker holdings only when the broker SESSION changes (user,
+  // broker, connection status, credentials) — not on every getUser refresh,
+  // which returns a new object with the same session and used to fan one
+  // Accept tap out into repeated live broker calls. Explicit refreshes
+  // (order placed / refreshEvent) re-fetch holdings in refreshAccountState.
+  const holdingsSessionKey = holdingsRefreshKey(userDetails);
   useEffect(() => {
-    if (userDetails) {
+    if (holdingsSessionKey) {
       setBroker(userDetails?.user_broker);
       getAllBrokerSpecificHoldings();
       getAllHoldings();
     }
-  }, [userDetails]);
+    // Loaders are recreated every render; the session key is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [holdingsSessionKey]);
 
   const [marketPrices, setMarketPrices] = useState({});
 
@@ -1656,7 +2532,7 @@ const getAllTrades = async () => {
         url: `${server.ccxtServer.baseUrl}angelone/market-data`,
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -1676,6 +2552,68 @@ const getAllTrades = async () => {
       console.error('Error fetching market prices:', error);
     }
   };
+
+  const markPnlRangeActivated = useCallback(
+    async ({id, marketPrice}) => {
+      if (!id || !Number.isFinite(Number(marketPrice))) {
+        return false;
+      }
+
+      const applyActivation = trades =>
+        trades.map(trade =>
+          String(trade?._id) === String(id)
+            ? {
+                ...trade,
+                pnlRangeActivated: true,
+                pnlActivatedAt:
+                  trade.pnlActivatedAt || new Date().toISOString(),
+                pnlActivationPrice: Number(marketPrice),
+              }
+            : trade,
+        );
+
+      // The price has entered the range, so reflect activation immediately.
+      // The API call below makes that one-way state durable across sessions.
+      setstockRecoNotExecutedfinal(applyActivation);
+      setrecommendationStockfinal(applyActivation);
+
+      try {
+        const accountEmail = await getAccountEmailAsync();
+        if (!accountEmail) {
+          return false;
+        }
+
+        await axios.put(
+          `${server.server.baseUrl}api/user/trade-reco/${encodeURIComponent(
+            id,
+          )}/activate-pnl`,
+          {
+            user_email: accountEmail,
+            market_price: Number(marketPrice),
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': getTenantSubdomain(configData),
+              'aq-encrypted-key': generateToken(
+                Config.REACT_APP_AQ_KEYS,
+                Config.REACT_APP_AQ_SECRET,
+              ),
+            },
+          },
+        );
+        return true;
+      } catch (error) {
+        console.warn(
+          '[P&L activation] Could not persist range activation:',
+          error?.response?.data?.error || error.message,
+        );
+        return false;
+      }
+    },
+    [configData],
+  );
+
   return (
     <TradeContext.Provider
       value={{
@@ -1692,15 +2630,19 @@ const getAllTrades = async () => {
         fetchVideos,
         modelPortfolioStrategyfinal,
         modelPortfolioEntitlementsLoaded,
+        modelPortfolioEntitlementsStatus,
         stockRecoNotExecutedfinal,
         recommendationStockfinal,
         isDatafetching,
         getAllTrades,
+        markPnlRangeActivated,
         getModelPortfolioStrategyDetails,
         // Repair UI — see docs/MODEL_PORTFOLIO_ARCHITECTURE.md § 6g
         modelPortfolioRepairTrades,
         isDatafetchinRepair,
+        repairReconciliation,
         getModelPortfolioRepairTrades,
+      getRecentRepairResult,
         markSkipRepairForModelId,
         shouldSkipRepairForModelId,
         rejectedTrades,
@@ -1721,6 +2663,9 @@ const getAllTrades = async () => {
         brokerStatus,
         getUserDeatils,
         funds,
+        confirmedFunds,
+        fundsLoading,
+        fundsError,
         getAllFunds,
         bestPerformer,
         isPerformerLoading,
@@ -1738,6 +2683,7 @@ const getAllTrades = async () => {
         //for broker specific holdings
         BrokerHoldingsData,
         getAllBrokerSpecificHoldings,
+        lastBrokerHoldingsRefresh,
         allHoldingsData,
         setAllHoldingsData,
         getAllHoldings,

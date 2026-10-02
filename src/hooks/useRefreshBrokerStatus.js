@@ -27,6 +27,16 @@
  *   we always ping fetchFunds; a real auth failure surfaces the
  *   TokenExpireBrokerModal so the user can reconnect in-place.
  *
+ * **Per-tap reuse** (added 2026-10-02 — Accept Rebalance probed the broker
+ *   three times in a row on one tap). Pass `{reuseWithinMs}` together with
+ *   `forceNetwork` to accept the last network probe if it is younger than
+ *   that window. Only a CONNECTED probe with live funds is ever reused; a
+ *   failed / expired / disconnected probe always re-probes, and any
+ *   `refreshEvent` (reconnect, disconnect, execution) or `OrderPlacedReferesh`
+ *   drops the cache.
+ *   Callers that must see the broker *right now* (post-reconnect resume)
+ *   simply omit `reuseWithinMs`.
+ *
  * Contract for callers unchanged: `freshStatus.funds ?? funds` /
  * `freshStatus.brokerStatus || brokerStatus`.
  */
@@ -37,6 +47,7 @@ import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
 import {fetchFunds} from '../FunctionCall/fetchFunds';
 import {useTrade} from '../screens/TradeContext';
+import eventEmitter from '../components/EventEmitter';
 
 const hasLiveFunds = f =>
   !!f &&
@@ -44,6 +55,26 @@ const hasLiveFunds = f =>
   f.status !== 2 &&
   f.status !== false &&
   !!f.data;
+
+// One probe per Accept tap: steps of the same flow reuse a successful probe.
+export const BROKER_PROBE_REUSE_MS = 30 * 1000;
+let lastProbe = null; // {key, at, result}
+
+export function invalidateBrokerProbe() {
+  lastProbe = null;
+}
+eventEmitter.on('refreshEvent', invalidateBrokerProbe);
+eventEmitter.on('OrderPlacedReferesh', invalidateBrokerProbe);
+
+const probeKey = (configData, userEmail) =>
+  `${configData?.config?.REACT_APP_HEADER_NAME || ''}|${String(userEmail || '').toLowerCase()}`;
+
+const reusableProbe = result =>
+  !!result &&
+  !result.refreshFailed &&
+  result.brokerStatus === 'connected' &&
+  !!result.broker &&
+  hasLiveFunds(result.funds);
 
 export function useRefreshBrokerStatus(userEmail) {
   const {
@@ -60,6 +91,17 @@ export function useRefreshBrokerStatus(userEmail) {
     const forceNetwork = !!(opts && opts.forceNetwork);
     if (!userEmail) {
       return {brokerStatus, broker, funds, userDetails};
+    }
+
+    const reuseWithinMs = Number(opts?.reuseWithinMs) || 0;
+    const key = probeKey(configData, userEmail);
+    if (
+      reuseWithinMs > 0 &&
+      lastProbe?.key === key &&
+      Date.now() - lastProbe.at < reuseWithinMs &&
+      reusableProbe(lastProbe.result)
+    ) {
+      return {...lastProbe.result, reused: true};
     }
 
     // FAST PATH: context already has a connected broker + live funds. Skip
@@ -125,14 +167,23 @@ export function useRefreshBrokerStatus(userEmail) {
         getUserDeatils();
       }
 
-      // If server says a different broker than we used for the parallel
-      // fetchFunds, do a second serialized fetch with the right creds.
+      // If getUser returns a different broker OR fresher credentials than the
+      // context snapshot used by the parallel request, repeat the funds probe
+      // with those canonical credentials.  OAuth reconnect normally keeps the
+      // same broker name, so broker-only comparison otherwise reuses the old
+      // access token and immediately re-opens "Authentication Required".
       let freshFunds = fetchedFundsFirst;
       const serverBroker = freshUserDetails?.user_broker;
       const brokerChangedMidFlight =
         serverBroker && ctxBroker && serverBroker !== ctxBroker;
+      const credentialsChangedMidFlight =
+        !!freshUserDetails?.jwtToken &&
+        freshUserDetails.jwtToken !== userDetails?.jwtToken;
 
-      if (brokerChangedMidFlight && freshUserDetails?.user_broker) {
+      if (
+        (brokerChangedMidFlight || credentialsChangedMidFlight) &&
+        freshUserDetails?.user_broker
+      ) {
         try {
           const retry = await fetchFunds(
             freshUserDetails.user_broker,
@@ -147,7 +198,7 @@ export function useRefreshBrokerStatus(userEmail) {
           if (retry) freshFunds = retry;
         } catch (retryErr) {
           console.warn(
-            '[useRefreshBrokerStatus] broker-changed retry fetchFunds failed:',
+            '[useRefreshBrokerStatus] canonical-credentials retry fetchFunds failed:',
             retryErr?.message,
           );
         }
@@ -157,18 +208,32 @@ export function useRefreshBrokerStatus(userEmail) {
         if (setFunds) setFunds(freshFunds);
       }
 
-      return {
+      const result = {
         brokerStatus: freshUserDetails?.connect_broker_status ?? brokerStatus,
         broker: freshUserDetails?.user_broker ?? broker,
         userDetails: freshUserDetails ?? userDetails,
         funds: freshFunds ?? funds,
       };
+      // Cache only what this probe actually proved (fresh funds from the
+      // broker, not the context fallback).
+      lastProbe = freshFunds && reusableProbe(result)
+        ? {key, at: Date.now(), result}
+        : null;
+      return result;
     } catch (error) {
       // console.log, not console.error: this is a handled refresh failure
       // (typically a transient Network Error) — error-level logging pops a
       // scary LogBox toast in dev builds for something the flow tolerates.
       console.log('[useRefreshBrokerStatus] error:', error?.message);
-      return {brokerStatus, broker, funds, userDetails};
+      lastProbe = null;
+      return {
+        brokerStatus,
+        broker,
+        funds,
+        userDetails,
+        refreshFailed: true,
+        refreshError: error?.message || 'Broker status refresh failed',
+      };
     }
   }, [
     userEmail,

@@ -28,11 +28,29 @@
  *   2. Every POLL_INTERVAL_MS, the hook re-fetches the order book and
  *      diffs against the baseline. Any new order IDs are by definition
  *      orders the user just placed via Kite Publisher.
- *   3. When new orders are detected (or POLL_TIMEOUT_MS expires), the
- *      hook calls `onPublisherSettled({ reason, newOrders })` and stops.
- *      The consumer drives the same state transition it would have
- *      driven from the WebView callback (`setZerodhaStatus('success')`,
- *      etc.) — single code path for both success channels.
+ *   3. When the new orders detected cover the whole basket (or
+ *      POLL_TIMEOUT_MS expires), the hook calls
+ *      `onPublisherSettled({ reason, newOrders })` and stops.
+ *      Consumers MUST preserve `reason`: only `orders-detected` proves a
+ *      polling success. A timeout means "unconfirmed" and may trigger one
+ *      final server-side order-book check, but must never be promoted to
+ *      publisher success.
+ *
+ * Whole-basket rule (2026-09-18, prod/arulthakur 7-leg basket cut to 2):
+ * Kite places basket items one at a time, about a second apart. Every
+ * consumer closes the WebView when this hook settles, so settling on the
+ * FIRST new order tore down the Kite basket page while the remaining legs
+ * were still queued there — they never reached Zerodha at all (no order,
+ * not even a rejection). `start({ expectedOrderCount })` now tells the hook
+ * how many legs the open basket carries; a poll that sees fewer new orders
+ * than that is progress, not settlement, and polling continues. Kite's own
+ * redirect (handled by the consumer's WebView navigation callback) remains
+ * the authoritative "the basket page is done" signal for partial baskets,
+ * with the timeout as the fallback. The timeout still carries whatever orders
+ * the poll did see: the reason stays `timeout` (unconfirmed — only
+ * `orders-detected` is promoted, see `resolvePublisherSettlement`), so a
+ * genuinely partial basket is reported as unconfirmed rather than as nothing.
+ * Without an expected count the hook keeps the legacy first-order behaviour.
  *
  * Double-fire protection: the hook's internal `processed` flag guards
  * against the race where the WebView callback fires AT THE SAME TIME as
@@ -62,8 +80,13 @@ const { POLL_INTERVAL_MS, POLL_TIMEOUT_MS } = PUBLISHER_POLL_CONFIG;
  * @param {Object}   opts.configData         — full ConfigContext payload (passed through to fetchOrderBook)
  * @param {Function} opts.onPublisherSettled — callback fired once when polling detects new orders OR timeout expires.
  *                                             Receives `{ reason: 'orders-detected' | 'timeout', newOrders: any[] }`.
- *                                             Consumer should drive the same state transition as the WebView callback.
- * @returns {{ start: Function, stop: Function }}
+ *                                             Only `orders-detected` is a success signal.
+ * @returns {{ start: Function, stop: Function, getNewOrders: Function }}
+ *
+ * `start({ expectedOrderCount })` — number of basket legs the WebView is
+ * about to submit. When > 0, polling settles on `orders-detected` only once
+ * at least that many new orders are visible. Omit (or pass 0) to settle on
+ * the first new order (legacy behaviour for callers that cannot count).
  */
 export default function useKitePublisherPolling({
   broker,
@@ -73,8 +96,12 @@ export default function useKitePublisherPolling({
 }) {
   const processedRef = useRef(false);
   const baselineOrderIdsRef = useRef(new Set());
+  const baselineReadyRef = useRef(false);
   const pollingIntervalRef = useRef(null);
   const pollingTimeoutRef = useRef(null);
+  const expectedOrderCountRef = useRef(0);
+  const lastPartialCountRef = useRef(0);
+  const detectedOrdersRef = useRef([]);
 
   // Keep the latest callback in a ref so timers always invoke the
   // current closure, not a stale one captured at start() time.
@@ -104,7 +131,27 @@ export default function useKitePublisherPolling({
     }
   }, []);
 
-  const start = useCallback(async () => {
+  // Read the orders created after the current basket's baseline without
+  // consuming the publisher callback. The rebalance flow uses this after Kite
+  // redirects so SELL detection cannot be mistaken for SELL completion.
+  const getNewOrders = useCallback(async () => {
+    if (!baselineReadyRef.current) return [];
+    // eslint-disable-next-line global-require
+    const { fetchOrderBook } = require('../services/BrokerOrderBookAPI');
+    const current = await fetchOrderBook(
+      brokerRef.current,
+      brokerCredsRef.current,
+      configDataRef.current,
+    );
+    const currentOrders = current?.data || current || [];
+    if (!Array.isArray(currentOrders)) return [];
+    return currentOrders.filter(order => {
+      const id = order?.orderId || order?.order_id;
+      return id && !baselineOrderIdsRef.current.has(id);
+    });
+  }, []);
+
+  const start = useCallback(async ({ expectedOrderCount = 0 } = {}) => {
     // Idempotent on consecutive calls — clear any stale timers + reset
     // the processed flag so a re-opened modal gets a clean slate.
     if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
@@ -112,6 +159,14 @@ export default function useKitePublisherPolling({
     pollingIntervalRef.current = null;
     pollingTimeoutRef.current = null;
     processedRef.current = false;
+    baselineReadyRef.current = false;
+    const parsedExpected = Number(expectedOrderCount);
+    expectedOrderCountRef.current =
+      Number.isFinite(parsedExpected) && parsedExpected > 0
+        ? Math.floor(parsedExpected)
+        : 0;
+    lastPartialCountRef.current = 0;
+    detectedOrdersRef.current = [];
 
     // Capture baseline order IDs BEFORE the user places anything via the
     // Kite Publisher WebView. Any orderId that appears in a later poll
@@ -132,13 +187,15 @@ export default function useKitePublisherPolling({
           .map(o => o.orderId || o.order_id)
           .filter(Boolean),
       );
+      baselineReadyRef.current = true;
     } catch (err) {
-      // Non-fatal — proceed with empty baseline. Worst case: every
-      // order in the order book appears "new" on the first poll and we
-      // settle immediately. Acceptable degradation vs. abandoning the
-      // user on a loading spinner.
+      // Do not treat an empty fallback baseline as authoritative. Otherwise
+      // every historical order returned by the first successful poll looks
+      // "new" and can create another false success. The first recovered poll
+      // below establishes the baseline without settling.
       console.warn('[Publisher Polling] Failed to fetch baseline orders:', err?.message || err);
       baselineOrderIdsRef.current = new Set();
+      baselineReadyRef.current = false;
     }
 
     pollingIntervalRef.current = setInterval(async () => {
@@ -155,17 +212,50 @@ export default function useKitePublisherPolling({
           configDataRef.current,
         );
         const currentOrders = current?.data || current || [];
-        const newOrders = (Array.isArray(currentOrders) ? currentOrders : []).filter(o => {
+        const normalizedOrders = Array.isArray(currentOrders)
+          ? currentOrders
+          : [];
+
+        if (!baselineReadyRef.current) {
+          baselineOrderIdsRef.current = new Set(
+            normalizedOrders
+              .map(o => o.orderId || o.order_id)
+              .filter(Boolean),
+          );
+          baselineReadyRef.current = true;
+          console.log(
+            '[Publisher Polling] Recovered order-book baseline; waiting for subsequent orders.',
+          );
+          return;
+        }
+        const newOrders = normalizedOrders.filter(o => {
           const id = o.orderId || o.order_id;
           return id && !baselineOrderIdsRef.current.has(id);
         });
 
-        if (newOrders.length > 0 && !processedRef.current) {
-          console.log(`[Publisher Polling] Detected ${newOrders.length} new orders — settling.`);
-          processedRef.current = true;
-          stop();
-          onSettledRef.current?.({ reason: 'orders-detected', newOrders });
+        if (newOrders.length === 0 || processedRef.current) return;
+
+        // Keep the fullest detection so the timeout below can still report
+        // what did reach the broker instead of discarding it.
+        detectedOrdersRef.current = newOrders;
+
+        const expected = expectedOrderCountRef.current;
+        if (expected > 0 && newOrders.length < expected) {
+          // Kite is still working through the basket. Closing the WebView
+          // now would drop every leg it has not yet sent (see header).
+          if (newOrders.length !== lastPartialCountRef.current) {
+            lastPartialCountRef.current = newOrders.length;
+            console.log(
+              `[Publisher Polling] ${newOrders.length}/${expected} basket orders visible — basket still in progress, not settling.`,
+            );
+          }
+          return;
         }
+
+        console.log(`[Publisher Polling] Detected ${newOrders.length} new orders — settling.`);
+        processedRef.current = true;
+        stop();
+        onSettledRef.current?.({ reason: 'orders-detected', newOrders });
       } catch {
         // Polling errors are non-fatal — next tick will retry.
       }
@@ -176,7 +266,10 @@ export default function useKitePublisherPolling({
         console.warn('[Publisher Polling] Timed out after', POLL_TIMEOUT_MS, 'ms — settling.');
         processedRef.current = true;
         stop();
-        onSettledRef.current?.({ reason: 'timeout', newOrders: [] });
+        onSettledRef.current?.({
+          reason: 'timeout',
+          newOrders: detectedOrdersRef.current,
+        });
       }
     }, POLL_TIMEOUT_MS);
   }, [stop]);
@@ -187,5 +280,5 @@ export default function useKitePublisherPolling({
     return () => stop();
   }, [stop]);
 
-  return { start, stop };
+  return { start, stop, getNewOrders };
 }

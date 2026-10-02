@@ -30,6 +30,8 @@ import EgressIpCallout from '../../components/BrokerConnectionModal/EgressIpCall
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 const commonHeight = 40;
 
@@ -80,13 +82,13 @@ const HDFCConnectUI = ({
       <View style={[styles.fullScreen, { paddingTop: insets.top }]}>
         {/* Header */}
         <LinearGradient
-          colors={['#0B3D91', '#0056B7']}
+          colors={[designColor('0b3d91'), designColor('0056b7')]}
           start={{x: 0, y: 0}}
           end={{x: 1, y: 1}}
           style={styles.headerRow}>
           <View style={styles.headerLeft}>
             <TouchableOpacity onPress={onClose} style={styles.backButton}>
-              <ChevronLeft size={23} color="#fff" />
+              <ChevronLeft size={23} color={designColor('fff')} />
             </TouchableOpacity>
             <View style={styles.headerCopy}>
               <Text style={styles.headerEyebrow}>BROKER AUTHORISATION</Text>
@@ -94,7 +96,7 @@ const HDFCConnectUI = ({
             </View>
           </View>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <X size={20} color="#fff" />
+            <X size={20} color={designColor('fff')} />
           </TouchableOpacity>
         </LinearGradient>
 
@@ -110,7 +112,7 @@ const HDFCConnectUI = ({
               renderLoading={() => (
                 <ActivityIndicator
                   size="large"
-                  color="#0056B7"
+                  color={designColor('0056b7')}
                   style={{
                     position: 'absolute',
                     top: '50%',
@@ -125,7 +127,7 @@ const HDFCConnectUI = ({
           </View>
         ) : expanded ? (
           /* Full Screen Help when expanded */
-          <View style={styles.fullScreenHelp}>
+          (<View style={styles.fullScreenHelp}>
             <ScrollView
               ref={scrollViewRef}
               style={{flex: 1}}
@@ -138,12 +140,12 @@ const HDFCConnectUI = ({
                   onPress={() => setExpanded(false)}>
                   <Text style={styles.toggleText}>See Less</Text>
                   <View style={styles.toggleIconContainer}>
-                    <ChevronUp size={14} color="#000" />
+                    <ChevronUp size={14} color={designColor('000')} />
                   </View>
                 </TouchableOpacity>
               </View>
             </ScrollView>
-          </View>
+          </View>)
         ) : (
           <KeyboardAvoidingView
             style={{flex: 1}}
@@ -166,7 +168,7 @@ const HDFCConnectUI = ({
                 style={styles.toggleContainer}>
                 <Text style={styles.toggleText}>Read More</Text>
                 <View style={styles.toggleIconContainer}>
-                  <ChevronDown size={14} color="#000" />
+                  <ChevronDown size={14} color={designColor('000')} />
                 </View>
               </TouchableOpacity>
 
@@ -234,14 +236,14 @@ const HDFCConnectUI = ({
                         {
                           backgroundColor:
                             apiKey && secretKey && egressReady
-                              ? '#0056B7'
-                              : '#d3d3d3',
+                              ? designColor('0056b7')
+                              : designColor('d3d3d3'),
                         },
                       ]}
                       onPress={initiateAuth}
                       disabled={!(apiKey && secretKey && egressReady)}>
                       {loading ? (
-                        <ActivityIndicator size={27} color="#fff" />
+                        <ActivityIndicator size={27} color={designColor('fff')} />
                       ) : (
                         <Text style={styles.proceedButtonText}>Connect HDFC</Text>
                       )}
@@ -266,7 +268,7 @@ const styles = StyleSheet.create({
   fullScreen: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   headerRow: {
     flexDirection: 'row',
@@ -288,22 +290,22 @@ const styles = StyleSheet.create({
   headerEyebrow: {color: 'rgba(255,255,255,0.76)', fontSize: 10, fontWeight: '800', letterSpacing: 0.7},
   headerTitle: {
     fontSize: 16,
-    fontFamily: 'Satoshi-Bold',
-    color: '#fff',
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designColor('fff'),
     marginTop: 2,
   },
   closeButton: {width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)'},
   guideBox: {
     borderWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
     borderRadius: 8,
     padding: 10,
   },
-  fullScreenHelp: {flex: 1, backgroundColor: '#fff'},
+  fullScreenHelp: {flex: 1, backgroundColor: designColor('fff')},
   toggleWrapper: {
     borderTopWidth: 1,
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
     paddingVertical: 5,
   },
   toggleContainer: {
@@ -311,13 +313,13 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignItems: 'center',
     padding: 10,
-    backgroundColor: '#fff',
-    borderTopColor: '#E8E9EC',
+    backgroundColor: designColor('fff'),
+    borderTopColor: designColor('e8e9ec'),
   },
-  toggleText: {fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#0056B7'},
+  toggleText: {fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), color: designColor('0056b7')},
   toggleIconContainer: {
-    backgroundColor: '#fff',
-    shadowColor: '#000',
+    backgroundColor: designColor('fff'),
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.12,
     shadowRadius: 3,
@@ -332,30 +334,30 @@ const styles = StyleSheet.create({
   bottomContainer: {
     padding: 10,
     borderTopWidth: 1,
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
   },
   inputCard: {
     marginTop: 10,
     paddingVertical: 10,
     paddingHorizontal: 15,
     borderWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
     borderRadius: 12,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   connectCard: {
     paddingVertical: 10,
     marginHorizontal: 10,
     borderWidth: 0.3,
-    borderColor: '#c8c8c8',
+    borderColor: designColor('c8c8c8'),
     borderRadius: 8,
   },
   connectRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    backgroundColor: designColor('f5f5f5'),
     padding: 10,
     borderRadius: 3,
     marginBottom: 10,
@@ -363,18 +365,18 @@ const styles = StyleSheet.create({
   connectLabel: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#000',
-    fontFamily: 'Poppins-SemiBold',
+    color: designColor('000'),
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   connectIcon: {
     width: 30,
     height: 30,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 3,
   },
   inputWrapper: {paddingVertical: 0},
   headerLabel: {
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     fontSize: 14,
     marginVertical: 5,
     color: 'black',
@@ -385,13 +387,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     marginBottom: 5,
     height: commonHeight,
   },
   inputStyles: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     color: 'grey',
     paddingVertical: 0,
   },
@@ -403,8 +405,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  proceedButtonText: {fontSize: 16, fontWeight: '600', color: '#fff'},
-  webViewFullWrapper: {flex: 1, backgroundColor: '#fff'},
+  proceedButtonText: {fontSize: 16, fontWeight: '600', color: designColor('fff')},
+  webViewFullWrapper: {flex: 1, backgroundColor: designColor('fff')},
   webViewFull: {flex: 1},
 });
 

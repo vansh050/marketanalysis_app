@@ -4,6 +4,7 @@ import { WebView } from 'react-native-webview';
 import axios from 'axios';
 import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 const ZerodhaOrderScreen = ({ route, navigation }) => {
   const [loading, setLoading] = useState(true);
   const webViewRef = useRef(null);
@@ -74,7 +75,7 @@ const ZerodhaOrderScreen = ({ route, navigation }) => {
         {
           headers: {
                       "Content-Type": "application/json",
-                      "X-Advisor-Subdomain": Config.REACT_APP_HEADER_NAME,
+                      "X-Advisor-Subdomain": getTenantSubdomain(),
                       "aq-encrypted-key": generateToken(
                         Config.REACT_APP_AQ_KEYS,
                         Config.REACT_APP_AQ_SECRET

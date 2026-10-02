@@ -14,6 +14,9 @@ import {
   isBrokerAuthError,
   buildBrokerPayloadFields,
   defaultDecrypt,
+  latestHeldExec,
+  tagSellAuthorizationRetryCalculation,
+  isPendingSellAuthorizationCalculation,
 } from '../../utils/rebalanceHelpers';
 
 import {ALL_BROKER_CREDENTIALS} from '../fixtures/brokerCredentials';
@@ -71,6 +74,41 @@ describe('rebalanceHelpers', () => {
 
     test('undefined response returns false', () => {
       expect(isRebalanceErrorResponse(undefined)).toBe(false);
+    });
+  });
+
+  describe('sell-authorization retry calculations', () => {
+    test('tags an empty retry with its portfolio and broker context', () => {
+      const tagged = tagSellAuthorizationRetryCalculation(
+        {status: 0, buy: [], sell: []},
+        {broker: 'Groww', modelName: 'Momentum', modelId: 'model-1'},
+      );
+
+      expect(tagged).toMatchObject({
+        _rebalanceModelName: 'Momentum',
+        _rebalanceModelId: 'model-1',
+        _sellAuthorizationRetry: true,
+        _sellAuthorizationBroker: 'Groww',
+      });
+      expect(isPendingSellAuthorizationCalculation(tagged)).toBe(true);
+    });
+
+    test('does not treat a retry containing orders as pending authorization', () => {
+      const tagged = tagSellAuthorizationRetryCalculation(
+        {status: 0, buy: [], sell: [{symbol: 'INFY'}]},
+        {broker: 'Groww'},
+      );
+
+      expect(isPendingSellAuthorizationCalculation(tagged)).toBe(false);
+    });
+
+    test('does not hide an explicit calculation error behind pending copy', () => {
+      const tagged = tagSellAuthorizationRetryCalculation(
+        {status: 1, message: 'Unable to calculate', buy: [], sell: []},
+        {broker: 'Groww'},
+      );
+
+      expect(isPendingSellAuthorizationCalculation(tagged)).toBe(false);
     });
   });
 
@@ -304,18 +342,21 @@ describe('rebalanceHelpers', () => {
       expect(result).toEqual({clientCode: 'IIFL-CLIENT-001'});
     });
 
-    test('Kotak — decrypts keys + includes sid/serverId/viewToken', () => {
+    test('Kotak — NEO UUID flow uses current apiKey/session field names', () => {
       const result = buildBrokerPayloadFields(
         'Kotak',
         ALL_BROKER_CREDENTIALS.Kotak,
         mockDecrypt,
       );
-      expect(result.consumerKey).toBe('decrypted_encrypted_kotak-consumer-key');
-      expect(result.consumerSecret).toBe('decrypted_encrypted_kotak-consumer-secret');
+      expect(result.apiKey).toBe('decrypted_encrypted_kotak-consumer-key');
+      expect(result.apiAccessToken).toBe('decrypted_encrypted_kotak-consumer-key');
+      expect(result.jwtToken).toBe('kotak-jwt-token-202');
+      expect(result.consumerSecret).toBeUndefined();
       expect(result.accessToken).toBe('kotak-jwt-token-202');
       expect(result.sid).toBe('kotak-sid-303');
       expect(result.serverId).toBe('kotak-server-id');
-      expect(result.viewToken).toBe('kotak-view-token');
+      expect(result.baseUrl).toBe('https://e43.kotaksecurities.com');
+      expect(Object.keys(result)).toHaveLength(7);
     });
 
     test('Hdfc Securities — decrypts apiKey', () => {
@@ -415,6 +456,52 @@ describe('rebalanceHelpers', () => {
       const result = defaultDecrypt('some_encrypted_value');
       // The mock returns the input from toString()
       expect(result).toBeDefined();
+    });
+  });
+
+  // ─── latestHeldExec ───
+  describe('latestHeldExec', () => {
+    const stale = {
+      order_results: [],
+      user_broker: 'Zerodha',
+      user_edit_id: 'abc',
+    };
+    const valid = {
+      execDate: '2026-08-11T04:41:57.187417+00:00',
+      order_results: [{symbol: 'APARINDS', quantity: 1, orderStatus: 'COMPLETE'}],
+    };
+    const validLater = {
+      execDate: '2026-08-12T04:00:00.000Z',
+      order_results: [{symbol: 'INFY', quantity: 5, orderStatus: 'COMPLETE'}],
+    };
+    const exitedLater = {
+      execDate: '2026-08-13T04:00:00.000Z',
+      order_results: [],
+      snapshot_writer: 'broker_reconciliation',
+    };
+
+    test('skips a leading stale empty snapshot (markup rohitakiwatkar shape)', () => {
+      const latest = latestHeldExec([stale, valid]);
+      expect(latest).toBe(valid);
+    });
+
+    test('returns the most recent valid entry', () => {
+      const latest = latestHeldExec([stale, valid, validLater]);
+      expect(latest).toBe(validLater);
+    });
+
+    test('returns a newer dated empty snapshot after a complete exit', () => {
+      expect(latestHeldExec([validLater, exitedLater])).toBe(exitedLater);
+    });
+
+    test('returns null when nothing carries order_results', () => {
+      expect(latestHeldExec([stale, {order_results: []}])).toBeNull();
+    });
+
+    test('returns null for empty / non-array input', () => {
+      expect(latestHeldExec([])).toBeNull();
+      expect(latestHeldExec(null)).toBeNull();
+      expect(latestHeldExec(undefined)).toBeNull();
     });
   });
 });

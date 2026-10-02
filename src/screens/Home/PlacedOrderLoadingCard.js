@@ -2,7 +2,9 @@ import React from 'react';
 import { View, Dimensions, StyleSheet } from 'react-native';
 import FadeLoading from 'react-native-fade-loading';
 
-const PlacedOrderLoadingCard = ({ style, primaryColor = "#f0f0f0", secondaryColor = "#e0e0e0", duration = 500 }) => {
+import { designColor } from '../../design/literalTokens';
+
+const PlacedOrderLoadingCard = ({ style, primaryColor = designColor('f0f0f0'), secondaryColor = designColor('e0e0e0'), duration = 500 }) => {
   return (
     <View style={[styles.container, style]}>
       {/* Inner section */}
@@ -44,7 +46,7 @@ const styles = StyleSheet.create({
   },
   innerSection: {
     borderWidth: 0.5,
-    borderColor: '#e4e4e4',
+    borderColor: designColor('e4e4e4'),
     marginHorizontal: 10,
     paddingVertical: 8,
   },

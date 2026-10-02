@@ -38,6 +38,8 @@ import { WebView } from 'react-native-webview';
 import { XIcon, AlertCircle, RefreshCw } from 'lucide-react-native';
 import { buildPayUFormHTML, parsePayUCallback, getPayUFormUrl } from '../FunctionCall/services/PayUService';
 
+import { designColor } from '../design/literalTokens';
+
 const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
 
 /**
@@ -109,15 +111,15 @@ const PayUWebView = ({
                 align-items: center;
                 height: 100vh;
                 margin: 0;
-                background: #f5f5f5;
+                background: ${designColor('f5f5f5')};
                 font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
               }
               .loader {
                 text-align: center;
               }
               .spinner {
-                border: 4px solid #f3f3f3;
-                border-top: 4px solid #3498db;
+                border: 4px solid ${designColor('f3f3f3')};
+                border-top: 4px solid ${designColor('3498db')};
                 border-radius: 50%;
                 width: 40px;
                 height: 40px;
@@ -306,14 +308,14 @@ const PayUWebView = ({
             onPress={handleClose}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <XIcon size={24} color="#333" />
+            <XIcon size={24} color={designColor('333')} />
           </TouchableOpacity>
         </View>
 
         {/* Loading Indicator */}
         {loading && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#0056B7" />
+            <ActivityIndicator size="large" color={designColor('0056b7')} />
             <Text style={styles.loadingText}>Loading payment page...</Text>
           </View>
         )}
@@ -321,12 +323,12 @@ const PayUWebView = ({
         {/* Error State */}
         {error && (
           <View style={styles.errorContainer}>
-            <AlertCircle size={48} color="#EF4444" />
+            <AlertCircle size={48} color={designColor('ef4444')} />
             <Text style={styles.errorTitle}>Payment Error</Text>
             <Text style={styles.errorMessage}>{error}</Text>
             {showRetry && (
               <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
-                <RefreshCw size={16} color="#fff" />
+                <RefreshCw size={16} color={designColor('fff')} />
                 <Text style={styles.retryButtonText}>Retry</Text>
               </TouchableOpacity>
             )}
@@ -371,7 +373,7 @@ const PayUWebView = ({
         {/* No Payment Data */}
         {!source && !error && (
           <View style={styles.errorContainer}>
-            <AlertCircle size={48} color="#EF4444" />
+            <AlertCircle size={48} color={designColor('ef4444')} />
             <Text style={styles.errorTitle}>Invalid Payment Data</Text>
             <Text style={styles.errorMessage}>
               Unable to initialize payment. Please try again.
@@ -389,7 +391,7 @@ const PayUWebView = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   header: {
     flexDirection: 'row',
@@ -398,13 +400,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E5E7EB',
-    backgroundColor: '#fff',
+    borderBottomColor: designColor('e5e7eb'),
+    backgroundColor: designColor('fff'),
   },
   headerTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#1F2937',
+    color: designColor('1f2937'),
   },
   closeButton: {
     padding: 4,
@@ -426,7 +428,7 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: '#6B7280',
+    color: designColor('6b7280'),
   },
   errorContainer: {
     flex: 1,
@@ -437,13 +439,13 @@ const styles = StyleSheet.create({
   errorTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#1F2937',
+    color: designColor('1f2937'),
     marginTop: 16,
     marginBottom: 8,
   },
   errorMessage: {
     fontSize: 14,
-    color: '#6B7280',
+    color: designColor('6b7280'),
     textAlign: 'center',
     marginBottom: 24,
     paddingHorizontal: 16,
@@ -451,14 +453,14 @@ const styles = StyleSheet.create({
   retryButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0056B7',
+    backgroundColor: designColor('0056b7'),
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 8,
     marginBottom: 12,
   },
   retryButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
     fontWeight: '600',
     marginLeft: 8,
@@ -468,7 +470,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   cancelButtonText: {
-    color: '#6B7280',
+    color: designColor('6b7280'),
     fontSize: 16,
   },
 });

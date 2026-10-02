@@ -16,50 +16,46 @@ import Loader from '../../../utils/Loader';
 import WebView from 'react-native-webview';
 import { ChevronLeft ,XIcon} from 'lucide-react-native';
 
+import { designColor, designFont } from '../../../design/literalTokens';
+
 const LinkOpeningWeb = ({ setWebview,currentUrl,webViewVisible,symbol }) => {
    // console.log('here i enter',currentUrl);
     const [loading,setLoading]=useState(false);
   return (
- 
-       <Modal visible={webViewVisible} animationType="slide" onRequestClose={() => setWebview(false)}>
-                    <SafeAreaView style={styles.header}>
-                    <Text numberOfLines={2} ellipsizeMode="tail" style={styles.headerTitle}>{symbol}</Text>
-                    <TouchableOpacity
-                          onPress={() => setWebview(false)}
-                          accessibilityRole="button"
-                          accessibilityLabel="Close blog"
-                          style={styles.blogHeaderCloseButton}>
-                      <XIcon size={22} color="black" />
-                    </TouchableOpacity>
-                    </SafeAreaView>
-                    
-                   <SafeAreaView style={{flex:1}}>
-                   <WebView
-                          source={{ uri: currentUrl }}
-                          style={styles.webView}
-                          startInLoadingState={true}  // Ensures the loader is shown initially
-                          renderLoading={() => (
-                            <View style={styles.loaderContainer}>
-                              <Loader color={'#000'} width={40} height={40} />
-                            </View>
-                          )}
-                          onShouldStartLoadWithRequest={request => {
-                            // Allow the original URL and data: URLs (blog HTML content)
-                            if (request.url === currentUrl) return true;
-                            if (request.url.startsWith('data:')) return true;
-                            if (request.url.startsWith(currentUrl + '#') || request.url === 'about:blank') return true;
-                            // Block external navigation — close the webview instead
-                            setWebview(false);
-                            return false;
-                          }}
-                          originWhitelist={['*']}
-                        />
-                   </SafeAreaView>
-                    
-                       
-                      
-                </Modal>
-     
+    <Modal visible={webViewVisible} animationType="slide" onRequestClose={() => setWebview(false)}>
+      <SafeAreaView style={styles.header}>
+      <Text numberOfLines={2} ellipsizeMode="tail" style={styles.headerTitle}>{symbol}</Text>
+      <TouchableOpacity
+            onPress={() => setWebview(false)}
+            accessibilityRole="button"
+            accessibilityLabel="Close blog"
+            style={styles.blogHeaderCloseButton}>
+        <XIcon size={22} color="black" />
+      </TouchableOpacity>
+      </SafeAreaView>
+      <SafeAreaView style={{flex:1}}>
+      <WebView
+             source={{ uri: currentUrl }}
+             style={styles.webView}
+             startInLoadingState={true}  // Ensures the loader is shown initially
+             renderLoading={() => (
+               <View style={styles.loaderContainer}>
+                 <Loader color={designColor('000')} width={40} height={40} />
+               </View>
+             )}
+             onShouldStartLoadWithRequest={request => {
+               // Allow the original URL and data: URLs (blog HTML content)
+               if (request.url === currentUrl) return true;
+               if (request.url.startsWith('data:')) return true;
+               if (request.url.startsWith(currentUrl + '#') || request.url === 'about:blank') return true;
+               // Block external navigation — close the webview instead
+               setWebview(false);
+               return false;
+             }}
+             originWhitelist={['*']}
+           />
+      </SafeAreaView>
+    </Modal>
   );
 };
 
@@ -78,7 +74,7 @@ const styles = StyleSheet.create({
   },
   emptyStateText: {
     fontSize: 18,
-    color: '#888',
+    color: designColor('888'),
     textAlign: 'center',
   },
   image: {
@@ -103,7 +99,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'black',
     flex: 1,
     flexShrink: 1,
@@ -115,7 +111,7 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     marginHorizontal: 12,
     paddingBottom: 8,
-    borderBottomColor: '#e9e9e9',
+    borderBottomColor: designColor('e9e9e9'),
     borderBottomWidth: 2,
   },
   blogHeaderCloseButton: {
@@ -124,7 +120,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#f1f5f9',
+    backgroundColor: designColor('f1f5f9'),
   },
   webView: {
      flex:1,
@@ -134,16 +130,16 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 18,
-    fontFamily:'Satoshi-Bold',
-    color: '#000',
+    fontFamily:designFont('Satoshi-Bold'),
+    color: designColor('000'),
     marginBottom: 10,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     padding: 16,
     marginBottom: 10,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 5,
@@ -151,14 +147,14 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     fontSize: 16,
-    fontFamily:'Satoshi-Medium',
-    color: '#333',
+    fontFamily:designFont('Satoshi-Medium'),
+    color: designColor('333'),
   },
   cardDate: {
     fontSize: 14,
-    color: '#888',
+    color: designColor('888'),
     marginTop: 5,
-    fontFamily:'Satoshi-Regular',
+    fontFamily:designFont('Satoshi-Regular'),
   },
   footer: {
     flexDirection: 'row',
@@ -167,34 +163,34 @@ const styles = StyleSheet.create({
     padding: 16,
     borderTopLeftRadius:30,
     borderTopRightRadius:30,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopWidth: 1,
     borderLeftWidth:1,
     borderRightWidth:1,
-    borderTopColor: '#eee',
-    borderLeftColor:'#eee',
-    borderRightColor:'#eee'
+    borderTopColor: designColor('eee'),
+    borderLeftColor:designColor('eee'),
+    borderRightColor:designColor('eee')
   },
   footerText: {
     fontSize: 16,
-    fontFamily:'Satoshi-Bold',
-    color: '#333',
+    fontFamily:designFont('Satoshi-Bold'),
+    color: designColor('333'),
   },
   footerPrice: {
     fontSize: 16,
-    fontFamily:'Satoshi-Bold',
-    color: '#16A085',
+    fontFamily:designFont('Satoshi-Bold'),
+    color: designColor('16a085'),
   },
   percentageContainer: {
-    backgroundColor: '#16A085',
+    backgroundColor: designColor('16a085'),
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 100,
   },
   change: {
     fontSize: 14,
-    color: '#fff',
-    fontFamily:'Satoshi-Medium',
+    color: designColor('fff'),
+    fontFamily:designFont('Satoshi-Medium'),
   },
   modalContainer: {
     flex: 1,
@@ -207,20 +203,20 @@ const styles = StyleSheet.create({
     maxHeight: height * 0.7,
     borderTopLeftRadius:20,
     borderTopRightRadius:20,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
  
     padding: 20,
   },
   modalTitle: {
     fontSize: 20,
-    fontFamily:'Satoshi-Bold',
+    fontFamily:designFont('Satoshi-Bold'),
     marginBottom: 10,
-    color: '#000',
+    color: designColor('000'),
   },
   modalSummary: {
     fontSize: 16,
-    color: '#444',
-    fontFamily:'Satoshi-Medium',
+    color: designColor('444'),
+    fontFamily:designFont('Satoshi-Medium'),
     marginBottom: 15,
   },
   modalLinkContainer: {
@@ -228,20 +224,20 @@ const styles = StyleSheet.create({
   },
   modalLinkText: {
     fontSize: 16,
-    color: '#007BFF',
+    color: designColor('007bff'),
     textDecorationLine: 'underline',
   },
   closeButton: {
     marginTop: 15,
-    backgroundColor: '#16A085',
+    backgroundColor: designColor('16a085'),
     padding: 10,
     borderRadius: 30,
     alignItems: 'center',
   },
   closeButtonText: {
     fontSize: 16,
-    color: '#fff',
-    fontFamily:'Satoshi-Medium'
+    color: designColor('fff'),
+    fontFamily:designFont('Satoshi-Medium')
   },
 });
 

@@ -35,6 +35,8 @@ import KotakHelpContent from '../../UIComponents/BrokerConnectionUI/HelpUI/Kotak
 import DhanHelpContent from '../../UIComponents/BrokerConnectionUI/HelpUI/DhanHelpContent';
 import ICICIHelpContent from '../../UIComponents/BrokerConnectionUI/HelpUI/ICICIHelpContent';
 
+import { designColor } from '../../design/literalTokens';
+
 // Map normalized broker key (from BrokerConnectModalDispatch.normalizeBrokerKey)
 // → matching legacy *HelpContent component. Brokers without help
 // content (Axis, IIFL, Angel One — their legacy modals don't have
@@ -105,7 +107,7 @@ const styles = StyleSheet.create({
   toggleLabel: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#2563EB',
+    color: designColor('2563eb'),
   },
   helpBody: {
     marginTop: 4,

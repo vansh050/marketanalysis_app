@@ -4,6 +4,8 @@ import axios from 'axios';
 import { io } from "socket.io-client";
 import server from '../../../utils/serverConfig';
 
+import { designColor, designFont } from '../../../design/literalTokens';
+
 // Create a singleton WebSocket manager
 const WebSocketManager = (() => {
   let instance = null;
@@ -105,27 +107,25 @@ const MissedGainText = React.memo(({ symbol,advisedRangeCondition,advisedPrice,t
  console.log('misss',missedGainPercentage,advisedPrice,price);
   return (
     <View>
-    {!advisedRangeCondition ? (
-      <Text
-        style={[
-          { fontSize: 10, fontFamily: 'Satoshi-Bold' },
-         { color: 'red' }
-        ]}
-      >
-        **Price is out of advised range**
-      </Text>
-    ) : price != null && advisedPrice != null && missedGainPercentage > 5 ? (
-      <Text
-        style={[
-          { fontSize: 10, fontFamily: 'Satoshi-Bold', color: '#16A085' }
-        ]}
-      >
-        {missedGainPercentage.toFixed(2)}% Gain Missed, Buy Fast**
-      </Text>
-    ) : null}
-  </View>
-  
-
+      {!advisedRangeCondition ? (
+        <Text
+          style={[
+            { fontSize: 10, fontFamily: designFont('Satoshi-Bold') },
+           { color: 'red' }
+          ]}
+        >
+          **Price is out of advised range**
+        </Text>
+      ) : price != null && advisedPrice != null && missedGainPercentage > 5 ? (
+        <Text
+          style={[
+            { fontSize: 10, fontFamily: designFont('Satoshi-Bold'), color: designColor('16a085') }
+          ]}
+        >
+          {missedGainPercentage.toFixed(2)}% Gain Missed, Buy Fast**
+        </Text>
+      ) : null}
+    </View>
   );
 });
 
@@ -135,7 +135,7 @@ const styles = StyleSheet.create({
  
     padding:0,
     margin:0,
-    fontFamily:'Satoshi-Bold',
+    fontFamily:designFont('Satoshi-Bold'),
     color: "black",
   },
 });

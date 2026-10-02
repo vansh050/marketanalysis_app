@@ -1,6 +1,8 @@
-"use client"
+"use client";
 import { Modal, View, Text, ScrollView, TouchableOpacity, StyleSheet, SafeAreaView, Dimensions } from "react-native"
 import { XIcon } from "lucide-react-native"
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window")
 
@@ -8,7 +10,7 @@ const DisclaimerModal = ({ visible, onClose, whiteLabelText = "Magnus" }) => {
   const styles = StyleSheet.create({
     container: {
       flex: 1,
-      backgroundColor: "#f9f9f9",
+      backgroundColor: designColor('f9f9f9'),
     },
     header: {
       flexDirection: "row",
@@ -18,17 +20,17 @@ const DisclaimerModal = ({ visible, onClose, whiteLabelText = "Magnus" }) => {
       paddingVertical: 16,
       borderBottomWidth: 1,
       borderBottomColor: "rgba(0, 0, 0, 0.1)",
-      backgroundColor: "#fff",
+      backgroundColor: designColor('fff'),
     },
     headerTitle: {
       fontSize: 24,
-      fontFamily: "Satoshi-Bold",
-      color: "#1f2937",
+      fontFamily: designFont('Satoshi-Bold'),
+      color: designColor('1f2937'),
     },
     closeButton: {
       padding: 8,
       borderRadius: 8,
-      backgroundColor: "#f3f4f6",
+      backgroundColor: designColor('f3f4f6'),
     },
     content: {
       flex: 1,
@@ -40,15 +42,15 @@ const DisclaimerModal = ({ visible, onClose, whiteLabelText = "Magnus" }) => {
     },
     heading: {
       fontSize: 16,
-      fontFamily: "Satoshi-Bold",
-      color: "#1f2937",
+      fontFamily: designFont('Satoshi-Bold'),
+      color: designColor('1f2937'),
       marginBottom: 8,
       lineHeight: 24,
     },
     paragraph: {
       fontSize: 14,
-      fontFamily: "Satoshi-Regular",
-      color: "#374151",
+      fontFamily: designFont('Satoshi-Regular'),
+      color: designColor('374151'),
       lineHeight: 22,
       textAlign: "justify",
     },
@@ -59,22 +61,22 @@ const DisclaimerModal = ({ visible, onClose, whiteLabelText = "Magnus" }) => {
     },
     bullet: {
       fontSize: 16,
-      fontFamily: "Satoshi-Bold",
-      color: "#1f2937",
+      fontFamily: designFont('Satoshi-Bold'),
+      color: designColor('1f2937'),
       marginRight: 8,
       marginTop: 2,
     },
     bulletText: {
       flex: 1,
       fontSize: 14,
-      fontFamily: "Satoshi-Regular",
-      color: "#374151",
+      fontFamily: designFont('Satoshi-Regular'),
+      color: designColor('374151'),
       lineHeight: 22,
       textAlign: "justify",
     },
     linkText: {
-      color: "#3b82f6",
-      fontFamily: "Satoshi-Bold",
+      color: designColor('3b82f6'),
+      fontFamily: designFont('Satoshi-Bold'),
       textDecorationLine: "underline",
     },
     contentContainer: {
@@ -121,7 +123,7 @@ const DisclaimerModal = ({ visible, onClose, whiteLabelText = "Magnus" }) => {
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Disclaimer</Text>
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-            <XIcon size={24} color="#6b7280" />
+            <XIcon size={24} color={designColor('6b7280')} />
           </TouchableOpacity>
         </View>
 
@@ -246,7 +248,7 @@ const DisclaimerModal = ({ visible, onClose, whiteLabelText = "Magnus" }) => {
         </ScrollView>
       </SafeAreaView>
     </Modal>
-  )
+  );
 }
 
 export default DisclaimerModal

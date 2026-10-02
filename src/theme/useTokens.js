@@ -11,8 +11,8 @@ import { buildAssets } from './assets';
 /**
  * Hook that returns the full resolved design-token bundle for the current
  * advisor: colors + spacing + typography + radii + shadows. Memoized on the
- * relevant config fields so components re-render only when tokens actually
- * change.
+ * config value and active variant builders so a config or design change
+ * rebuilds the complete bundle atomically.
  *
  * Usage:
  *   const tokens = useTokens();
@@ -34,14 +34,13 @@ import { buildAssets } from './assets';
  * See docs/DESIGN_SYSTEM_ARCHITECTURE.md § Tokens.
  */
 export const useTokens = () => {
-    const config = useConfig() || {};
-    // Variant-aware asset slot. RN's static require(...) can't be swapped by a
-    // backend config field, so per-variant brand images (logoPng/logoFadedPng)
-    // are resolved through the DesignProvider's variant token module instead.
-    // useContext (not useDesign) so this stays safe if ever called outside the
-    // provider — it falls back to the default-variant assets. Other token
-    // families (colors/typography/…) already vary per-tenant via ConfigContext
-    // legacy-branding, so only `assets` needs the variant builder here.
+    const config = useConfig();
+    // Resolve every token family through the active design variant. useContext
+    // (not useDesign) keeps this hook safe outside DesignProvider and lets each
+    // family fall back independently when a variant only overrides a subset.
+    // This is the runtime half of the designs/<variant>/tokens contract: a
+    // variant's spacing/typography/radii/shadows must be just as effective as
+    // its colors and static assets.
     const design = useContext(DesignContext);
     const buildVariantAssets = design?.tokens?.buildAssets || buildAssets;
     // Variant-aware color builder. Default variant re-exports src/theme/colors,
@@ -50,43 +49,32 @@ export const useTokens = () => {
     // its own builder with hard-coded brand defaults, so its color palette
     // persists even when `src/` is copied over from Alphab2bapp.
     const buildVariantColors = design?.tokens?.buildColors || buildColors;
+    const buildVariantSpacing = design?.tokens?.buildSpacing || buildSpacing;
+    const buildVariantTypography =
+        design?.tokens?.buildTypography || buildTypography;
+    const buildVariantRadii = design?.tokens?.buildRadii || buildRadii;
+    const buildVariantShadows = design?.tokens?.buildShadows || buildShadows;
 
     return useMemo(
-        () => ({
-            colors: buildVariantColors(config),
-            spacing: buildSpacing(config),
-            typography: buildTypography(config),
-            radii: buildRadii(config),
-            shadows: buildShadows(config),
-            assets: buildVariantAssets(config),
-        }),
+        () => {
+            const resolvedConfig = config || {};
+            return {
+                colors: buildVariantColors(resolvedConfig),
+                spacing: buildVariantSpacing(resolvedConfig),
+                typography: buildVariantTypography(resolvedConfig),
+                radii: buildVariantRadii(resolvedConfig),
+                shadows: buildVariantShadows(resolvedConfig),
+                assets: buildVariantAssets(resolvedConfig),
+            };
+        },
         [
+            config,
             buildVariantAssets,
             buildVariantColors,
-            // Colors deps (mirror useColors.js)
-            config.mainColor,
-            config.secondaryColor,
-            config.themeColor,
-            config.gradient1,
-            config.gradient2,
-            config.placeholderText,
-            config.bottomTabbg,
-            config.tabIconColor,
-            config.selectedTabcolor,
-            config.basket1,
-            config.basket2,
-            config.basketcolor,
-            config.basketsymbolbg,
-            config.EmptyStateUi,
-            config.colorTokens,
-            // Future backend-override deps (no-op until ConfigContext exposes
-            // these fields). Listed here so the memoization is correct the
-            // moment they land.
-            config.spacingTokens,
-            config.typographyTokens,
-            config.radiiTokens,
-            config.shadowTokens,
-            config.assetTokens,
+            buildVariantSpacing,
+            buildVariantTypography,
+            buildVariantRadii,
+            buildVariantShadows,
         ]
     );
 };

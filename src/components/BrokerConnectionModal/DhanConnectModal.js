@@ -1,24 +1,27 @@
-import React, {useState, useRef, useEffect} from 'react';
-import {StyleSheet, Dimensions} from 'react-native';
-import server from '../../utils/serverConfig';
-import {getAuth} from '@react-native-firebase/auth';
+import React, {useEffect, useMemo, useRef, useState} from 'react';
 import axios from 'axios';
-import {generateToken} from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
+import {getAuth} from '@react-native-firebase/auth';
+
+import server from '../../utils/serverConfig';
 import DhanConnectUI from '../../UIComponents/BrokerConnectionUI/DhanConnectUI';
 import DhanOAuthUI from '../../UIComponents/BrokerConnectionUI/DhanOAuthUI';
 import {useTrade} from '../../screens/TradeContext';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {useConfig} from '../../context/ConfigContext';
+import {generateToken} from '../../utils/SecurityTokenManager';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
+import {getAccountEmail} from '../../utils/accountEmail';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import {
-  useSdkBridge,
-  sdkConnectBroker,
-  sdkDualWriteSafely,
-} from '../../sdk/brokerSdkBridge';
-import {getAccountEmail} from '../../utils/accountEmail';
-
-const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
+  generateDeviceTotpFromSeed,
+  hasDeviceTotp,
+  removeDeviceTotp,
+  saveDeviceTotpSeed,
+  unlockDeviceTotpLogin,
+} from '../../services/DeviceTotpVault';
+import {designColor} from '../../design/literalTokens';
 
 const DhanConnectModal = ({
   isVisible,
@@ -27,295 +30,488 @@ const DhanConnectModal = ({
   fetchBrokerStatusModal,
 }) => {
   const {configData} = useTrade();
+  const runtimeConfig = useConfig();
   const showAlert = useModalStore(state => state.showAlert);
-  const sdkBridge = useSdkBridge();
-
-  // OAuth mode is primary (matching web). Manual credential form is fallback.
-  const [oauthMode, setOauthMode] = useState(true);
-
-  // Credential form state (manual / fallback path)
-  const [cliendId, setCliendId] = useState('');
-  const [accessToken, setaccessToken] = useState('');
-  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
-  const [isPasswordVisibleup, setIsPasswordVisibleup] = useState(false);
-  const [helpVisible, setHelpVisible] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [shouldRenderContent, setShouldRenderContent] = useState(false);
-
-  const hasProcessedCallback = useRef(false);
-
   const auth = getAuth();
   const user = auth.currentUser;
   const userEmail = getAccountEmail();
 
+  const [flowMode, setFlowMode] = useState('partner');
+  const [loading, setLoading] = useState(false);
   const [userDetails, setUserDetails] = useState(null);
+  const [prefetchedAuthUrl, setPrefetchedAuthUrl] = useState(null);
+  const [hasSavedTotp, setHasSavedTotp] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+  const [isClientIdVisible, setIsClientIdVisible] = useState(false);
+  const [isAccessTokenVisible, setIsAccessTokenVisible] = useState(false);
+  const [helpVisible, setHelpVisible] = useState(false);
+  const [deviceTotpSeed, setDeviceTotpSeed] = useState('');
+  const [devicePin, setDevicePin] = useState('');
+  const [egressReady, setEgressReady] = useState(false);
+  const [unmetAck, setUnmetAck] = useState(false);
+  // Partner (Dhan browser) login is the default action on the chooser
+  // (2026-10-01 owner decision). Direct API quick reconnect is opt-in: the
+  // switch turns the primary button into its setup.
+  const [directOptIn, setDirectOptIn] = useState(false);
+
+  const hasProcessedCallback = useRef(false);
+  const deviceReconnectStartedRef = useRef(false);
+  const deviceTotpEnabled =
+    runtimeConfig?.deviceTotpEnabled === true ||
+    configData?.config?.deviceTotpEnabled === true;
+  const totpIdentity = useMemo(
+    () => ({
+      advisor: getTenantSubdomain(configData),
+      broker: 'Dhan',
+      userEmail,
+    }),
+    [configData, userEmail],
+  );
 
   const getHeaders = () => ({
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain':
-      configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(configData),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,
     ),
   });
 
-  const getUserDeatils = () => {
-    axios
-      .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
-        headers: getHeaders(),
-      })
-      .then(res => setUserDetails(res.data.User))
-      .catch(err => console.log(err));
+  const refreshUserDetails = async () => {
+    if (!userEmail) return null;
+    try {
+      const response = await axios.get(
+        `${server.server.baseUrl}api/user/getUser/${userEmail}`,
+        {headers: getHeaders()},
+      );
+      const details = response.data?.User || null;
+      setUserDetails(details);
+      const slot = (details?.connected_brokers || []).find(
+        broker => broker?.broker === 'Dhan',
+      );
+      if (slot?.clientCode) setClientId(String(slot.clientCode));
+      return details;
+    } catch (error) {
+      console.warn('[Dhan] user hydration failed:', error?.message);
+      return null;
+    }
   };
 
   useEffect(() => {
-    if (userEmail) getUserDeatils();
+    refreshUserDetails();
+    // Account-specific hydration only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userEmail]);
 
-  // Prefetched final URL (post-redirects) — lets the WebView skip
-  // ccxt → auth.dhan.co → partner-login.dhan.co hops (~200ms saved).
-  const [prefetchedAuthUrl, setPrefetchedAuthUrl] = useState(null);
+  useEffect(() => {
+    if (!isVisible) return;
+    hasProcessedCallback.current = false;
+    deviceReconnectStartedRef.current = false;
+    setPrefetchedAuthUrl(null);
+    setEgressReady(false);
+    setUnmetAck(false);
+    setFlowMode(deviceTotpEnabled ? 'choose' : 'partner');
+  }, [isVisible, deviceTotpEnabled]);
 
   useEffect(() => {
-    if (isVisible) {
-      setShouldRenderContent(true);
-      hasProcessedCallback.current = false;
-      setOauthMode(true); // Always start in OAuth mode when opening
-      setPrefetchedAuthUrl(null);
-    }
-  }, [isVisible]);
+    if (!isVisible || !deviceTotpEnabled || !userEmail) return;
+    hasDeviceTotp(totpIdentity)
+      .then(setHasSavedTotp)
+      .catch(() => setHasSavedTotp(false));
+  }, [isVisible, deviceTotpEnabled, userEmail, totpIdentity]);
 
   const userId = userDetails?._id;
-
-  // Dhan OAuth start URL — CCXT generates consent + redirects to Dhan's site
+  const dhanSlot = (userDetails?.connected_brokers || []).find(
+    broker => broker?.broker === 'Dhan',
+  );
+  const isDirectConnection = dhanSlot?.connection_mode === 'direct_api';
   const DHAN_OAUTH_URL = `${server.ccxtServer.baseUrl}dhan/login`;
 
-  // Opt 1: Mint the consentID on the server BEFORE the WebView starts
-  // loading. `fetch({redirect:'follow'})` follows the 302 chain
-  // (ccxt → auth.dhan.co → partner-login.dhan.co) and exposes the
-  // final URL on `resp.url`. We then hand that directly to the
-  // WebView so it skips two redirect hops — the server-side consent
-  // mint has already happened in parallel while the modal mounted.
-  // If prefetch fails for any reason we fall back to the multi-hop
-  // URL (no regression).
   useEffect(() => {
-    if (!isVisible || prefetchedAuthUrl) return;
+    if (!isVisible || flowMode !== 'partner' || prefetchedAuthUrl) return;
     let cancelled = false;
     (async () => {
       try {
-        const resp = await fetch(DHAN_OAUTH_URL, {
+        const response = await fetch(DHAN_OAUTH_URL, {
           method: 'GET',
           redirect: 'follow',
         });
-        if (cancelled) return;
-        const finalUrl = resp?.url;
+        const finalUrl = response?.url;
         if (
+          !cancelled &&
           typeof finalUrl === 'string' &&
           finalUrl.includes('dhan.co') &&
           finalUrl !== DHAN_OAUTH_URL
         ) {
-          console.log('[Dhan] prefetched final URL:', finalUrl);
           setPrefetchedAuthUrl(finalUrl);
         }
-      } catch (err) {
-        console.warn('[Dhan] consentID prefetch failed:', err?.message);
+      } catch (error) {
+        console.warn('[Dhan] consent prefetch failed:', error?.message);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [isVisible, DHAN_OAUTH_URL, prefetchedAuthUrl]);
+  }, [isVisible, flowMode, prefetchedAuthUrl, DHAN_OAUTH_URL]);
 
-  // ── OAuth callback handler ────────────────────────────────────────
-  // The CCXT /dhan/callback consumes the token and redirects to:
-  // prod.alphaquark.in/stock-recommendation?dhan_client_id=...&dhan_access_token=...
-  const handleWebViewNavigationStateChange = navState => {
-    const {url} = navState;
-    if (!url || hasProcessedCallback.current) return;
-
-    if (url.includes('dhan_client_id=') && url.includes('dhan_access_token=')) {
-      const queryString = url.split('?')[1];
-      if (!queryString) return;
-
-      const params = {};
-      queryString.split('&').forEach(pair => {
-        const eqIdx = pair.indexOf('=');
-        if (eqIdx === -1) return;
-        const key = decodeURIComponent(pair.slice(0, eqIdx));
-        const value = decodeURIComponent(pair.slice(eqIdx + 1));
-        params[key] = value;
-      });
-
-      const dhanClientId = params['dhan_client_id'];
-      const dhanAccessToken = params['dhan_access_token'];
-
-      if (dhanClientId && dhanAccessToken) {
-        hasProcessedCallback.current = true;
-        saveBrokerConnection(dhanClientId, dhanAccessToken);
-      }
-    }
-  };
-
-  // ── Shared save logic (used by both OAuth and credential form) ────
-  const saveBrokerConnection = async (clientId, jwtToken) => {
-    if (!userId) {
-      // userId not loaded yet — try fetching and retry
-      try {
-        const res = await axios.get(
-          `${server.server.baseUrl}api/user/getUser/${userEmail}`,
-          {headers: getHeaders()},
-        );
-        const uid = res.data?.User?._id;
-        if (!uid) {
-          showAlert('error', 'Error', 'User not found. Please try again.');
-          return;
-        }
-        return saveBrokerConnectionWithUid(uid, clientId, jwtToken);
-      } catch {
-        showAlert('error', 'Error', 'User not found. Please try again.');
-        return;
-      }
-    }
-    return saveBrokerConnectionWithUid(userId, clientId, jwtToken);
-  };
-
-  const saveBrokerConnectionWithUid = async (uid, clientId, jwtToken) => {
-    setLoading(true);
+  const finishConnection = async (source, message) => {
+    setShowBrokerModal?.(false);
+    onClose?.();
     try {
-      const dhanBrokerData = {
-        uid,
-        user_broker: 'Dhan',
-        clientCode: clientId,
-        jwtToken,
-      };
-      await axios.request({
-        method: 'put',
-        url: `${server.server.baseUrl}api/user/connect-broker`,
-        headers: getHeaders(),
-        data: JSON.stringify(dhanBrokerData),
-      });
-
-      console.log('[Dhan] Broker connected, updating model portfolio...');
-
-      // SDK pilot dual-write — see brokerSdkBridge.js.
-      if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
-        sdkDualWriteSafely(
-          sdkConnectBroker(sdkBridge.client, 'Dhan', dhanBrokerData),
-          'Dhan',
-          'connect',
-        );
+      const result = await fetchBrokerStatusModal?.();
+      eventEmitter.emit('refreshEvent', {source});
+      if (!result?.migrationWillShow) {
+        showAlert('success', 'Dhan connected', message);
       }
-
-      // Update model portfolio with new broker (non-critical)
-      try {
-        await axios.request({
-          method: 'post',
-          url: `${server.ccxtServer.baseUrl}rebalance/change_broker_model_pf`,
-          headers: getHeaders(),
-          data: JSON.stringify({user_email: userEmail, user_broker: 'Dhan'}),
-        });
-      } catch (err) {
-        console.warn('[Dhan] Model portfolio update failed (non-critical):', err);
-      }
-
-      setLoading(false);
-      setShowBrokerModal(false);
-      onClose();
-      // Wrap post-success steps so a downstream throw doesn't bubble to
-      // the outer catch and get rewritten as "Connection Failed". See
-      // KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
-      // § Broker-connect post-success hygiene.
-      try {
-        const result = await fetchBrokerStatusModal();
-        eventEmitter.emit('refreshEvent', {source: 'Dhan broker connection'});
-        if (!result?.migrationWillShow) {
-          showAlert(
-            'success',
-            'Connected Successfully',
-            'Your Dhan broker has been connected successfully!',
-          );
-        }
-        getUserDeatils();
-      } catch (postSuccessErr) {
-        console.warn(
-          '[Dhan] post-success step threw (connection IS saved DB-side):',
-          postSuccessErr?.message || postSuccessErr,
-        );
-      }
+      await refreshUserDetails();
     } catch (error) {
-      console.error('[Dhan] Connection error:', error);
-      setLoading(false);
-      const isHttpError = !!error?.response;
-      const rawMessage =
-        error.response?.data?.message ||
-        error.response?.data?.details ||
-        '';
-      let alertTitle = 'Connection Failed';
-      let alertBody;
-      if (isHttpError) {
-        alertBody =
-          rawMessage ||
-          'Failed to connect Dhan. Please check your credentials and try again.';
-      } else {
-        alertTitle = 'Connection Issue';
-        alertBody =
-          'We couldn\'t complete the connection because of a network or app error. Your credentials may already be saved — please refresh to check before retrying.';
-      }
-      showAlert('error', alertTitle, alertBody);
+      console.warn('[Dhan] post-success refresh failed:', error?.message);
     }
   };
 
-  // ── Credential form submit (manual fallback path) ─────────────────
-  const handleSubmit = () => {
-    if (!cliendId || !accessToken) {
-      showAlert('error', 'Missing Fields', 'Please enter your Client ID and Access Token.');
+  const savePartnerConnection = async (partnerClientId, jwtToken) => {
+    let uid = userId;
+    if (!uid) uid = (await refreshUserDetails())?._id;
+    if (!uid) {
+      showAlert('error', 'Error', 'User not found. Please sign in again.');
       return;
     }
-    saveBrokerConnection(cliendId, accessToken);
+    setLoading(true);
+    try {
+      await axios.put(
+        `${server.server.baseUrl}api/user/connect-broker`,
+        {
+          uid,
+          user_broker: 'Dhan',
+          clientCode: partnerClientId,
+          jwtToken,
+          connectionMode: 'partner',
+        },
+        {headers: getHeaders()},
+      );
+      await removeDeviceTotp(totpIdentity).catch(() => {});
+      setHasSavedTotp(false);
+      await finishConnection(
+        'Dhan partner connection',
+        'Partner Login is active. Future reconnects continue through Dhan login.',
+      );
+    } catch (error) {
+      showAlert(
+        'error',
+        'Connection failed',
+        error.response?.data?.message ||
+          error.response?.data?.msg ||
+          'Dhan Partner Login could not be saved.',
+      );
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // ── Render ────────────────────────────────────────────────────────
-  if (oauthMode) {
+  const handleWebViewNavigationStateChange = navState => {
+    const url = navState?.url;
+    if (!url || hasProcessedCallback.current) return;
+    if (!url.includes('dhan_client_id=') || !url.includes('dhan_access_token=')) return;
+    const query = url.split('?')[1];
+    if (!query) return;
+    const params = {};
+    query.split('&').forEach(pair => {
+      const index = pair.indexOf('=');
+      if (index < 0) return;
+      params[decodeURIComponent(pair.slice(0, index))] = decodeURIComponent(
+        pair.slice(index + 1),
+      );
+    });
+    if (params.dhan_client_id && params.dhan_access_token) {
+      hasProcessedCallback.current = true;
+      savePartnerConnection(params.dhan_client_id, params.dhan_access_token);
+    }
+  };
+
+  const connectDirect = async () => {
+    if (
+      !clientId.trim() ||
+      !deviceTotpSeed.trim() ||
+      devicePin.length !== 6
+    ) {
+      showAlert('error', 'Missing details', 'Enter the Dhan Client ID, TOTP secret and PIN.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const generatedTotp = generateDeviceTotpFromSeed(deviceTotpSeed);
+      const firebaseToken = await user?.getIdToken?.();
+      if (!firebaseToken) throw new Error('Please sign in again before connecting.');
+      await axios.post(
+        `${server.server.baseUrl}api/dhan/device-totp-connect`,
+        {clientId: clientId.trim(), pin: devicePin, totp: generatedTotp},
+        {
+          headers: {
+            ...getHeaders(),
+            Authorization: `Bearer ${firebaseToken}`,
+          },
+        },
+      );
+      await saveDeviceTotpSeed(
+        totpIdentity,
+        deviceTotpSeed,
+        '',
+        {pin: devicePin},
+      );
+      setHasSavedTotp(true);
+      await finishConnection(
+        'Dhan Direct API connection',
+        'Direct API Quick Reconnect is active on this phone.',
+      );
+    } catch (error) {
+      showAlert(
+        'error',
+        'Direct API setup failed',
+        error.response?.data?.message || error.message || 'Check the Dhan details and static-IP whitelist.',
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const reconnectWithDeviceTotp = async () => {
+    setLoading(true);
+    try {
+      const login = await unlockDeviceTotpLogin(totpIdentity);
+      if (!login?.totp || !login?.pin) {
+        throw new Error('The protected Dhan login is incomplete.');
+      }
+      const firebaseToken = await user?.getIdToken?.();
+      if (!firebaseToken) throw new Error('Please sign in again before reconnecting.');
+      await axios.post(
+        `${server.server.baseUrl}api/dhan/device-totp-reconnect`,
+        {totp: login.totp, pin: login.pin},
+        {
+          headers: {
+            ...getHeaders(),
+            Authorization: `Bearer ${firebaseToken}`,
+          },
+        },
+      );
+      await finishConnection(
+        'Dhan Direct API reconnect',
+        'Your protected Dhan Direct API login was unlocked on this phone.',
+      );
+      return true;
+    } catch (error) {
+      showAlert(
+        'error',
+        'Quick reconnect unavailable',
+        error.response?.data?.message || error.message || 'Set up Direct API again or use Partner Login.',
+      );
+      setFlowMode('choose');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (
+      !isVisible ||
+      !deviceTotpEnabled ||
+      !isDirectConnection ||
+      deviceReconnectStartedRef.current
+    ) return;
+    deviceReconnectStartedRef.current = true;
+    (async () => {
+      const saved = await hasDeviceTotp(totpIdentity).catch(() => false);
+      setHasSavedTotp(saved);
+      if (saved) await reconnectWithDeviceTotp();
+      else setFlowMode('direct');
+    })();
+    // One biometric attempt per modal open; failures return to mode choice.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, deviceTotpEnabled, isDirectConnection]);
+
+  const forgetSavedTotp = async () => {
+    await removeDeviceTotp(totpIdentity);
+    setHasSavedTotp(false);
+    setFlowMode('direct');
+  };
+
+  if (deviceTotpEnabled && flowMode === 'choose') {
     return (
-      <DhanOAuthUI
+      <BrokerConnectStepperSheet
+        isVisible={!!isVisible}
+        onClose={onClose}
+        broker="Dhan"
+        config={{
+          monogram: 'D',
+          brandFrom: designColor('0056b7'),
+          brandTo: designColor('003f86'),
+          hideStepChips: true,
+          guideTitle: 'Choose how AlphaQuark connects to Dhan',
+          guideSteps: [
+            '<b>Partner Login:</b> use Dhan’s browser consent. No customer API app or static-IP setup is required.',
+            '<b>Direct API Quick Reconnect:</b> use your own Dhan Individual Trader API with a free dedicated static IPv6, then reconnect using biometric-protected PIN + TOTP on this phone.',
+          ],
+          note: 'The two modes stay separate. Direct API credentials are never reused in the Partner Login channel.',
+        }}
+        fields={[]}
+        deviceTotp={{
+          enabled: true,
+          placeBeforeFields: true,
+          hasSaved: false,
+          saveOnDevice: directOptIn,
+          onToggleSave: () => setDirectOptIn(value => !value),
+          protectLabel: 'Enable Dhan quick reconnect (Direct API) on this phone',
+          pendingLabel:
+            'Needs your own Dhan Individual Trader API and our static IPv6. Saved only after Dhan verifies the details.',
+        }}
+        canSubmit
+        submitLabel={
+          directOptIn ? 'Set up Direct API Quick Reconnect' : 'Continue with Dhan login'
+        }
+        loading={loading}
+        onSubmit={() => setFlowMode(directOptIn ? 'direct' : 'partner')}
+        alternateAction={
+          directOptIn
+            ? {
+                label: 'Use Dhan login instead',
+                onPress: () => setFlowMode('partner'),
+              }
+            : null
+        }
+      />
+    );
+  }
+
+  if (deviceTotpEnabled && flowMode === 'direct') {
+    return (
+      <BrokerConnectStepperSheet
+        isVisible={!!isVisible}
+        onClose={() => setFlowMode('choose')}
+        broker="Dhan Direct API"
+        config={{
+          monogram: 'D',
+          brandFrom: designColor('0056b7'),
+          brandTo: designColor('003f86'),
+          portalUrl: 'https://web.dhan.co/',
+          portalLabel: 'Open Dhan Web',
+          guideTitle: 'One-time Direct API setup',
+          guideSteps: [
+            'In Dhan Web, open <b>My Profile → DhanHQ Trading APIs and Access</b> and enable Individual Trader API access.',
+            'Enable TOTP and copy the <b>manual Base32 setup key</b> shown with the authenticator QR.',
+            'Add the dedicated IPv6 shown below as your Dhan <b>Primary Static IP</b>. Dhan may lock IP changes for seven days.',
+            'Enter your Client ID, Base32 setup key and six-digit Dhan PIN below. AlphaQuark generates the current TOTP automatically.',
+          ],
+          note: 'The TOTP secret and PIN stay in this phone’s protected keychain. AlphaQuark stores only the resulting session token.',
+        }}
+        egressBrokerKey="dhan_direct"
+        customerId={userId}
+        customerEmail={userEmail}
+        egressReady={egressReady}
+        setEgressReady={setEgressReady}
+        unmetAck={unmetAck}
+        setUnmetAck={setUnmetAck}
+        fields={[
+          {
+            label: 'Dhan Client ID',
+            value: clientId,
+            onChange: setClientId,
+            placeholder: 'Your Dhan Client ID',
+          },
+          {
+            label: 'TOTP Secret Key (Base32)',
+            value: deviceTotpSeed,
+            onChange: value => setDeviceTotpSeed(String(value || '')),
+            password: true,
+            autoCapitalize: 'none',
+            placeholder: 'Secret shown when enabling Dhan TOTP',
+          },
+          {
+            label: 'Dhan PIN',
+            value: devicePin,
+            onChange: value => setDevicePin(value.replace(/\D/g, '').slice(0, 6)),
+            password: true,
+            keyboardType: 'number-pad',
+            maxLength: 6,
+            placeholder: 'Your 6-digit Dhan PIN',
+          },
+        ]}
+        deviceTotp={hasSavedTotp ? {
+          enabled: true,
+          hasSaved: true,
+          saveOnDevice: true,
+          onUnlock: reconnectWithDeviceTotp,
+          onForget: forgetSavedTotp,
+          protectLabel: 'Quick reconnect is protected on this phone',
+          savedLabel: 'Biometric or device passcode is required before the PIN and TOTP can be used.',
+          unlockLabel: 'Reconnect with biometric unlock',
+          forgetLabel: 'Forget Dhan Direct API login on this phone',
+        } : null}
+        phase="creds"
+        canSubmit={
+          Boolean(clientId.trim()) &&
+          Boolean(deviceTotpSeed.trim()) &&
+          devicePin.length === 6
+        }
+        submitLabel="Verify and enable quick reconnect"
+        loading={loading}
+        onSubmit={connectDirect}
+        alternateAction={{
+          label: 'Use Partner Login instead',
+          onPress: () => setFlowMode('partner'),
+        }}
+      />
+    );
+  }
+
+  // Flag-off compatibility: preserve the pre-existing manual Client ID /
+  // access-token fallback exactly as an alternative to Partner Login.
+  if (!deviceTotpEnabled && flowMode === 'manual') {
+    return (
+      <DhanConnectUI
         isVisible={isVisible}
         onClose={onClose}
-        authUrl={prefetchedAuthUrl || DHAN_OAUTH_URL}
-        handleWebViewNavigationStateChange={handleWebViewNavigationStateChange}
+        cliendId={clientId}
+        accessToken={accessToken}
+        setCliendId={setClientId}
+        setaccessToken={setAccessToken}
+        isPasswordVisible={isClientIdVisible}
+        isPasswordVisibleup={isAccessTokenVisible}
+        setIsPasswordVisible={setIsClientIdVisible}
+        setIsPasswordVisibleup={setIsAccessTokenVisible}
+        handleSubmit={() => {
+          if (!clientId.trim() || !accessToken.trim()) {
+            showAlert('error', 'Missing fields', 'Enter your Dhan Client ID and Access Token.');
+            return;
+          }
+          savePartnerConnection(clientId.trim(), accessToken.trim());
+        }}
         loading={loading}
-        onSwitchToManual={() => setOauthMode(false)}
+        shouldRenderContent={!!isVisible}
+        OpenHelpModal={() => setHelpVisible(true)}
+        setHelpVisible={setHelpVisible}
+        helpVisible={helpVisible}
       />
     );
   }
 
   return (
-    <DhanConnectUI
+    <DhanOAuthUI
       isVisible={isVisible}
-      onClose={onClose}
-      cliendId={cliendId}
-      accessToken={accessToken}
-      setCliendId={setCliendId}
-      setaccessToken={setaccessToken}
-      isPasswordVisible={isPasswordVisible}
-      isPasswordVisibleup={isPasswordVisibleup}
-      setIsPasswordVisible={setIsPasswordVisible}
-      setIsPasswordVisibleup={setIsPasswordVisibleup}
-      handleSubmit={handleSubmit}
+      onClose={deviceTotpEnabled ? () => setFlowMode('choose') : onClose}
+      authUrl={prefetchedAuthUrl || DHAN_OAUTH_URL}
+      handleWebViewNavigationStateChange={handleWebViewNavigationStateChange}
       loading={loading}
-      shouldRenderContent={shouldRenderContent}
-      OpenHelpModal={() => setHelpVisible(true)}
-      setHelpVisible={setHelpVisible}
-      helpVisible={helpVisible}
+      onSwitchToManual={() =>
+        setFlowMode(deviceTotpEnabled ? 'direct' : 'manual')
+      }
+      switchLabel={
+        deviceTotpEnabled
+          ? 'Set up Direct API Quick Reconnect instead'
+          : 'Enter Access Token manually instead'
+      }
     />
   );
 };
-
-const styles = StyleSheet.create({
-  modal: {
-    justifyContent: 'flex-end',
-    margin: 0,
-  },
-});
 
 export default DhanConnectModal;

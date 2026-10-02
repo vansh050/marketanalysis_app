@@ -2,6 +2,8 @@ import React from 'react';
 import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import {Info, Lightbulb} from 'lucide-react-native';
 
+import { designColor } from '../design/literalTokens';
+
 const AngelOneCautionaryWarning = ({visible, onAck, onCancel}) => {
   if (!visible) return null;
   return (
@@ -10,7 +12,7 @@ const AngelOneCautionaryWarning = ({visible, onAck, onCancel}) => {
         <View style={styles.handle} />
         <View style={styles.headerRow}>
           <View style={styles.headerIconWrap}>
-            <Info size={22} color="#92400E" />
+            <Info size={22} color={designColor('92400e')} />
           </View>
           <Text style={styles.headerTitle}>Before connecting Angel One</Text>
         </View>
@@ -26,7 +28,7 @@ const AngelOneCautionaryWarning = ({visible, onAck, onCancel}) => {
 
         <View style={styles.tipBox}>
           <View style={styles.tipHeaderRow}>
-            <Lightbulb size={16} color="#1E40AF" />
+            <Lightbulb size={16} color={designColor('1e40af')} />
             <Text style={styles.tipHeader}>What this means for you</Text>
           </View>
           <Text style={styles.tipBody}>
@@ -75,14 +77,14 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: 40,
     height: 4,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: designColor('e5e7eb'),
     borderRadius: 2,
     marginBottom: 16,
   },
   headerRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 16},
   headerIconWrap: {
     padding: 10,
-    backgroundColor: '#FEF3C7',
+    backgroundColor: designColor('fef3c7'),
     borderRadius: 10,
     marginRight: 12,
   },
@@ -90,18 +92,18 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     fontWeight: '700',
-    color: '#1F2937',
+    color: designColor('1f2937'),
   },
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
+    color: designColor('1f2937'),
     marginBottom: 6,
   },
-  sectionBody: {fontSize: 13, color: '#374151', lineHeight: 20},
+  sectionBody: {fontSize: 13, color: designColor('374151'), lineHeight: 20},
   tipBox: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#BFDBFE',
+    backgroundColor: designColor('eff6ff'),
+    borderColor: designColor('bfdbfe'),
     borderWidth: 1,
     borderRadius: 10,
     padding: 12,
@@ -111,10 +113,10 @@ const styles = StyleSheet.create({
   tipHeader: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#1E40AF',
+    color: designColor('1e40af'),
     marginLeft: 6,
   },
-  tipBody: {fontSize: 12, color: '#1D4ED8', lineHeight: 19},
+  tipBody: {fontSize: 12, color: designColor('1d4ed8'), lineHeight: 19},
   buttonRow: {flexDirection: 'row', marginTop: 20},
   btn: {
     paddingVertical: 14,
@@ -125,11 +127,11 @@ const styles = StyleSheet.create({
   cancelBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#9CA3AF',
+    borderColor: designColor('9ca3af'),
     marginRight: 10,
   },
-  cancelBtnText: {fontSize: 14, fontWeight: '600', color: '#374151'},
-  ackBtn: {flex: 2, backgroundColor: '#1A237E'},
+  cancelBtnText: {fontSize: 14, fontWeight: '600', color: designColor('374151')},
+  ackBtn: {flex: 2, backgroundColor: designColor('1a237e')},
   ackBtnText: {fontSize: 14, fontWeight: '600', color: 'white'},
 });
 

@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Text } from 'react-native';
 import useLTPStore from './useLtpStore'; // adjust path as needed
 
+import { designColor, designFont } from '../../../design/literalTokens';
+
 const TotalAmountTextRebalance = ({
   stockDetails = [],
   textStyle = {},
@@ -53,12 +55,12 @@ const TotalAmountTextRebalance = ({
       ₹{totalAmount}
     </Text>
   ) : type === 'cart' ? (
-    <Text style={{ fontFamily: 'Satoshi-Bold', fontSize: 16, color: '#780ff4' }}>
+    <Text style={{ fontFamily: designFont('Satoshi-Bold'), fontSize: 16, color: designColor('780ff4') }}>
       ₹{totalAmount}
     </Text>
   ) : type === 'reviewTrade' ? (
     <Text
-      style={{ fontFamily: 'Poppins-Medium', fontSize: 14, color: '#000000ff' }}>
+      style={{ fontFamily: designFont('Poppins-Medium'), fontSize: 14, color: designColor('000000ff') }}>
       ₹{totalAmount}
     </Text>
   ) : null;

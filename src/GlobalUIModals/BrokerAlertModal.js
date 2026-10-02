@@ -20,6 +20,8 @@ import {
 } from 'lucide-react-native';
 import useModalStore from './modalStore';
 
+import { designColor, designFont } from '../design/literalTokens';
+
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 
 const BrokerAlertModal = () => {
@@ -67,32 +69,32 @@ const BrokerAlertModal = () => {
     switch (alertType) {
       case 'success':
         return {
-          icon: <CheckCircle size={48} color="#22C55E" />,
-          bgColor: '#DCFCE7',
-          borderColor: '#22C55E',
-          titleColor: '#15803D',
+          icon: <CheckCircle size={48} color={designColor('22c55e')} />,
+          bgColor: designColor('dcfce7'),
+          borderColor: designColor('22c55e'),
+          titleColor: designColor('15803d'),
         };
       case 'warning':
         return {
-          icon: <AlertTriangle size={48} color="#F59E0B" />,
-          bgColor: '#FEF3C7',
-          borderColor: '#F59E0B',
-          titleColor: '#B45309',
+          icon: <AlertTriangle size={48} color={designColor('f59e0b')} />,
+          bgColor: designColor('fef3c7'),
+          borderColor: designColor('f59e0b'),
+          titleColor: designColor('b45309'),
         };
       case 'info':
         return {
-          icon: <Info size={48} color="#3B82F6" />,
-          bgColor: '#DBEAFE',
-          borderColor: '#3B82F6',
-          titleColor: '#1D4ED8',
+          icon: <Info size={48} color={designColor('3b82f6')} />,
+          bgColor: designColor('dbeafe'),
+          borderColor: designColor('3b82f6'),
+          titleColor: designColor('1d4ed8'),
         };
       case 'error':
       default:
         return {
-          icon: <AlertCircle size={48} color="#EF4444" />,
-          bgColor: '#FEE2E2',
-          borderColor: '#EF4444',
-          titleColor: '#DC2626',
+          icon: <AlertCircle size={48} color={designColor('ef4444')} />,
+          bgColor: designColor('fee2e2'),
+          borderColor: designColor('ef4444'),
+          titleColor: designColor('dc2626'),
         };
     }
   };
@@ -102,14 +104,14 @@ const BrokerAlertModal = () => {
   const getButtonStyle = () => {
     switch (alertType) {
       case 'success':
-        return {backgroundColor: '#22C55E'};
+        return {backgroundColor: designColor('22c55e')};
       case 'warning':
-        return {backgroundColor: '#F59E0B'};
+        return {backgroundColor: designColor('f59e0b')};
       case 'info':
-        return {backgroundColor: '#3B82F6'};
+        return {backgroundColor: designColor('3b82f6')};
       case 'error':
       default:
-        return {backgroundColor: '#EF4444'};
+        return {backgroundColor: designColor('ef4444')};
     }
   };
 
@@ -134,7 +136,7 @@ const BrokerAlertModal = () => {
           ]}>
           {/* Close button */}
           <TouchableOpacity style={styles.closeButton} onPress={hideAlert}>
-            <X size={20} color="#666" />
+            <X size={20} color={designColor('666')} />
           </TouchableOpacity>
 
           {/* Icon */}
@@ -188,13 +190,13 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: SCREEN_WIDTH * 0.85,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
     borderWidth: 2,
     elevation: 10,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: {width: 0, height: 4},
     shadowOpacity: 0.25,
     shadowRadius: 8,
@@ -216,15 +218,15 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 20,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     fontWeight: '600',
     marginBottom: 8,
     textAlign: 'center',
   },
   message: {
     fontSize: 15,
-    fontFamily: 'Poppins-Regular',
-    color: '#4B5563',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('4b5563'),
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: 20,
@@ -238,9 +240,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   okButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     fontWeight: '600',
   },
 });

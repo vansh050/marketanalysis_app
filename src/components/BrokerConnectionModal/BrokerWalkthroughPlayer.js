@@ -11,6 +11,8 @@ import {
 import YoutubePlayer from 'react-native-youtube-iframe';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 
+import { designColor } from '../../design/literalTokens';
+
 const {width: screenWidth} = Dimensions.get('window');
 
 /**
@@ -18,7 +20,7 @@ const {width: screenWidth} = Dimensions.get('window');
  * setup guides. Keeping this as a normal overlay (rather than opening a URL)
  * preserves the user's connection progress and gives them an obvious Back / X.
  */
-const BrokerWalkthroughPlayer = ({videoId, title, accent = '#0056B7', onClose}) => {
+const BrokerWalkthroughPlayer = ({videoId, title, accent = designColor('0056b7'), onClose}) => {
   const insets = useSafeAreaInsets();
   const [playerError, setPlayerError] = useState(false);
   const [playing, setPlaying] = useState(true);
@@ -109,7 +111,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     zIndex: 12000,
     elevation: 12000,
-    backgroundColor: '#ffffff',
+    backgroundColor: designColor('ffffff'),
   },
   header: {
     minHeight: 72,
@@ -126,16 +128,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
-  headerActionText: {color: '#fff', fontSize: 34, fontWeight: '300', marginTop: -5},
-  closeText: {color: '#fff', fontSize: 29, fontWeight: '300', marginTop: -3},
+  headerActionText: {color: designColor('fff'), fontSize: 34, fontWeight: '300', marginTop: -5},
+  closeText: {color: designColor('fff'), fontSize: 29, fontWeight: '300', marginTop: -3},
   headerCopy: {flex: 1, paddingHorizontal: 10},
   eyebrow: {color: 'rgba(255,255,255,0.78)', fontSize: 10, fontWeight: '800', letterSpacing: 0.8},
-  title: {color: '#fff', fontSize: 16, fontWeight: '800', marginTop: 2},
-  body: {flex: 1, paddingTop: 18, backgroundColor: '#f8fafc'},
-  hint: {fontSize: 13, color: '#64748b', textAlign: 'center', paddingHorizontal: 28, marginTop: 6},
-  errorCard: {margin: 20, padding: 18, borderRadius: 14, backgroundColor: '#fff1f2', borderWidth: 1, borderColor: '#fecdd3'},
-  errorTitle: {fontSize: 15, fontWeight: '800', color: '#9f1239'},
-  errorBody: {fontSize: 13, color: '#9f1239', marginTop: 6, lineHeight: 19},
+  title: {color: designColor('fff'), fontSize: 16, fontWeight: '800', marginTop: 2},
+  body: {flex: 1, paddingTop: 18, backgroundColor: designColor('f8fafc')},
+  hint: {fontSize: 13, color: designColor('64748b'), textAlign: 'center', paddingHorizontal: 28, marginTop: 6},
+  errorCard: {margin: 20, padding: 18, borderRadius: 14, backgroundColor: designColor('fff1f2'), borderWidth: 1, borderColor: designColor('fecdd3')},
+  errorTitle: {fontSize: 15, fontWeight: '800', color: designColor('9f1239')},
+  errorBody: {fontSize: 13, color: designColor('9f1239'), marginTop: 6, lineHeight: 19},
 });
 
 export default BrokerWalkthroughPlayer;

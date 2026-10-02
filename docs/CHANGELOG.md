@@ -1,5 +1,16 @@
 # Changelog
 
+## 2026-10-02 — full AlphaB2B shared-layer sync (`0e68359d`)
+
+- Reconciled the complete shared app, design-default, tests, scripts, and
+  architecture documentation from AlphaB2B `release/deploy_5.1`.
+- Added the current broker recovery/device-vault work, durable order and
+  rebalance safety, SDK slots, configurable navigation, PhonePe lifecycle,
+  trade alerts, crash reporting, and design-boundary enforcement.
+- Preserved Market Analysis branding/native identity, Firebase configuration,
+  release signing/version, Reanimated 4, and the Android Google Web OAuth
+  fallback. OTA remains unconfigured and no OTA release was made.
+
 ## 2026-08-29 — fleet release: Fyers OAuth and rebalance retry safety
 
 - Fyers OAuth connect/reconnect retains a defined WebView style contract, so
@@ -8,10 +19,6 @@
   **Investment Amount Needs Review**, never **Portfolio Already Aligned**.
 - Android release version/build incremented for synchronized fleet rollout.
 
-All notable changes to the AlphaQuark B2B Mobile App are documented here.
-
----
-
 ## 2026-08-17 — standalone manual placement
 
 - Active / rejected / failed standalone (single-stock) recommendation cards
@@ -19,12 +26,6 @@ All notable changes to the AlphaQuark B2B Mobile App are documented here.
   filled quantity, average price, order ID and execution time via
   `POST /api/recommendation/customer/manual-placement`. Ported from upstream
   Alphab2bapp.
-
-# Changelog
-
-All notable changes to the AlphaQuark B2B Mobile App are documented here.
-
----
 
 ## [unreleased] - 2026-07-27 — fix(digio): use backend-authoritative tenant policy
 

@@ -8,6 +8,8 @@ import Config from 'react-native-config';
 import { useTrade } from '../../screens/TradeContext';
 import APP_VARIANTS from '../../utils/Config';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
 
@@ -23,7 +25,7 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
   const [loading, setLoading] = useState(true);  // Add loading state
   const [selectedVideo, setSelectedVideo] = useState(null);
 
-  
+
   //console.log('Videos:',videos);
   const onStateChange = (state) => {
     if (state === 'ended') {
@@ -58,7 +60,7 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
 
   const renderItem = ({ item }) => (
    // console.log('videos Item:',item),
-    <TouchableOpacity style={{marginBottom:10}} activeOpacity={0.9} onPress={() => setSelectedVideo({ id: item.video_id, title: item.title })}>
+    (<TouchableOpacity style={{marginBottom:10}} activeOpacity={0.9} onPress={() => setSelectedVideo({ id: item.video_id, title: item.title })}>
       <View style={[styles.videoCard,{ width: type === 'allhomevideos' ? width : 300 }]}>
         <Image style={styles.videoThumbnail} source={{ uri: item.thumbnail_url }} />
         <View style={styles.videoInfo}>
@@ -70,193 +72,185 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
           </View>
         </View>
       </View>
-    </TouchableOpacity>
+    </TouchableOpacity>)
   );
 
   return (
+    <Modal
+     visible={visible}
+     transparent={true}
+     animationType="slide"
+     >
+      <View style={styles.modalOverlay} >
+        <View style={[styles.modalContainer]}>
 
-   <Modal
-    visible={visible}
-    transparent={true}
-    animationType="slide"
-    >
-    <View style={styles.modalOverlay} >
-      <View style={[styles.modalContainer]}>
+      <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',alignContent:'center',paddingHorizontal:20,paddingVertical:15,borderBottomWidth:1,marginBottom:10,borderColor:designColor('ccc')}}>
 
-    <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',alignContent:'center',paddingHorizontal:20,paddingVertical:15,borderBottomWidth:1,marginBottom:10,borderColor:'#ccc'}}>
+  <View style={styles.header}>
+  <Text style={styles.headerTitle}>Educational Videos</Text>
+  </View>
+    <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} onPress={()=>setOpenvideos(false)} size={15} color={designColor('000')}/>
+      </View>
 
-<View style={styles.header}>
-<Text style={styles.headerTitle}>Educational Videos</Text>
-</View>
-  <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} onPress={()=>setOpenvideos(false)} size={15} color={'#000'}/>
-    </View>
+      <View style={styles.container}>
 
-    <View style={styles.container}>
-   
-        <FlatList
-          data={[]}
-          renderItem={renderItem}
-          keyExtractor={(item) => item.id}
-          horizontal={type==='homevideos'}
-          style={{  alignContent:'center',
-            }}
-          ListEmptyComponent={() => (
-            // isDatafetchingvideos ? (
-            //   <View style={{ flexDirection: 'row' }}>
-            //     <FadeLoading
-            //       style={{ width: screenWidth * 0.5, height: 100, marginTop: 5, marginLeft: 10 }}
-            //       primaryColor="#f0f0f0"
-            //       secondaryColor="#e0e0e0"
-            //       duration={500}
-            //     />
-            //     <FadeLoading
-            //       style={{ width: screenWidth * 0.5, height: 100, marginTop: 5, marginLeft: 10 }}
-            //       primaryColor="#f0f0f0"
-            //       secondaryColor="#e0e0e0"
-            //       duration={500}
-            //     />
-            //   </View>
-            // ) :
-            
-            (
-           
-                <View style={{
-                  flex: 1,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 24,
-                  marginVertical: 30,
-                  marginHorizontal: 20,
-                  backgroundColor: APP_VARIANTS.EmptyStateUi.lightWarmColor, 
-                  borderRadius: 16,
-                  overflow: 'hidden',
-                }}>
-                  {/* Decorative background elements */}
+          <FlatList
+            data={[]}
+            renderItem={renderItem}
+            keyExtractor={(item) => item.id}
+            horizontal={type==='homevideos'}
+            style={{  alignContent:'center',
+              }}
+            ListEmptyComponent={() => (
+              // isDatafetchingvideos ? (
+              //   <View style={{ flexDirection: 'row' }}>
+              //     <FadeLoading
+              //       style={{ width: screenWidth * 0.5, height: 100, marginTop: 5, marginLeft: 10 }}
+              //       primaryColor="#f0f0f0"
+              //       secondaryColor="#e0e0e0"
+              //       duration={500}
+              //     />
+              //     <FadeLoading
+              //       style={{ width: screenWidth * 0.5, height: 100, marginTop: 5, marginLeft: 10 }}
+              //       primaryColor="#f0f0f0"
+              //       secondaryColor="#e0e0e0"
+              //       duration={500}
+              //     />
+              //   </View>
+              // ) :
+
+              (
+
                   <View style={{
-                    position: 'absolute',
-                    top: -50,
-                    right: -50,
-                    width: 150,
-                    height: 150,
-                    borderRadius: 75,
-                    backgroundColor: 'rgba(107, 20, 0, 0.08)', // #6B1400 with opacity
-                  }} />
-                  <View style={{
-                    position: 'absolute',
-                    bottom: -40,
-                    left: -40,
-                    width: 120,
-                    height: 120,
-                    borderRadius: 60,
-                    backgroundColor: 'rgba(173, 66, 38, 0.06)', // Lighter shade of #6B1400
-                  }} />
-                  
-                  {/* Icon container */}
-                  <View style={{
-                    width: 70,
-                    height: 70,
-                    borderRadius: 35,
-                    backgroundColor: '#fff',
+                    flex: 1,
+                    alignItems: 'center',
                     justifyContent: 'center',
-                    alignItems: 'center',
-                    marginBottom: 20,
-                    shadowColor: APP_VARIANTS.EmptyStateUi.backgroundColor, // Main reference color
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.1,
-                    shadowRadius: 8,
-                    elevation: 3,
+                    padding: 24,
+                    marginVertical: 30,
+                    marginHorizontal: 20,
+                    backgroundColor: APP_VARIANTS.EmptyStateUi.lightWarmColor,
+                    borderRadius: 16,
+                    overflow: 'hidden',
                   }}>
-                    <Text style={{ fontSize: 30 }}>🎬</Text>
+                    {/* Decorative background elements */}
+                    <View style={{
+                      position: 'absolute',
+                      top: -50,
+                      right: -50,
+                      width: 150,
+                      height: 150,
+                      borderRadius: 75,
+                      backgroundColor: 'rgba(107, 20, 0, 0.08)', // #6B1400 with opacity
+                    }} />
+                    <View style={{
+                      position: 'absolute',
+                      bottom: -40,
+                      left: -40,
+                      width: 120,
+                      height: 120,
+                      borderRadius: 60,
+                      backgroundColor: 'rgba(173, 66, 38, 0.06)', // Lighter shade of #6B1400
+                    }} />
+
+                    {/* Icon container */}
+                    <View style={{
+                      width: 70,
+                      height: 70,
+                      borderRadius: 35,
+                      backgroundColor: designColor('fff'),
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      marginBottom: 20,
+                      shadowColor: APP_VARIANTS.EmptyStateUi.backgroundColor, // Main reference color
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 8,
+                      elevation: 3,
+                    }}>
+                      <Text style={{ fontSize: 30 }}>🎬</Text>
+                    </View>
+
+                    <Text style={{
+                      fontFamily: designFont('Satoshi-Bold'),
+                      fontSize: 18,
+                      color: APP_VARIANTS.EmptyStateUi.darkerColor, // Darker shade of reference color
+                      textAlign: 'center',
+                      marginBottom: 10,
+                    }}>
+                      No Videos Available
+                    </Text>
+
+                    <Text style={{
+                      fontFamily: designFont('Satoshi-Medium'),
+                      fontSize: 14,
+                      color: APP_VARIANTS.EmptyStateUi.mediumColor, // Medium shade of reference color
+                      textAlign: 'center',
+                      maxWidth: '90%',
+                      lineHeight: 20,
+                    }}>
+                      We're curating video tutorials and masterclasses for you. Check back soon for fresh content!
+                    </Text>
+
+                    {/* Visual indicators - video timeline style */}
+                    <View style={{
+                      flexDirection: 'row',
+                      marginTop: 20,
+                      alignItems: 'center',
+                    }}>
+                      <View style={{
+                        width: 30,
+                        height: 4,
+                        borderRadius: 2,
+                        backgroundColor: APP_VARIANTS.EmptyStateUi.backgroundColor, // Main reference color
+                        marginHorizontal: 3,
+                        opacity: 0.3,
+                      }} />
+                      <View style={{
+                        width: 20,
+                        height: 4,
+                        borderRadius: 2,
+                        backgroundColor: APP_VARIANTS.EmptyStateUi.backgroundColor, // Main reference color
+                        marginHorizontal: 3,
+                        opacity: 0.5,
+                      }} />
+                      <View style={{
+                        width: 10,
+                        height: 4,
+                        borderRadius: 2,
+                        backgroundColor: APP_VARIANTS.EmptyStateUi.backgroundColor, // Main reference color
+                        marginHorizontal: 3,
+                        opacity: 0.7,
+                      }} />
+                    </View>
                   </View>
-                  
-                  <Text style={{ 
-                    fontFamily: 'Satoshi-Bold', 
-                    fontSize: 18,
-                    color: APP_VARIANTS.EmptyStateUi.darkerColor, // Darker shade of reference color
-                    textAlign: 'center',
-                    marginBottom: 10,
-                  }}>
-                    No Videos Available
-                  </Text>
-                  
-                  <Text style={{
-                    fontFamily: 'Satoshi-Medium',
-                    fontSize: 14,
-                    color: APP_VARIANTS.EmptyStateUi.mediumColor, // Medium shade of reference color
-                    textAlign: 'center',
-                    maxWidth: '90%',
-                    lineHeight: 20,
-                  }}>
-                    We're curating video tutorials and masterclasses for you. Check back soon for fresh content!
-                  </Text>
-                  
-                  {/* Visual indicators - video timeline style */}
-                  <View style={{
-                    flexDirection: 'row',
-                    marginTop: 20,
-                    alignItems: 'center',
-                  }}>
-                    <View style={{
-                      width: 30,
-                      height: 4,
-                      borderRadius: 2,
-                      backgroundColor: APP_VARIANTS.EmptyStateUi.backgroundColor, // Main reference color
-                      marginHorizontal: 3,
-                      opacity: 0.3,
-                    }} />
-                    <View style={{
-                      width: 20,
-                      height: 4,
-                      borderRadius: 2,
-                      backgroundColor: APP_VARIANTS.EmptyStateUi.backgroundColor, // Main reference color
-                      marginHorizontal: 3,
-                      opacity: 0.5,
-                    }} />
-                    <View style={{
-                      width: 10,
-                      height: 4,
-                      borderRadius: 2,
-                      backgroundColor: APP_VARIANTS.EmptyStateUi.backgroundColor, // Main reference color
-                      marginHorizontal: 3,
-                      opacity: 0.7,
-                    }} />
-                  </View>
-                </View>
-            )
-          )}
-          
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.videoList}
-          
-        />
-      
-      {selectedVideo && (
-        <Modal  visible={true} transparent={true} onRequestClose={() => setSelectedVideo(null)}>
-          <View style={styles.modalBackground}>
-            <View style={styles.videoPlayerContainer}>
-              <YoutubePlayer
-                height={200}
-                width={'100%'}
-                play={true}
-                videoId={selectedVideo.id}
-                onChangeState={onStateChange}
-              />
+              )
+            )}
+
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.videoList}
+
+          />
+
+        {selectedVideo && (
+          <Modal  visible={true} transparent={true} onRequestClose={() => setSelectedVideo(null)}>
+            <View style={styles.modalBackground}>
+              <View style={styles.videoPlayerContainer}>
+                <YoutubePlayer
+                  height={200}
+                  width={'100%'}
+                  play={true}
+                  videoId={selectedVideo.id}
+                  onChangeState={onStateChange}
+                />
+              </View>
             </View>
-          </View>
-        </Modal>
-      )}
-    </View>
+          </Modal>
+        )}
+      </View>
 
-    </View>
-    </View>
-
-
-
-
-
-
+      </View>
+      </View>
     </Modal>
-   
   );
 };
 
@@ -265,10 +259,10 @@ const styles = StyleSheet.create({
     paddingVertical:10,
   },
   modalContainer: {
-    backgroundColor:'#FFFEF7',
+    backgroundColor:designColor('fffef7'),
     borderTopRightRadius:20,borderTopLeftRadius:20,
     maxHeight:screenHeight,
- 
+
   },
   modalOverlay: {
     flex: 1,
@@ -278,17 +272,17 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 14,
-    fontFamily:'Satoshi-Medium',
-    color: '#666',
+    fontFamily:designFont('Satoshi-Medium'),
+    color: designColor('666'),
     marginBottom: 0,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: '#666',
-    fontFamily:'Satoshi-Medium',
+    color: designColor('666'),
+    fontFamily:designFont('Satoshi-Medium'),
     textAlign: 'center',
- 
+
   },
   containerEmpty: {
     paddingVertical:50,
@@ -296,7 +290,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center', // Centers content vertically
     alignItems: 'center', // Centers content horizontally
     alignContent: 'center',
-    backgroundColor: '#fDfDfD',
+    backgroundColor: designColor('fdfdfd'),
   },
   header: {
     flexDirection: 'row',
@@ -305,13 +299,13 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'black',
   },
   seeAllText: {
     fontSize: 14,
-    fontFamily: 'Satoshi-Regular',
-    color: '#4B8CEE',
+    fontFamily: designFont('Satoshi-Regular'),
+    color: designColor('4b8cee'),
     marginRight: 10,
   },
   videoList: {
@@ -319,7 +313,7 @@ const styles = StyleSheet.create({
     alignContent:'center',
     alignItems:'center',
     alignSelf:'center',
-  
+
   },
   videoCard: {
     color:'transparent',
@@ -327,7 +321,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     width: 300,
     marginRight: 15,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
@@ -346,14 +340,14 @@ const styles = StyleSheet.create({
   videoTitle: {
     fontSize: 14,
     lineHeight: 15,
-    fontFamily:'Satoshi-Medium',
-    fontWeight: 'normal', 
+    fontFamily:designFont('Satoshi-Medium'),
+    fontWeight: 'normal',
     color: 'black',
   },
   videoDetails: {
     fontSize: 12,
-    color: '#888',
-    fontFamily:'Satoshi-Light'
+    color: designColor('888'),
+    fontFamily:designFont('Satoshi-Light')
   },
   modalBackground: {
     flex: 1,
@@ -363,7 +357,7 @@ const styles = StyleSheet.create({
   },
   videoPlayerContainer: {
     width: '90%',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     height:'25%',
     borderRadius: 10,
     overflow: 'hidden',
@@ -371,12 +365,12 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 10,
-    backgroundColor: '#ff5c5c',
+    backgroundColor: designColor('ff5c5c'),
     width: '100%',
     alignItems: 'flex-end',
   },
   modalVideoTitle: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 14,
     marginRight:10,
     paddingVertical:5,

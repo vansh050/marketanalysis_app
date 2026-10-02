@@ -38,6 +38,9 @@ export const resolvePrimaryPricing = (plan) => {
     if (isValidPrice(plan?.pricingWithoutGst?.['half-yearly'])) {
         return { value: Number(plan.pricingWithoutGst['half-yearly']), label: '6 Months', period: 'half-yearly' };
     }
+    if (isValidPrice(plan?.pricingWithoutGst?.yearly)) {
+        return { value: Number(plan.pricingWithoutGst.yearly), label: 'Yearly', period: 'yearly' };
+    }
     if (isValidPrice(plan?.pricing?.yearly)) {
         return { value: Number(plan.pricing.yearly), label: 'Yearly', period: 'yearly' };
     }

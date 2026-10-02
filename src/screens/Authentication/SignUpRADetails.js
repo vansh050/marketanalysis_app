@@ -17,6 +17,8 @@ import { updateRACodeAndConfig } from '../../utils/storageUtils';
 import { logLoginAttempt, trackAppUser } from '../../FunctionCall/services/LoginLoggingService';
 import { useComponent } from '../../design/useDesign';
 
+import { designColor } from '../../design/literalTokens';
+
 const validateRaId = (raId) => {
     if (!raId || raId.trim().length < 4) {
         return { isValid: false, message: 'RA ID must be at least 4 characters long' };
@@ -37,8 +39,8 @@ const SignUpRADetails = ({ route }) => {
 
     const logo = config?.logo || fallbackConfig.logo;
     const appName = config?.appName || Config.REACT_APP_WHITE_LABEL_TEXT || 'RGX Research';
-    const gradient1 = config?.gradient1 || fallbackConfig.gradient1 || '#03275B';
-    const gradient2 = config?.gradient2 || fallbackConfig.gradient2 || '#0156B7';
+    const gradient1 = config?.gradient1 || fallbackConfig.gradient1 || designColor('03275b');
+    const gradient2 = config?.gradient2 || fallbackConfig.gradient2 || designColor('0156b7');
 
     const [raId, setRaId] = useState('');
     const [loading, setLoading] = useState(false);

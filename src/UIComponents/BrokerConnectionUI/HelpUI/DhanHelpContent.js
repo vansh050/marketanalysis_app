@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'r
 import Config from 'react-native-config';
 import YoutubePlayer from "react-native-youtube-iframe";
 import LinkifiedUrl from './LinkifiedUrl';
+import { designColor, designFont } from '../../../design/literalTokens';
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 const DhanHelpContent = ({expanded, onExpandChange }) => {
@@ -61,7 +62,7 @@ const DhanHelpContent = ({expanded, onExpandChange }) => {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: "#fff",
+    backgroundColor: designColor('fff'),
     paddingHorizontal: 12,
   },
   videoBox: {
@@ -70,17 +71,17 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 13,
-    fontFamily:'Poppins-Medium',
-    color: "#222",
+    fontFamily:designFont('Poppins-Medium'),
+    color: designColor('222'),
     marginBottom: 9,
   },
   instruction: {
     fontSize: 14,
-    color: "#222",
+    color: designColor('222'),
     marginBottom: 8,
   },
   link: {
-    color: "#1890FF",
+    color: designColor('1890ff'),
     textDecorationLine: 'underline',
   },
   toggleContainer: {
@@ -90,7 +91,7 @@ const styles = StyleSheet.create({
   toggleText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1890FF',
+    color: designColor('1890ff'),
   },
 });
 

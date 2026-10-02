@@ -2,10 +2,8 @@
  * ───────────────────────────────────────────────────────────────────────────
  * PORTED FROM WEB — prod-alphaquark-github @ de22d67e
  *   source: src/utils/nbaRanking.js
- * VERBATIM logic. The ONLY change vs web is the two import paths (BROKER_STATUS +
- * RecoveryAction now resolve to local enum modules in this folder instead of web's
- * ./brokerStatus and ../services/PendingPaymentManager). Behaviour is identical and
- * pinned by the ported test suite.
+ * The original web ranking remains pinned by the ported test suite. Mobile adds
+ * one account-recovery action sourced from the server's reconciliation contract.
  *
  * DRIFT TRIPWIRE (D2, docs/WEB_PARITY_MIGRATION_2026-06.md §4.2):
  *   __tests__/utils/nbaRanking.test.js is the web suite ported 1:1. On a web engine
@@ -30,11 +28,12 @@
  *   2 reconnect_broker      broker TOKEN_EXPIRED
  *   3 connect_broker        broker NOT_CONNECTED  (deliberate MANUAL never nags)
  *   4 payment_recovery      non-digio recovery (retry / check)
- *   5 review_repair_trades  failed rebalance legs need review
- *   6 accept_rebalance      pending model rebalance(s), oldest rebalanceDate first
- *   7 act_on_recommendation new RA recommendation(s)
- *   8 tax_tip               timing/tax nudge
- *   9 explore_model         discovery nudge
+ *   5 account_recovery      exact broker/account blocker from reconciliation
+ *   6 review_repair_trades  failed rebalance legs need review
+ *   7 accept_rebalance      pending model rebalance(s), oldest rebalanceDate first
+ *   8 act_on_recommendation new RA recommendation(s)
+ *   9 tax_tip               timing/tax nudge
+ *  10 explore_model         discovery nudge
  *
  * NOTE on order vs ActionCenter: ActionCenter ranks payment_recovery ABOVE no_broker;
  * here connect_broker (#3) sits above payment_recovery (#4) — a connected broker is a
@@ -48,12 +47,14 @@
  */
 import { BROKER_STATUS } from "./brokerStatus";
 import { RecoveryAction } from "./recoveryActions";
+import { accountRecoveryTitle } from "../accountRecoveryUx";
 
 export const NBA_KIND = {
   FINISH_SIGNING: "finish_signing",
   RECONNECT_BROKER: "reconnect_broker",
   CONNECT_BROKER: "connect_broker",
   PAYMENT_RECOVERY: "payment_recovery",
+  ACCOUNT_RECOVERY: "account_recovery",
   REVIEW_REPAIR_TRADES: "review_repair_trades",
   ACCEPT_REBALANCE: "accept_rebalance",
   ACT_ON_RECOMMENDATION: "act_on_recommendation",
@@ -75,6 +76,7 @@ const isPaymentRecovery = (a) =>
  * @typedef {Object} NbaSignals
  * @property {string} [brokerState]        a BROKER_STATUS value (from deriveBrokerStatus)
  * @property {{action: string}|null} [recovery]  pending-payment recovery result
+ * @property {{blocked?: boolean, state?: string, reason?: string, message?: string}|null} [accountRecovery]
  * @property {number} [repairTradesCount]  failed rebalance legs needing review
  * @property {Array<{modelName?: string, rebalanceDate?: string|number}>} [pendingRebalances]
  * @property {number} [newRecommendationsCount]
@@ -95,6 +97,7 @@ export function rankActions(signals = {}) {
   const {
     brokerState = null,
     recovery = null,
+    accountRecovery = null,
     repairTradesCount = 0,
     pendingRebalances = [],
     newRecommendationsCount = 0,
@@ -155,7 +158,21 @@ export function rankActions(signals = {}) {
     });
   }
 
-  // 5 — repair trades.
+  // 5 — broker-account recovery. A persisted execution/ownership blocker is
+  // more useful than a generic Repair card whose button can only rediscover
+  // the same veto. The server message names the exact order/holding evidence.
+  if (accountRecovery?.blocked === true) {
+    push({
+      key: NBA_KIND.ACCOUNT_RECOVERY,
+      kind: NBA_KIND.ACCOUNT_RECOVERY,
+      title: accountRecoveryTitle(accountRecovery),
+      detail: accountRecovery.message || 'Open this item to see what is blocking the account.',
+      ctaLabel: accountRecovery.nextAction?.label || 'Review',
+      meta: {reason: accountRecovery.reason || null},
+    });
+  }
+
+  // 6 — repair trades.
   if (repairTradesCount > 0) {
     push({
       key: NBA_KIND.REVIEW_REPAIR_TRADES,
@@ -167,7 +184,7 @@ export function rankActions(signals = {}) {
     });
   }
 
-  // 6 — pending model rebalance(s), oldest rebalanceDate first. Names WHICH model.
+  // 7 — pending model rebalance(s), oldest rebalanceDate first. Names WHICH model.
   if (Array.isArray(pendingRebalances) && pendingRebalances.length > 0) {
     const sorted = [...pendingRebalances].sort(
       (a, b) => toTime(a?.rebalanceDate) - toTime(b?.rebalanceDate)
@@ -183,7 +200,7 @@ export function rankActions(signals = {}) {
     });
   }
 
-  // 7 — new recommendation(s).
+  // 8 — new recommendation(s).
   if (newRecommendationsCount > 0) {
     push({
       key: NBA_KIND.ACT_ON_RECOMMENDATION,
@@ -195,7 +212,7 @@ export function rankActions(signals = {}) {
     });
   }
 
-  // 8 — tax / timing tip.
+  // 9 — tax / timing tip.
   if (Array.isArray(taxTips) && taxTips.length > 0) {
     push({
       key: NBA_KIND.TAX_TIP,
@@ -207,7 +224,7 @@ export function rankActions(signals = {}) {
     });
   }
 
-  // 9 — discovery nudge.
+  // 10 — discovery nudge.
   if (Array.isArray(modelNudges) && modelNudges.length > 0) {
     push({
       key: NBA_KIND.EXPLORE_MODEL,

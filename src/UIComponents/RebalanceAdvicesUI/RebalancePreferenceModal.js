@@ -13,6 +13,8 @@ import {ChevronLeft} from 'lucide-react-native';
 import StepProgressBar from './StepProgressBar';
 import {useConfig} from '../../context/ConfigContext';
 
+import { designColor } from '../../design/literalTokens';
+
 const {width, height} = Dimensions.get('window');
 
 // Custom Checkbox
@@ -32,7 +34,7 @@ const RebalancePreferenceModal = ({
   handleConfirmPreference,
 }) => {
   const config = useConfig();
-  const gradient2 = config?.gradient2 || '#0076FB';
+  const gradient2 = config?.gradient2 || designColor('0076fb');
   const stepsData = [1, 2, 3];
   const currentStep = 1;
 
@@ -49,7 +51,7 @@ const RebalancePreferenceModal = ({
             <TouchableOpacity
               onPress={() => setShowCheckboxModal(false)}
               style={styles.closeButton}>
-              <ChevronLeft size={24} color="#6B7280" />
+              <ChevronLeft size={24} color={designColor('6b7280')} />
             </TouchableOpacity>
           </View>
 
@@ -129,7 +131,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '100%',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 12,
     // height: height,
   },
@@ -140,7 +142,7 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 6,
-    backgroundColor: '#F2F3F4',
+    backgroundColor: designColor('f2f3f4'),
     borderRadius: 3,
   },
   modalHeader: {
@@ -151,7 +153,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 16, // ↓ smaller
     fontWeight: '600',
-    color: '#2563EB',
+    color: designColor('2563eb'),
   },
   optionsContainer: {
     paddingHorizontal: 20,
@@ -168,40 +170,40 @@ const styles = StyleSheet.create({
   optionTitle: {
     fontSize: 14, // ↓ smaller
     fontWeight: '500',
-    color: '#111827',
+    color: designColor('111827'),
   },
   optionSubtitle: {
     fontSize: 12, // ↓ smaller
-    color: '#6B7280',
+    color: designColor('6b7280'),
     marginTop: 2,
   },
   confirmButton: {
     marginHorizontal: 20,
     marginBottom: 20,
     paddingVertical: 14,
-    backgroundColor: '#0056B7',
+    backgroundColor: designColor('0056b7'),
     borderRadius: 8,
     alignItems: 'center',
   },
   confirmButtonText: {
     fontSize: 14, // ↓ smaller
     fontWeight: '600',
-    color: '#fff',
+    color: designColor('fff'),
   },
   checkbox: {
     width: 22,
     height: 22,
     borderWidth: 2,
-    borderColor: '#2563EB',
+    borderColor: designColor('2563eb'),
     borderRadius: 4,
     justifyContent: 'center',
     alignItems: 'center',
   },
   checkboxChecked: {
-    backgroundColor: '#2563EB',
+    backgroundColor: designColor('2563eb'),
   },
   checkmark: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 14,
     fontWeight: '600',
   },

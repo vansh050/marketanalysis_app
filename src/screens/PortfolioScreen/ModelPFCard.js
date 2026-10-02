@@ -10,6 +10,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
 import Config from 'react-native-config';
@@ -24,6 +25,10 @@ import { useTrade } from '../TradeContext';
 import portfolioEvents, { PORTFOLIO_EVENTS } from '../../utils/portfolioEvents';
 import eventEmitter from '../../components/EventEmitter';
 import MPF_1 from '../../assets/Mpholder1.png';
+import {
+  corporateActionMessage,
+  getRecentCorporateActionNotices,
+} from '../../utils/corporateActionNotice';
 
 const ModalPFCard = ({
   modelName,
@@ -175,6 +180,14 @@ const ModalPFCard = ({
       }, 0)
     : 0;
 
+  const corporateActionNotices = getRecentCorporateActionNotices(validOrderResults);
+  const handleCorporateActionPress = notice => {
+    Alert.alert(
+      notice.type === 'BONUS' ? 'Bonus shares pending' : 'Stock split adjustment',
+      corporateActionMessage(notice),
+    );
+  };
+
   const imageUri = resolveImageUrl(strategyDetails?.image, server.server.baseUrl) || null;
 
   return (
@@ -193,10 +206,12 @@ const ModalPFCard = ({
         // PortfolioScreen's processedData.
         holdingsCount: validOrderResults?.length || 0,
         lastRebalanceDate: specificPlan?.rebalanceDate || null,
+        corporateActionNotices,
       }}
       actions={{
         onCardPress: handleCardClick,
         onInvestPress: handleInvestClick,
+        onCorporateActionPress: handleCorporateActionPress,
       }}
       slots={{
         PortfolioPercentageSlot: (

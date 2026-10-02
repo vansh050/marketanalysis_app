@@ -37,6 +37,10 @@ export const PaymentType = {
  * @property {number} amount - Payment amount
  * @property {object} planDetails - Full plan details
  * @property {object} userDetails - User details (name, pan, phone, etc.)
+ * @property {string|null} couponId - Applied coupon identity, if any
+ * @property {string|null} couponCode - Applied coupon display code, if any
+ * @property {string|null} gateway - Payment gateway used to create the intent
+ * @property {string|null} frequency - Billing frequency for recurring payments
  * @property {number} initiatedAt - Timestamp when payment was initiated
  * @property {string} subscriptionId - Subscription ID if created
  * @property {boolean} digioRequired - Whether Digio is required
@@ -353,6 +357,10 @@ export const createPendingPaymentData = ({
   userDetails,
   digioRequired = false,
   digioDocumentId = null,
+  couponId = null,
+  couponCode = null,
+  gateway = null,
+  frequency = null,
 }) => ({
   orderId,
   subscriptionId,
@@ -375,6 +383,10 @@ export const createPendingPaymentData = ({
   } : null,
   digioRequired,
   digioDocumentId,
+  couponId,
+  couponCode,
+  gateway,
+  frequency,
 });
 
 export default {

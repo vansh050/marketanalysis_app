@@ -6,6 +6,8 @@ import { useColors } from '../../theme/useColors';
 import { getBrokerHelp } from './brokerHelpData';
 import BrokerHelpStepper from './BrokerHelpStepper';
 
+import { designColor } from '../../design/literalTokens';
+
 const { height: screenHeight } = Dimensions.get('window');
 
 /**
@@ -24,7 +26,7 @@ const { height: screenHeight } = Dimensions.get('window');
 const HelpModal = ({ broker, visible, onClose }) => {
   const colors = useColors();
   const data = getBrokerHelp(broker);
-  const sheetBg = colors?.surface?.base || '#ffffff';
+  const sheetBg = colors?.surface?.base || designColor('ffffff');
 
   return (
     <Modal

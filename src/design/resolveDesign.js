@@ -11,9 +11,12 @@
  *      key MUST exist there. Throw at startup if it's missing from the
  *      registry; the app cannot run without it.
  *   2. If a non-default variant is requested AND registered, shallow-merge its
- *      `components` over default's. Tokens layer-merge by namespace
- *      (variant's `tokens.X` replaces default's `tokens.X` if present).
- *   3. If a non-default variant is requested but NOT registered:
+ *      `components`, `sdk` slots and `navigation` manifest keys over default's. Tokens layer-merge by
+ *      namespace (variant's `tokens.X` replaces default's `tokens.X` if
+ *      present).
+ *   3. A variant may override only component/SDK keys declared by default.
+ *      Unknown keys fail fast instead of creating tenant-only contracts.
+ *   4. If a non-default variant is requested but NOT registered:
  *      - When source is 'DESIGN_VARIANT' or 'prop': warn in dev (this is a
  *        misconfiguration — the env var was set but no folder exists).
  *      - When source is 'APP_VARIANT': silent fallback (APP_VARIANT is a
@@ -21,12 +24,14 @@
  *        for it is the normal case).
  *      Either way, fall back to default.
  *
- * The resolver is called ONCE at <DesignProvider> mount and the result is
- * frozen for the life of the provider (see DesignProvider.js).
+ * The resolver is pure. Standalone builds normally call it once; the AlphaB2B
+ * master provider calls it again when the authenticated runtime advisor
+ * changes to another statically registered design.
  * ============================================================================
  */
 
 import { VARIANTS, DEFAULT_VARIANT_NAME } from '../../designs/registry';
+import { MANIFEST_KEYS } from '../navigation/screenCatalog';
 
 const buildBundle = (name, defaultVariant, requestedVariant) => {
     if (!requestedVariant) {
@@ -34,6 +39,8 @@ const buildBundle = (name, defaultVariant, requestedVariant) => {
             variant: DEFAULT_VARIANT_NAME,
             tokens: defaultVariant.tokens,
             components: { ...(defaultVariant.components || {}) },
+            sdk: { ...(defaultVariant.sdk || {}) },
+            navigation: { ...(defaultVariant.navigation || {}) },
         };
     }
     return {
@@ -43,19 +50,71 @@ const buildBundle = (name, defaultVariant, requestedVariant) => {
             ...(defaultVariant.components || {}),
             ...(requestedVariant.components || {}),
         },
+        sdk: {
+            ...(defaultVariant.sdk || {}),
+            ...(requestedVariant.sdk || {}),
+        },
+        // Per top-level key: a variant's `tabs` array replaces default's whole
+        // (never merged), anything it omits falls back to default.
+        navigation: {
+            ...(defaultVariant.navigation || {}),
+            ...(requestedVariant.navigation || {}),
+        },
     };
 };
 
+const assertKnownKeys = (variantName, layerName, defaults, overrides) => {
+    if (!overrides) {
+        return;
+    }
+    const unknown = Object.keys(overrides).filter(key => !(key in (defaults || {})));
+    if (unknown.length > 0) {
+        throw new Error(
+            `[DesignProvider] variant "${variantName}" defines unknown ${layerName} key(s): ${unknown.join(', ')}. Add every contract key to designs/default first so other variants have a fallback.`
+        );
+    }
+};
+
 /**
- * @param {{ name: string, source: 'prop' | 'DESIGN_VARIANT' | 'APP_VARIANT' | 'fallback' }} selection
+ * Enforce the default-as-contract-floor rule before merging a custom variant.
+ * Variants may override any subset, but may not invent private component or
+ * SDK slot names that other variants cannot resolve.
  */
-export const resolveDesign = (selection) => {
-    const defaultVariant = VARIANTS[DEFAULT_VARIANT_NAME];
+export const validateVariantContract = (variantName, defaultVariant, requestedVariant) => {
+    if (!requestedVariant || variantName === DEFAULT_VARIANT_NAME) {
+        return;
+    }
+    assertKnownKeys(
+        variantName,
+        'component',
+        defaultVariant.components,
+        requestedVariant.components,
+    );
+    assertKnownKeys(variantName, 'SDK slot', defaultVariant.sdk, requestedVariant.sdk);
+    if (requestedVariant.navigation) {
+        const allowed = Object.fromEntries(MANIFEST_KEYS.map(key => [key, true]));
+        assertKnownKeys(variantName, 'navigation', allowed, requestedVariant.navigation);
+    }
+};
+
+export const validateRegistryContract = variants => {
+    const defaultVariant = variants?.[DEFAULT_VARIANT_NAME];
     if (!defaultVariant) {
         throw new Error(
             `[DesignProvider] designs/${DEFAULT_VARIANT_NAME} is required and is missing from designs/registry.js. The default variant is the contract floor.`
         );
     }
+    for (const [variantName, variant] of Object.entries(variants)) {
+        validateVariantContract(variantName, defaultVariant, variant);
+    }
+    return defaultVariant;
+};
+
+/**
+ * @param {{ name: string, source: 'prop' | 'DESIGN_VARIANT' | 'runtime-advisor' | 'APP_VARIANT' | 'fallback' }} selection
+ */
+export const resolveDesign = (selection) => {
+    const defaultVariant = validateRegistryContract(VARIANTS);
 
     const { name, source } = selection || { name: DEFAULT_VARIANT_NAME, source: 'fallback' };
 

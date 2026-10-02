@@ -15,6 +15,29 @@ import { clearAccountEmail } from '../../utils/accountEmail';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
+import { clearAllAppData } from '../../utils/storageUtils';
+
+const GOOGLE_SIGN_OUT_TIMEOUT_MS = 5000;
+
+const signOutGoogleWithTimeout = async () => {
+    let timeoutId;
+
+    try {
+        await Promise.race([
+            GoogleSignin.signOut(),
+            new Promise((_, reject) => {
+                timeoutId = setTimeout(
+                    () => reject(new Error('Google sign-out timed out')),
+                    GOOGLE_SIGN_OUT_TIMEOUT_MS,
+                );
+            }),
+        ]);
+    } finally {
+        if (timeoutId) {
+            clearTimeout(timeoutId);
+        }
+    }
+};
 
 const LogoutScreen = ({ navigation }) => {
     const config = useConfig();
@@ -41,19 +64,22 @@ const LogoutScreen = ({ navigation }) => {
                     : {}),
             });
         }
-    }, [config?.googleWebClientId]);
+    }, [config?.googleIosClientId, config?.googleWebClientId]);
 
     useEffect(() => {
         const handleLogout = async () => {
             try {
                 try {
-                    await GoogleSignin.signOut();
+                    await signOutGoogleWithTimeout();
                 } catch {
-                    // Google may not have been used — ignore.
+                    // Google may not have been used or its network cleanup may
+                    // stall in a simulator. Firebase/local cleanup must still run.
                 }
                 await signOut(auth);
                 await AsyncStorage.removeItem('cartItems');
+                await clearAllAppData();
                 // Apple sign-in identity fallback — must not leak across accounts.
+                // Also resets the module-level cache, not just the storage key.
                 await clearAccountEmail();
                 setUserDetails(null);
                 setHasFetchedTrades(false);

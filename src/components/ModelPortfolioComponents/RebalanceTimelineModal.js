@@ -11,6 +11,8 @@ import Ionicons from 'react-native-vector-icons/Ionicons'; // For XIcon, use Ion
 import { Circle, CheckCircle,CircleCheck } from "lucide-react-native"; // Icon library for check/circle icons
 import moment from 'moment';
 
+import { designColor } from '../../design/literalTokens';
+
 const RebalanceTimeLineModal = ({
   visible,
   closeRebalanceTimelineModal,
@@ -79,7 +81,7 @@ const RebalanceTimeLineModal = ({
                 
                      
                     ) : (
-                      <Circle size={30} color={'#ccc'} />
+                      <Circle size={30} color={designColor('ccc')} />
                     )}
                     {index < rebalanceTimelineData.length - 1 && (
                       <View style={styles.verticalLine}></View>
@@ -127,7 +129,7 @@ const styles = StyleSheet.create({
   headerText: {
     fontSize: 22,
     fontWeight: 'bold',
-    color: '#000',
+    color: designColor('000'),
   },
   timelineContainer: {
     paddingVertical: 10,
@@ -155,16 +157,16 @@ const styles = StyleSheet.create({
   },
   timelineText: {
     fontSize: 16,
-    color: '#333',
+    color: designColor('333'),
   },
   timelineDate: {
     fontSize: 14,
-    color: '#666',
+    color: designColor('666'),
   },
   verticalLine: {
     position: 'absolute',
     width: 2,
-    backgroundColor: '#ccc',
+    backgroundColor: designColor('ccc'),
     top: 27, // Adjust this value to match the height between icons
     bottom: -80, // Adjust based on the vertical space between icons
     left: '50%', // Center it within the container

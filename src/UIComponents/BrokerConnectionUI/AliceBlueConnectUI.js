@@ -14,6 +14,8 @@ import {ChevronLeft, XIcon} from 'lucide-react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 // AliceBlue OTP-validate interceptor (workaround for AliceBlue's broken
 // post-OTP redirect, 2026-04-26).
 //
@@ -130,6 +132,87 @@ const ALICEBLUE_REDIRECT_INTERCEPTOR = `
 true;
 `;
 
+export const buildAliceBlueAssistedLoginScript = credentials => {
+  if (!credentials?.userId || !credentials?.password) return '';
+  const payload = JSON.stringify({
+    userId: String(credentials.userId),
+    password: String(credentials.password),
+  }).replace(/</g, '\\u003c');
+  return `
+(function () {
+  if (window.__aqAliceBlueAssist) return;
+  window.__aqAliceBlueAssist = true;
+  var creds = ${payload};
+
+  function visible(el) {
+    if (!el || el.disabled) return false;
+    var r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }
+  function descriptor(el) {
+    return [el.name, el.id, el.type, el.placeholder, el.autocomplete,
+      el.getAttribute('aria-label')].filter(Boolean).join(' ').toLowerCase();
+  }
+  function setValue(el, value) {
+    var proto = el.tagName === 'TEXTAREA'
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype;
+    var setter = Object.getOwnPropertyDescriptor(proto, 'value');
+    if (setter && setter.set) setter.set.call(el, value); else el.value = value;
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+  function clickAction(words) {
+    var buttons = Array.prototype.slice.call(document.querySelectorAll('button,[role="button"],input[type="submit"]'));
+    var target = buttons.find(function (button) {
+      if (!visible(button)) return false;
+      var text = String(button.innerText || button.value || '').trim().toLowerCase();
+      if (text.indexOf('guest') !== -1 || text.indexOf('forgot') !== -1 ||
+          text.indexOf('register') !== -1 || text.indexOf('create') !== -1) return false;
+      return words.some(function (word) {
+        return text === word || text.indexOf(word + ' ') === 0;
+      });
+    });
+    if (target && !target.dataset.aqClicked) {
+      target.dataset.aqClicked = '1';
+      setTimeout(function () { target.click(); }, 120);
+    }
+  }
+  function scan() {
+    var inputs = Array.prototype.slice.call(document.querySelectorAll('input')).filter(visible);
+    var password = inputs.find(function (el) {
+      var d = descriptor(el); return el.type === 'password' || d.indexOf('password') !== -1;
+    });
+    var totp = inputs.find(function (el) {
+      var d = descriptor(el); return d.indexOf('otp') !== -1 || d.indexOf('authenticator') !== -1;
+    });
+    if (totp && !totp.dataset.aqTotpRequested) {
+      totp.dataset.aqTotpRequested = '1';
+      window.ReactNativeWebView.postMessage(JSON.stringify({type: 'AQ_ALICEBLUE_TOTP_REQUIRED'}));
+      return;
+    }
+    if (password && !password.value) {
+      setValue(password, creds.password);
+      clickAction(['login', 'sign in', 'continue', 'next']);
+      return;
+    }
+    var user = inputs.find(function (el) {
+      var d = descriptor(el);
+      return d.indexOf('user') !== -1 || d.indexOf('client') !== -1 ||
+        d.indexOf('mobile') !== -1 || d.indexOf('email') !== -1;
+    });
+    if (user && !user.value) {
+      setValue(user, creds.userId);
+      clickAction(['next', 'continue', 'proceed', 'login']);
+    }
+  }
+  new MutationObserver(scan).observe(document.documentElement, {childList: true, subtree: true});
+  setInterval(scan, 700);
+  scan();
+})();
+true;`;
+};
+
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 
 const AliceBlueConnectUI = ({
@@ -138,9 +221,49 @@ const AliceBlueConnectUI = ({
   authUrl,
   handleWebViewNavigationStateChange,
   loading,
+  assistedCredentials,
+  onAssistedTotpRequired,
 }) => {
   const webViewRef = useRef(null);
   const insets = useSafeAreaInsets();
+  const assistedScript = buildAliceBlueAssistedLoginScript(assistedCredentials);
+
+  const handleMessage = React.useCallback(async event => {
+    let message;
+    try {
+      message = JSON.parse(event?.nativeEvent?.data || '{}');
+    } catch (_) {
+      return;
+    }
+    if (message?.type !== 'AQ_ALICEBLUE_TOTP_REQUIRED') return;
+    const code = await onAssistedTotpRequired?.();
+    if (!/^\d{6}$/.test(String(code || ''))) return;
+    webViewRef.current?.injectJavaScript(`
+      (function () {
+        var inputs = Array.prototype.slice.call(document.querySelectorAll('input'));
+        var target = inputs.find(function (el) {
+          var d = [el.name, el.id, el.placeholder, el.getAttribute('aria-label')]
+            .filter(Boolean).join(' ').toLowerCase();
+          return d.indexOf('otp') !== -1 || d.indexOf('authenticator') !== -1;
+        });
+        if (target) {
+          var setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+          if (setter && setter.set) setter.set.call(target, ${JSON.stringify(String(code))});
+          else target.value = ${JSON.stringify(String(code))};
+          target.dispatchEvent(new Event('input', {bubbles:true}));
+          target.dispatchEvent(new Event('change', {bubbles:true}));
+          setTimeout(function () {
+            var buttons = Array.prototype.slice.call(document.querySelectorAll('button,[role="button"],input[type="submit"]'));
+            var button = buttons.find(function (b) {
+              var t = String(b.innerText || b.value || '').toLowerCase();
+              return t.indexOf('login') !== -1 || t.indexOf('verify') !== -1 || t.indexOf('continue') !== -1;
+            });
+            if (button) button.click();
+          }, 120);
+        }
+      })(); true;
+    `);
+  }, [onAssistedTotpRequired]);
 
   // Handle Android back button
   React.useEffect(() => {
@@ -162,16 +285,16 @@ const AliceBlueConnectUI = ({
       <View style={styles.fullScreen}>
         <View style={[styles.header, {paddingTop: insets.top}]}>
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-            <ChevronLeft size={24} color="#000" />
+            <ChevronLeft size={24} color={designColor('000')} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Connect to AliceBlue</Text>
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-            <XIcon size={24} color="#000" />
+            <XIcon size={24} color={designColor('000')} />
           </TouchableOpacity>
         </View>
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#0056B7" />
+            <ActivityIndicator size="large" color={designColor('0056b7')} />
             <Text style={styles.loadingText}>
               Connecting AliceBlue...
             </Text>
@@ -186,7 +309,8 @@ const AliceBlueConnectUI = ({
             // Inject before any AliceBlue page script runs, so our
             // fetch / XHR monkey-patches are in place before the SPA
             // makes its OTP-validate call.
-            injectedJavaScriptBeforeContentLoaded={ALICEBLUE_REDIRECT_INTERCEPTOR}
+            injectedJavaScriptBeforeContentLoaded={`${ALICEBLUE_REDIRECT_INTERCEPTOR}\n${assistedScript}`}
+            onMessage={handleMessage}
             javaScriptEnabled={true}
             domStorageEnabled={true}
             startInLoadingState={true}
@@ -204,7 +328,7 @@ const AliceBlueConnectUI = ({
             }
             renderLoading={() => (
               <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color="#0056B7" />
+                <ActivityIndicator size="large" color={designColor('0056b7')} />
                 <Text style={styles.loadingText}>
                   Loading AliceBlue login...
                 </Text>
@@ -221,7 +345,7 @@ const styles = StyleSheet.create({
   fullScreen: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   header: {
     height: 56,
@@ -230,18 +354,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    backgroundColor: '#fff',
+    borderBottomColor: designColor('f0f0f0'),
+    backgroundColor: designColor('fff'),
   },
   headerButton: {
     padding: 12,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: designColor('f0f0f0'),
     borderRadius: 20,
   },
   headerTitle: {
     fontSize: 16,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#000',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('000'),
   },
   webView: {
     flex: 1,
@@ -254,8 +378,8 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 10,
-    color: '#6B7280',
-    fontFamily: 'Poppins-Regular',
+    color: designColor('6b7280'),
+    fontFamily: designFont('Poppins-Regular'),
     fontSize: 14,
   },
 });

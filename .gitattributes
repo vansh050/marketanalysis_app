@@ -1,0 +1,37 @@
+# Line-ending policy — added 2026-08-01.
+#
+# Why this exists: Alphab2bapp and its forks (markup_app, moneyman_app,
+# marketanalysis_app, zamzam_app, Kaizen_app) are separate repos seeded from
+# snapshots of each other, so keeping them in sync means diffing working trees
+# directly. Editor-introduced CRLF made files that are byte-identical in git
+# look like large diffs — `PendingOrderWarningModal.js` and
+# `ReconciliationService.js` each showed as fully-rewritten (627 and 436 lines)
+# during the 2026-08-01 fork comparison, purely from line endings.
+#
+# `core.autocrlf=input` already normalises on commit, so nothing wrong ever
+# reached git; this makes checkout write LF too, so the working tree stops
+# drifting and cross-repo comparisons stay honest.
+
+* text=auto eol=lf
+
+# Binary — never touch these.
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.gif   binary
+*.ico   binary
+*.webp  binary
+*.pdf   binary
+*.mp4   binary
+*.ttf   binary
+*.otf   binary
+*.woff  binary
+*.woff2 binary
+*.keystore binary
+*.jks   binary
+*.p12   binary
+*.mobileprovision binary
+
+# Windows-native tooling that expects CRLF.
+*.bat   text eol=crlf
+*.cmd   text eol=crlf

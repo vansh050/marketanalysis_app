@@ -55,9 +55,11 @@ import APP_VARIANTS from '../utils/Config';
 import MotilalModal from './BrokerConnectionModal/MotilalModal';
 import MarketIndices from './HomeScreenComponents/MarketIndices';
 import ProfileModal from './ProfileModal';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
-import {getAccountEmail} from '../utils/accountEmail';
+import {getAccountEmail, getAccountDisplayName} from '../utils/accountEmail';
+import {countUnreadNotifications} from '../utils/notificationDedup';
+import { designColor, designFont } from '../design/literalTokens';
 const {width, height} = Dimensions.get('window');
 
 const CustomToolbar = React.memo(({count, currentRoute}) => {
@@ -101,8 +103,11 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
   const userEmail = getAccountEmail();
   const insets = useSafeAreaInsets();
 
-  // Use Firebase displayName as fallback if userDetails not loaded yet
-  const name = userDetails?.name || user?.displayName || user?.email?.split('@')[0];
+  // Use Firebase displayName as fallback if userDetails not loaded yet.
+  // getAccountDisplayName refuses the legacy 'Apple User' placeholder (which
+  // was persisted server-side, so userDetails.name can literally BE it) and
+  // falls back to the resolved account email's local part.
+  const name = getAccountDisplayName(userDetails?.name, user?.displayName);
 
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -132,7 +137,7 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
           {
             headers: {
               'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': getAdvisorSubdomain(),
+              'X-Advisor-Subdomain': getTenantSubdomain(),
               'aq-encrypted-key': generateToken(
                 Config.REACT_APP_AQ_KEYS,
                 Config.REACT_APP_AQ_SECRET,
@@ -180,11 +185,7 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
   };
 
   const getUnreadNotificationsCount = () => {
-    if (!allNotifications || !allNotifications.notifications) return 0;
-
-    return allNotifications.notifications.filter(
-      notification => !notification.isRead,
-    ).length;
+    return countUnreadNotifications(allNotifications?.notifications);
   };
   //console.log('funds i am getting:---------------------',funds);
   //  console.log('showwwww::::',showKotakModal)
@@ -229,7 +230,7 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
                 height: 40,
                 borderRadius: 20, // half of width/height for perfect circle
                 overflow: 'hidden',
-                backgroundColor: '#fff',
+                backgroundColor: designColor('fff'),
                 marginRight: 10, // spacing between logo and text
               }}>
               {typeof toolbarLogo === 'string' ? (
@@ -266,7 +267,7 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
               style={styles.iconButton}
               accessibilityLabel={`Open cart, ${cartCount} items`}>
               <View style={styles.iconCircle}>
-                <ShoppingCart size={18} color="#FFFFFF" />
+                <ShoppingCart size={18} color={designColor('ffffff')} />
                 {cartCount > 0 && (
                   <View style={styles.cartBadge}>
                     <Text style={styles.cartBadgeText} numberOfLines={1}>
@@ -278,9 +279,10 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => navigation.navigate('PushNotificationScreen')}
-              style={styles.iconButton}>
+              style={styles.iconButton}
+              accessibilityLabel="Open alerts">
               <View style={styles.iconCircle}>
-                <Bell size={18} color="#FFFFFF" />
+                <Bell size={18} color={designColor('ffffff')} />
 
                 {getUnreadNotificationsCount() > 0 && (
                   <View style={styles.notificationDot} />
@@ -299,10 +301,10 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
               ) : (
                 <Text
                   style={{
-                    color: '#fff',
+                    color: designColor('fff'),
                     fontSize: 20,
                     marginTop: 2,
-                    fontFamily: 'Poppins-Regular',
+                    fontFamily: designFont('Poppins-Regular'),
                   }}>
                   {getInitials(name)}
                 </Text>
@@ -329,7 +331,6 @@ const CustomToolbar = React.memo(({count, currentRoute}) => {
           getUserDeatils={getUserDeatils}
         />
       </View>
-
       <MarketIndices />
     </LinearGradient>
   );
@@ -364,7 +365,7 @@ const styles = StyleSheet.create({
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#FF4444',
+    backgroundColor: designColor('ff4444'),
   },
   cartBadge: {
     position: 'absolute',
@@ -374,29 +375,29 @@ const styles = StyleSheet.create({
     height: 18,
     borderRadius: 9,
     paddingHorizontal: 4,
-    backgroundColor: '#FF4444',
+    backgroundColor: designColor('ff4444'),
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: 'rgba(255,255,255,0.7)',
   },
   cartBadgeText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 10,
     fontWeight: '700',
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     lineHeight: 12,
   },
   toolbarText: {
     fontSize: 17,
-    fontFamily: 'Satoshi-Medium',
-    color: '#fff',
+    fontFamily: designFont('Satoshi-Medium'),
+    color: designColor('fff'),
   },
   logoContainer: {
     width: 40, // fixed width
     height: 40, // same as width
     borderWidth: 1,
-    borderColor: '#c8c8c8',
+    borderColor: designColor('c8c8c8'),
     borderRadius: 30, // half of width/height
     justifyContent: 'center',
     alignItems: 'center',
@@ -408,7 +409,7 @@ const styles = StyleSheet.create({
     height: 28,
   },
   profileContainer: {
-    backgroundColor: '#1D1D1F',
+    backgroundColor: designColor('1d1d1f'),
     width: 35,
     height: 35,
     borderRadius: 25,
@@ -439,7 +440,7 @@ const styles = StyleSheet.create({
 
   balanceAmount: {
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontWeight: 'bold',
     textAlign: 'center',
     textShadowColor: 'rgba(0, 0, 0, 0.5)',
@@ -459,21 +460,21 @@ const styles = StyleSheet.create({
 
   balanceLabel: {
     fontSize: 10,
-    fontFamily: 'Satoshi-Medium',
-    color: '#FFFFFF',
+    fontFamily: designFont('Satoshi-Medium'),
+    color: designColor('ffffff'),
     opacity: 0.9,
   },
 
   positive: {
-    color: '#4AFF83',
+    color: designColor('4aff83'),
   },
 
   negative: {
-    color: '#FF5252',
+    color: designColor('ff5252'),
   },
 
   neutral: {
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
   },
 
   notificationContainer: {
@@ -485,15 +486,15 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -8,
     right: -8,
-    backgroundColor: '#EF4444',
+    backgroundColor: designColor('ef4444'),
     borderRadius: 12,
     minWidth: 24,
     height: 24,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: '#FFFFFF',
-    shadowColor: '#000',
+    borderColor: designColor('ffffff'),
+    shadowColor: designColor('000'),
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.2,
     shadowRadius: 4,
@@ -501,7 +502,7 @@ const styles = StyleSheet.create({
   },
 
   unreadBadgeText: {
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
     fontSize: 12,
     fontWeight: '700',
     textAlign: 'center',

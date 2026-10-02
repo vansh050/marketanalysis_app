@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!--
+        ICICI Direct moved api.icicidirect.com to GlobalSign Root R46 in
+        August 2026. Android versions before 12 do not include that root.
+        Add the public root only for this exact broker host; every other host
+        continues to use the system trust store exclusively.
+    -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">api.icicidirect.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="@raw/globalsign_root_r46" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

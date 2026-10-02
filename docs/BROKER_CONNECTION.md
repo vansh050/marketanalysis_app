@@ -1,19 +1,763 @@
 # Broker Connection Architecture
 
-> **Last updated**: 2026-04-23 (scripmaster disambiguation for Zerodha & HDFC + centralized MARKET→LIMIT-IOC + new reusable DDPI/EDIS help module — see corresponding sections at the end of this doc)
+## AlphaB2B runtime tenant changes must remint the SDK session (2026-10-02)
+
+The SDK session JWT is scoped to one advisor tenant. In the AlphaB2B master
+app, Firebase authentication can resolve `userEmail` before the selected RA
+configuration is restored. Therefore an SDK client keyed only by `userEmail`
+can mint a `prod` session, keep it after the UI switches to MoneyMan, and send
+every broker connection write to `prod` while the post-connect verifier reads
+`moneyman`. The visible result is broker-independent:
+`BROKER_PERSISTENCE_NOT_VERIFIED` after an otherwise successful login.
+
+`SdkProviderRoot` subscribes to the runtime-advisor authority, creates a new
+tenant-bound `AqSdkClient` whenever `REACT_APP_HEADER_NAME` changes, and keys
+`AqSdkProvider` by that tenant so its same-user short-circuit cannot retain the
+old session. The connect button remains gated until the replacement tenant
+session is ready. Any future runtime tenant selector must preserve this
+`(tenant, userRef)` session identity; changing request headers alone is not
+sufficient.
+
+## 🧭 Broker connect routing matrix — SDK vs host (native) vs device-TOTP gate (canonical, 2026-09-29)
+
+> **Read this first.** It is the single answer to "which screen/flow does broker
+> X use, and why". The dated sections below are history; where they disagree
+> with this section, this section (verified against the code on 2026-09-29)
+> wins. Source of truth in code:
+> `src/components/BrokerConnectionModal/BrokerConnectModalDispatch.js`
+> (`secureTotpHostFlow`, `secureAliceBlueHostFlow`, `SDK_LEGACY_FALLBACK`,
+> `defineEdgeReauth`, `angelOnePerCustomer`). **Any change to those conditions
+> MUST update this table in the same commit.**
+
+### The three lanes
+
+| Lane | Component | Who owns the UI + secrets | Use it when |
+|---|---|---|---|
+| **SDK lane** | `Phase3SdkBrokerModal` → `alphaquark-mobile-sdk` widgets, Node `sdk/v1/connections/<Broker>/connect` | SDK renders the form from `BROKER_FORM_SCHEMAS`; credentials go to Node | Default for every broker when `REACT_APP_USE_SDK_BROKER_FLOW=true` (prod `.env`: `true`) and **no host-only capability** is needed |
+| **Host (native) lane** | Per-broker legacy/stepper modal (`FyersConnect`, `KotakModal`, `upstoxModal`, `DhanConnectModal`, …) rendered via `renderLegacyModal` | The app; secrets exchanged server-side via Node routes | The broker needs something the SDK cannot do yet (see "SDK vs host rule") |
+| **Device-TOTP gate** | `DeviceTotpReconnectGate` wrapping the host modal (`fallback`) | The app + phone keychain (`DeviceTotpVault`, biometric) + Node `api/device-totp-reconnect/<broker>` → ccxt assisted login | Advisor has `deviceTotpEnabled === true` and the broker is Angel One, Motilal Oswal, Zerodha or Fyers |
+
+> **Flag source (2026-09-30, 3.9.160).** The dispatcher routes on the live
+> `useConfig().deviceTotpEnabled`. Every host modal that shows its own
+> quick-reconnect choice (AliceBlue, Kotak, Groww, Upstox, Dhan, DefinEdge,
+> Arihant) must read that same live flag, not only TradeContext's cached
+> `configData`, or it is routed to the secure host flow and then hides the
+> option (AliceBlue opened its login page directly).
+
+### Decision order (exactly as the dispatcher evaluates it)
+
+1. `key = normalizeBrokerKey(brokerName)`.
+2. `secureTotpHostFlow` = `deviceTotpEnabled === true` AND broker ∈
+   {Kotak, Groww, Upstox, Dhan, Angel One, Motilal, Zerodha, Fyers,
+   DefinEdge Securities, Arihant Capital}.
+3. `secureAliceBlueHostFlow` = (`deviceTotpEnabled` OR legacy
+   `aliceBlueDeviceLoginEnabled`) AND broker = AliceBlue.
+4. **SDK lane** if any of: Angel One — always, device TOTP on or off, SDK
+   flag on or off (per-customer only: the legacy `AngleoneBookingModal` signs
+   into a platform-shared SmartAPI app and is no longer reachable from the
+   dispatcher); `defineEdgeReauth` (renders the legacy DefinEdge OTP modal);
+   or SDK flag on AND not (2) AND not (3) AND broker ∉ `SDK_LEGACY_FALLBACK`.
+   Otherwise **host lane**.
+5. If (2) and broker ∈ {Angel One, Motilal, Zerodha, Fyers}: wrap the chosen
+   modal in `DeviceTotpReconnectGate` (the chosen modal becomes its `fallback`
+   for full OAuth/login).
+
+`SDK_LEGACY_FALLBACK` is **`new Set(['IIFL'])`** (not empty, not
+Angel One/Zerodha — older notes below and in PHASE3_ARCHITECTURE.md said
+otherwise). IIFL stays native because its live flow is customer-owned
+App Key/App Secret + OAuth with the secret exchanged by Node; the SDK schema
+models it as a credentials/TOTP form. Remove IIFL only together with an SDK
+direct-OAuth schema and a secret-preserving backend route.
+
+### Per-broker matrix (SDK flag ON, as in prod)
+
+| Broker | `deviceTotpEnabled` off | `deviceTotpEnabled` on | Quick reconnect (device TOTP) path | Notes |
+|---|---|---|---|---|
+| **Fyers** | SDK | Gate → `FyersConnect` (host OAuth WebView) | Gate: App ID/Secret + keychain (seed, Client ID, PIN) → `POST api/device-totp-reconnect/fyers` → ccxt `/fyers/assisted-totp-token` | Enrollment always shows the full Algo-app/static-IP guide and API credentials; see §§ below |
+| **Zerodha** | SDK | Gate → `ZerodhaConnectModal` | Gate → `api/device-totp-reconnect/zerodha` → ccxt `/zerodha/assisted-totp-token` | Deferred first connect like Fyers |
+| **Angel One** | SDK (per-customer) | Gate → `Phase3SdkBrokerModal` (per-customer) | Gate: SmartAPI API Key + keychain (Client ID, MPIN, seed) → `api/device-totp-reconnect/angel-one` | Full SmartAPI guide and per-customer static-IP gate remain visible during enrollment. |
+| **Motilal Oswal** | SDK | Gate → `MotilalModal` | Gate: API Key/Client Code + keychain (password, DOB/PAN, seed) → `api/device-totp-reconnect/motilal-oswal` | Full API creation/redirect/static-IP guide remains visible during enrollment. |
+| **Upstox** | SDK | Host `upstoxModal` | Modal → `api/upstox/device-totp-reconnect` | OAuth remains the fallback inside the modal |
+| **Dhan** | SDK | Host `DhanConnectModal` | Modal → `api/dhan/device-totp-connect` / `…/device-totp-reconnect` (Direct API mode) | Partner login and Direct API are separate modes; Direct API uses a dedicated static IPv6 |
+| **Kotak** | SDK | Host `KotakModal` | Modal generates TOTP from `DeviceTotpVault` → `api/kotak/connect-broker` | Keeps its 5-field Neo login |
+| **Groww** | SDK | Host `GrowwConnectModal` | Modal generates TOTP from `DeviceTotpVault` → `api/groww/update-key` | |
+| **DefinEdge Securities** | SDK (re-auth with stored creds: legacy OTP modal via `defineEdgeReauth`) | Host `DefinEdgeConnectModal` | Modal → `api/definedge/initiate-login` / `connect-broker` with phone TOTP | |
+| **Arihant Capital** | SDK | Host `ArihantConnectModal` | Modal → `api/arihant/initiate-login` / `connect-broker`, TOTP via `utils/totp` | |
+| **AliceBlue** | SDK | Host `AliceBlueConnect` | Assisted partner WebView using `DeviceBrokerLoginVault` (+ `utils/totp`); manual partner login unchanged | Also enabled by legacy `aliceBlueDeviceLoginEnabled` |
+| **IIFL Securities** | Host `IIFLModal` (`SDK_LEGACY_FALLBACK`) | Host `IIFLModal` | — | Customer-owned App Key/Secret OAuth |
+| ICICI, HDFC, others | SDK | SDK | — | Host modals exist as rollback via `renderLegacyModal` |
+
+With the SDK flag OFF every broker renders its host modal (same gate wrapping
+rules for device TOTP) — except Angel One, which is always the per-customer SDK
+modal. The whole matrix is asserted by
+`src/__tests__/brokerDispatchRouting.test.js`.
+
+### Web vs mobile — Angel One credential mode (verified 2026-09-29)
+
+Mobile is **per-customer only** for Angel One (above). Web is deliberately
+**dual-mode** per advisor: `AdminAccess.useSharedAngelOneKey` (absent = legacy
+shared, new advisors = per-customer); see prod-alphaquark-github
+`docs/BROKER_CONNECTION_ARCHITECTURE.md` §4 Angel One. This is a product
+difference, not a parity bug — do not "port" the mobile per-customer rule to web
+without an explicit decision (it would force every shared-mode tenant's Angel One
+customers, e.g. tidi's 43, to reconnect with their own SmartAPI apps).
+
+**Update 2026-09-29 (data, owner-approved):** every tenant, talsi included, was
+switched to per-customer on web (`useSharedAngelOneKey:false`, 63 admin docs /
+41 tenant DBs), so web and mobile now agree everywhere. Record + rollback: prod-alphaquark-github
+`docs/BROKER_CONNECTION_ARCHITECTURE.md` §4 Angel One.
+
+### SDK vs host — the rule for new work
+
+Use the **SDK lane** unless the broker needs one of these, which the SDK host
+contract does not provide today:
+
+1. **Phone-keychain secrets / biometric** (device TOTP seed, PIN, password) —
+   needs native keychain + biometric callbacks owned by the host app.
+2. **An OAuth flow whose secret must be exchanged server-side** in a shape the
+   SDK schema can't express (IIFL, Fyers host exchange
+   `api/fyers/exchange-token`).
+3. **A broker-specific WebView/callback interception** the SDK can't host.
+
+If you move a broker off the SDK, add it to the exact condition in the
+dispatcher, document the removal criterion here, and update
+`docs/PHASE3_ARCHITECTURE.md` + `docs/PHASE3_BROKER_AUDIT.md` +
+`docs/PHASE3_PROGRESS.md` (Phase 3 rule in `CLAUDE.md`).
+
+### Device-TOTP gate lifecycle (Angel One / Motilal / Zerodha / Fyers)
+
+**Default CTA = the broker's own login (2026-10-02).** With nothing saved on
+the phone and the quick-reconnect box unticked, the primary button is
+**Continue with <Broker> login** and goes straight to the normal / partner
+login (`normalLoginDefault` in `DeviceTotpReconnectGate.js`); no secondary
+"normal login" link is shown. Ticking **Enable quick reconnect on this phone**
+switches the CTA to the enrollment action, and only then does "Continue with
+normal <Broker> login" appear as the alternate. A saved quick reconnect still
+leads with biometric unlock. The same rule applies outside the gate:
+AliceBlue (`AliceBlueConnect.js`, `quickReconnectOptIn`) defaults to
+**Continue with AliceBlue login**, and Dhan (`DhanConnectModal.js`,
+`directOptIn`) defaults to **Continue with Dhan login** (partner), with the
+Direct API quick reconnect behind an opt-in toggle. The connect sheet header
+(`BrokerConnectStepperSheet.js`, `brokerLogoFor`) shows the broker's real logo
+from `src/config/brokerDisplayConfig.js`, falling back to the monogram.
+
+**Expired session → biometric for every quick-reconnect broker (2026-10-02).**
+Rebalance, single-trade and basket cards all open an expired session through
+`BrokerSelectionModal` (`OpenTokenExpireModel`). Its
+`DEVICE_TOTP_AUTO_RECONNECT` map now covers Angel One, Zerodha, Fyers,
+Motilal, **Dhan** (Direct API PIN+TOTP vault; `DhanConnectModal` auto-unlocks
+on a `direct_api` account) and **AliceBlue** (partner-login vault in
+`DeviceBrokerLoginVault`, `hasAliceBlueDeviceLogin`; also gated by
+`aliceBlueDeviceLoginEnabled`). When this phone holds a vault for the
+customer + broker, the "Reconnect broker" step is skipped and the broker's
+sheet opens on biometric unlock; the pending order resumes on the
+`refreshEvent` the sheet emits. No vault → the normal expiry UI, unchanged.
+
+When a customer selects **Enable quick reconnect on this phone**, the control
+stays above the enrollment inputs and expands a broker-specific TOTP creation
+guide. Angel One links to `https://smartapi.angelone.in/enable-totp` and explains
+that the fixed Base32 manual key shown with the QR—not the changing six-digit
+code—must be copied before leaving the setup page. Motilal points to the
+32-character secret on its API dashboard; Zerodha points to **Enable external
+TOTP → Can't scan? Copy the key**; FYERS points to **Profile → Others → External
+2FA TOTP**. The fields follow those instructions instead of appearing above the
+checkbox without provenance.
+
+### Phone-TOTP enrollment and code generation
+
+The customer supplies the fixed Base32 setup key once; the app never asks them
+to copy the rotating six-digit code during quick-reconnect enrollment. It
+validates the setup-key shape by generating a code locally, submits a generated
+code for broker proof, and saves the seed only after the broker accepts the
+login. Dhan Direct, Kotak, Arihant and DefinEdge also re-generate locally when
+the connect response crosses a 30-second boundary instead of rechecking the
+pre-request code. AliceBlue's protected partner-login setup follows the same
+seed-only input rule. Groww already used seed-only enrollment.
+
+Setup-key input is normalized only for representations that preserve the same
+secret: grouping whitespace/hyphens, invisible clipboard marks, a labelled
+`secret=` value, or the `secret` query parameter of an `otpauth://` URI. Other
+characters remain invalid; the app never guesses substitutions such as `0` for
+`O`. Upstox always retains a visible normal-OAuth escape path when optional
+quick-reconnect enrollment cannot proceed.
+
+The visible TOTP setup-key field preserves the customer's exact upper/lowercase
+text for every host-owned broker flow. It uses `autoCapitalize="none"` and does
+not rewrite state on each keystroke or paste. Base32 itself is case-insensitive,
+so the canonical uppercase conversion, separator removal and `otpauth://`
+extraction happen only when the key is validated, used to generate a code, or
+stored in the device vault. This separation prevents the form from appearing
+to corrupt a mixed-case key while keeping one canonical protected value.
+
+For Upstox, the developer **API Secret** and the TOTP setup secret are different
+credentials. Quick reconnect accepts the Base32 secret encoded in the broker's
+TOTP QR (or a manual setup key when the broker exposes one); it must not be fed
+the mixed-alphabet developer API Secret. The validation message explicitly
+states that lowercase Base32 is accepted and names this distinction before the
+customer enters OAuth.
+
+Android protected-key retrieval is customer-initiated from the explicit
+**Reconnect with biometric unlock** action. It requests device
+passcode-or-biometrics and translates platform “User not authenticated” errors
+into a retry instruction; it never weakens the keychain access control or sends
+the seed to the server.
+
+The native credential sheet keys password visibility and input refs by the
+field's stable schema key. On Android, Show/Hide also updates the mounted
+`TextInput`'s `secureTextEntry` value so the label cannot change while the
+field remains masked. FYERS' full-login fallback exposes a return action to the
+same quick-reconnect setup.
+
+Kotak's validated TOTP/MPIN response is the only writer allowed to establish a
+Kotak session. The host modal must not send its pre-login form body to the SDK
+`/connect` persistence endpoint afterward: that body has no jwtToken, sid, or
+baseUrl and would overwrite the complete slot. Node rejects such incomplete
+post-validation persistence, and the app's rebalance payload uses
+apiKey/apiAccessToken plus jwtToken, sid, serverId and baseUrl.
+
+Upstox's native host modal performs two distinct operations: canonical OAuth
+connect and optional phone quick-reconnect enrollment. After OAuth persists
+the broker slot, the app waits for a new TOTP window and calls the Firebase-authenticated
+`POST api/upstox/device-totp-reconnect` route with a code freshly generated
+from the staged seed plus the six-digit Upstox PIN. The route calls Upstox's
+TOTP-token endpoint and replaces the OAuth access token with the returned
+token. Only after this broker proof succeeds does the app save the seed/PIN in
+the device-bound biometric/passcode keychain. A failed enrollment therefore
+does not mean the OAuth connection failed, and the UI must state both outcomes
+separately.
+
+1. **Server state is authoritative.** On open the gate reads
+   `api/user/getUser` → `getServerBrokerReconnectState()`: a missing,
+   explicitly disconnected or credential-incomplete slot ⇒ `requiresOAuth`
+   (full login; a stale phone record is deleted). Expired/error/saved slots
+   with complete server credentials ⇒ quick-reconnect candidate.
+2. **Quick reconnect** (already saved on phone + slot usable): biometric unlock
+   (`unlockDeviceTotpLogin`) → phone generates the TOTP (`src/utils/totp.js`)
+   → `api/device-totp-reconnect/<broker>` → ccxt assisted login → Node
+   persists the new session. The broker's own login page is never shown.
+3. **First connect / enrollment** (all four gate brokers defer when no server
+   slot exists yet):
+   every customer-owned field remains explicit. Fyers asks for App ID/Secret;
+   Angel One asks for the personal SmartAPI API Key; Motilal asks for API Key
+   and Client Code; Zerodha uses the platform Publisher key and therefore has
+   no customer developer-app field. The screen also renders the applicable
+   broker setup, redirect and static-IP guidance. The customer enters the TOTP
+   secret and login factors once; the app generates the current code locally,
+   normal broker OAuth runs when required, and
+   **after "Connected"** the enrollment runs in the background: waits for the
+   next 30 s TOTP window (`src/utils/deviceTotpEnrollment.js`), performs one
+   server-side assisted login to prove Client ID/PIN/TOTP, retries once on a
+   TOTP-step/5xx/network failure, then saves to the keychain and shows
+   "<Broker> quick reconnect enabled" (or "…connected; quick reconnect was not
+   saved" with the broker's reason).
+4. **Disconnect** (`ManageConnectionsModal`, `SubscriptionScreen`) deletes the
+   server slot, verifies it is gone, then **wipes the phone vaults**
+   (`removeDeviceTotp`, `removePersistedBrokerCredentials`). After a manual
+   disconnect the customer always does full setup again — quick reconnect is
+   for an *expired* session, not a *disconnected* one.
+
+### Where each secret lives
+
+| Secret | Where | Never |
+|---|---|---|
+| Broker API key/App ID + secret | Entered during customer-owned credential enrollment; validated by the broker and stored encrypted in the Node user slot. A successful device-TOTP reconnect refreshes the supplied server copy. | Saved in `DeviceTotpVault`; returned by an API response after save |
+| Broker session/access token | Node user slot `jwtToken` | Logged; returned by device-TOTP routes |
+| TOTP seed, PIN/MPIN/password, Client ID (quick reconnect) | Phone keychain only, `BIOMETRY_ANY_OR_DEVICE_PASSCODE`, `WHEN_UNLOCKED_THIS_DEVICE_ONLY` | Sent to or stored on servers (only the generated 6-digit code + login factors are sent per reconnect) |
+| Tenant redirect URL | `appadvisors.brokerConnectRedirectUrl` (camelCase) / per-tenant `admin.brokerConnectRedirectUrl` | — |
+
+### Diagnostics
+
+- App breadcrumbs (Crashlytics logs): `[BrokerReconnect]` (gate: `server_state_resolved`,
+  `branch_selected`, `quick_reconnect_*`, `enrollment_retry|saved|failed`) and
+  `[BrokerConnect]` (Fyers host: `oauth_url_received`, `webview_mounted`,
+  `token_exchange_*`, `connection_saved`, `webview_render_process_gone`).
+- Server: ccxt logs `[assisted-login] <broker> failed at step=<start_login|totp|pin|authorize|token_exchange|exception>: <broker message>`;
+  tidi nginx `access.log` (`aq_cf` format) carries `rt=` / `urt=` per request
+  since 2026-09-29.
+- TOTP runtime: never import `otplib` in `src/` (Hermes `TextDecoder` crash) —
+  `src/utils/totp.js`, guard test `src/__tests__/utils/totp.test.js`.
+
+## 2026-10-01 fixes (3.9.168): Angel One save-before-login, ICICI return, Zerodha quick-reconnect step
+
+- **Angel One `broker_persist_failed` on every connect.** The RN SDK schema
+  lacked `submitEndpoint: "update-credentials"`, so the form never called
+  `/update-credentials` (→ `/api/angel-one/update-key`) before the login
+  WebView. Per-customer mode (`useSharedAngelOneKey=false`) then found no
+  stored key at connect. The redirect URL was fine: the callback and
+  exchange-token were reached. Fixed in SDK `185f92a` (Flutter already
+  defaulted to it).
+- **ICICI "405 Not Allowed".** ICICI returns, by POST, to the URL the
+  customer registered on their own API app (e.g. `tidi.alphaquark.in`). The
+  WebView matcher only accepted known origins, so the page loaded and nginx
+  refused the POST. SDK `d3954e9` accepts `apisession` on any origin outside
+  icicidirect.com (RN + Flutter). The host nginx also turns a POST to
+  `prod.alphaquark.in/stock-recommendation` into a 303 GET (web users).
+- **Zerodha quick reconnect, first connect.** Zerodha needs one normal Kite
+  login to create the session; the gate then saves quick reconnect. The
+  fallback `ZerodhaConnectUI` now shows "Step 2 of 2: log in to Zerodha
+  once" plus "Back to quick reconnect setup"
+  (`testID="zerodha-quick-reconnect-step"`), instead of looking like the
+  TOTP/QR setup was abandoned.
+
+## Device TOTP runtime and Fyers staged hand-off (2026-09-29, 3.9.147)
+
+**Key check (2026-09-30, 3.9.159).** Enrollment no longer asks for the
+current 6-digit code, so the setup-key field shows the code the pasted key
+produces now (`describeSeedCheck`). The customer compares it with their
+authenticator before verifying: a mismatch means the key is wrong or the
+broker's TOTP was re-enabled with a new key. It never blocks submission.
+
+**Wrong PIN (2026-09-30).** A PIN rejection is never auto-retried (only
+TOTP-step, 5xx and network failures are). `isWrongPinError` gives it a plain
+title ("<Broker> PIN not accepted"); the body is the server's message, which
+for FYERS warns that repeated wrong PINs can lock the login. Nothing is blocked
+or cleared: a wrong PIN saved in the phone vault stays until the customer uses
+"Forget <Broker> quick reconnect on this phone" and enrolls again.
+
+**Device TOTP runtime.** Every app-side TOTP generate/check goes through
+`src/utils/totp.js` (RFC 6238, SHA-1, 6 digits, 30 s step, ±1 step accepted on
+`check`), built on `crypto-js` HMAC-SHA1. Do **not** import `otplib` into the
+app bundle: v13 constructs `TextDecoder` at module load, which does not exist on
+Hermes, and it no longer exports the `authenticator` object. A test in
+`src/__tests__/utils/totp.test.js` fails if any `src/` file imports `otplib`.
+Unit tests that mock TOTP must mock `utils/totp`, and at least one test must
+exercise the real implementation (RFC vectors) so a mocked dependency can never
+again hide a device-only crash.
+
+**Credential inputs.** `BrokerConnectStepperSheet` field objects may set
+`uncontrolled: true` (the input is seeded once with `defaultValue`; the parent
+still receives every `onChange`) and `autoCapitalize`. Use `uncontrolled` for any
+field whose `onChange` normalises text (uppercase, digits-only, whitespace
+stripping): on a busy JS thread a controlled, rewritten `value` races the
+keyboard and drops characters or breaks focus-next. Fields are keyed by
+`key`/`label`, so conditionally inserted fields never inherit another field's
+native text. `DeviceTotpReconnectGate` uses uncontrolled fields throughout.
+
+**Fyers staged hand-off.** When the gate hands staged credentials to
+`FyersConnect` (`autoStart` + `initialCredentials`), it also passes
+`initialUserId` from its own server-state fetch, so the account document is
+downloaded once. Until OAuth opens (or while the auth code is exchanged)
+`FyersConnect` renders one light `CrossPlatformOverlay` progress surface — not
+a second `BrokerConnectStepperSheet`/`EgressIpCallout`. Any failure sets
+`autoStartFailed`, which reveals the normal credential sheet for a retry. The
+OAuth `WebView` in `FyersConnectUI` handles `onRenderProcessGone` /
+`onContentProcessDidTerminate` by unmounting and asking the customer to retry
+(breadcrumb `webview_render_process_gone`).
+
+**Enrollment TOTP window.** The staged enrollment never reuses a code from the
+broker page: `waitForNextTotpWindow()`
+(`src/utils/deviceTotpEnrollment.js`) moves it to the next 30 s window, and a
+`*_ASSISTED_TOTP_FAILED` / 5xx / no-response failure is retried once, one
+window later. This adds up to ~60 s, all after "Connected", in the background.
+Success shows "<Broker> quick reconnect enabled"; failure shows
+"<Broker> connected; quick reconnect was not saved" with the broker's message.
+ccxt logs the failing step as `[assisted-login] <broker> failed at step=…`.
+
+**Enrollment ordering.** For deferred first-connect brokers (Fyers, Zerodha)
+the staged quick-reconnect enrollment runs *after* the fallback modal's account
+refresh and is not awaited by it, so the "Connected" confirmation never waits
+on the enrollment's second broker login. The server route
+(`/api/device-totp-reconnect/fyers`) resolves the redirect URI from
+`broker_connect_redirect_url`, `brokerConnectRedirectUrl` or
+`REACT_APP_BROKER_CONNECT_REDIRECT_URL` on the tenant's `appadvisors` document.
+
+## Host-owned Fyers reconnect state and OAuth exchange (2026-09-29)
+
+Fyers biometric/TOTP remains a host-app flow; it does not route through
+`Phase3SdkBrokerModal` and does not change the mobile SDK contract. The latest
+server user document is authoritative. `getServerBrokerReconnectState()`
+requires a reusable Fyers slot, a non-disconnected server status, and stored
+App ID/Secret evidence before the host offers quick reconnect. A missing,
+explicitly disconnected, or credential-incomplete slot sets `requiresOAuth`
+and enters normal Fyers authorization. Expired/error/saved slots with complete
+server credentials remain valid quick-reconnect candidates.
+
+Fresh OAuth is also host-orchestrated but secret-preserving: the WebView returns
+only `authCode`; mobile posts `{uid, authCode}` to Node
+`POST /api/fyers/exchange-token`; Node resolves App ID/Secret from the
+authoritative user/Fyers slot, verifies that the Firebase email owns the uid,
+and performs the ccxt token exchange. The SDK is unchanged. The modal retains
+only the Mongo user id rather than the full user
+document, and one auth code can start only one exchange.
+
+Both disconnect surfaces fail closed after the DELETE: they perform a fresh
+`getUser` read, require the selected slot to be absent, and only then clear the
+device TOTP/API-credential vaults and publish success. The former brokerless
+path that continued after a failed delete is prohibited. Diagnostics contain
+only broker, phase/branch, slot count/status/readiness, bounded error codes and
+memory-warning events. Full user objects, credential material, authorization
+codes and WebView URLs are never logged.
+
+## AliceBlue partner-login choices (2026-09-28)
+
+AliceBlue remains a single AlphaQuark partner OAuth product. When
+`deviceTotpEnabled=true`, its native host screen offers two authentication
+experiences: **Quick Reconnect on this phone** biometric-unlocks the locally
+protected AliceBlue user ID, password and Base32 TOTP seed and fills the broker
+WebView; **Normal AliceBlue Login** opens that same partner WebView with no
+prefill. The generated TOTP is entered into the AliceBlue page and the partner
+OAuth callback continues to exchange `authCode + userId` with AlphaQuark's
+vendor secret server-side.
+
+This is deliberately not a Dhan-style Partner/Direct product split. Customers
+do not create an AliceBlue Individual Trader app or register a per-customer
+static IP. With the flag off, dispatch continues through the unchanged manual
+partner OAuth lane. The historical `aliceBlueDeviceLoginEnabled` setting is
+accepted only as a backwards-compatible alias.
+
+## Saved quick reconnect leads with biometric unlock (2026-10-01)
+
+When this phone already holds a usable quick-reconnect record for the broker
+(`hasSaved && !requiresOAuth`, after the server check), `DeviceTotpReconnectGate`
+now makes **"Reconnect with biometric unlock" the primary button** (it runs
+`unlockAndReconnect`) and hides the first-time setup guide (static IP card, API
+dashboard links, step chips) behind a one-line explanation. "Continue with
+normal <broker> login" and "Forget … quick reconnect" stay available. First
+connect and enrollment are unchanged — the mandatory setup stays visible.
+
+Before this, the primary button in that state was the *disabled* "Verify &
+enable quick reconnect", and the working unlock was a small text link inside
+the card; customers tapping **Reconnect** on Manage Connections landed on the
+full setup page and did not see it (Fyers report). Applies to every broker the
+gate owns (Angel One, Motilal Oswal, Zerodha, Fyers). Pinned by
+`src/__tests__/deviceTotpReconnect.contract.test.js`.
+
+## Fyers first-connect combines setup and optional quick reconnect (2026-09-29)
+
+When `deviceTotpEnabled=true` and no persisted Fyers broker slot exists,
+`DeviceTotpReconnectGate` offers phone-protected quick reconnect without hiding
+the mandatory first-connect work. The same screen renders the Fyers developer-
+portal instructions, dedicated static-IP allocation/whitelisting
+acknowledgement, activated **Algo trading app** requirements and redirect URL.
+The customer can opt into quick reconnect by entering the activated API App ID
+and Secret ID together with the TOTP seed/current code, Fyers Client ID and PIN
+in one scrollable form, or continue with normal Fyers login. A valid combined
+submission proceeds directly to Fyers OAuth; it does not render a second API-
+credential form.
+
+The combined choice stages the App ID/Secret into the canonical host flow and
+opens Fyers OAuth directly; **Continue with normal Fyers login** renders that
+host flow's own App ID/Secret form. Quick-reconnect values are staged only in
+memory and are written to the
+phone's biometric keychain only after that normal authorization and assisted
+verification succeed. The Base32 seed never leaves the phone. If a slot exists
+but this phone is not enrolled, the enrollment form still shows the complete
+Algo-app guide, static IP, App ID and Secret ID; a successful assisted login
+refreshes those stable credentials on the encrypted server record. Once the
+phone is enrolled, later reconnects use biometric unlock and the server copy,
+so the customer is not asked to retype stable credentials every day. This
+orchestration is owned by the host; it is not an SDK schema fallback.
+
+Flag-off tenants retain the existing App ID/Secret form. When the flag is on, a
+transient account-slot read failure leaves the combined choice visible instead
+of silently bypassing it; **Continue with normal Fyers login** remains the safe
+escape path. Invalid Base32 setup keys render inline inside the
+same sheet rather than stacking the global animated alert above the broker
+overlay and Android keyboard.
+
+## Zerodha first-connect device TOTP handoff (2026-09-28; corrected 2026-09-29)
+
+When the advisor's `deviceTotpEnabled` flag is exactly `true`, Zerodha exposes
+the phone-protected quick-reconnect choice before the first
+broker connection exists. This is a two-part enrolment, not a replacement for
+the broker's normal first authorization:
+
+1. The customer enters the Base32 TOTP secret and the broker login factors
+   needed for assisted login. The app generates the current TOTP locally to
+   validate the seed shape but does not persist the seed yet.
+2. The customer completes the existing Zerodha broker-login
+   flow once. After the server has persisted and verified that connection, the
+   app generates a fresh TOTP on the phone and calls the existing assisted
+   reconnect endpoint. Only a successful broker verification permits the seed
+   and login factors to be written to the device-only biometric keychain.
+
+The Base32 seed never leaves the phone; only the generated six-digit code is
+sent. Zerodha's configured platform API key remains server-side under the
+existing encrypted credential model. If assisted
+verification or keychain storage fails, the normal broker connection remains
+valid and the app reports only that quick reconnect was not saved. The
+`Continue with normal ... login` action skips device enrolment, and advisors
+with the flag off retain the previous SDK/legacy routing unchanged.
+
+A replacement phone has no device vault entry, so the same opt-in enrolment is
+offered again. Existing connections with a saved record continue to
+biometric-unlock and reconnect directly.
+
+### Dhan static-IP ownership
+
+When `deviceTotpEnabled=true`, the Dhan screen exposes two explicit and
+non-interchangeable connection products:
+
+1. **Partner Login** opens Dhan's official browser consent flow. It needs no
+   customer API app or customer static-IP setup and continues to use the
+   AlphaQuark partner egress.
+2. **Direct API Quick Reconnect** uses the customer's Dhan Individual Trader
+   API. The customer first claims a unique free Route64 IPv6 and registers that
+   exact IP in Dhan, and acknowledge the whitelist step. Only then can the app
+   verify Client ID + PIN + TOTP and enrol the phone.
+
+For Direct API, the Base32 seed and PIN live only in the phone's biometric
+keychain; the server receives a generated six-digit TOTP and PIN long enough to
+mint and persist the Dhan session token. Both login and later Dhan order calls
+use that customer's dedicated IPv6. Missing, revoked or inactive dedicated
+egress fails closed rather than falling back to the partner IP. The broker slot
+persists `connection_mode=partner|direct_api`, so an old partner connection or
+an old device-vault record can never be silently treated as Direct API.
+
+Choosing Partner Login after Direct API removes the Dhan-specific isolation
+override only after the partner token is saved and forgets the local Dhan vault
+entry. A replacement phone has no vault entry: the customer re-enters the TOTP
+secret and PIN, while the server keeps the already registered Client ID and
+dedicated-IP assignment. With `deviceTotpEnabled=false`, the previous Partner
+Login flow remains unchanged and no Direct API choice is rendered.
+
+## Profile modal save/close lifecycle (2026-09-22)
+
+`ProfileModal` now closes its keyboard and native modal before it refreshes
+TradeContext after a successful profile update. The refresh runs from
+`onModalHide`; it no longer rerenders the Home parent while Android's modal
+window still owns text-input focus. The component remains mounted with
+`isVisible=false` long enough for `react-native-modal` to finish that lifecycle.
+Both profile GET and PUT resolve `X-Advisor-Subdomain` through
+`getTenantSubdomain(configData)`, so the write cannot diverge from the read when
+runtime tenant configuration supplies the header.
+
+## Tenant-header sweep + the ghost `alphaquark` database (2026-09-17)
+
+Every `X-Advisor-Subdomain` value now goes through **`getTenantSubdomain(configData)`**
+(`src/utils/variantHelper.js`). 158–159 call sites across ~72 files were passing
+`getAdvisorSubdomain()` — the build variant — either outright (53 in AlphaPro) or
+as the fallback when `configData` had not loaded.
+
+**This was not cosmetic.** The backend resolver (`utilities/advisorDbResolver.js`)
+passes an **undotted, unregistered** header value straight through to
+`connectDB()`. There is no `alphaquark` row in `ccxt_common_db.advisor_config`,
+but a Mongo database literally named **`alphaquark` exists** — with 16 `users`,
+16 `clientlistdatas`, 583 `cashfree_webhook` and 717 `sent_emails` rows. So on
+AlphaPro those sites were reading, and potentially writing, a **ghost database**
+instead of `prod`: the same silent data-split class as the 2026-06-11
+`marketanalysisacademy` incident. Sibling ghosts also present: `alphaquark_db`,
+`alphaquarkb2b`, `alphaquarktest`, `prod-alphaquark`, `markup-alphaquark`,
+`demo-alphaquark`.
+
+Nothing was deleted. The ghost's contents need review before any cleanup —
+whether those 16 users are real customers whose data landed in the wrong place is
+an open question, not a settled one.
+
+Test doubles must mirror the chain: a `jest.mock` of `variantHelper` that stubs
+only `getAdvisorSubdomain` leaves `getTenantSubdomain` undefined and the call
+throws. Every such mock now stubs both.
+
+## `noBrokerRequired` is a preference, not connection state (2026-09-17)
+
+`persistedBrokerMatches` no longer rejects on `noBrokerRequired === true`. A
+customer who once chose "continue without broker" keeps that flag until a writer
+clears it, and it coexists with a perfectly good broker session. The account this
+whole gate was built for was found with `user_broker: Zerodha`,
+`primary_broker: Zerodha`, `connect_broker_status: connected`, a valid token and
+a connected `connected_brokers[]` slot — **and** `noBrokerRequired: true`. The
+first predicate would have blocked that user even with the tenant header fixed.
+
+The backend still clears the flag on connect. That is where it matters: the
+rebalance ENTRY gate reads it to decide whether the account is brokerless.
+Verification answers a narrower question — "is the broker I just connected now
+canonical and live?" — and must not consult a preference to answer it.
+
+## 🔴 BLOCKING: the tenant header is `REACT_APP_HEADER_NAME`, never the build variant (2026-09-17)
+
+**Any request that reads or writes account state MUST send
+`X-Advisor-Subdomain` resolved as:**
+
+```js
+configData?.config?.REACT_APP_HEADER_NAME   // TradeContext's config, when available
+  || configData?.REACT_APP_HEADER_NAME
+  || Config.REACT_APP_X_ADVISOR_SUBDOMAIN   // react-native-config (.env)
+  || Config.REACT_APP_HEADER_NAME
+  || getAdvisorSubdomain()                  // LAST RESORT ONLY
+```
+
+`getAdvisorSubdomain()` returns the **build variant** (`APP_VARIANT`), which is
+NOT the tenant key. They are different values and only coincide by luck:
+
+| App | `APP_VARIANT` | `REACT_APP_HEADER_NAME` (the tenant) |
+|---|---|---|
+| AlphaPro (`Alphab2bapp`) | `alphaquark` | **`prod`** — they differ |
+| Markup | `markup` | `markup` |
+| MoneyMan | `moneyman` | `moneyman` |
+| zamzam | `zamzamcapital` | `zamzamcapital` |
+
+Send the variant and the request lands in the **wrong tenant**, returns no user,
+and the symptom is indistinguishable from a real data problem — "the account
+isn't saved", "the record doesn't exist". On 2026-09-17 this took the shape of
+`BROKER_PERSISTENCE_NOT_VERIFIED` on every AlphaPro broker connect: the new
+verification read was sent to `alphaquark` instead of `prod`, found nothing, and
+blocked the connect. The three forks whose variant happens to equal their tenant
+were unaffected, which is exactly why this class hides in testing.
+
+**`useConfig()` is NOT TradeContext's `configData`.** `ConfigContext` provides
+`{...config, configLoading}` — advisor theming (`themeColor`, `mainColor`, …).
+It carries no `.config` key and no `REACT_APP_HEADER_NAME`, so
+`useConfig()?.config?.REACT_APP_HEADER_NAME` is always `undefined` and silently
+falls through. If a component needs the tenant and has no TradeContext, read
+`Config.REACT_APP_HEADER_NAME` directly.
+
+**Does this hold when one app serves several advisors?** Yes — because on
+mobile it does not. Each binary is **pinned to exactly one tenant** by
+`REACT_APP_HEADER_NAME`, and the app enforces that itself: `getConfigData()`
+(`src/utils/storageUtils.js`) carries a *cross-advisor leak self-heal* that
+compares the cached `configData.config.REACT_APP_HEADER_NAME` against
+`Config.REACT_APP_HEADER_NAME` and, on disagreement, **re-fetches to match the
+env-pinned value**. A user whose `User.advisor_ra_code` points at a different
+advisor is treated as contamination to repair, not as a tenant to switch to.
+Multiple advisors are served by separate builds/forks, not by runtime switching
+— unlike the *web* shared-build, which resolves tenant by hostname.
+
+So `configData.config.REACT_APP_HEADER_NAME` and `Config.REACT_APP_HEADER_NAME`
+are guaranteed equal here, and the resolver prefers the runtime value anyway,
+falling back to env only when TradeContext config has not loaded (exactly the
+case in the connect dispatcher, which has no TradeContext).
+
+**The limit worth knowing:** if a mobile binary ever becomes genuinely
+multi-tenant at runtime — one build serving several advisor DBs, resolved per
+signed-in user — then this resolver's env fallback **and** the self-heal above
+both become wrong, because both assume env is authoritative. That change would
+have to replace the env pin with a per-user tenant resolved after login, and
+every `X-Advisor-Subdomain` call site would have to move with it.
+
+**Related debt:** ~53 call sites still pass a bare `getAdvisorSubdomain()` as
+this header. They are latent instances of the same class — benign wherever
+variant == tenant, wrong on AlphaPro. Worth a sweep; not bundled with the live
+fix.
+
+## 🔴 BLOCKING: a money-path guard fails CLOSED only on positive evidence (2026-09-17)
+
+A guard that blocks a customer action must distinguish **"I read the state and it
+contradicts what I was told"** from **"I could not read the state"**.
+
+- **Contradiction → fail CLOSED.** The record came back and names a different
+  broker / an unconnected status. That is real evidence of a failed save; block.
+- **Unreadable → fail OPEN.** Network error, 404, wrong tenant, unexpected
+  payload shape. This is *no evidence either way*, and blocking on it converts
+  any defect in the read path into a fleet-wide inability to perform the action.
+
+`verifyPersistedBrokerConnection` implements exactly this: it returns `null`
+(and logs) when it cannot read the account, and throws only when a record was
+read and contradicts. The rebalance-entry gate, which re-reads canonical state
+before any order path, remains the backstop in the fail-open case.
+
+The original 2026-09-17 fix got this backwards and blocked on unreadability. The
+result was worse than the bug it fixed: the bug mis-handled one stale account,
+the guard blocked every AlphaPro broker connect. Pinned by the
+`fail-open when the account cannot be read` tests in
+`src/__tests__/brokerConnectionVerification.test.js` — do not weaken them.
+
+## Verified persistence before connect success (2026-09-17)
+
+Every broker routed through the shared connection dispatcher
+(`BrokerConnectModalDispatch.refreshAndReconcile`) is subject to a canonical
+post-persistence read before the app announces success, enqueues account
+reconciliation, or resumes a pending rebalance. The read is retried once to
+absorb a transient request failure and requires the selected broker to be the
+account's `primary_broker || user_broker`, `connect_broker_status ===
+"connected"`, `noBrokerRequired !== true`, and—when the account has
+`connected_brokers[]`—a connected slot for the selected broker.
+
+The retry applies to the idempotent verification read, not to a broker's
+single-use OAuth request token. Live rebalance stays blocked until the session
+is durably saved because holdings and REST order paths cannot safely use an
+unverified token. The customer can retry immediately or reconnect later; the app
+must never report a broker connection from WebView/cookie success alone.
+
+**Per-lane strength — the two lanes are NOT equally guarded. Know which one a
+broker takes before claiming it is covered.**
+
+- **SDK lane (`Phase3SdkBrokerModal`, the production default and the lane
+  Zerodha/Groww/most brokers take).** Fully blocking. `onSuccess` awaits
+  `fetchBrokerStatusModal` → `refreshAndReconcile`; a verification failure
+  renders the `Connection could not be verified` error, clears the OAuth phase
+  and returns *before* `setShowBrokerModal(false)` / `onClose()`, so the sheet
+  stays open and actionable.
+- **Legacy lane (`SDK_LEGACY_FALLBACK`, device-TOTP Kotak/Groww, AliceBlue
+  device login, DefinEdge re-auth).** Partially guarded only. Those modals call
+  `setShowBrokerModal(false)` + `onClose()` *before* invoking the callback and
+  deliberately swallow downstream throws (§ Broker-connect post-success
+  hygiene). The verification throw therefore suppresses their
+  `Connected Successfully` toast but cannot re-open the sheet. The blocking
+  guarantee for those brokers comes from the rebalance-entry gate, which
+  re-reads canonical broker state before any order path. Closing this gap means
+  moving each legacy modal's dismissal after the callback — tracked as a
+  follow-up, deliberately not attempted in the same change as the live fix.
+
+Because the legacy lane closes first and swallows the throw,
+`refreshAndReconcile` refreshes host state *before* it verifies. Verifying first
+would leave that lane with no `TradeContext` refresh at all on failure — sheet
+gone, app stranded on pre-connect state. Account reconciliation is enqueued only
+when verification succeeded, so an unsaved selection can never reconcile the
+account onto the wrong broker.
+
+Rebalance broker discovery also distinguishes an unavailable canonical-user
+refresh from a genuinely brokerless account. A transient read failure shows a
+retry message and preserves the current selection instead of opening the
+all-broker picker.
+
+## Same-broker OAuth refresh invariant (2026-09-17)
+
+The pre-trade refresh starts `getUser` and the funds probe in parallel for
+latency. If `getUser` returns a different access token—even when the broker
+name is unchanged—the first probe used a stale credential and must be repeated
+with the returned user document. Broker identity equality is not credential
+freshness proof.
+
+## Confirmed funds display and refresh policy
+
+Broker balances use a stale-while-refresh presentation model. The latest
+broker response remains available to session and execution safety checks, while
+the customer-facing balance retains only the last response containing a real
+numeric cash value. A timeout, authentication error, partial response or empty
+payload must never be rendered as zero; a genuine broker-supplied numeric zero
+is still displayed as `₹ 0.00`.
+
+Funds are not polled globally. The Broker & Funds screen refreshes on focus,
+reuses a confirmation younger than 30 seconds, and force-refreshes on explicit
+pull-to-refresh or reconnect. Concurrent requests for the same account and
+broker are single-flighted, and late responses cannot replace a newer result.
+The confirmed balance is intentionally kept only for the current app process,
+not persisted as unencrypted financial data on the device. Trade execution
+continues to perform its own fresh broker/session preflight.
+
+> **Last updated**: 2026-07-29 (Zerodha Publisher LIMIT-DAY/origin parity and isolated OAuth WebView attempts)
 
 ## Overview
 
 The app supports 14 stock brokers with two authentication patterns:
 
-1. **OAuth/WebView**: Zerodha, Upstox, Fyers, Axis, Motilal Oswal, ICICI Direct, AliceBlue, Angel One, HDFC Securities, **Dhan** (as of 2026-04-07)
-2. **Credential-form only**: Kotak, IIFL Securities, **Groww** (as of 2026-04-20 — migrated from partner OAuth to API-Key + API-Secret + per-customer IP whitelist)
+1. **OAuth/WebView**: Zerodha, Upstox, Fyers, Axis, Motilal Oswal, ICICI Direct, AliceBlue, Angel One, HDFC Securities, Dhan, and **IIFL Securities** (IIFL first collects the customer's App Key/App Secret)
+2. **Credential-form only**: Kotak and **Groww** (as of 2026-04-20 — Groww migrated from partner OAuth to API-Key + API-Secret + per-customer IP whitelist)
 
 ### Broker picker display config
 
 Which brokers appear in `BrokerSelectionModal` (and in what order) is driven by `src/config/brokerDisplayConfig.js` — a plain array of `{ name, key, logo }` entries. `BrokerSelectionModal.js` imports it as `brokersmain`; adding/removing/reordering a broker in the picker is a one-line edit in the config, no component changes needed. The `key` on each entry must match the key dispatched by `GlobalUIModals/ModalManager.js` (that is what `openModal(key)` routes on).
 
 **Angel One is currently hidden from the picker** (commented-out in the config as of 2026-04-21). All Angel One auth plumbing (`AngleoneBookingModal`, `ModalManager` case, `registerCallback('angelone', ...)` in `handleBrokerSelect`, backend routes) is intact — re-enabling Angel One is purely uncommenting its entry in `brokerDisplayConfig.js`. Existing users with an Angel One connection continue to work; only the "Connect new broker" picker hides the tile.
+
+## Connect-broker entry points — the 3 look-alike broker screens (READ to avoid confusion)
+
+There are **three** broker-connect surfaces that look similar and are easy to confuse. A
+wrong choice = the "Connect broker opens the wrong screen" class of bug (hit 2026-06-08 by
+the web-parity NBA banner). Know which is which:
+
+| # | Surface | File | Title shown | Role |
+|---|---|---|---|---|
+| 1 | **`BrokerSelectionModal`** (CANONICAL picker) | `designs/default/composites/BrokerSelectionModal.js` (container variant imported by screens) | **"Select your broker for connection"** — real broker **logos** | The correct picker. After you pick a broker it routes to per-broker auth via `BrokerConnectModalDispatch` (SDK or legacy). |
+| 2 | `BrokerSelectionScreen` (standalone route) | `src/screens/Broker/BrokerSelectionScreen.js`, route name **`'BrokerSelection'`** | **"Connect Broker"** — plain **letter-avatars** (Z, A, G…) | A separate standalone screen. **Do NOT route a generic "connect broker" here** — this was the wrong-screen bug. |
+| 3 | SDK per-broker auth | `Phase3SdkBrokerModal` via `src/components/BrokerConnectionModal/BrokerConnectModalDispatch.js` | per-broker | The auth step AFTER picking, gated by `REACT_APP_USE_SDK_BROKER_FLOW` (currently `true` → SDK-primary). Reached through #1, not directly. |
+
+**Canonical ways to start a broker connect (use these):**
+- **Navigate to `'Broker Setting'`** — this is `SubscriptionScreen` (`Navigation.js:1070` drawer / `:1291` stack). It owns the proper connect flow (renders the #1 picker with local `modalVisible` state → `BrokerConnectModalDispatch`). Simplest + always correct. This is what the **web-parity NBA banner** (`designs/default/composites/NbaBanner.js`) `onAct` does for broker connect/reconnect (fixed 2026-06-08 — it previously navigated to the #2 `'BrokerSelection'` route, the wrong screen).
+- **Render `BrokerSelectionModal`** directly with `showBrokerModal` / `setShowBrokerModal` (the container API SubscriptionScreen + ManageConnectionsModal use).
+- **`useModalStore` (`src/GlobalUIModals/modalStore.js`) `openModal(brokerKey, payload)`** → `ModalManager` (`src/GlobalUIModals/ModalManager.js`, mounted globally in `App.js:232`) → `BrokerConnectModalDispatch`. NOTE: `ModalManager` renders only when `visibleModal` is set (a SPECIFIC broker key), so this is the post-pick path, not the picker itself. `setShowBrokerModal(true)` alone does NOT open the picker.
+
+**Rule of thumb:** to send a user to "connect a broker" from anywhere, **navigate to `'Broker Setting'`** (or render `BrokerSelectionModal`). Never route to the `'BrokerSelection'` standalone screen for a generic connect action.
 
 ## Authentication Flows
 
@@ -71,7 +815,7 @@ Returns success → Toast → Context updated
 | Angel One | OAuth (nonce) | apiKey (from config) | ~24h | Yes | Surveillance check, EDIS/TPIN |
 | Upstox | OAuth PKCE | apiKey, secretKey | ~24h | Yes | GTT, OCO support |
 | ICICI Direct | OAuth | apiKey, secretKey | Session | Yes | Manual mandate for SELLs |
-| Kotak | Credential | ucc, apiKey (API Access Token), mobile, mpin, totp | ~1h | No | Single UUID "API Access Token" from NEO → TradeAPI → API Dashboard. TOTP required on every reconnect. **No separate Consumer Secret** — aligned with web 2026-04-22. All downstream payloads (`kotak/order-book`, `kotak/order-cancel`, `kotak/positions`, `kotak/holdings`, `kotak/all-holdings`, `kotak/funds`, rebalance, ProcessTrades, MP/Bespoke performance, basket run) send `consumerKey` (= UUID) + `accessToken` + `viewToken` + `sid` + `serverId`; **no `consumerSecret`** field is sent anywhere. The ccxt `/kotak/v2/modify-order` endpoint was also realigned 2026-04-22 to match this shape (previously read `credentials.secretKey` and had inverted field mapping — see CHANGELOG 3.9.5). |
+| Kotak | Credential | ucc, apiKey (API Access Token), mobile, mpin, totp | ~12h (JWT exp) | No | Single UUID "API Access Token" from NEO → TradeAPI → API Dashboard. TOTP required on every reconnect. **No separate Consumer Secret needed** — the tradeApiLogin endpoint takes just the UUID as `Authorization` header. **`neo-fin-key` header MUST be literal `"neotradeapi"`** for login calls; V2 order calls don't send `neo-fin-key` at all. **MPIN is AES-encrypted by the SDK form** (`encrypt: true`) — `Kotak.js` MUST decrypt via `checkValidApiAnSecret(data.mpin)` before forwarding to ccxt; ccxt sends it in the separate `/tradeApiValidate` step (NOT in tradeApiLogin body, which only takes `{mobileNumber, ucc, totp}`). **V2 API migration (2026-05-06):** `gw-napi.kotaksecurities.com` (V1 gateway) is dead — returns 502 on ALL requests since Kotak's V1 sunset (Oct 2025). All order/data API calls now route through the per-user dynamic `baseUrl` returned by `tradeApiValidate` (e.g. `https://e43.kotaksecurities.com`) with V2 short paths (`/quick/order/rule/ms/place` not `/Orders/2.0/...`). V2 order headers are minimal: only `Sid` + `Auth` (no `Authorization: Bearer`, no `neo-fin-key`). Order body requires `"os": "NEOTRADEAPI"`. `hsServerId` is empty for many accounts — code falls back to `dataCenter` field (e.g. "E43") for the `?sId=` query param. V2 error responses use `errMsg`/`stCode`/`desc` fields. **SEBI static IP (April 2026):** Order APIs are IP-restricted; orders MUST go through the per-customer egress IPv6 (whitelisted with Kotak). Data APIs (order book, positions, holdings) are unrestricted. V2 SDK reference: `github.com/Kotak-Neo/Kotak-neo-api-v2`. |
 | Dhan | **OAuth (WebView)** | clientCode, jwtToken | Session (30 days) | **Yes** | Primary: CCXT partner OAuth; Fallback: manual credential form. DDPI/TPIN for sells. |
 | Fyers | OAuth | clientCode, secretKey | Session | Yes | Publisher SDK, TPIN |
 | Groww | **Credential + IP whitelist** | apiKey, totp_seed (Base32 secret stored server-side) | Daily 6 AM IST reset, one-tap refresh | No | **Migrated 2026-04-20 from partner OAuth → approval-mode; then 2026-04-21 approval-mode → TOTP-seed; then 2026-04-22 parsing hardening; then 2026-04-23 UX copy fix — see § Groww TOTP seed capture — which value to paste.** Groww deprecated partner-API order placement in 2026-04; the supported path is user-created **API Key + Base32 TOTP seed** via Groww's "Generate TOTP token" dialog on `groww.in/trade-api/api-keys` (not "Generate API Key & Secret"). The seed is the ~32-character Base32 string shown BELOW the QR code in that dialog — the `secret=` param encoded in the otpauth URI. **It is NOT the long JWT-style value in the "TOTP Token" field at the top of the same dialog** (that's a Groww-internal display token, not usable by us). Users paste the Base32 seed into the mobile form, backend AES-256-CBC-encrypts it server-side, and the daily cron mints fresh access tokens by calling `pyotp.TOTP(seed).now()` to produce a 6-digit code, then POSTing `{key_type:'totp', totp:'<6-digit>'}` to Groww's `/v1/token/api/access`. Requires a dedicated Route64 IPv6 whitelisted in Groww's "Whitelisted IPs" field. Dropped from `TokenExpireBrokerModal.OAUTH_BROKERS`; session-expired users see a "Refresh Groww session" button that one-tap calls `/api/groww/refresh-token`. Legacy (pre-2026-04-21) builds that still POST `secretKey` are auto-routed through the approval-mode fallback by ccxt-india's `_mint_groww_approval_mode`. |
@@ -79,7 +823,9 @@ Returns success → Toast → Context updated
 | Motilal Oswal | OAuth (WebView) | clientCode, apiKey | Session | Yes | **Strict session affinity — see § Motilal session-affinity guard (2026-04-25).** WebView retry-on-error is gated: pre-load failures (DNS / IPv6 race) auto-retry once; post-load failures show "Restart connection" instead of silent reload (reload would rotate Motilal's session and invalidate any OTP / login the user already entered, surfacing as `Authorization is Invalid In Header Parameter` or `MO1007 Two Factor Authentication Failed`). 30s debounce on `/motilal-oswal/login` to stop spam-Connect from creating session N–1 / N OTP mismatch. |
 | Axis Securities | OAuth (WebView) | None (SSO) | Session | Yes | ssoId intercepted in WebView; funds fetching via `axis/funds` (accessToken + clientCode). Palette tile + ModalManager dispatch added 2026-04-20 — all backend plumbing (`brokerAuth`/`brokerSupport`/`ProcessTrades`/`fetchFunds`/registry/modal) was already in place; only the `brokersmain` entry + `ModalManager` `case` + `axis.png` asset were missing. |
 | Hdfc Securities | OAuth (WebView) | requestToken→accessToken | Session | Yes | 2-step: WebView→CCXT token exchange |
-| IIFL Securities | Credential | clientCode, jwtToken | Session | No | — |
+| IIFL Securities | **Customer-owned OAuth (form + WebView)** | App Key, App Secret → clientCode, jwtToken | Daily browser login | **Yes (IPv6)** | **Enabled 2026-09-27.** The user creates an Individual Trader API app, registers the displayed redirect URL and whitelists the displayed Route64 IPv6. The app AES-wraps App Key/App Secret and calls Node `POST /api/iifl/update-key`; WebView intercepts `authcode/clientid`; Node `POST /api/iifl/exchange` performs the secret-bearing exchange and `PUT /api/user/connect-broker` persists the session. Saved direct credentials support `POST /api/iifl/reauth-url` for later daily login. |
+| Arihant Capital | **Credential + OTP** | userId, password, apiKey (AES-wrapped) → OTP | Daily (session expires daily, "Reconnect" surfaces a fresh OTP) | No | **Added 2026-06-09 (web parity, Stage 1).** TradeBridge partner. 2-step flow: `POST /api/arihant/initiate-login` → returns `txnId` + `otpExpiryTime`, Arihant SMS/emails the OTP. `PUT /api/arihant/connect-broker` → persists `{accessToken, refreshToken, jwtToken, secretKey, clientCode}` on the user doc + `connected_brokers[Arihant Capital]`. 30s resend cooldown on `POST /api/arihant/resend-otp`. Credentials AES-wrapped with the same `ApiKeySecret` envelope as Kotak / AliceBlue. Modal at `src/components/BrokerConnectionModal/ArihantConnectModal.js`. IP whitelist mandatory (deferred — `EgressIpCallout` integration is a follow-up). |
+| DefinEdge Securities | **Credential + OTP** | apiKey (api_token), secretKey (api_secret) — both AES-wrapped → OTP | ~8h session, no resend — re-run initiate-login if OTP isn't received | No | **Added 2026-06-09 (web parity, Stage 1).** INTEGRATE partner. 2-step flow: `POST /api/definedge/initiate-login` → returns `otp_token`. `PUT /api/definedge/connect-broker` → persists `{api_session_key (→ jwtToken), api_token (→ apiKey), api_secret (→ secretKey), actid (→ clientCode)}` on the user doc + `connected_brokers[DefinEdge Securities]`. **No resend endpoint** — DefinEdge's portal requires re-running the credential step if the OTP doesn't arrive. Tokens regenerate when the customer's DefinEdge password changes — surface a "regenerate at myaccount.definedgesecurities.com → API Config" hint when re-OTP fails. Modal at `src/components/BrokerConnectionModal/DefinEdgeConnectModal.js`. IP whitelist mandatory (deferred — `EgressIpCallout` integration is a follow-up). |
 | DummyBroker | None | None | Never | No | **Not a real broker — sentinel for the "no broker" / "manually placed" flow.** Shared with web (`prod-alphaquark-github/src/Home/ModelPortfolioSection/DummyBrokerHoldingConfirmation.js`), not mobile-only. See "DummyBroker Flow" below. |
 
 ## Key Files
@@ -96,7 +842,8 @@ Returns success → Toast → Context updated
 | `src/config/brokerDisplayConfig.js` | Display-order config for the broker picker (see "Broker picker display config" above) |
 | `src/config/brokerRegistry.js` | Auth-type + credential-field metadata per broker (orthogonal to display config) |
 | `src/screens/Home/ManageConnectionsModal.js` | Multi-broker connection list — Switch / Remove / **Reconnect** for expired sessions |
-| `src/components/TokenExpireBrokerModal.js` | Mid-trade session-expiry modal (OAuth: single "Reconnect {broker}" button; Kotak/IIFL: credential form) |
+| `src/components/TokenExpireBrokerModal.js` | Mid-trade session-expiry modal (OAuth brokers, including IIFL: single "Reconnect {broker}" button; Kotak: credential form) |
+| `src/components/IIFLReviewTradeModal.js` | Mid-trade "Please login to your broker to continue investments" modal rendered by `StockAdvices.js` when `OpenTokenExpireModel` is set. Per-broker login buttons open each broker's `BrokerConnectModalDispatch` via the parent's `setShow*Modal` setters. **Zerodha crash fix (2026-08-18)**: the Zerodha button previously called a never-passed `handleOpenBrokerModal(broker)` prop (undefined → "not a function" crash on tap); now calls `setShowzerodhaModal?.(true)` like every other broker button. Same latent bug exists in `Alphab2bapp`, `moneyman_app`, `rgx_app` forks. |
 
 ## Manage Connections (mobile)
 
@@ -132,6 +879,16 @@ Opened from `SubscriptionScreen` ("Manage Connections" button, visible when a br
 
 **Parity with web**: matches web's `TokenExpireBrokarModal` pattern where the per-broker Reconnect button directly invokes the broker's auth URL. Mobile's equivalent is the `openModal` dispatch. Prior implementation (2026-04-18) routed through `BrokerSelectionModal` as an intermediate broker-picker step — that detour was removed 2026-04-20 once `IIFL` + `Axis Securities` cases were added to `ModalManager`. The badge + button semantics still match web exactly.
 
+### Zerodha publisher is session-independent — expired token must not block it (2026-08-18, ported from markup_app)
+
+Zerodha order placement goes through the Kite Publisher basket (WebView POST to `kite.zerodha.com/connect/basket`); the user completes the order inside Kite, so the app's broker API session is never used at placement time. Before this fix, an expired Zerodha token (`token_expire` in the past while `connect_broker_status` still read `'connected'`) caused the funds preflight to classify `TOKEN_EXPIRED` and every bespoke gate (`StockAdvices.handleTrade`, `handleSingleSelectStock`, `executePlaceOrder`, `AddtoCartModal.handleTrade` / `handleConnectAndPlaceOrder`) to pop the token-expire modal — dead-ending the user even though a fresh Kite basket would have worked.
+
+Fix:
+- `src/utils/brokerSessionValidator.js:shouldBlockTradeOnFundsPreflight(reason, broker)` — returns `false` for `Zerodha + TOKEN_EXPIRED` (publisher path), keeps the block for `NOT_CONNECTED` and for every non-Zerodha broker. REST/GTT paths (`StockAdvices.executePlaceOrder` non-publisher branch) keep the full `_haltOnFundsCheckFailure`.
+- `StockAdvices.reconcilePendingZerodhaAttempt` — when a stored publisher attempt older than the 3-minute retry-guard window can't be reconciled (`pending`/`empty`/network error), the user gets an explicit **"Open Kite Again"** confirmation (with a duplicate-order warning); on confirm the stale attempt is cleared and the publisher opens for the current slide. Fresh attempts (< 3 min) keep the existing hard block — the 2026-07-29 duplicate-order protection is unchanged for that window.
+- `AddtoCartModal.handleConnectAndPlaceOrder` no longer treats a stale funds object (`status: 1`) as a token-expire trigger for Zerodha when `brokerStatus === 'connected'`.
+- `IIFLReviewTradeModal` "Login to Zerodha" button fixed in the same port: it called a never-passed `handleOpenBrokerModal` prop (crash); now uses `setShowzerodhaModal` like every other broker button.
+
 ## Motilal session-affinity guard (2026-04-25)
 
 Motilal's OpenAPI binds three things to a single page-load: the OTP delivered to the user's mobile, the `Authorization` header their JS sends to the OTP-verify endpoint (apikey-derived), and the page-side session cookie. **Any one of those rotating mid-flow invalidates the other two.** Reloading the WebView, opening a fresh login URL, or letting the user spam the Connect button all rotate the session — and Motilal's server-side surfaces the rotation as one of two opaque errors:
@@ -162,6 +919,16 @@ A page-content sniff to detect Motilal's error pages from inside the WebView (vi
 ### Cross-repo
 
 This is mobile-only. The web app's Motilal flow (`prod-alphaquark-github/src/Home/BrokerConnection/Motilal/`) uses `window.location.href` redirects rather than an embedded WebView, so the page-rotation trap doesn't exist — each navigation is a clean session by browser convention. tidi_new (Flutter) uses `webview_flutter` and SHOULD have the same vulnerability — flagged for future audit.
+
+## Broker-connect post-success hygiene (2026-04-27)
+
+**Rule:** in every broker connect modal's `.then` chain, after the legacy connect HTTP call returns 2xx, wrap the post-success housekeeping (`eventEmitter.emit`, `fetchBrokerStatusModal`, `showAlert('success', …)`, the SDK dual-write call) in its own `try/catch`. Do NOT let a JS runtime error from any of those steps bubble up to the outer `.catch`, because the outer `.catch` has no way to distinguish "broker rejected the credentials" from "post-success step crashed" and will default to a misleading "Incorrect credentials" alert.
+
+**Rule:** in the outer `.catch`, only show "Incorrect credentials" / "Please try again" wording when `error.response` is set (i.e. axios actually got an HTTP-level rejection). When `error.response` is absent (network failure, JS runtime error), show a softer "Connection Issue — credentials may already be saved, please refresh" message.
+
+**Why this matters:** the connect HTTP call returning 2xx means the broker IS connected DB-side. Telling the user their credentials are wrong at that point is actively harmful — they'll keep retrying, generating fresh TOTPs, hitting the 30s cooldown, and writing duplicate connection rows. **Production 2026-04-27:** the user saw "Incorrect credentials" three times despite the backend logging three clean 200s with full token + UCC + greeting. See [CHANGELOG 3.9.38](CHANGELOG.md). Reference implementation: `KotakModal.js:263-348` (post-`ec0cf5d`).
+
+**Audit status:** `KotakModal.js` is hardened. The same anti-pattern likely affects all 12 sibling modals — Angel One, AliceBlue, Dhan, Fyers, Groww, HDFC, ICICI, IIFL, Motilal Oswal, Upstox, Zerodha, Axis Securities — because commit `ec0cf5d` (SDK dual-write rollout) inserted a `sdkConnectBroker(...)` call into each modal's post-success block, growing the surface area for post-2xx throws. Apply the Kotak template across all of them as a follow-up.
 
 ## Pre-trade session probe — `validateBrokerSession` / `classifyFundsResponse` (2026-04-24)
 
@@ -368,7 +1135,7 @@ Web references: `src/Home/BrokerConnection/<Broker>/…Connection.js`, `src/Home
 | Motilal Oswal | `PUT /api/motilal-oswal/update-key` → redirect | Backend | `PUT /api/motilal-oswal/update-key` (entry already aligned; was missing `user_broker` field in body) | **Done 2026-04-17.** Added `user_broker: 'Motilal Oswal'` to the request body to match web payload shape. |
 | Axis Securities | `POST ccxt/axis/login-url` → redirect → Axis redirects with `ssoId` query param → landing page calls `ccxt/axis/callback` client-side → `PUT /api/user/connect-broker` client-side | **Client** (web also does this client-side, not server) | `POST ccxt/axis/login-url` → WebView → intercepts `ssoId`/`spSsoId` → `ccxt/axis/callback` → `PUT /api/user/connect-broker` | **Already aligned in flow; fixed response-parsing bug 2026-04-17.** Web and mobile both exchange `ssoId` client-side — no Option-B shift needed. Mobile was reading the `axis/callback` response as flat fields (`authTokenAxis`, `refreshTokenAxis`) off `.data`; web reads the nested `.data.data` envelope with `authToken.token \|\| authToken` and same for `refreshToken`, and has a `metadata?.accounts?.[0]?.subAccountId` fallback for `subAccountId`. Mobile parsing aligned to web (`StockRecommendation.js:1716-1728`). |
 | HDFC Securities | `POST /api/hdfc/update-key` → redirect → client-side `hdfc/access-token` → `PUT /api/user/connect-broker` (landing page, in `StockRecommendation.js:1500-1555`) | **Client** (not backend, contrary to the initial plan) | `POST /api/hdfc/update-key` → WebView → intercept `requestToken` → client-side `hdfc/access-token` → `PUT /api/user/connect-broker` | **Done 2026-04-17 — payload parity only.** On audit, web also exchanges `requestToken → accessToken` client-side (same flow as mobile), so no Option-B shift was needed. Two payload fields aligned: (1) added `user_broker: 'Hdfc Securities'` to `update-key` body (matching `connectBroker.js:778-783`), (2) added `user_email` to `hdfc/access-token` body (matching `StockRecommendation.js:1510-1515`). No UI/flow change. |
-| IIFL Securities | **Not implemented** on web (commented out in `AllBrokerList.js`) | N/A | Credential form (clientCode + jwtToken) | **Keep mobile as-is.** Removing an active broker without a product decision is destructive. Flagged for product review. |
+| IIFL Securities | Customer-owned App Key/App Secret → Node `/api/iifl/update-key` → OAuth callback → Node `/api/iifl/exchange` | Node (secret-preserving exchange) | Same handshake inside a WebView; session persisted with `/api/user/connect-broker` | **Aligned and enabled 2026-09-27.** Both clients show the redirect URL and the assigned IPv6 that must be registered in IIFL's developer portal. |
 | DummyBroker | Present on web (`Home/ModelPortfolioSection/DummyBrokerHoldingConfirmation.js`) — same sentinel flow | Already aligned | Endpoint/payload parity | Keep. **Corrected 2026-04-17**: previous "mobile-only" label was wrong. See "DummyBroker Flow" section below. |
 
 ### Inherent container differences (cannot be aligned away)
@@ -477,7 +1244,46 @@ Node backend's `Routes/Broker/ProcessTrades.js → createPayload()` forwards the
 
 This section covers trade/basket payloads only (commit ea970e4 on web, ported here as B1). See the follow-up subsection for B2 (finish-connection).
 
-### Finish-connection endpoints — `gen-access-token` / `iifl/login/client` / `hdfc/access-token` (B2)
+### IIFL Securities — customer-owned direct flow (2026-09-27)
+
+IIFL is enabled in the broker picker and deliberately remains on
+`IIFLModal`, even when the Phase 3 SDK master flag is on. The SDK's current IIFL
+schema describes a different credential/TOTP product and cannot represent the
+live Individual Trader API OAuth handshake.
+
+The setup instructions shown in both web and app are the same:
+
+1. Open `https://developers.iiflcapital.com/` and create a free Individual
+   Trader API app.
+2. Register the exact redirect URL displayed by the client.
+3. Whitelist the exact Route64 IPv6 displayed by the egress callout.
+4. Copy the app's App Key and App Secret into AlphaQuark, then continue to the
+   IIFL browser login.
+
+Runtime sequence:
+
+1. `POST /api/iifl/update-key` receives the user id, AES-wrapped App Key/App
+   Secret and redirect URL. Node stores the encrypted direct credentials and
+   returns the IIFL login URL.
+2. The in-app WebView accepts the registered callback only. It supports IIFL's
+   current `authcode`/`clientid` spelling, camel-case aliases, and the retired
+   `auth_token` alias for callback compatibility.
+3. `POST /api/iifl/exchange` sends the authorization code and client code to
+   Node. Node retrieves the stored App Secret and completes the broker exchange;
+   the secret is never returned to app JavaScript.
+4. `PUT /api/user/connect-broker` persists `user_broker: "IIFL Securities"`,
+   `clientCode`, and `jwtToken` in the normal `connected_brokers[]` record.
+   AsyncStorage is retained only as compatibility storage, not source of truth.
+5. Later reconnects call `POST /api/iifl/reauth-url` and go directly to the
+   required daily IIFL browser login using the saved App Key.
+
+The guide and IPv6 acknowledgement are rendered by
+`brokerGuideConfigs.js` + `EgressIpCallout.js` through
+`BrokerConnectStepperSheet`. Do not replace the displayed IPv6 with a device
+or office IP: broker calls leave through the customer's assigned Route64
+address.
+
+### Finish-connection endpoints — token exchange (B2)
 
 Ports web commit `d3f9078`. After a broker OAuth WebView completes and the app intercepts the callback, it fires a "finish connection" POST to ccxt-india to exchange the short-lived auth code/request token for a longer-lived access token. That outbound call is proxied by ccxt-india to the broker's API and therefore needs to originate from the customer's whitelisted IPv6 — otherwise ICICI rejects it as a Status:500 session-mismatch disguised as HTTP 200, Upstox's `/v2/login/authorization/token` may 401, Fyers/IIFL/HDFC similarly fail with "IP not whitelisted" variants.
 
@@ -493,10 +1299,9 @@ Per web's callsite inventory, the 7 endpoints needing top-level `user_email`: `/
 | Zerodha | `/zerodha/gen-access-token` | `src/screens/Broker/BrokerAuthScreen.js` | generic OAuth WebView (Zerodha branch) |
 | Zerodha | `/zerodha/gen-access-token` | `src/components/AdviceScreenComponents/StockAdvices.js` | advice-screen connectZerodha |
 | Upstox | `/upstox/gen-access-token` | `src/components/BrokerConnectionModal/upstoxModal.js` | modal connectUpstox |
-| Fyers | `/fyers/gen-access-token` | `src/components/BrokerConnectionModal/FyersConnect.js` | modal connectFyers |
+| Fyers | `/api/fyers/exchange-token` → Node forwards `/fyers/gen-access-token` with server-owned credentials + top-level user email | `src/components/BrokerConnectionModal/FyersConnect.js` | host biometric/TOTP + legacy modal connectFyers |
 | Fyers | `/fyers/gen-access-token` | `src/screens/Broker/BrokerCredentialScreen.js` | generic credential screen (Fyers branch) |
-| IIFL | `/iifl/login/client` | `src/components/iiflmodal.js` | WebView callback postback |
-| IIFL | `/iifl/login/client` | `src/components/iiflproceedmodal.js` | proceed-modal postback |
+| IIFL | Node `/api/iifl/exchange` → ccxt `/iifl/login/client` | `src/components/iiflmodal.js` | Direct customer-owned flow; Node supplies the stored App Secret and ccxt receives top-level `user_email` |
 | HDFC | `/hdfc/access-token` | `src/components/BrokerConnectionModal/HDFCconnectModal.js` | **already had `user_email`** (ported earlier with 2026-04-18 HDFC payload-parity fix — no change) |
 
 **Groww intentionally skipped.** Prod migrated Groww from partner OAuth to API-key + IP whitelist (commits 9ee7aed + 635b6ef, 2026-04-20). That migration is tracked separately on the app (tasks G1 + G2). Today's B2 would have added `user_email` to a code path that's being retired in the next commit pair.
@@ -587,6 +1392,28 @@ All five callsites have been sending camelCase `userEmail` since before this aud
 The web's AngleOneTpinModal verify-edis payload includes `clientCode: userDetails?.clientCode` alongside `apiKey`/`jwtToken`. The app's equivalent omits `clientCode` because the Angel One app API key on mobile is read from `configData.config.REACT_APP_ANGEL_ONE_API_KEY` (advisor-level), not per-user encrypted. Both shapes resolve to the same Angel One call server-side — the difference is in how the app key is sourced, not in what the endpoint needs. No action required.
 
 ## DDPI authorize-for-sell — `await getUserDetails` before reopening (2026-04-20)
+
+### Dhan live-status handoff after CDSL completion (2026-09-30)
+
+Dhan's database flag is not the gate authority. After the customer completes
+the Dhan/CDSL page, `DhanTpinModal` polls `/dhan/edis-status`, propagates that
+fresh response to the parent, and reopens order review only when every selected
+equity-delivery SELL matches an authorized holding with enough `aprvdQty`.
+Checking `every(holding.edis)` across the full account is forbidden: an
+unrelated holding may legitimately remain unauthorized and must not block the
+selected basket. Reopening from only the pre-authorization prop is also
+forbidden because it recreates the TPIN loop.
+
+### Groww empty retry guard (2026-09-29)
+
+The manual portal confirmation is an acknowledgement, not proof of broker
+execution. `OtherBrokerModel.handleAcceptRebalance` tags the fresh calculation
+with sell-authorization recovery context before reopening `RebalanceModal`.
+If Groww returns empty BUY and SELL arrays in that context, the app shows
+**Sell Authorization Still Pending** and does not mark the portfolio aligned or
+the subscriber execution complete. Only an ordinary zero-trade calculation
+outside this recovery context retains the green aligned-success behavior. Its
+**Retry Sell Authorization** action reopens the manual broker-authorize sheet.
 
 Ports web `e73bd81` Issue 3. Fixes the authorize-for-sell checkbox appearing to "not stick" — user ticks it, DDPI modal closes, rebalance/review modal reopens, and the DDPI prompt re-fires immediately as if the checkbox was never ticked.
 
@@ -730,6 +1557,27 @@ Failure now returns one of three granular codes — `NOT_BASE32`, `WRONG_LENGTH`
 
 ccxt-india first (so normalized parsing is live before any mobile build hits it), then the mobile build. Doing it in the other order is safe — the old backend still accepts clean Base32, which is what the new mobile UI encourages — but the granular error codes won't reach users until ccxt-india ships.
 
+## Zerodha OAuth WebView attempt isolation (2026-07-29)
+
+`ZerodhaConnectUI` must not share cookies or cache with an earlier connection
+attempt. A persisted Kite login session can auto-authorize a new login URL,
+making a failed OTP entry appear to connect successfully. Each connection
+attempt therefore mounts a newly keyed `incognito` WebView with
+`sharedCookiesEnabled={false}` and `cacheEnabled={false}`.
+
+Navigation interception is also fail-closed. A token exchange is allowed only
+when `validateZerodhaOAuthCallback` confirms all of the following:
+
+- callback origin and path exactly match the configured advisor redirect URL;
+- `status=success`;
+- `action=login` / `type=login` when Kite supplies that field;
+- a non-empty `request_token`.
+
+An error/cancel callback closes the WebView and reports login failure. A
+`request_token` on a Kite page, another Markup path, or a callback without
+explicit success is ignored or rejected and can never persist a broker
+connection.
+
 ## Per-broker redirect URL reference (MANDATORY reading before touching `REACT_APP_BROKER_CONNECT_REDIRECT_URL`)
 
 > **⚠️ READ THIS BEFORE EDITING `.env`'s `REACT_APP_BROKER_CONNECT_REDIRECT_URL` or any broker's `redirect_url` / `redirect_uri` argument.** This single env var is read by 8 independent broker OAuth flows. Changing it for one broker silently affects all others for any tenant whose backend `appadvisors.brokerConnectRedirectUrl` is unset. **On 2026-04-22 commit `f9f5d0f` repurposed this var for Groww App Links and broke the Zerodha publisher basket flow on prod (silent)** — see "Groww App Links / Zerodha publisher incident (2026-04-23)" below.
@@ -748,12 +1596,12 @@ Only 2 of 12 backend tenants currently set `appadvisors.brokerConnectRedirectUrl
 
 | Broker | Auth type | Reads the shared var? | Where the URL is sent to the broker | Dev-portal registration (user action) | Publisher/basket WebView needs `baseUrl`? |
 |---|---|---|---|---|---|
-| **Zerodha** | OAuth (Kite Connect) + publisher basket | **Yes** — `ZerodhaConnectUI.js:216` (OAuth `site` param); publisher basket uses `baseUrl` derived from `subdomain`/`customDomain` via `brokerPublisher.getPublisherWebViewBaseUrl()` (isolated 2026-04-23) | `ZerodhaConnectUI.js:230` — POST `/zerodha/login-url` with `site: <url without https://>` | Kite Connect app redirect URL = `https://{advisor}.alphaquark.in/stock-recommendation` | **Yes** — Kite rejects `about:blank` Referer. 5 callsites fixed 2026-04-23: `ReviewZerodhaTradeModal.js:946,1073`, `UserStrategySubscribeModal.js:1266`, `MPReviewTradeModal.js:1632`, `RebalanceModal.js:1849` |
+| **Zerodha** | OAuth (Kite Connect) + publisher basket | **Yes** — `ZerodhaConnectUI` sends the configured OAuth URL; Publisher `baseUrl` resolves runtime `customDomain` → build `REACT_APP_DOMAIN` → canonical subdomain | POST `/zerodha/login-url` with `site: <url without https://>` | Kite Connect app redirect URL = the advisor web URL (Markup: `https://research.markup.club/stock-recommendation`) | **Yes** — Kite rejects `about:blank` or a mismatched Referer. Markup must not fall back to `markup.alphaquark.in`. |
 | **Upstox** | Hybrid (credential → OAuth) | **Yes** — `upstoxModal.js:56-57`; `BrokerCredentialScreen.js:137` via `getBrokerCallbackUrl()` | `upstoxModal.js:139,245` + `BrokerCredentialScreen.js:137` — `redirect_uri` in `/api/upstox/update-key` + `upstox/gen-access-token` | Upstox dev portal "Redirect URI" field = same URL | No — OAuth WebView only |
 | **Fyers** | Hybrid (credential → OAuth) | **Yes** — `FyersConnect.js:40-41` | `FyersConnect.js:248` — `redirect_url` in `/api/fyers/update-key` | Fyers dev dashboard redirect URL = same URL | No — OAuth WebView only |
 | **ICICI Direct** | Hybrid (credential → OAuth) | **Yes (help UI only)** — `HelpModal.js` displays to user; `icicimodal.js:136-150` intercepts `?apisession=` callback | No explicit `redirect_uri` sent in body — ICICI uses whatever's pre-registered in dev portal | ICICI developer portal registered callback = same URL | No |
 | **HDFC Securities** | Hybrid (credential → OAuth) | **Yes (help UI only)** — `HDFCHelpContent.js:9` displays; `HDFCconnectModal.js:103-119` intercepts `?requestToken=` | No explicit `redirect_uri` in body — HDFC uses pre-registered URL | HDFC dev portal registered callback = same URL | No |
-| **IIFL Securities** | OAuth WebView | **Yes** — `iiflmodal.js:42,46`, `iiflproceedmodal.js:88,168` | WebView loads `https://markets.iiflcapital.com/?v=1&appkey=nHjYctmzvrHrYWA&redirect_url=<url-without-https>` | IIFL portal registered against advisor URL | No |
+| **IIFL Securities** | Customer-owned OAuth WebView | **Yes** — `iiflmodal.js` resolves the runtime value | Node `/api/iifl/update-key` builds the login URL with the customer's App Key and exact redirect URL | IIFL developer portal: register the exact displayed redirect URL and whitelist the exact displayed Route64 IPv6 | No |
 | **Dhan** | OAuth (CCXT partner) | **Yes (help UI only)** — `DhanHelpContent.js:9` | Backend handles; client reads `?dhan_client_id=...&dhan_access_token=...` query on callback | Per `DhanConnectModal.js:125` — same URL | No |
 | **AliceBlue** | OAuth WebView | **Hardcoded `prod.alphaquark.in`** — `AliceBlueConnect.js:buildAliceBlueAuthUrl` (2026-04-26 — no longer reads `REACT_APP_BROKER_CONNECT_REDIRECT_URL`) | `/aliceblue/login?origin=https://prod.alphaquark.in&returnPath=/stock-recommendation` | AliceBlue partner appcode `7WMf5NotZe` is allow-listed against `prod.alphaquark.in` ONLY — any other origin (e.g. `app-links.alphaquark.in`) silently bounces user back to password screen after OTP | No |
 | **Axis Securities** | OAuth WebView | **Yes** — `AxisConnectModal.js:78-79` | `AxisConnectModal.js:86` — POST `/axis/login-url` with `redirectUrl` | Axis SSO portal registered callback | No |
@@ -768,7 +1616,7 @@ Only 2 of 12 backend tenants currently set `appadvisors.brokerConnectRedirectUrl
 |---|---|
 | Changing `.env` value flips the redirect URL for all 8 OAuth/hybrid brokers on any tenant whose backend `brokerConnectRedirectUrl` is unset. | Always set `appadvisors.brokerConnectRedirectUrl` per tenant in backend. Audit: `cd ~/servers/server1/aq_backend_github && node -e '...' ` — see `docs/BROKER_CONNECTION.md § audit script` (below). |
 | Help-content screens (`FyersHelpContent`, `KotakHelpContent`, `MotilalHelpContent`, `DhanHelpContent`, `UpstoxHelpContent`, `AliceblueHelpContent`, `HDFCHelpContent`) read `Config.REACT_APP_BROKER_CONNECT_REDIRECT_URL` directly (not via ConfigContext) — they'll always show the `.env` value even for tenants with a backend override. | Display copy via `configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL || Config...` — ported to Upstox (see `UpstoxConnectUI.js:116`); replicate for the other help files in a follow-up. |
-| Kite publisher basket WebView Referer check is **independent** of the OAuth redirect URL — Zerodha's basket endpoint validates Referer origin against the Kite app's registered redirect-URL origin. | Separate path: `brokerPublisher.getPublisherWebViewBaseUrl(configData)` derives from `customDomain` → `subdomain` → `prod.alphaquark.in`. Never reads `REACT_APP_BROKER_CONNECT_REDIRECT_URL`. Added 2026-04-23. |
+| Kite publisher basket WebView Referer check is **independent** of the OAuth redirect URL — Zerodha's basket endpoint validates Referer origin against the Kite app's registered redirect-URL origin. | Separate path: `brokerPublisher.getPublisherWebViewBaseUrl(configData)` derives from runtime `customDomain` → build `REACT_APP_DOMAIN` → subdomain → `prod.alphaquark.in`. It never reads `REACT_APP_BROKER_CONNECT_REDIRECT_URL`. |
 | Groww does NOT need this env var — Android App Links is driven by AndroidManifest.xml's `<intent-filter>`. | AndroidManifest entry is the source of truth; do not add Groww reads of the shared var. |
 
 ### Audit script — "which tenants are affected by `.env`-fallback today?"
@@ -807,7 +1655,7 @@ Kite's basket endpoint silently drops items whose `{tradingsymbol, exchange}` co
 
 ### Single source of truth
 
-ccxt-india's `ZERODHA_SCRIP_MASTER.get_zerodha_symbol_from_angelone_symbol()` (invoked by `POST /zerodha/convert-symbol`) is the authoritative resolver. It reads NSE's daily circular (EQ ↔ BE transitions) and BSE's scripmaster to pick the correct `{zerodha_symbol, exchange, lot_size}` for TODAY. The response also includes a Redis-cached `ltp` so the mobile MARKET→LIMIT-IOC protection has a reference price even when the user's live WebSocket subscription is empty (common for BE / BSE-primary stocks subscribed on NSE).
+ccxt-india's `ZERODHA_SCRIP_MASTER.get_zerodha_symbol_from_angelone_symbol()` (invoked by `POST /zerodha/convert-symbol`) is the authoritative resolver. It reads NSE's daily circular (EQ ↔ BE transitions) and BSE's scripmaster to pick the correct `{zerodha_symbol, exchange, lot_size}` for TODAY. The response also includes a Redis-cached `ltp` so the mobile MARKET→LIMIT-DAY Publisher protection has a reference price even when the user's live WebSocket subscription is empty (common for BE / BSE-primary stocks subscribed on NSE).
 
 **Never replicate this mapping client-side.** The NSE circular changes daily; any JS copy would go stale within 24h.
 
@@ -922,7 +1770,14 @@ Derivatives (NFO/BFO) accept MARKET at the exchange level — skip the conversio
 
 ### Client-side mirror (Alphab2bapp)
 
-`src/utils/brokerPublisher.js` exports `applyKiteMarketProtection` + `roundToKiteTick` with the **same tick schedule and IOC/DAY split** as the server helper. Any change to buffer / tick rules on the server MUST be mirrored in the client so the Kite Publisher basket path (client-side) behaves identically to the REST-placement path (server-side). Client uses a flat 1% buffer for simplicity; server uses the tiered 0.3/0.5/1.0% table. Both snap to the identical tick schedule, so the maximum price divergence is ~0.7% on the buffer — acceptable given the tiered buffer is always more conservative on liquid stocks.
+`src/utils/brokerPublisher.js` exports `applyKiteMarketProtection` +
+`roundToKiteTick` with the same tick schedule as the server helper. Publisher
+validity is intentionally always `DAY`: Kite's hosted basket does not reliably
+accept `LIMIT+CNC+IOC`, even though direct server-side placement can use IOC
+for supported exchanges. Mobile uses a flat 1% buffer and directional
+ceil/floor rounding so BUY limits stay above and SELL limits below LTP; server
+uses the tiered 0.3/0.5/1.0% table. Buffer or tick changes must still be
+reviewed on both paths.
 
 ### Flutter mirror (tidi_new)
 
@@ -1003,3 +1858,282 @@ Every broker's `directLink` is a URL on **the broker's domain** and rots wheneve
 5. No code changes to `BrokerDdpiHelpModal.js` should be needed — the config drives everything.
 6. Verify the `directLink` URL using curl with a realistic Chrome UA (`Mozilla/5.0 ... Chrome/120 ...`) — not all broker portals respond to the bare curl UA. If the page 200s with Chrome UA, it'll render in the in-app WebView.
 
+
+---
+
+## 🔴 Broker-connect modal container + guidance UX architecture (2026-07-18)
+
+**This section is BLOCKING-tracked from CLAUDE.md § "Broker-connect modal
+container + guidance UX". Any change to the files named here MUST update this
+section in the same commit.** It exists because on 2026-07-18 we lost most of a
+day to a freeze class that was ALREADY solved elsewhere in the codebase but
+undocumented — do not let that knowledge rot again.
+
+### 1. The RN `<Modal>` ban (the freeze failure mode)
+
+React Native's `<Modal>` **hard-freezes this app on Android** (New
+Architecture / Bridgeless): the modal window paints as a **tiny white box in
+the top-left corner** and the UI thread wedges (logcat shows JS silence + an
+`EGL_emulation` frame of 40,000ms+; no redbox, no exception). ArihantConnectModal
+and DefinEdgeConnectModal shipped 2026-06-09 built on RN `<Modal>` and froze on
+every open until converted (2026-07-18).
+
+**Rule: broker-connect surfaces NEVER use React Native's `<Modal>`.**
+The sanctioned container is **`src/components/CrossPlatformOverlay.js`**:
+- iOS → `FullWindowOverlay` (react-native-screens)
+- Android → plain `absoluteFillObject` View (zIndex/elevation 9999) + a
+  BackHandler that closes the overlay on hardware back.
+Every working broker connect UI renders through it. If a broker surface shows
+the tiny-white-box freeze, grep it for `<Modal` first.
+
+### 2. Two lanes + dispatch
+
+**Runtime tenant invariant (2026-10-01).** In the AlphaB2B master build, the
+broker lane must use the advisor selected after login, not the binary's
+`APP_VARIANT`. `getTenantSubdomain(configData)` resolves explicit config first,
+then `runtimeAdvisor`, then the build fallback. `SdkProviderRoot.mintSession`
+uses the same resolver. This is required because the SDK session tenant owns
+where `/sdk/v1/connections/*` persists: minting as `prod` while the UI reads
+MoneyMan makes connect appear successful but leaves the MoneyMan Broker Screen
+"Disconnected". A production example had connected Zerodha state in `prod`
+and no broker state in `moneyman` for the same AlphaB2B login.
+
+`src/components/BrokerConnectionModal/BrokerConnectModalDispatch.js` is the
+single routing point (rendered by GlobalUIModals/ModalManager AND every
+inline call-site):
+- `REACT_APP_USE_SDK_BROKER_FLOW=true` (current prod) → ALL brokers go to
+  **`Phase3SdkBrokerModal`** (SDK lane), EXCEPT `SDK_LEGACY_FALLBACK` members.
+- Flag off → legacy per-broker modals.
+- *(Superseded 2026-09-29: the set is now `new Set(['IIFL'])` — see § "Broker connect routing matrix".)* `SDK_LEGACY_FALLBACK` = `{}` (empty, 2026-07-18). **Keep this Set tiny;
+  the rule is "fix the SDK widget/host — not the allowlist."** The six
+  stepper brokers (Kotak/Groww/Fyers/Upstox/HDFC/ICICI) briefly sat here on
+  2026-07-18 and were removed the same day once the SDK host reached parity;
+  Arihant + DefinEdge came off later the same day once their
+  `credentials_otp_two_step` SDK stack was verified end-to-end (schemas +
+  form step-machine + client methods in the compiled lib, backend
+  /sdk/v1/connections routes live on tidi) and the host gained their guide
+  configs + egress map entries. Their stepper-ized legacy modals remain the
+  documented rollback if device verification fails.
+- `normalizeBrokerKey` maps display keys → canonical keys ('Hdfc Securities'
+  → 'HDFC' etc.). ANY broker added to the tile list
+  (`src/config/brokerDisplayConfig.js`) MUST either have a
+  `BROKER_FORM_SCHEMAS` entry in the SDK repo or be in `SDK_LEGACY_FALLBACK`
+  — otherwise the SDK lane crashes on an undefined schema (guarded, but the
+  guard shows a "Not available yet" box, not a working flow).
+
+### 3. Touch architecture — v3 sibling-Pressable (the erratic-scroll fix)
+
+The SDK modal's panel layout went through three iterations (full history in
+Phase3SdkBrokerModal.js comments):
+- v1: Pressable scrim wrapping Pressable panel → ate WebView/TextInput taps.
+- v2: Pressable scrim wrapping View panel with `onStartShouldSetResponder=
+  ()=>true` + `onResponderTerminationRequest=()=>false` → the panel's JS
+  responder claim FOUGHT the inner ScrollView's pan responder → **erratic /
+  sticky scrolling** on credential forms (2026-07-18 Kotak report).
+- **v3 (the rule)**: scrim View with `pointerEvents="box-none"` + an
+  `absoluteFill` Pressable rendered as a SIBLING BEHIND the panel View, which
+  itself has NO touch handlers. Dim-area taps dismiss; panel content
+  (ScrollView / WebView / inputs) gets untouched native gesture handling.
+All three phases of Phase3SdkBrokerModal (form, OAuth WebView, missing-schema)
+now use v3. New overlay panels MUST use v3.
+
+### 4. Guidance UX — web parity (`brokerGuideConfigs.js`)
+
+`src/components/BrokerConnectionModal/brokerGuideConfigs.js` is the **single
+source of truth** for per-broker setup guidance, mirroring prod web's
+`BrokerConnectStepper` content (web: `connectBroker.js` Upstox/HDFC/ICICI block
++ per-broker `*Connection.js`). Exports:
+- `getBrokerGuideConfig(brokerName, {whiteLabelText, brokerConnectRedirectURL,
+  iciciRedirectUrl})` → `{monogram, brandFrom, brandTo, portalUrl, portalLabel,
+  walkthroughVideoId, guideSteps[], note?, redirectUrl?}` (keys = normalized
+  broker names). Currently: Upstox, HDFC, ICICI, Kotak, Groww, Fyers,
+  Motilal Oswal, IIFL Securities, Angel One (per-customer SmartAPI), Arihant Capital,
+  DefinEdge Securities — i.e. EVERY static-IP/whitelist broker. opts also
+  carries `ccxtBaseUrl` (Motilal's fixed ccxt callback redirect).
+- `<BrokerGuideCard config accent brokerName>` — the polished card (numbered
+  steps with `<b>` bold parsing, tap-to-copy Redirect URL row, portal
+  deep-link button, YouTube walkthrough link).
+
+Consumers:
+- **SDK lane**: Phase3SdkBrokerModal renders `<BrokerGuideCard>` above its
+  EgressIpCallout + BrokerCredentialForm; `Phase3BrokerHelp` remains the
+  fallback for brokers without a guide config.
+- **Legacy lane**: `BrokerConnectStepperSheet` (below) — its call-sites carry
+  the same content inline today (dedup onto getBrokerGuideConfig = known
+  cleanup).
+
+**Branding rule (mirrors web)**: the broker's brand colors paint ONLY the
+monogram badge. Every action element (step numbers, portal CTA, links,
+submit, chips) uses the ADVISOR/app accent (`useConfig()` mainColor/gradient2/
+buttonColor) so white-label tenants keep their branding.
+
+**One-time setup reassurance:** every API-key guide renders a top notice that
+creating the broker app/API credentials is normally a one-time setup. Once the
+connection is saved, later reconnects normally use the customer’s broker login
+(User ID, password and any required OTP) rather than asking them to create a
+new app. Wording must be reassuring but non-absolute because broker session
+rules vary. Where customer-owned credentials are required (Angel One), say they
+can enter them securely in the app; do not tell customers to withhold the keys.
+
+### 5. `BrokerConnectStepperSheet` (legacy-lane surface)
+
+`src/components/BrokerConnectionModal/BrokerConnectStepperSheet.js` — RN port
+of web's BrokerConnectStepper, rendered through CrossPlatformOverlay. Hosts:
+gradient monogram header, Credentials→OTP step chips, guide card,
+EgressIpCallout, fields (password show/hide, multiline, keyboardType,
+maxLength, per-field error), OTP phase (resend cooldown, expiry hint),
+copyable redirect row. Egress gate: pass `egressReady/setEgressReady/
+unmetAck/setUnmetAck` from the container when its submit handler already
+guards on them (Kotak/Groww/Fyers/Upstox/HDFC/ICICI pattern); omit them and
+the sheet self-manages (Arihant/DefinEdge pattern). Submit with an unmet ack
+flashes the callout checkbox — never a silent dead tap.
+Fields that normalise their text should set `uncontrolled: true` (seeded via
+`defaultValue`) and may set `autoCapitalize`; fields are keyed by label, not
+index. See § "Device TOTP runtime and Fyers staged hand-off (2026-09-29)".
+
+Stepper-ized legacy containers (logic untouched, render swapped):
+ArihantConnectModal, DefinEdgeConnectModal, KotakModal (keeps its 5-field Neo
+login incl. MPIN+TOTP — web has only 3 fields; do NOT drop fields to match
+web), GrowwConnectModal, FyersConnect + upstoxModal + HDFCconnectModal +
+icicimodal (these four keep their OAuth WebView phase: `showWebView` renders
+the original *ConnectUI branch untouched; Fyers naming swap — "App ID" lives
+in `secretKey` state, OAuth secret in `apiKey` state).
+
+### 6. EgressIpCallout registration (the IPv4/static-IP flow)
+
+`src/components/BrokerConnectionModal/EgressIpCallout.js` — a broker shows the
+static-IP/whitelist flow ONLY if its lowercase backend broker_key is in
+`WHITELIST_BROKERS` AND has entries in `BROKER_DISPLAY_NAMES`,
+`BROKER_DEV_PORTAL_URLS`, `BROKER_WHITELIST_HINT`. 2026-07-18 added `arihant`
++ `definedge` (they were missing → no IP UI at all despite being IPv4-only
+brokers). **Adding any new whitelist/IPv4 broker requires all four entries**,
+kept in sync with web's EgressIpCallout sets. Ack contract:
+`onAcknowledgeChange(true)` for partner brokers, `claimed|shared_ip` +
+checkbox otherwise, false while loading/claiming.
+
+### 7. New-broker checklist (do ALL of these)
+
+1. Tile: `brokerDisplayConfig.js` (display-name key) + `normalizeBrokerKey`
+   mapping if the key needs aliasing.
+2. SDK schema in `alphaquark-mobile-sdk` `BROKER_FORM_SCHEMAS` **or** a legacy
+   modal + `SDK_LEGACY_FALLBACK` entry (documented, with removal criterion).
+3. Legacy modal (if any) renders via `BrokerConnectStepperSheet` or
+   CrossPlatformOverlay — NEVER RN `<Modal>`.
+4. Guide config in `brokerGuideConfigs.js` (web-parity steps).
+5. If IP-whitelist/IPv4: all four EgressIpCallout map entries (+ backend
+   egress registry, see ccxt-india docs).
+6. Update THIS section + CLAUDE.md matrix in the same commit.
+
+| Date | Change |
+|------|--------|
+| 2026-07-18 | Initial section: RN-Modal ban + CrossPlatformOverlay rule, v3 touch fix (erratic scroll), brokerGuideConfigs + BrokerGuideCard in SDK lane, BrokerConnectStepperSheet + 8 stepper-ized legacy modals, EgressIpCallout arihant/definedge registration, new-broker checklist. |
+| 2026-07-18 | Current-state correction: guide lookup now normalises the SDK display names `ICICI Direct` and `Hdfc/HDFC Securities` to the ICICI/HDFC guide configs, preventing a fall-through to legacy inline help. Explicit **Watch walkthrough** actions use `BrokerWalkthroughPlayer` inside the app; no broker-guide action may hand a user to YouTube. `EgressIpCallout` now exposes a one-tap Copy IP action and clear mandate states (required, pending, confirmed, failed). IIFL is removed from the IPv4 registration and disabled from the broker picker/connection flow until its integration is re-certified. |
+| 2026-09-27 | IIFL re-certified and re-enabled using the customer-owned Individual Trader API flow. Web and app now both instruct the user to register the exact displayed redirect URL and whitelist the exact displayed Route64 IPv6; the app collects App Key/App Secret, uses Node for the secret-preserving exchange, persists to MongoDB, and retains a deliberate Phase 3 legacy fallback until the SDK schema matches. |
+
+### 8. Dedicated static-IP mandate and hosted checkout (2026-07-18)
+
+Some broker APIs accept requests only from an address the customer has added to
+their allowed-IP list. `EgressIpCallout` makes that requirement explicit before
+the connection form is enabled. It covers the registered whitelist brokers
+(`upstox`, `angelone`, `fyers`, `motilaloswal`, `kotak`, `hdfcsec`,
+`icicidirect`, `groww`, `arihant`, `definedge`); the family shown is taken from
+the backend registry and must never be guessed by the app.
+
+For a customer-pays dedicated IPv4 allocation, the recurring ₹99 service
+mandate is deliberately opened in the external browser by default. The hosted
+AlphaQuark page avoids embedding Cashfree in a white-label app whose package or
+domain is not approved in Cashfree. On return to the app, it polls
+`/api/egress-ipv4/verify`; the backend/Cashfree result is the only authority
+that can grant the address. The app must show a visible pending/confirmed/failed
+status and retain a manual **I've paid — verify** recovery action. It must not
+grant an IP from a WebView/deep-link result.
+
+The supporting backend work was deployed from `aq_backend_github` in commits
+`db6721d`, `bcd1213`, and `8a0ac66`: opaque hosted-checkout token, hosted
+checkout/return routes, advisor-header exception only for those public routes,
+and verification status. Cashfree must permit the hosted AlphaQuark domain
+before this can be customer-live. Native Cashfree checkout is an explicit opt-in
+only for a package approved by Cashfree.
+
+### Angel One credential ownership (2026-07-18)
+
+AlphaB2B does not offer a shared/platform Angel One SmartAPI connection. Every
+new connection requires the customer’s own SmartAPI API key, secret and client
+code, plus their broker-required static-IP setup. Do not display or revive the
+legacy one-tap shared-key/publisher-login path.
+
+### Zerodha Android callback interception (2026-07-27)
+
+Markup's legacy `ZerodhaConnectUI` feeds all three Android WebView navigation
+signals (`onShouldStartLoadWithRequest`, `onLoadStart`, and
+`onNavigationStateChange`) into one idempotent callback parser. Zerodha's
+`request_token` is single-use, so `hasProcessedCallback` remains the authority
+that prevents duplicate exchanges.
+
+This closes the observed Android case where authentication succeeded and the
+WebView rendered the hosted “Completing broker authentication…” page, but
+`onNavigationStateChange` never reported the callback and no
+`/zerodha/gen-access-token` request reached production. The pre-load hook
+captures the token before the hosted page loads; the other two hooks cover
+WebView-version differences. The redirect URL and Zerodha API key are
+unchanged.
+
+After a successful SDK exchange, the legacy modal must also clear
+`showWebView`/`authUrl` and call `onClose()` before displaying the success
+notification. Persisting the connection is not sufficient to finish the UI
+lifecycle; omitting these calls leaves the authenticated Kite screen mounted
+behind the “Connected Successfully” notification.
+
+### Zerodha Hermes callback parser and JS bridge (2026-07-30)
+
+The callback-loading symptom recurred at 11:55 IST on Android even with all
+three native WebView hooks installed. The production trace was decisive:
+
+- `06:23:59 UTC`: Markup Android requested `/zerodha/login-url`.
+- `06:25:25 UTC`: Zerodha returned `status=success`, `type=login` and a
+  `request_token`; ccxt redirected to the configured
+  `https://research.markup.club/stock-recommendation` callback.
+- No Markup `/zerodha/gen-access-token` request followed.
+- A working `prod.alphaquark.in` browser flow later that morning posted
+  `/zerodha/gen-access-token` two seconds after its callback.
+
+The legacy validator introduced in the earlier guard used
+`new URL(url).searchParams`. That is safe in Jest and browsers, but Hermes in
+React Native 0.78 does not fully implement `URL.search`/`URLSearchParams` (the
+shared SDK WebView already carries a production incident note and a
+pure-string workaround for this limitation). The validator caught the Hermes
+exception and returned `isCallback:false`, so every native hook silently
+ignored the same valid callback and allowed the hosted fallback spinner to
+render.
+
+The legacy flow now follows the SDK's proven behavior:
+
+1. Parse scheme, authority, path, query and fragment with a pure-string
+   parser—never with the runtime `URL` implementation.
+2. Keep the strict security gate: configured origin, normalized callback
+   path, explicit `status=success`, login action/type and non-empty
+   `request_token`.
+3. Inject a location bridge that posts `window.location.href` to React Native
+   on page load, History API navigation, popstate and hashchange.
+4. Probe that bridge once per second while the auth WebView is mounted, in
+   addition to `onShouldStartLoadWithRequest`, `onLoadStart`,
+   `onLoadProgress`, `onLoadEnd`, and `onNavigationStateChange`.
+5. Unmount the hosted callback page immediately after capture and show a
+   native finalization state. Legacy network calls time out after 30 seconds
+   and surface an error instead of displaying an unbounded spinner.
+
+## 2026-08-28 — Stable lifecycle automation selectors
+
+Broker selection and Manage Connections expose stable test IDs for broker
+cards, status indicators, re-authentication and removal. Detox broker-flow
+tests no longer swallow missing controls in catch blocks: an absent broker
+card or modal is a hard failure. Backend lifecycle contracts and the opt-in
+read-only Zerodha/DefinEdge switch canary are owned by aq_backend_github.
+After both staging sessions are provisioned, the opt-in
+`e2e/specs/brokerLifecycleCanary.test.js` verifies their independent states
+through the physical Android rendering boundary. Real DefinEdge OTP and ICICI
+OAuth completion still require the designated synthetic account; credentials
+are never stored in this repository.
+
+`hasProcessedCallback` remains the single-use-token guard across every
+capture path. Failed OTP/status callbacks still close without token exchange.

@@ -2,6 +2,8 @@ import React from "react";
 import { View, StyleSheet, Dimensions } from "react-native";
 import { WebView } from "react-native-webview";
 
+import { designColor } from '../../../design/literalTokens';
+
 const { width } = Dimensions.get("window");
 
 const TradingViewTicker = () => {
@@ -29,7 +31,7 @@ const TradingViewTicker = () => {
             "height": 60,
             "locale": "en",
             "colorTheme": "light",
-            "trendLineColor": "#37a6ef",
+            "trendLineColor": "${designColor('37a6ef')}",
             "underLineColor": "rgba(55, 166, 239, 0.15)",
             "isTransparent": true,
             "autosize": true,

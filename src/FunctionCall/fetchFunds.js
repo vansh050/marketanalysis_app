@@ -2,6 +2,10 @@ import axios from 'axios';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
 import Config from 'react-native-config';
+import {normalizeFundsResponse} from '../utils/normalizeFundsResponse';
+import {getTenantSubdomain} from '../utils/variantHelper';
+
+const BROKER_FUNDS_TIMEOUT_MS = 10000;
 
 export const fetchFunds = async (
   broker,
@@ -162,17 +166,28 @@ export const fetchFunds = async (
     const response = await axios.post(url, data, {
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain':
-          Config.REACT_APP_HEADER_NAME || '',
+        'X-Advisor-Subdomain': getTenantSubdomain(),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
         ),
       },
+      timeout: BROKER_FUNDS_TIMEOUT_MS,
     });
 
-    return response.data;
+    // DefinEdge currently returns `availableCash` at the top level (and
+    // `raw.cash` as a fallback), while screens consume
+    // `data.availablecash`. Normalize broker variants before storing them in
+    // TradeContext so a real balance is not displayed as zero.
+    return normalizeFundsResponse(response.data);
   } catch (error) {
+    if (error?.code === 'ECONNABORTED' || error?.code === 'ETIMEDOUT') {
+      return {
+        status: 2,
+        error_code: 'BROKER_TIMEOUT',
+        message: `${broker} is temporarily unavailable. Please try again.`,
+      };
+    }
     return error?.response?.data;
   }
 };

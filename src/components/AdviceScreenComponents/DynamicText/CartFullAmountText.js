@@ -2,6 +2,8 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Text } from 'react-native';
 import useLTPStore from './useLtpStore'; // adjust path as needed
 
+import { designColor, designFont } from '../../../design/literalTokens';
+
 const CartFullAmountText = ({
   stockDetails = [],
   textStyle = {},
@@ -68,12 +70,11 @@ const CartFullAmountText = ({
     return (
       <Text
         style={{
-          fontFamily: 'Satoshi-Bold',
+          fontFamily: designFont('Satoshi-Bold'),
           fontSize: 16,
-          color: '#780ff4',
+          color: designColor('780ff4'),
         }}
-      >
-        ₹{totalAmount}
+      >₹{totalAmount}
       </Text>
     );
   }
@@ -82,12 +83,11 @@ const CartFullAmountText = ({
     return (
       <Text
         style={{
-          fontFamily: 'Poppins-Medium',
+          fontFamily: designFont('Poppins-Medium'),
           fontSize: 15,
-          color: '#000000ff',
+          color: designColor('000000ff'),
         }}
-      >
-        ₹{totalAmount}
+      >₹{totalAmount}
       </Text>
     );
   }

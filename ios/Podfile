@@ -5,7 +5,10 @@ require Pod::Executable.execute_command('node', ['-p',
     {paths: [process.argv[1]]},
   )', __dir__]).strip
 
-platform :ios, min_ios_version_supported
+# Revopush CodePush requires iOS 15.5 (including its SSZipArchive dependency).
+# Keep this explicit so React Native's lower template default cannot make
+# clean CI pod installs fail before archive/signing.
+platform :ios, '15.5'
 prepare_react_native_project!
 
 linkage = ENV['USE_FRAMEWORKS']

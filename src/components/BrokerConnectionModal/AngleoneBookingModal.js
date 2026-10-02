@@ -3,12 +3,13 @@ import {StyleSheet, Dimensions} from 'react-native';
 import {getAuth} from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
 import axios from 'axios';
+import { designColor } from '../../design/literalTokens';
 const {height: screenHeight} = Dimensions.get('window');
 import Config from 'react-native-config';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import AngleOneConnectUI from '../../UIComponents/BrokerConnectionUI/AngelOneConnectUI';
 import { useTrade } from '../../screens/TradeContext';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import {
@@ -64,7 +65,7 @@ const AngleOneBookingTrueSheet = ({
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -130,7 +131,7 @@ const AngleOneBookingTrueSheet = ({
           url: `${server.server.baseUrl}api/user/connect-broker`,
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -166,7 +167,7 @@ const AngleOneBookingTrueSheet = ({
               data: JSON.stringify(newBrokerData),
               headers: {
                 'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+                'X-Advisor-Subdomain': getTenantSubdomain(configData),
                 'aq-encrypted-key': generateToken(
                   Config.REACT_APP_AQ_KEYS,
                   Config.REACT_APP_AQ_SECRET,
@@ -301,7 +302,7 @@ const styles = StyleSheet.create({
     margin: 0,
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 10,
@@ -317,7 +318,7 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 250,
     alignSelf: 'center',
-    backgroundColor: '#f1f4f8',
+    backgroundColor: designColor('f1f4f8'),
     marginBottom: 5,
     marginTop: 20,
   },

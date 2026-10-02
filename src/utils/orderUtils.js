@@ -11,6 +11,8 @@ import {
     isOrderCancelled,
 } from './orderStatusUtils';
 
+import { designColor } from '../design/literalTokens';
+
 export const isToday = (date) => {
     const today = new Date();
     const inputDate = new Date(date);
@@ -55,13 +57,13 @@ export const formatOrderDate = (isoDate) => {
  */
 export const getStatusColors = (status) => {
     if (isOrderSuccess(status)) {
-        return { color1: '#F0FFE8', color2: '#16A085' };
+        return { color1: designColor('f0ffe8'), color2: designColor('16a085') };
     }
     if (isOrderPending(status)) {
-        return { color1: '#F9F0E6', color2: '#D49244' };
+        return { color1: designColor('f9f0e6'), color2: designColor('d49244') };
     }
     if (isOrderCancelled(status)) {
-        return { color1: '#F3F4F6', color2: '#6B7280' };
+        return { color1: designColor('f3f4f6'), color2: designColor('6b7280') };
     }
-    return { color1: '#FDEAEC', color2: '#EA2D3F' };
+    return { color1: designColor('fdeaec'), color2: designColor('ea2d3f') };
 };

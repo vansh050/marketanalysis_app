@@ -14,6 +14,8 @@ import {ChevronLeft, XIcon} from 'lucide-react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 
 const DhanOAuthUI = ({
@@ -23,6 +25,7 @@ const DhanOAuthUI = ({
   handleWebViewNavigationStateChange,
   loading,
   onSwitchToManual,
+  switchLabel = 'Enter Access Token manually instead',
 }) => {
   const webViewRef = useRef(null);
   const insets = useSafeAreaInsets();
@@ -56,22 +59,22 @@ const DhanOAuthUI = ({
       <View style={styles.fullScreen}>
         <View style={[styles.header, {paddingTop: insets.top}]}>
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-            <ChevronLeft size={24} color="#000" />
+            <ChevronLeft size={24} color={designColor('000')} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Connect to Dhan</Text>
           <TouchableOpacity onPress={onClose} style={styles.headerButton}>
-            <XIcon size={24} color="#000" />
+            <XIcon size={24} color={designColor('000')} />
           </TouchableOpacity>
         </View>
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#0056B7" />
+            <ActivityIndicator size="large" color={designColor('0056b7')} />
             <Text style={styles.loadingText}>Connecting Dhan...</Text>
           </View>
         ) : (
           // Opt 2: WebView mounts in parallel with the modal so its
           // Chromium instance is warm by the time the URL resolves.
-          <View style={styles.webViewWrap}>
+          (<View style={styles.webViewWrap}>
             <WebView
               ref={webViewRef}
               source={{uri: authUrl}}
@@ -102,16 +105,16 @@ const DhanOAuthUI = ({
             />
             {overlayVisible && (
               <View style={styles.loadingOverlay} pointerEvents="none">
-                <ActivityIndicator size="large" color="#0056B7" />
+                <ActivityIndicator size="large" color={designColor('0056b7')} />
                 <Text style={styles.loadingText}>Loading Dhan login...</Text>
               </View>
             )}
-          </View>
+          </View>)
         )}
         {onSwitchToManual && (
           <TouchableOpacity onPress={onSwitchToManual} style={styles.manualLink}>
             <Text style={styles.manualLinkText}>
-              Enter Access Token manually instead
+              {switchLabel}
             </Text>
           </TouchableOpacity>
         )}
@@ -124,7 +127,7 @@ const styles = StyleSheet.create({
   fullScreen: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   header: {
     height: 56,
@@ -133,18 +136,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    backgroundColor: '#fff',
+    borderBottomColor: designColor('f0f0f0'),
+    backgroundColor: designColor('fff'),
   },
   headerButton: {
     padding: 12,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: designColor('f0f0f0'),
     borderRadius: 20,
   },
   headerTitle: {
     fontSize: 16,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#000',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('000'),
   },
   webViewWrap: {
     flex: 1,
@@ -167,20 +170,20 @@ const styles = StyleSheet.create({
   },
   loadingText: {
     marginTop: 10,
-    color: '#6B7280',
-    fontFamily: 'Poppins-Regular',
+    color: designColor('6b7280'),
+    fontFamily: designFont('Poppins-Regular'),
     fontSize: 14,
   },
   manualLink: {
     paddingVertical: 14,
     alignItems: 'center',
     borderTopWidth: 1,
-    borderTopColor: '#f0f0f0',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('f0f0f0'),
+    backgroundColor: designColor('fff'),
   },
   manualLinkText: {
-    color: '#0056B7',
-    fontFamily: 'Poppins-Regular',
+    color: designColor('0056b7'),
+    fontFamily: designFont('Poppins-Regular'),
     fontSize: 13,
     textDecorationLine: 'underline',
   },

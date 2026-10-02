@@ -4,6 +4,8 @@ import axios from 'axios';
 import { io } from "socket.io-client";
 import server from '../../utils/serverConfig';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 // Create a singleton WebSocket manager
 const WebSocketManager = (() => {
   let instance = null;
@@ -163,22 +165,22 @@ const styles = StyleSheet.create({
  
     padding:0,
     margin:0,
-    fontFamily:'Satoshi-Bold',
+    fontFamily:designFont('Satoshi-Bold'),
     color: "black",
   },
   itemContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#E6E6E6',
+    borderBottomColor: designColor('e6e6e6'),
   },
   stockName: {
     fontSize: 14,
     color: 'black',
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     textAlign: 'left',
   },
   chartContainer: {
@@ -200,15 +202,15 @@ const styles = StyleSheet.create({
   },
   price: {
     fontSize: 14,
-    color: '#A0A0A0',
+    color: designColor('a0a0a0'),
     textAlign: 'center',
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
   },
   change: {
     fontSize: 12,
-    color: '#fff',
+    color: designColor('fff'),
     textAlign: 'center',
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
   },
   header: {
     flexDirection: 'row',
@@ -219,7 +221,7 @@ const styles = StyleSheet.create({
 
   headerTitle: {
     fontSize: 20,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     marginBottom: 10,
     color: 'black',
   },

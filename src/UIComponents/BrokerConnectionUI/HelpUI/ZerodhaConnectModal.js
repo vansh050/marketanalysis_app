@@ -9,8 +9,9 @@ import Toast from 'react-native-toast-message';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import ZerodhaConnectUI from '../../UIComponents/BrokerConnectionUI/ZerodhaConnectUI';
 import {useTrade} from '../../../screens/TradeContext';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import {getAccountEmail} from '../../../utils/accountEmail';
+import { designFont } from '../../../design/literalTokens';
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 const commonHeight = screenHeight * 0.06;
 
@@ -58,12 +59,12 @@ const ZerodhaConnectModal = ({
         color: 'black',
         fontSize: 12,
         fontWeight: 0,
-        fontFamily: 'Poppins-Medium', // Customize your font
+        fontFamily: designFont('Poppins-Medium'), // Customize your font
       },
       text2Style: {
         color: 'black',
         fontSize: 13,
-        fontFamily: 'Poppins-Regular', // Customize your font
+        fontFamily: designFont('Poppins-Regular'), // Customize your font
       },
     });
   };
@@ -82,7 +83,7 @@ const ZerodhaConnectModal = ({
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,

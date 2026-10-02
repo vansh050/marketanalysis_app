@@ -1,5 +1,4 @@
-'use client';
-
+'use client';;
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -17,6 +16,8 @@ import {
   FlatList,
   Image,
   Modal,
+  ActivityIndicator,
+  Linking,
 } from 'react-native';
 import { getAuth } from '@react-native-firebase/auth';
 import LinearGradient from 'react-native-linear-gradient';
@@ -48,6 +49,7 @@ import useHomeScreenModals from './hooks/useHomeScreenModals';
 import useHomeMarketSummary from './hooks/useHomeMarketSummary';
 import useHomePlanSummary from './hooks/useHomePlanSummary';
 import { useComponent } from '../../design/useDesign';
+import {getAdvisorContentProfile} from '../../utils/advisorContentProfile';
 // styles import retained — allTabData JSX subtrees reference styles from the
 // container's scope (e.g. styles.StockTitle for section headers). The
 // presentation imports the same styles file independently.
@@ -59,8 +61,7 @@ import notifee, {
   AndroidStyle,
 } from '@notifee/react-native';
 import WebinarReminderHandler from '../../FunctionCall/services/WebinarReminderHandler';
-import { ActivityIndicator } from 'react-native';
-
+import { tradeAlertAndroidBlock } from '../../FunctionCall/services/TradeAlertChannel';
 import server from '../../utils/serverConfig';
 import axios from 'axios';
 
@@ -68,7 +69,7 @@ import { useSocialProof } from '../../components/SocialProofProvider';
 import { useTrade } from '../TradeContext';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { useConfig } from '../../context/ConfigContext';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import APP_VARIANTS from '../../utils/Config';
 import Icon1 from 'react-native-vector-icons/Fontisto';
 import moment from 'moment';
@@ -81,12 +82,31 @@ import AlphaQuarkBanner from '../../components/HomeScreenComponents/AlphaQuarkBa
 import KnowledgeHub from '../../components/HomeScreenComponents/KnowledgeHub';
 import ModelPortfolioScreen from '../Drawer/ModelPortfolioScreen';
 import UpdateAppModal, {checkForAppUpdate} from '../../UpdateAppModal';
-import {getAccountEmail, getAccountEmailAsync} from '../../utils/accountEmail';
+import {
+  getAccountEmailAsync,
+  getAccountDisplayName,
+  useAccountEmail,
+} from '../../utils/accountEmail';
+import {subscribeToTradeLiveActivityToken} from '../../services/TradeLiveActivity';
+import NbaBanner from '../../components/designContainers/NbaBannerContainer';
+import PortfolioHealthSheet from '../../components/designContainers/PortfolioHealthSheetContainer';
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 const { height: screenHeight, width: screenWidth } = Dimensions.get('window');
 const selectedVariant = Config?.APP_VARIANT || 'rgxresearch';
 
 const pdfcicon = require('../../assets/pdf.png');
+
+const formatProvisionalDeadline = value => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
+};
 
 // Ethical List Configuration (parity with web)
 const ETHICAL_CONFIG = {
@@ -103,6 +123,7 @@ const ETHICAL_CONFIG = {
 };
 
 const HomeScreen = ({ }) => {
+  const advisorContent = getAdvisorContentProfile();
   const {
     stockRecoNotExecutedfinal,
     recommendationStockfinal,
@@ -110,6 +131,7 @@ const HomeScreen = ({ }) => {
     getModelPortfolioStrategyDetails,
     getAllTrades,
     modelPortfolioStrategyfinal,
+    modelPortfolioEntitlementsStatus,
     rejectedTrades,
     ignoredTrades,
     getUserDeatils,
@@ -133,21 +155,72 @@ const HomeScreen = ({ }) => {
 
   // Get dynamic config from API
   const config = useConfig();
-  const themeColor = config?.themeColor || '#0056B7';
-  const mainColor = config?.mainColor || '#0056B7';
-  const secondaryColor = config?.secondaryColor || '#F0F0F0';
-  const gradient1 = config?.gradient1 || '#0056B7';
-  const gradient2 = config?.gradient2 || '#002651';
+  const themeColor = config?.themeColor || designColor('0056b7');
+  const mainColor = config?.mainColor || designColor('0056b7');
+  const secondaryColor = config?.secondaryColor || designColor('f0f0f0');
+  const gradient1 = config?.gradient1 || designColor('0056b7');
+  const gradient2 = config?.gradient2 || designColor('002651');
 
   const auth = getAuth();
   const user = auth.currentUser;
-  const userEmail = getAccountEmail();
+  // Avoid capturing a cold-start null for Publisher reconciliation.
+  const userEmail = useAccountEmail();
+  const provisionalHeaderName = configData?.config?.REACT_APP_HEADER_NAME;
+  const [provisionalMandate, setProvisionalMandate] = useState(null);
+  const [provisionalBannerDismissed, setProvisionalBannerDismissed] = useState(false);
+
+  // Provisional entitlement lookup belongs to the Home container. Design
+  // variants receive only display-ready data and a dismiss action.
+  useEffect(() => {
+    let active = true;
+    setProvisionalMandate(null);
+    setProvisionalBannerDismissed(false);
+    if (!userEmail) return undefined;
+
+    axios
+      .get(
+        `${server.server.baseUrl}api/subscription-check/provisional/${encodeURIComponent(userEmail)}`,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Advisor-Subdomain': provisionalHeaderName,
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
+          },
+        },
+      )
+      .then(response => {
+        if (!active) return;
+        const payload = response?.data || {};
+        const mandates = payload.provisional || payload.mandates || payload.data || [];
+        const first = Array.isArray(mandates) ? mandates[0] : mandates;
+        if (
+          first &&
+          (first.mandate_status === 'pending' || first.entitlement_mode === 'provisional')
+        ) {
+          setProvisionalMandate(first);
+        }
+      })
+      .catch(() => {
+        // Missing endpoint / no mandate is intentionally an invisible state.
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [provisionalHeaderName, userEmail]);
   // Resolve a displayable user name (alphanomy variant uses this for the
   // header greeting). Backend-stored `userDetails.name` is preferred (full
   // legal name); Firebase `user.displayName` is the fallback (Google /
   // Apple sign-in surface). Email-derived first-name remains the final
   // fallback, handled inside the variant presentation.
-  const userName = userDetails?.name || user?.displayName || '';
+  // getAccountDisplayName, not a raw `||` chain: it rejects the "Apple User"
+  // placeholder at every level, so an Apple sign-in whose Firebase profile
+  // carries that placeholder falls through to the email local-part instead of
+  // greeting the customer as "Apple User".
+  const userName = getAccountDisplayName(userDetails?.name, user?.displayName);
   const [isLoading, setIsLoading] = useState(true);
   // Phase E prep (2026-05-01): tab + 7-overlay state consolidated behind a
   // single hook with backward-compat boolean shims; modal visibility
@@ -399,6 +472,43 @@ const HomeScreen = ({ }) => {
     handleUserDataAndFcm();
   }, [user]);
 
+  useEffect(() => {
+    if (Platform.OS !== 'ios' || config?.tradeLiveActivityEnabled !== true) {
+      return undefined;
+    }
+    return subscribeToTradeLiveActivityToken(async ({token}) => {
+      if (!token) return;
+      try {
+        const [accountEmail, fcmToken] = await Promise.all([
+          getAccountEmailAsync(),
+          messaging().getToken(),
+        ]);
+        if (!accountEmail || !fcmToken) return;
+        await axios.post(
+          `${server.server.baseUrl}api/devices/live-activity`,
+          {
+            user_email: accountEmail,
+            app: 'alphab2b',
+            device_token: String(fcmToken),
+            live_activity_token: token,
+          },
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': getTenantSubdomain(configData),
+              'aq-encrypted-key': generateToken(
+                Config.REACT_APP_AQ_KEYS,
+                Config.REACT_APP_AQ_SECRET,
+              ),
+            },
+          },
+        );
+      } catch (error) {
+        console.warn('[LiveActivity] token registration failed:', error?.message || error);
+      }
+    });
+  }, [config?.tradeLiveActivityEnabled, configData?.config?.REACT_APP_HEADER_NAME, user]);
+
   useFocusEffect(
     React.useCallback(() => {
       const handleBackPress = () => {
@@ -442,7 +552,15 @@ const HomeScreen = ({ }) => {
         if (updateCheckDone.current) return;
 
         try {
-          const result = await checkForAppUpdate(config?.latestAppVersion);
+          // Prefer the platform-specific floor, matching UpdateAppModal's
+          // pickPlatformVersion(). Reading config.latestAppVersion directly
+          // ignores latestAppVersionAndroid / latestAppVersionIos, which exist
+          // precisely so Android can be forced while iOS is still in review.
+          const platformKey =
+            Platform.OS === 'ios' ? 'latestAppVersionIos' : 'latestAppVersionAndroid';
+          const serverVersion =
+            config?.[platformKey] || config?.latestAppVersion || undefined;
+          const result = await checkForAppUpdate(serverVersion);
           if (result.updateAvailable) {
             setShowUpdateModal(true);
             updateCheckDone.current = true;
@@ -555,6 +673,22 @@ const HomeScreen = ({ }) => {
         return;
       }
 
+      const sdkEventType = remoteMessage?.data?.event_type || '';
+      if (sdkEventType === 'advice.sent' || sdkEventType.startsWith('order.')) {
+        await notifee.displayNotification({
+          title: remoteMessage?.notification?.title || 'Trade update',
+          body: remoteMessage?.notification?.body || 'Open the app to review the broker-confirmed status.',
+          data: remoteMessage.data,
+          android: await tradeAlertAndroidBlock({pressAction: {id: 'default'}, color: designColor('e8210c')}),
+          ios: {
+            sound: 'trade_alert.wav',
+            interruptionLevel: remoteMessage?.data?.time_sensitive === 'true' ? 'timeSensitive' : 'active',
+          },
+        });
+        setTimeout(() => { isNotificationTriggered.current = false; }, 500);
+        return;
+      }
+
       handleNotification(remoteMessage);
 
       const title =
@@ -577,19 +711,29 @@ const HomeScreen = ({ }) => {
           );
           break;
         case 'news_alert':
-          handleNewsNotification(
-            title,
-            body,
-            notificationType,
-            image,
-            description,
-          );
+          try {
+            await handleNewsNotification(
+              title,
+              body,
+              notificationType,
+              image,
+              description,
+            );
+          } catch (error) {
+            console.error('Error displaying news notification:', error);
+          }
           break;
         case 'New Rebalance':
           handleRebalanceNotification(title, body, notificationType);
           break;
         case 'reco_message':
           await handleRecoMessageNotification(title, body);
+          break;
+        case 'trade_modified':
+          // Trade coordinate edits (SL/TSL/Target) — push sent by ccxt
+          // advice/edit/comms.py (2026-08-11). Generic heads-up; background
+          // delivery is native via the notification block.
+          await displayNotification(title, body, notificationType);
           break;
         default:
           console.warn('Foreground: Unrecognized notification type');
@@ -612,16 +756,27 @@ const HomeScreen = ({ }) => {
     if (!title || !body) return;
 
     console.log('News Notification:', title, body);
+    const android = {
+      channelId: 'notifications',
+      importance: AndroidImportance.HIGH,
+      pressAction: { id: 'default' },
+      color: designColor('e8210c'),
+    };
+
+    // Communication Centre notifications do not require an image. Notifee
+    // rejects a BIGPICTURE style when `picture` is undefined/null, which
+    // prevented image-less news alerts from appearing while the app was open.
+    if (typeof image === 'string' && image.trim().length > 0) {
+      android.style = {
+        type: AndroidStyle.BIGPICTURE,
+        picture: image,
+      };
+    }
+
     const notificationConfig = {
       title: `${title}`,
-      body: `<b style="color: #4caf50; font-size: 12px;">${description}</b>`,
-      android: {
-        channelId: 'default',
-        style: { type: AndroidStyle.BIGPICTURE, picture: `${image}` },
-        importance: AndroidImportance.HIGH,
-        pressAction: { id: 'default' },
-        color: '#E8210C',
-      },
+      body: `${description || body}`,
+      android,
     };
 
     await notifee.displayNotification(notificationConfig);
@@ -636,10 +791,10 @@ const HomeScreen = ({ }) => {
       title: `${title || 'New message from your manager'}`,
       body: `${body || ''}`,
       android: {
-        channelId: 'default',
+        channelId: 'notifications',
         importance: AndroidImportance.HIGH,
         pressAction: { id: 'default' },
-        color: '#045DFF',
+        color: designColor('045dff'),
       },
     });
   };
@@ -689,15 +844,28 @@ const HomeScreen = ({ }) => {
     if (!title || !body) return;
 
     console.log('General Notification:', title, body);
+    // Trade advice (bespoke / rebalance / trade_modified / reco_message)
+    // rings with the bundled trade_alert.wav via the dedicated channel
+    // (client req 2026-08-13 #1); everything else keeps the default sound.
+    const tradeAlert = [
+      'bespoke',
+      'New Rebalance',
+      'trade_modified',
+      'reco_message',
+    ].includes(notificationType);
+    const android = tradeAlert
+      ? await tradeAlertAndroidBlock({ pressAction: { id: 'default' }, color: designColor('e8210c') })
+      : {
+          channelId: 'default',
+          importance: AndroidImportance.HIGH,
+          pressAction: { id: 'default' },
+          color: designColor('e8210c'),
+        };
     await notifee.displayNotification({
       title,
       body,
-      android: {
-        channelId: 'default',
-        importance: AndroidImportance.HIGH,
-        pressAction: { id: 'default' },
-        color: '#E8210C',
-      },
+      android,
+      ios: tradeAlert ? { sound: 'trade_alert.wav' } : undefined,
     });
   };
 
@@ -722,8 +890,9 @@ const HomeScreen = ({ }) => {
         channelId: 'default',
         importance: AndroidImportance.HIGH,
         pressAction: { id: 'default' },
-        color: '#E8210C',
+        color: designColor('e8210c'),
       },
+      ios: { sound: 'trade_alert.wav' },
     };
 
     await notifee.displayNotification(notificationConfig);
@@ -743,8 +912,9 @@ const HomeScreen = ({ }) => {
           channelId: 'default',
           importance: AndroidImportance.HIGH,
           pressAction: { id: 'default' },
-          color: '#E8210C',
+          color: designColor('e8210c'),
         },
+        ios: { sound: 'trade_alert.wav' },
       });
 
       // Optionally refresh trades if needed
@@ -759,10 +929,24 @@ const HomeScreen = ({ }) => {
 
   useEffect(() => {
     async function createChannel() {
+      // Channel id 'notifications' — a NEW id chosen 2026-08-14 (ported
+      // from markup_app). Android permanently ignores sound/vibration
+      // changes on EXISTING channel records (AOSP
+      // PreferencesHelper.createNotificationChannel copies only
+      // name/description/group/importance on update, and even
+      // delete+recreate keeps the old record's sound — soft-delete). The
+      // legacy 'default' channel was created without `sound` and is stuck
+      // silent on every installed device, so all push display sites moved
+      // to this fresh channel, which is created WITH sound from day one.
+      // The FCM background path follows via
+      // `messaging_android_notification_channel_id` in firebase.json.
       await notifee.createChannel({
-        id: 'default',
-        name: 'Default Channel',
+        id: 'notifications',
+        name: 'Notifications',
         importance: AndroidImportance.HIGH,
+        sound: 'default',
+        vibration: true,
+        vibrationPattern: [300, 500],
       });
     }
 
@@ -773,33 +957,30 @@ const HomeScreen = ({ }) => {
     // Set Android navigation bar styling
     if (Platform.OS === 'android') {
       const { StatusBar } = require('react-native');
-      StatusBar.setBackgroundColor('#000000', true);
+      StatusBar.setBackgroundColor(designColor('000000'), true);
       StatusBar.setBarStyle('light-content', true);
     }
   }, []);
 
-  const onRefresh = () => {
+  const onRefresh = async () => {
     setIsRefreshing(true);
-    getAllFunds();
-    getUserDeatils();
-    getAllTrades();
-    fetchBlogs();
-    fetchPdf();
-    fetchVideos();
-    getModelPortfolioStrategyDetails();
-    getAllBestPerformers();
-    // useHomePlanSummary fetches once on mount and doesn't depend on any
-    // value pull-to-refresh changes, so a plan deleted/unpublished on the
-    // admin dashboard after that initial fetch kept showing on Home
-    // indefinitely, even across refresh (2026-07-16). Force it explicitly.
-    refetchPlanSummary();
-    // Emit the refresh event
-
-    //eventEmitter.emit('refreshEvent', { userEmail });
-
-    setTimeout(() => {
+    try {
+      await Promise.allSettled([
+        getAllFunds(),
+        getUserDeatils(),
+        getAllTrades(),
+        fetchBlogs(),
+        fetchPdf(),
+        fetchVideos(),
+        getModelPortfolioStrategyDetails(),
+        getAllBestPerformers(),
+        // useHomePlanSummary fetches once on mount and doesn't depend on any
+        // value pull-to-refresh changes, so force it explicitly.
+        refetchPlanSummary(),
+      ]);
+    } finally {
       setIsRefreshing(false);
-    }, 1000);
+    }
   };
 
   const [isNotificationPermissionGranted, setIsNotificationPermissionGranted] =
@@ -921,7 +1102,7 @@ const HomeScreen = ({ }) => {
     <View style={styles.emptyStateWrapper}>
       <View style={styles.emptyStateContainer}>
         <View style={styles.emptyStateIconContainer}>
-          <BookOpen size={32} color="#8B45FF" />
+          <BookOpen size={32} color={designColor('8b45ff')} />
         </View>
         <Text style={styles.emptyStateTitle}>No Blogs Available</Text>
         <Text style={styles.emptyStateText}>
@@ -937,7 +1118,7 @@ const HomeScreen = ({ }) => {
     <View style={styles.emptyStateWrapper}>
       <View style={styles.emptyStateContainer}>
         <View style={styles.emptyStateIconContainer}>
-          <Video size={32} color="#8B45FF" />
+          <Video size={32} color={designColor('8b45ff')} />
         </View>
         <Text style={styles.emptyStateTitle}>No Videos Available</Text>
         <Text style={styles.emptyStateText}>
@@ -953,7 +1134,7 @@ const HomeScreen = ({ }) => {
     <View style={styles.emptyStateWrapper}>
       <View style={styles.emptyStateContainer}>
         <View style={styles.emptyStateIconContainer}>
-          <FileText size={32} color="#8B45FF" />
+          <FileText size={32} color={designColor('8b45ff')} />
         </View>
         <Text style={styles.emptyStateTitle}>No PDF Resources Yet</Text>
         <Text style={styles.emptyStateText}>
@@ -1075,12 +1256,12 @@ const HomeScreen = ({ }) => {
         color: 'black',
         fontSize: 11,
         fontWeight: 0,
-        fontFamily: 'Poppins-Medium',
+        fontFamily: designFont('Poppins-Medium'),
       },
       text2Style: {
         color: 'black',
         fontSize: 12,
-        fontFamily: 'Poppins-Regular',
+        fontFamily: designFont('Poppins-Regular'),
       },
     });
   };
@@ -1179,7 +1360,7 @@ const HomeScreen = ({ }) => {
           style={styles.downloadButton}
           onPress={() => handleDirectDownload(item._id)}
           disabled={isLoading}>
-          <Download size={25} color={isLoading ? '#ccc' : 'black'} />
+          <Download size={25} color={isLoading ? designColor('ccc') : 'black'} />
         </TouchableOpacity>
       </View>
     );
@@ -1359,13 +1540,13 @@ const HomeScreen = ({ }) => {
                               fetchEthicalList();
                             }}>
                             <LinearGradient
-                              colors={['#000000', '#3A3A3A']}
+                              colors={[designColor('000000'), designColor('3a3a3a')]}
                               start={{ x: 0, y: 0 }}
                               end={{ x: 1, y: 1 }}
                               style={{
                                 borderRadius: 20,
                                 borderWidth: 1,
-                                borderColor: '#212121',
+                                borderColor: designColor('212121'),
                                 flexDirection: 'row',
                                 elevation: 0,
                                 paddingHorizontal: 8,
@@ -1375,8 +1556,8 @@ const HomeScreen = ({ }) => {
                               }}>
                               <Text
                                 style={{
-                                  color: '#fff',
-                                  fontFamily: 'Satoshi-Bold',
+                                  color: designColor('fff'),
+                                  fontFamily: designFont('Satoshi-Bold'),
                                   fontSize: 14,
                                 }}>
                                 {ETHICAL_CONFIG.buttonText}
@@ -1414,18 +1595,17 @@ const HomeScreen = ({ }) => {
   // ClientList subscription from turning a browseable model into a rebalance
   // card on Home.
   const hasActiveModelPortfolio = filteredAndSortedStrategies.length > 0;
+  const hasConfirmedNoModelPortfolio =
+    modelPortfolioEntitlementsStatus === 'confirmedEmpty';
   const hasActiveBespokeRecommendations =
     !!planList && (stockRecoNotExecutedfinal?.length || 0) > 0;
-  const hasActiveContent =
-    hasActiveModelPortfolio || hasActiveBespokeRecommendations;
-
   // Data for All Tab
   // If user has active subscriptions (recos/rebalances), show those first, plans after.
   // Otherwise show plans first to encourage subscription.
   const allTabData = [
 
     // ── Active content first (only when user has subscriptions) ──
-    ...(hasActiveContent && filteredAndSortedStrategies.length > 0
+    ...(hasActiveModelPortfolio
       ? [
         {
           key: 'RebalanceAdvicesTop',
@@ -1462,7 +1642,9 @@ const HomeScreen = ({ }) => {
       ]
       : []),
 
-    ...(hasActiveContent && stockRecoNotExecutedfinal?.length > 0
+    ...(!advisorContent.homeFeedRestructure &&
+      hasActiveBespokeRecommendations &&
+      stockRecoNotExecutedfinal?.length > 0
       ? [
         {
           key: 'StockAdvicesTop',
@@ -1492,7 +1674,7 @@ const HomeScreen = ({ }) => {
                 <StockAdvices
                   userEmail={userEmail}
                   type={'home'}
-                  tradeButtonColor="#3E3EFC"
+                  tradeButtonColor={designColor('3e3efc')}
                 />
               </View>
             </View>
@@ -1502,7 +1684,9 @@ const HomeScreen = ({ }) => {
       : []),
 
     // ── Plans section (hidden when user has active subscriptions) ──
-    ...(!hasActiveContent && config?.modelPortfolioEnabled === true
+    ...(!hasActiveModelPortfolio &&
+      hasConfirmedNoModelPortfolio &&
+      config?.modelPortfolioEnabled === true
       ? [
         {
           key: 'AllPlanDetailsmp',
@@ -1539,7 +1723,76 @@ const HomeScreen = ({ }) => {
         },
       ]
       : []),
-    ...(!hasActiveContent && configData?.config?.REACT_APP_BESPOKE_PLANS_STATUS === true
+    ...(!hasActiveModelPortfolio && !hasConfirmedNoModelPortfolio
+      ? [
+        {
+          key: 'ModelPortfolioEntitlementStatus',
+          component: (
+            <View
+              style={{
+                marginHorizontal: 15,
+                marginTop: 18,
+                padding: 16,
+                borderRadius: 10,
+                backgroundColor: designColor('fff'),
+                alignItems: 'center',
+              }}>
+              {modelPortfolioEntitlementsStatus === 'identityMismatch' ? (
+                // The server proved a different customer than this device
+                // asked for, and the auth interceptor has already replayed the
+                // request once with a freshly minted token. Retrying again
+                // cannot change either identity, so offer the only action that
+                // can: sign out and sign back in as this account. Showing
+                // "Retry" here is what left a customer stuck on 2026-09-18.
+                (<>
+                  <Text style={styles.StockTitle}>
+                    Signed in as a different account
+                  </Text>
+                  <Text
+                    style={[
+                      styles.StockTitlebelow,
+                      {marginTop: 6, textAlign: 'center'},
+                    ]}>
+                    Your portfolios are linked to another login. Sign out and
+                    sign in again to see them.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate('More')}
+                    style={[styles.viewAll, {borderColor: mainColor, marginTop: 10}]}>
+                    <Text style={[styles.viewAllText, {color: mainColor}]}>
+                      Go to account settings
+                    </Text>
+                  </TouchableOpacity>
+                </>)
+              ) : modelPortfolioEntitlementsStatus === 'error' ? (
+                <>
+                  <Text style={styles.StockTitle}>
+                    Portfolio recommendations could not be refreshed
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => getModelPortfolioStrategyDetails()}
+                    style={[styles.viewAll, {borderColor: mainColor, marginTop: 10}]}>
+                    <Text style={[styles.viewAllText, {color: mainColor}]}>
+                      Retry
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <ActivityIndicator size="small" color={mainColor} />
+                  <Text style={[styles.StockTitlebelow, {marginTop: 8}]}>
+                    Checking portfolio recommendations…
+                  </Text>
+                </>
+              )}
+            </View>
+          ),
+        },
+      ]
+      : []),
+    ...(!advisorContent.homeFeedRestructure &&
+      !hasActiveBespokeRecommendations &&
+      configData?.config?.REACT_APP_BESPOKE_PLANS_STATUS === true
       ? [
         {
           key: 'AllPlanDetailsbespoke',
@@ -1582,7 +1835,7 @@ const HomeScreen = ({ }) => {
       : []),
 
     // Rebalance advices (only if not already shown at top)
-    ...(!hasActiveContent && filteredAndSortedStrategies.length > 0
+    ...(!hasActiveModelPortfolio && filteredAndSortedStrategies.length > 0
       ? [
         {
           key: 'RebalanceAdvices',
@@ -1631,13 +1884,13 @@ const HomeScreen = ({ }) => {
                 }}
               >
                 <LinearGradient
-                  colors={['#000000', '#3A3A3A']}
+                  colors={[designColor('000000'), designColor('3a3a3a')]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 1 }}
                   style={{
                     borderRadius: 20,
                     borderWidth: 1,
-                    borderColor: '#212121',
+                    borderColor: designColor('212121'),
                     flexDirection: 'row',
                     elevation: 0,
                     paddingHorizontal: 10,
@@ -1647,8 +1900,8 @@ const HomeScreen = ({ }) => {
                   }}>
                   <Text
                     style={{
-                      color: '#fff',
-                      fontFamily: 'Satoshi-Bold',
+                      color: designColor('fff'),
+                      fontFamily: designFont('Satoshi-Bold'),
                       fontSize: 14,
                     }}>
                     {ETHICAL_CONFIG.buttonText}
@@ -1660,8 +1913,12 @@ const HomeScreen = ({ }) => {
         </>
       ),
     },
-    // Bespoke recommendations (only if not already shown at top)
-    ...(!hasActiveContent
+    // Bespoke recommendations (only if not already shown at top).
+    // Tenants that restructure the Home feed (MONEYMAN_HOME_FEED_RESTRUCTURE)
+    // never render this section — the RA has no bespoke recommendation
+    // product, so the empty "Recommendations" block must not appear on Home
+    // (RA request 2026-08-13).
+    ...(!advisorContent.homeFeedRestructure && !hasActiveBespokeRecommendations
       ? [
         {
           key: 'StockAdvices',
@@ -1691,7 +1948,7 @@ const HomeScreen = ({ }) => {
                 <StockAdvices
                   userEmail={userEmail}
                   type={'home'}
-                  tradeButtonColor="#3E3EFC"
+                  tradeButtonColor={designColor('3e3efc')}
                 />
               </View>
             </View>
@@ -1699,14 +1956,21 @@ const HomeScreen = ({ }) => {
         },
       ]
       : []),
-    {
-      key: 'KnowledgeHub',
-      component: (
-        <View style={{ marginTop: 10 }}>
-          <KnowledgeHub type="home" />
-        </View>
-      ),
-    },
+    // Knowledge Hub renders inside the Home footer (below "How We Invest")
+    // for tenants that restructure the feed — skip the feed entry there so
+    // it doesn't render twice (RA request 2026-08-13).
+    ...(!advisorContent.homeFeedRestructure
+      ? [
+          {
+            key: 'KnowledgeHub',
+            component: (
+              <View style={{ marginTop: 10 }}>
+                <KnowledgeHub type="home" />
+              </View>
+            ),
+          },
+        ]
+      : []),
     // {
     //   key: "LABEL",
     //   component: (
@@ -1771,6 +2035,38 @@ const HomeScreen = ({ }) => {
     seeAllPDFs, setSeeAllPDFs,
     bespokeListTab, setBespokeListTab,
     userEmail, config,
+    selectedVariant,
+    slots: {
+      EducationalBlogs,
+      EducationalVideos,
+      EducationalPDF,
+      StockAdvices,
+      RebalanceAdvices,
+      ModelPortfolioScreen,
+      LinkOpeningWeb,
+      UpdateAppModal,
+      NbaBanner,
+      PortfolioHealthSheet,
+    },
+    homeFooterActions: {
+      onOpenUrl: url => {
+        if (!url) return;
+        Linking.openURL(url).catch(error =>
+          console.warn('[HomeFooter] Unable to open link:', error?.message),
+        );
+      },
+      onOpenLegalPage: (title, url) => {
+        if (!url) return;
+        navigation.navigate('WebViewScreen', {
+          title,
+          url,
+          pageType: 'legal',
+        });
+      },
+    },
+    homeFooterSlots: {
+      KnowledgeHubSlot: <KnowledgeHub type="home" />,
+    },
     isRefreshing, onRefresh,
     searchQuery, setSearchQuery,
     OpenNewsScreen,
@@ -1813,6 +2109,17 @@ const HomeScreen = ({ }) => {
     // alphanomy reads `home.taglines.modelPortfoliosSubtitle` etc.
     // and falls back per-field to its hardcoded copy.
     taglines: configData?.config?.taglines?.home || null,
+    provisionalBanner: {
+      viewModel: {
+        visible: Boolean(provisionalMandate && !provisionalBannerDismissed),
+        deadline: formatProvisionalDeadline(
+          provisionalMandate?.grace_deadline || provisionalMandate?.grace_until,
+        ),
+      },
+      actions: {
+        dismiss: () => setProvisionalBannerDismissed(true),
+      },
+    },
     // Variant-facing knowledge data (blogs / videos / pdf). Default
     // presentation uses the KnowledgeHub component directly; alphanomy
     // variant renders its own inline cards from these arrays.

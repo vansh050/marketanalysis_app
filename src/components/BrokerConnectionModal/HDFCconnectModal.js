@@ -10,7 +10,7 @@ import axios from 'axios';
 import HDFCConnectUI from '../../UIComponents/BrokerConnectionUI/HDFCConnectUI';
 import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import { useTrade } from '../../screens/TradeContext';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import {
@@ -19,6 +19,8 @@ import {
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
 import {getAccountEmail} from '../../utils/accountEmail';
+
+import { designColor } from '../../design/literalTokens';
 
 const HDFCconnectModal = ({
   isVisible,
@@ -84,7 +86,7 @@ const HDFCconnectModal = ({
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -141,7 +143,7 @@ const HDFCconnectModal = ({
         url: `${server.ccxtServer.baseUrl}hdfc/access-token`,
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -188,7 +190,7 @@ const HDFCconnectModal = ({
         url: `${server.server.baseUrl}api/user/connect-broker`,
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -219,7 +221,7 @@ const HDFCconnectModal = ({
               data: JSON.stringify({ user_email: userEmail, user_broker: 'Hdfc Securities' }),
               headers: {
                 'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+                'X-Advisor-Subdomain': getTenantSubdomain(configData),
                 'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
               },
             });
@@ -318,7 +320,7 @@ const HDFCconnectModal = ({
 
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -385,8 +387,8 @@ const HDFCconnectModal = ({
       broker="HDFC Securities"
       config={{
         monogram: 'H',
-        brandFrom: '#e4002b',
-        brandTo: '#8e0019',
+        brandFrom: designColor('e4002b'),
+        brandTo: designColor('8e0019'),
         portalUrl: 'https://developer.hdfcsky.com/',
         portalLabel: 'Open HDFC developer portal',
         redirectUrl:

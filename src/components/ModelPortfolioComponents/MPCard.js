@@ -17,9 +17,14 @@ import ConsentPopup from './ConsentPopUp';
 import { useConfig } from '../../context/ConfigContext';
 import { useTrade } from '../../screens/TradeContext';
 import { useGstConfig } from '../../context/GstConfigContext';
-import { withGst } from '../../utils/gstHelpers';
+import { withGst, recBase } from '../../utils/gstHelpers';
 import { useComponent } from '../../design/useDesign';
 import useTokens from '../../theme/useTokens';
+import {
+  getAdvisorContentProfile,
+  getAdvisorPlanSummary,
+} from '../../utils/advisorContentProfile';
+import { designColor } from '../../design/literalTokens';
 const Alpha100 = require('../../assets/alpha-100.png');
 
 const ACCEPTABLE_DATE_FORMATS = [
@@ -52,6 +57,7 @@ const MPCard = ({
   isHorizontal = false,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
   const navigation = useNavigation();
   const [globalConsent, setGlobalConsent] = useState(false);
   const [isConsentPopupOpen, setIsConsentPopupOpen] = useState(false);
@@ -68,10 +74,23 @@ const MPCard = ({
   // back to `mpCardColorCycle` by row index. Both fall back to the brand
   // gradient tokens for variants that supply neither.
   const tokens = useTokens();
+  const advisorContent = getAdvisorContentProfile();
   const colorMap = tokens?.colors?.mpCardColorMap;
   const cycle = tokens?.colors?.mpCardColorCycle;
   let cardColor = null;
-  if (colorMap && typeof modelName === 'string') {
+  // RA request (2026-08-13): when the tenant pins a FIXED plan-card ordering
+  // (whitelabel/content.js MONEYMAN_PLAN_ORDERING === 'fixed'), the card color
+  // cycles strictly by list position (green → purple → blue) so a re-ordered
+  // or new plan can never break the sequence. Other tenants keep the legacy
+  // name-map-first behavior.
+  if (
+    advisorContent.planOrdering === 'fixed' &&
+    Array.isArray(cycle) &&
+    cycle.length > 0
+  ) {
+    cardColor = cycle[index % cycle.length];
+  }
+  if (!cardColor && colorMap && typeof modelName === 'string') {
     const upperName = modelName.toUpperCase();
     for (const [key, color] of Object.entries(colorMap)) {
       if (upperName.includes(key.toUpperCase())) { cardColor = color; break; }
@@ -92,6 +111,10 @@ const MPCard = ({
   const { gstConfigure: configGst, gstWithTextConfigure: configGstWithText } = useGstConfig();
 
   const Presentation = useComponent('composites.MPCard');
+
+  useEffect(() => {
+    setImageLoadFailed(false);
+  }, [image]);
 
   const handleConsentAccept = () => {
     setGlobalConsent(true);
@@ -138,25 +161,21 @@ const MPCard = ({
       return !isNaN(normalizedPrice) && normalizedPrice > 0;
     };
 
-    if (isValidPrice(ele?.pricingWithoutGst?.monthly)) {
-      options.push({ period: 'monthly', label: 'Monthly', value: ele.pricingWithoutGst.monthly });
-    }
-    if (isValidPrice(ele?.pricingWithoutGst?.quarterly)) {
-      options.push({ period: 'quarterly', label: 'Quarterly', value: ele.pricingWithoutGst.quarterly });
-    }
-    if (isValidPrice(ele?.pricingWithoutGst?.['half-yearly'])) {
-      options.push({ period: 'half-yearly', label: '6 Months', value: ele.pricingWithoutGst['half-yearly'] });
-    }
-    // Pre-GST base like the other frequencies — ele.pricing.yearly is
-    // GST-INCLUSIVE, so reading it here + the "+ GST" label double-counts GST.
-    // Fall back to pricing.yearly only for legacy plans without pricingWithoutGst.
-    if (isValidPrice(ele?.pricingWithoutGst?.yearly ?? ele?.pricing?.yearly)) {
-      options.push({
-        period: 'yearly',
-        label: 'Yearly',
-        value: ele?.pricingWithoutGst?.yearly ?? ele.pricing.yearly,
-      });
-    }
+    // All recurring frequencies resolve through the same GST-aware base
+    // helper. recBase prefers pricingWithoutGst, and for legacy plans that
+    // only carry `pricing` (which is GST-INCLUSIVE when GST is on) it divides
+    // back out to the display base — the inline version this replaced fell
+    // back to a raw pricing.yearly, so appending the "+ GST" label
+    // double-counted GST on those plans.
+    [
+      ['monthly', 'Monthly'],
+      ['quarterly', 'Quarterly'],
+      ['half-yearly', '6 Months'],
+      ['yearly', 'Yearly'],
+    ].forEach(([period, label]) => {
+      const basePrice = recBase(ele, period, configGst);
+      if (isValidPrice(basePrice)) options.push({period, label, value: basePrice});
+    });
 
     return options;
   };
@@ -194,15 +213,16 @@ const MPCard = ({
   const getSubscriptionStatus = () => {
     if (!modelPortfolioEntitlementsLoaded) return 'checking';
 
-    // `subscribed-strategies` is server-filtered by paid, active and
-    // unexpired Subscription rows. Catalog `subscription` fields and the
-    // broad client subscription list are historical metadata and therefore
-    // must never independently declare a plan active or expired.
+    // Both inputs are server-filtered from the same active Subscription
+    // contract. The catalog endpoint returns `subscription` per plan while
+    // subscribed-strategies returns the accessible portfolios. Accept either
+    // exact-plan signal so a temporary portfolio hydration/name mismatch does
+    // not render "Subscribe" for an already active plan.
     const normalizedPlan = normalizeGroupName(ele?.name);
     const active = (modelPortfolioStrategyfinal || []).some(portfolio =>
       normalizeGroupName(portfolio?.model_name) === normalizedPlan,
     );
-    return active ? 'active' : 'none';
+    return active || Boolean(isSubscribed) ? 'active' : 'none';
   };
 
   const status = getSubscriptionStatus();
@@ -227,18 +247,18 @@ const MPCard = ({
 
   // Volatility color
   const getVolatilityColorStyle = () => {
-    if (!globalConsent) return { color: '#9CA3AF' };
+    if (!globalConsent) return { color: designColor('9ca3af') };
     if (ele?.volatility) {
       if (typeof ele.volatility === 'number') {
-        if (ele.volatility > 0.15) return { color: '#DC2626' };
-        if (ele.volatility > 0.1) return { color: '#F59E0B' };
-        return { color: '#16A34A' };
+        if (ele.volatility > 0.15) return { color: designColor('dc2626') };
+        if (ele.volatility > 0.1) return { color: designColor('f59e0b') };
+        return { color: designColor('16a34a') };
       }
-      if (ele.volatility === 'High') return { color: '#DC2626' };
-      if (ele.volatility === 'Medium') return { color: '#F59E0B' };
-      if (ele.volatility === 'Low') return { color: '#16A34A' };
+      if (ele.volatility === 'High') return { color: designColor('dc2626') };
+      if (ele.volatility === 'Medium') return { color: designColor('f59e0b') };
+      if (ele.volatility === 'Low') return { color: designColor('16a34a') };
     }
-    return { color: '#9CA3AF' };
+    return { color: designColor('9ca3af') };
   };
 
   // CAGR display
@@ -252,35 +272,51 @@ const MPCard = ({
 
   // Button styling
   const getButtonProps = () => {
-    const completedColor = paymentModalConfig?.stepCompletedColor || '#29A400';
+    const completedColor = paymentModalConfig?.stepCompletedColor || designColor('29a400');
     if (status === 'active') {
-      return { label: 'Subscribed', bgColor: completedColor, textColor: '#fff' };
+      return { label: 'Subscribed', bgColor: completedColor, textColor: designColor('fff') };
     }
     if (status === 'renew') {
-      return { label: 'Renew Now', bgColor: '#E8976B', textColor: '#fff' };
+      return { label: 'Renew Now', bgColor: designColor('e8976b'), textColor: designColor('fff') };
     }
     if (status === 'expired') {
-      return { label: 'Resubscribe', bgColor: '#fff', textColor: mainColor };
+      return { label: 'Resubscribe', bgColor: designColor('fff'), textColor: mainColor };
     }
     if (status === 'checking') {
-      return { label: 'Checking status…', bgColor: '#fff', textColor: mainColor, disabled: true };
+      return { label: 'Checking status…', bgColor: designColor('fff'), textColor: mainColor, disabled: true };
     }
-    return { label: 'Subscribe', bgColor: '#fff', textColor: mainColor };
+    return { label: 'Subscribe', bgColor: designColor('fff'), textColor: mainColor };
   };
 
   const buttonProps = getButtonProps();
+
+  // Soft tint for the expanded overview section background. Only produced
+  // when the tenant opts into card-colour accents AND mainColor is a 6-digit
+  // hex; otherwise the presentation falls back to its neutral default.
+  const softColor =
+    advisorContent.cardAccentFromCardColor && /^#[0-9A-Fa-f]{6}$/.test(mainColor)
+      ? `${mainColor}14`
+      : undefined;
 
   return (
     <Presentation
       viewModel={{
         modelName,
-        imageUri: image || null,
+        imageUri: imageLoadFailed ? null : image || null,
         fallbackImage: Alpha100,
         description,
+        cardSummary:
+          advisorContent.planCards.length > 0
+            ? getAdvisorPlanSummary(modelName, description)
+            : '',
         gradient1,
         gradient2,
         mainColor,
-        stepCompletedColor: paymentModalConfig?.stepCompletedColor || '#58a100',
+        stepCompletedColor:
+          advisorContent.cardAccentFromCardColor
+            ? mainColor
+            : paymentModalConfig?.stepCompletedColor || designColor('58a100'),
+        softColor,
         currentPrice: displayPrice,
         originalPrice,
         discount,
@@ -306,15 +342,21 @@ const MPCard = ({
         onViewMore: handleCardClick,
         onSubscribe: handleSubscribe,
         onConsentOpen: handleConsentOpen,
+        onImageError: () => setImageLoadFailed(true),
       }}
       slots={{
-        ConsentPopupSlot: (
+        // Mount the consent Modal only while it is open. MPCards render
+        // inside virtualized lists (Home horizontal catalogue = 3 cards × an
+        // always-mounted Modal); an always-mounted Modal inside a recycled
+        // list cell crashes Fabric with "The specified child already has a
+        // parent" (2026-08-13). Conditional mount keeps the same UX.
+        ConsentPopupSlot: isConsentPopupOpen ? (
           <ConsentPopup
             isConsentPopupOpen={isConsentPopupOpen}
             setIsConsentPopupOpen={setIsConsentPopupOpen}
             handleConsentAccept={handleConsentAccept}
           />
-        ),
+        ) : null,
       }}
     />
   );

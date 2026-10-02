@@ -39,6 +39,10 @@ import Divider from './primitives/Divider';
 import Toast from './primitives/Toast';
 import ModalShell from './primitives/ModalShell';
 
+// App chrome (2026-09-28)
+import AppHeader from './shell/AppHeader';
+import MainTabBar from './shell/MainTabBar';
+
 // Phase D composites (2026-05-01)
 import RebalanceDetailsModal from './composites/RebalanceDetailsModal';
 
@@ -65,6 +69,31 @@ import SignUpRADetails from './screens/SignUpRADetails';
 import PhoneNumberScreen from './screens/PhoneNumberScreen';
 import ChangeAdvisor from './screens/ChangeAdvisor';
 import HomeScreen from './screens/HomeScreen';
+import OnboardingScreen from './screens/OnboardingScreen';
+import AdviceCartScreen from './screens/AdviceCartScreen';
+import CurrentHoldingsScreen from './screens/CurrentHoldingsScreen';
+import WebViewScreen from './screens/WebViewScreen';
+import TradePnLScreen from './screens/TradePnLScreen';
+import RecommendationMessagesScreen from './screens/RecommendationMessagesScreen';
+import WebinarsListScreen from './screens/WebinarsListScreen';
+import MyCoursesScreen from './screens/MyCoursesScreen';
+import PhoneLoginScreen from './screens/PhoneLoginScreen';
+import DeleteAccountScreen from './screens/DeleteAccountScreen';
+import UpdateEmailScreen from './screens/UpdateEmailScreen';
+import ExecutionStatusScreen from './screens/ExecutionStatusScreen';
+import RebalanceReviewScreen from './screens/RebalanceReviewScreen';
+import WebinarDetailScreen from './screens/WebinarDetailScreen';
+import CourseDetailScreen from './screens/CourseDetailScreen';
+import MySubscriptionsScreen from './screens/MySubscriptionsScreen';
+import WishSearch from './screens/WishSearch';
+import NewsInfoScreen from './screens/NewsInfoScreen';
+import NewsScreen from './screens/NewsScreen';
+import ResearchReportScreen from './screens/ResearchReportScreen';
+import SubscriptionScreen from './screens/SubscriptionScreen';
+import AfterSubscriptionScreen from './screens/AfterSubscriptionScreen';
+import PushNotificationScreen from './screens/PushNotificationScreen';
+import KnowledgeHub from './screens/KnowledgeHub';
+import InvestFlowScreen from './screens/InvestFlowScreen';
 
 // Phase G screens (2026-05-02) — Drawer batch 1: clean-extracts
 import PrivacyPolicyScreen from './screens/PrivacyPolicyScreen';
@@ -114,7 +143,6 @@ import LiveRoom from './composites/LiveRoom';
 // Courses Phase 2 (2026-05-23) — Gumlet VOD player (WebView; see file header for native-video swap)
 import GumletPlayer from './composites/GumletPlayer';
 // Web-parity (P1) — RIA AUM value-history card (self-gated on riaBillingEnabled).
-import AumPerformanceCard from './composites/AumPerformanceCard';
 // Web-parity (P2) — Portfolio Health tool sheet (self-gated on portfolioHealthEnabled).
 import PortfolioHealthSheet from './composites/PortfolioHealthSheet';
 // Web-parity (P3) — NBA action banner + status strip (self-gated on nbaHomeEnabled).
@@ -123,6 +151,9 @@ import NbaBanner from './composites/NbaBanner';
 import ProvisionalBanner from './composites/ProvisionalBanner';
 // Web-parity (P5) — Transition (advice) card. DEFERRED/unmounted; gated transitionEngineEnabled.
 import PortfolioTransitionCard from './composites/PortfolioTransitionCard';
+// App-root + Home footer slots (2026-08-17) — default no-op; forks override.
+import RootBanner from './composites/RootBanner';
+import HomeFooter from './composites/HomeFooter';
 
 const variant = {
     name: 'default',
@@ -139,6 +170,9 @@ const variant = {
         'primitives.Divider': Divider,
         'primitives.Toast': Toast,
         'primitives.ModalShell': ModalShell,
+        // App chrome
+        'shell.AppHeader': AppHeader,
+        'shell.MainTabBar': MainTabBar,
         // Composites (Phase D)
         'composites.RebalanceDetailsModal': RebalanceDetailsModal,
         // Composites (Phase H — non-SDK-bound modals)
@@ -168,6 +202,31 @@ const variant = {
         'screens.ChangeAdvisor': ChangeAdvisor,
         // Screens (Phase E.2 — minimal registry hookup; deep split deferred to Phase E.3)
         'screens.HomeScreen': HomeScreen,
+        'screens.OnboardingScreen': OnboardingScreen,
+        'screens.AdviceCartScreen': AdviceCartScreen,
+        'screens.CurrentHoldingsScreen': CurrentHoldingsScreen,
+        'screens.WebViewScreen': WebViewScreen,
+        'screens.TradePnLScreen': TradePnLScreen,
+        'screens.RecommendationMessagesScreen': RecommendationMessagesScreen,
+        'screens.WebinarsListScreen': WebinarsListScreen,
+        'screens.MyCoursesScreen': MyCoursesScreen,
+        'screens.PhoneLoginScreen': PhoneLoginScreen,
+        'screens.DeleteAccountScreen': DeleteAccountScreen,
+        'screens.UpdateEmailScreen': UpdateEmailScreen,
+        'screens.ExecutionStatusScreen': ExecutionStatusScreen,
+        'screens.RebalanceReviewScreen': RebalanceReviewScreen,
+        'screens.WebinarDetailScreen': WebinarDetailScreen,
+        'screens.CourseDetailScreen': CourseDetailScreen,
+        'screens.MySubscriptionsScreen': MySubscriptionsScreen,
+        'screens.WishSearch': WishSearch,
+        'screens.NewsInfoScreen': NewsInfoScreen,
+        'screens.NewsScreen': NewsScreen,
+        'screens.ResearchReportScreen': ResearchReportScreen,
+        'screens.SubscriptionScreen': SubscriptionScreen,
+        'screens.AfterSubscriptionScreen': AfterSubscriptionScreen,
+        'screens.PushNotificationScreen': PushNotificationScreen,
+        'screens.KnowledgeHub': KnowledgeHub,
+        'screens.InvestFlowScreen': InvestFlowScreen,
         // Screens (Phase G — Drawer batch 1: clean-extracts)
         'screens.PrivacyPolicyScreen': PrivacyPolicyScreen,
         'screens.TermandConditionsScreen': TermandConditionsScreen,
@@ -206,8 +265,6 @@ const variant = {
         'composites.LiveRoom': LiveRoom,
         // Courses Phase 2 (2026-05-23) — Gumlet VOD player (WebView-based; works today)
         'composites.GumletPlayer': GumletPlayer,
-        // Web-parity (P1) — RIA AUM value-history card
-        'composites.AumPerformanceCard': AumPerformanceCard,
         // Web-parity (P2) — Portfolio Health tool sheet
         'composites.PortfolioHealthSheet': PortfolioHealthSheet,
         // Web-parity (P3) — NBA action banner + status strip
@@ -216,11 +273,18 @@ const variant = {
         'composites.ProvisionalBanner': ProvisionalBanner,
         // Web-parity (P5) — Transition (advice) card; deferred/unmounted
         'composites.PortfolioTransitionCard': PortfolioTransitionCard,
+        // App-root + Home footer slots — default no-op; forks override
+        'composites.RootBanner': RootBanner,
+        'composites.HomeFooter': HomeFooter,
     },
-    // SDK widget defaults — all 10 overridable slots.
-    // Each file in sdk/ re-exports the SDK built-in OR provides a
-    // standalone default. Custom variants override individual files.
+    // SDK widget contract floor — 10 registered slots. The installed SDK
+    // currently consumes the 3 trade-overlay slots; the other 7 remain
+    // integration-pending. Each file re-exports the SDK built-in OR provides
+    // a standalone default. Custom variants override individual files.
     sdk: require('./sdk').default,
+    // App structure: tabs, first tab, More menu, pre-login order, chrome.
+    // Data only — see docs/CONFIGURABLE_NAVIGATION_DESIGN.md.
+    navigation: require('./navigation').default,
 };
 
 export default variant;

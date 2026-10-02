@@ -3,6 +3,8 @@ import {Text, Linking} from 'react-native';
 import Clipboard from '@react-native-clipboard/clipboard';
 import Toast from 'react-native-toast-message';
 
+import { designColor } from '../../../design/literalTokens';
+
 /**
  * Inline URL with tap-to-open + tap-to-copy behaviour, for broker
  * connect instruction text (login portals, API dashboards, redirect
@@ -79,11 +81,11 @@ const LinkifiedUrl = ({url, display, style, copyLabel = ' ⧉'}) => {
 
 const styles = {
   link: {
-    color: '#1890FF',
+    color: designColor('1890ff'),
     textDecorationLine: 'underline',
   },
   copy: {
-    color: '#1890FF',
+    color: designColor('1890ff'),
     fontWeight: '700',
     fontSize: 16,
   },

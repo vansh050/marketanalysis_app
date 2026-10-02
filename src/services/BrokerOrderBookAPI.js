@@ -7,6 +7,7 @@ import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
 import server from '../utils/serverConfig';
 import Config from 'react-native-config';
+import {getTenantSubdomain} from '../utils/variantHelper';
 import {generateToken} from '../utils/SecurityTokenManager';
 import {normalizeOrderStatus} from '../utils/orderStatusUtils';
 
@@ -47,8 +48,16 @@ const buildOrderBookPayload = (broker, credentials) => {
 
   switch (broker) {
     case 'IIFL Securities':
-      // IIFL backend endpoints are currently unavailable (404)
-      throw new Error('IIFL Securities integration is temporarily unavailable');
+      if (!jwtToken) {
+        throw new Error('IIFL Securities: Missing jwtToken');
+      }
+      return {
+        url: `${server.ccxtServer.baseUrl}iifl/order-book`,
+        data: {
+          accessToken: jwtToken,
+          clientCode,
+        },
+      };
 
     case 'ICICI Direct':
       if (!apiKey || !jwtToken || !secretKey) {
@@ -170,6 +179,28 @@ const buildOrderBookPayload = (broker, credentials) => {
         },
       };
 
+    case 'Groww':
+      if (!jwtToken) {
+        throw new Error('Groww: Missing jwtToken');
+      }
+      return {
+        url: `${server.ccxtServer.baseUrl}groww/order-book`,
+        data: {accessToken: jwtToken},
+      };
+
+    case 'DefinEdge Securities':
+      if (!jwtToken) {
+        throw new Error('DefinEdge Securities: Missing jwtToken');
+      }
+      return {
+        url: `${server.ccxtServer.baseUrl}definedge/order-book`,
+        data: {
+          apiSessionKey: jwtToken,
+          accessToken: jwtToken,
+          actid: clientCode,
+        },
+      };
+
     case 'Motilal Oswal':
       if (!jwtToken) {
         throw new Error('Motilal Oswal: Missing jwtToken');
@@ -208,8 +239,17 @@ const buildCancelOrderPayload = (broker, credentials, orderId, orderDetails = {}
 
   switch (broker) {
     case 'IIFL Securities':
-      // IIFL backend endpoints are currently unavailable (404)
-      throw new Error('IIFL Securities integration is temporarily unavailable');
+      if (!jwtToken) {
+        throw new Error('IIFL Securities: Missing jwtToken');
+      }
+      return {
+        url: `${server.ccxtServer.baseUrl}iifl/cancel-order`,
+        data: {
+          uniqueOrderId: orderId,
+          accessToken: jwtToken,
+          clientCode,
+        },
+      };
 
     case 'ICICI Direct':
       return {
@@ -309,6 +349,26 @@ const buildCancelOrderPayload = (broker, credentials, orderId, orderDetails = {}
         },
       };
 
+    case 'Groww':
+      return {
+        url: `${server.ccxtServer.baseUrl}groww/order-cancel`,
+        data: {
+          accessToken: jwtToken,
+          uniqueOrderId: orderId,
+        },
+      };
+
+    case 'DefinEdge Securities':
+      return {
+        url: `${server.ccxtServer.baseUrl}definedge/cancel-order`,
+        data: {
+          apiSessionKey: jwtToken,
+          accessToken: jwtToken,
+          actid: clientCode,
+          orderId,
+        },
+      };
+
     case 'Motilal Oswal':
       const cleanToken = jwtToken.replace(/^Bearer\s+/i, '');
       return {
@@ -331,7 +391,7 @@ const buildCancelOrderPayload = (broker, credentials, orderId, orderDetails = {}
  */
 const getHeaders = (configData) => ({
   'Content-Type': 'application/json',
-  'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || Config.REACT_APP_HEADER_NAME,
+  'X-Advisor-Subdomain': getTenantSubdomain(configData),
   'aq-encrypted-key': generateToken(
     Config.REACT_APP_AQ_KEYS,
     Config.REACT_APP_AQ_SECRET,
@@ -351,7 +411,18 @@ const normalizeOrder = (order, broker) => {
   const exchange = order.exchange || order.Exchange || order.exch;
   const transactionType = order.transactionType || order.transaction_type || order.trantype || order.type || order.Type;
   const quantity = order.quantity || order.Quantity || order.qty || order.totalQty;
-  const filledQuantity = order.filledQuantity || order.filledQty || order.filled_quantity || order.tradedQty || 0;
+  const filledQuantity =
+    order.filledQuantity ||
+    order.filledShares ||
+    order.filledQty ||
+    order.filled_quantity ||
+    order.tradedQty ||
+    0;
+  const unfilledQuantity =
+    order.unfilledQuantity ||
+    order.unfilledShares ||
+    order.pendingQuantity ||
+    order.pendingQty;
   const price = order.price || order.Price || order.averagePrice || order.avgPrice || 0;
   const orderType = order.orderType || order.order_type || order.priceType || 'MARKET';
   const status = order.status || order.orderStatus || order.order_status || 'unknown';
@@ -365,7 +436,13 @@ const normalizeOrder = (order, broker) => {
     transactionType: transactionType?.toUpperCase(),
     quantity: parseInt(quantity) || 0,
     filledQuantity: parseInt(filledQuantity) || 0,
-    pendingQuantity: (parseInt(quantity) || 0) - (parseInt(filledQuantity) || 0),
+    pendingQuantity:
+      unfilledQuantity !== undefined && unfilledQuantity !== null
+        ? parseInt(unfilledQuantity) || 0
+        : Math.max(
+            0,
+            (parseInt(quantity) || 0) - (parseInt(filledQuantity) || 0),
+          ),
     price: parseFloat(price) || 0,
     orderType,
     status,

@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Config from '../utils/safeConfig';
 import { generateToken } from '../utils/SecurityTokenManager';
 import server from '../utils/serverConfig';
+import {getTenantSubdomain} from '../utils/variantHelper';
 
 // Storage keys
 const ZERODHA_ACCESS_TOKEN_KEY = 'zerodha_access_token';
@@ -142,7 +143,7 @@ const exchangeRequestToken = async (requestToken) => {
 
     const headers = {
       'Content-Type': 'application/json',
-      'X-Advisor-Subdomain': Config?.REACT_APP_X_ADVISOR_SUBDOMAIN || Config?.REACT_APP_HEADER_NAME || subdomain,
+      'X-Advisor-Subdomain': getTenantSubdomain(),
       'aq-encrypted-key': Config?.REACT_APP_AQ_ENCRYPTED_KEY || generateToken(
         Config?.REACT_APP_AQ_KEYS,
         Config?.REACT_APP_AQ_SECRET
@@ -241,7 +242,7 @@ export const validateToken = async () => {
 
     const headers = {
       'Content-Type': 'application/json',
-      'X-Advisor-Subdomain': Config?.REACT_APP_X_ADVISOR_SUBDOMAIN || Config?.REACT_APP_HEADER_NAME || 'rgxresearch',
+      'X-Advisor-Subdomain': getTenantSubdomain(),
       'aq-encrypted-key': Config?.REACT_APP_AQ_ENCRYPTED_KEY || generateToken(
         Config?.REACT_APP_AQ_KEYS,
         Config?.REACT_APP_AQ_SECRET

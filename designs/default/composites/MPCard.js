@@ -42,6 +42,7 @@
  *     onViewMore,          // () => void — handleCardClick
  *     onSubscribe,         // () => void — handleSubscribe / InvestNow
  *     onConsentOpen,       // () => void — opens consent popup
+ *     onImageError,        // () => void — swaps a broken remote image to fallbackImage
  *   }
  *   slots = {
  *     ConsentPopupSlot,    // ReactElement | null — <ConsentPopup> pre-built by container
@@ -103,6 +104,7 @@ const MPCard = ({ viewModel, actions, slots }) => {
     onViewMore = () => {},
     onSubscribe = () => {},
     onConsentOpen = () => {},
+    onImageError = () => {},
   } = actions || {};
 
   const { ConsentPopupSlot = null } = slots || {};
@@ -128,6 +130,7 @@ const MPCard = ({ viewModel, actions, slots }) => {
               <Image
                 source={imageUri ? { uri: imageUri } : fallbackImage}
                 style={styles.logo}
+                onError={imageUri ? onImageError : undefined}
               />
             </View>
             <Text
@@ -293,7 +296,7 @@ const MPCard = ({ viewModel, actions, slots }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { marginBottom: 14, elevation: 5 },
+  container: { marginBottom: 14, marginRight: 10, elevation: 5 },
   cardContainer: {
     borderRadius: 16,
     width: '100%',

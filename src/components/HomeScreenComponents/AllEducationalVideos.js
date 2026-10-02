@@ -5,6 +5,8 @@ import axios from 'axios';
 import { XIcon } from 'lucide-react-native';
 import Config from 'react-native-config';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 // YouTube API Key + Channel ID. Both come from .env (gitignored). The
 // hardcoded fallback was removed after a key leaked to git history.
 const API_KEY = Config.REACT_APP_YOUTUBE_API_KEY;
@@ -101,10 +103,8 @@ const AllEducationalVideos = () => {
 
   return (
     <View style={styles.container}>
- 
-
       {loading ? (  // Show loading spinner if data is still being fetched
-        <ActivityIndicator size="large" color="#4B8CEE" />
+        (<ActivityIndicator size="large" color={designColor('4b8cee')} />)
       ) : (
         <FlatList
           data={videos}
@@ -114,7 +114,6 @@ const AllEducationalVideos = () => {
           contentContainerStyle={styles.videoList}
         />
       )}
-
       {selectedVideo && (
         <Modal  visible={true} transparent={true} onRequestClose={() => setSelectedVideo(null)}>
           <View style={styles.modalBackground}>
@@ -148,14 +147,14 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     marginBottom: 10,
     color: 'black',
   },
   seeAllText: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#4B8CEE',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('4b8cee'),
     marginRight: 10,
   },
   videoList: {
@@ -167,7 +166,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     overflow: 'hidden',
     marginRight: 0,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
@@ -188,14 +187,14 @@ const styles = StyleSheet.create({
   videoTitle: {
     fontSize: 14,
     lineHeight: 15,
-    fontFamily:'Poppins-Medium',
+    fontFamily:designFont('Poppins-Medium'),
     fontWeight: 'normal', 
     color: 'black',
   },
   videoDetails: {
     fontSize: 12,
-    color: '#888',
-    fontFamily:'Poppins-Light'
+    color: designColor('888'),
+    fontFamily:designFont('Poppins-Light')
   },
   modalBackground: {
     flex: 1,
@@ -205,7 +204,7 @@ const styles = StyleSheet.create({
   },
   videoPlayerContainer: {
     width: '100%',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     height:'25%',
     borderRadius: 10,
     
@@ -214,12 +213,12 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 10,
-    backgroundColor: '#ff5c5c',
+    backgroundColor: designColor('ff5c5c'),
     width: '100%',
     alignItems: 'flex-end',
   },
   modalVideoTitle: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 14,
     marginRight:10,
     paddingVertical:5,

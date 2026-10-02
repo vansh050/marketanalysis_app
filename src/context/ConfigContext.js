@@ -1,12 +1,45 @@
 
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useMemo } from 'react';
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Config from '../utils/safeConfig';
 import APP_VARIANTS from '../utils/Config';
 import { generateToken } from '../utils/SecurityTokenManager';
+import {
+    getRuntimeAdvisorConfig,
+    getRuntimeAppVariant,
+    getRuntimeTenantSubdomain,
+    hydrateRuntimeAdvisorConfig,
+    setRuntimeAdvisorConfig,
+    subscribeRuntimeAdvisor,
+} from '../utils/runtimeAdvisor';
 
 const ConfigContext = createContext();
+const THEME_CACHE_KEY = '@app:configThemeCache';
+
+// Persist only presentation fields. The full advisor response contains API
+// keys and must never be copied into the lightweight first-paint theme cache.
+const themeCacheFromConfig = (newConfig, selectedVariant) => ({
+    selectedVariant,
+    themeColor: newConfig.themeColor,
+    mainColor: newConfig.mainColor,
+    secondaryColor: newConfig.secondaryColor,
+    gradient1: newConfig.gradient1,
+    gradient2: newConfig.gradient2,
+    placeholderText: newConfig.placeholderText,
+    homeScreenLayout: newConfig.homeScreenLayout,
+    CardborderWidth: newConfig.CardborderWidth,
+    cardElevation: newConfig.cardElevation,
+    cardverticalmargin: newConfig.cardverticalmargin,
+    tabIconColor: newConfig.tabIconColor,
+    bottomTabBorderTopWidth: newConfig.bottomTabBorderTopWidth,
+    bottomTabbg: newConfig.bottomTabbg,
+    selectedTabcolor: newConfig.selectedTabcolor,
+    basket1: newConfig.basket1,
+    basket2: newConfig.basket2,
+    basketcolor: newConfig.basketcolor,
+    basketsymbolbg: newConfig.basketsymbolbg,
+});
 
 export const useConfig = () => {
     return useContext(ConfigContext);
@@ -27,7 +60,23 @@ export const useConfig = () => {
 const DEFAULT_VARIANT = 'alphaquark';
 
 export const ConfigProvider = ({ children }) => {
-    const selectedVariant = Config?.APP_VARIANT || DEFAULT_VARIANT;
+    const [, setRuntimeAdvisorState] = useState(
+        getRuntimeAdvisorConfig(),
+    );
+
+    useEffect(() => {
+        const unsubscribe = subscribeRuntimeAdvisor(setRuntimeAdvisorState);
+        hydrateRuntimeAdvisorConfig(AsyncStorage);
+        return unsubscribe;
+    }, []);
+
+    const buildVariant = Config?.APP_VARIANT || DEFAULT_VARIANT;
+    const runtimeVariant = getRuntimeAppVariant();
+    const runtimeTenant = getRuntimeTenantSubdomain();
+    const selectedVariant =
+        runtimeVariant && APP_VARIANTS[runtimeVariant]
+            ? runtimeVariant
+            : buildVariant;
     // Ensure the variant exists in APP_VARIANTS; otherwise fall back
     // to DEFAULT_VARIANT (alphaquark) — never to a variant whose
     // sharedUIConfig contains foreign branding.
@@ -42,7 +91,20 @@ export const ConfigProvider = ({ children }) => {
             '. If this is a non-AlphaQuark tenant build, set APP_VARIANT explicitly.',
         );
     }
-    const initialConfig = { ...APP_VARIANTS[validVariant], selectedVariant: validVariant };
+    const initialConfig = useMemo(
+        () => ({ ...APP_VARIANTS[validVariant], selectedVariant: validVariant }),
+        [validVariant],
+    );
+    const buildConfig = APP_VARIANTS[buildVariant] || APP_VARIANTS[DEFAULT_VARIANT];
+    const buildTenant =
+        Config.REACT_APP_X_ADVISOR_SUBDOMAIN ||
+        Config.REACT_APP_HEADER_NAME ||
+        buildConfig?.subdomain;
+    const isRuntimeTenant = Boolean(
+        runtimeTenant &&
+        buildTenant &&
+        runtimeTenant.toLowerCase() !== buildTenant.toLowerCase(),
+    );
     const [config, setConfig] = useState(initialConfig);
     const [loading, setLoading] = useState(true);
 
@@ -61,7 +123,7 @@ export const ConfigProvider = ({ children }) => {
     useEffect(() => {
         const hydrateFromCache = async () => {
             try {
-                const cachedJson = await AsyncStorage.getItem('@app:configThemeCache');
+                const cachedJson = await AsyncStorage.getItem(THEME_CACHE_KEY);
                 if (!cachedJson) return;
                 const cached = JSON.parse(cachedJson);
                 // Only adopt cache for the SAME variant to avoid
@@ -79,10 +141,12 @@ export const ConfigProvider = ({ children }) => {
 
     useEffect(() => {
         const fetchConfig = async () => {
+            setLoading(true);
+            setConfig(initialConfig);
             try {
                 // Get base URL and subdomain from environment variables
                 const baseUrl = Config.REACT_APP_NODE_SERVER_API_URL || 'http://localhost:8001/';
-                const subdomain = Config.REACT_APP_ADVISOR_SUBDOMAIN || Config.REACT_APP_HEADER_NAME || 'rgxresearch';
+                const subdomain = runtimeTenant || Config.REACT_APP_ADVISOR_SUBDOMAIN || Config.REACT_APP_HEADER_NAME || 'rgxresearch';
 
                 // Construct the API URL
                 const apiUrl = `${baseUrl}api/app-advisor/get?appSubdomain=${subdomain}`;
@@ -92,7 +156,7 @@ export const ConfigProvider = ({ children }) => {
                 // Prepare headers with authentication
                 const headers = {
                     'Content-Type': 'application/json',
-                    'X-Advisor-Subdomain': Config.REACT_APP_X_ADVISOR_SUBDOMAIN || Config.REACT_APP_HEADER_NAME || subdomain,
+                    'X-Advisor-Subdomain': subdomain,
                     'aq-encrypted-key': Config.REACT_APP_AQ_ENCRYPTED_KEY || generateToken(
                         Config.REACT_APP_AQ_KEYS,
                         Config.REACT_APP_AQ_SECRET
@@ -153,6 +217,22 @@ export const ConfigProvider = ({ children }) => {
                             // (+ per-customer egress IP whitelist). Mirrors web's
                             // loginRoutes.js /frontend-config + AppConfigContext gate.
                             useSharedAngelOneKey:    d.useSharedAngelOneKey === false ? false : true,
+                            // Rebalance plan freeze (docs/REBALANCE_PLAN_FREEZE_PLAN.md).
+                            // DEFAULT OFF — a missing key must never enable it. Mirrors
+                            // web's AppConfigContext.rebalanceFreezePlan `=== true` gate
+                            // (Routes/Admin/loginRoutes.js /frontend-config, verified
+                            // 2026-07-24). When true AND a `/rebalance/calculate` response
+                            // carries plan_id, the Accept payload forwards plan_id/
+                            // plan_version so ccxt executes the server-frozen plan.
+                            rebalanceFreezePlan:     d.rebalanceFreezePlan === true,
+                            // Phase 3 (P3.1) — frozen REPAIR attempts. Own flag, pilots
+                            // independently of rebalanceFreezePlan. DEFAULT OFF. Mirrors
+                            // web's AppConfigContext.repairFreezePlan `=== true` gate.
+                            repairFreezePlan:        d.repairFreezePlan === true,
+                            // Web/mobile RB-01 parity: when enabled, top-ups use
+                            // ccxt's broker-reconciled current model value as the
+                            // base instead of the historical subscription amount.
+                            costModelGainAwareTopup: d.costModelGainAwareTopup === true,
                             // Did this fetch actually SUCCEED? Consumers that gate a
                             // COMPLIANCE decision (the checkout KYC gate) must be able to
                             // tell "advisor has the flag off" from "we never found out" —
@@ -172,7 +252,13 @@ export const ConfigProvider = ({ children }) => {
                 const response = await axios.get(apiUrl, { headers });
                 const parityFlags = await parityFlagsPromise;
 
-                console.log('API Response:', response.data);
+                // Never log the raw advisor payload: the legacy response can
+                // contain server-only credential objects that must not reach
+                // Logcat or a remote logging collector.
+                console.log('✅ Advisor config response received:', {
+                    status: response.status,
+                    hasData: !!response.data?.data,
+                });
 
                 if (response.data && response.data.data) {
                     const apiData = response.data.data; // API returns data nested under response.data.data
@@ -211,6 +297,13 @@ export const ConfigProvider = ({ children }) => {
                         // ============================================================================
                         appName: apiData.appName || initialConfig.appName,
                         subdomain: apiData.subdomain || initialConfig.subdomain,
+                        // Kite Publisher validates the WebView Referer against
+                        // this advisor web origin. Keep it in runtime config so
+                        // an advisor on a custom domain (e.g. research.markup.club)
+                        // resolves that instead of falling back to
+                        // <subdomain>.alphaquark.in, which Kite rejects.
+                        customDomain:
+                            apiData.customDomain || initialConfig.customDomain,
 
                         // ============================================================================
                         // CONTACT INFO
@@ -229,9 +322,12 @@ export const ConfigProvider = ({ children }) => {
                         // rejects with DEVELOPER_ERROR if passed verbatim.
                         // ============================================================================
                         googleWebClientId:
-                            (typeof apiData.googleWebClientId === 'string'
+                            (isRuntimeTenant
+                                ? buildConfig?.googleWebClientId
+                                : typeof apiData.googleWebClientId === 'string'
                                 ? apiData.googleWebClientId.trim()
                                 : apiData.googleWebClientId) ||
+                            buildConfig?.googleWebClientId ||
                             initialConfig.googleWebClientId,
 
                         // iOS-only Google Sign-In client ID (per-tenant Firebase
@@ -239,9 +335,12 @@ export const ConfigProvider = ({ children }) => {
                         // .trim() as googleWebClientId. Consumed by Login/LogOutScreen;
                         // only applied on iOS (undefined is a harmless no-op elsewhere).
                         googleIosClientId:
-                            (typeof apiData.googleIosClientId === 'string'
+                            (isRuntimeTenant
+                                ? buildConfig?.googleIosClientId
+                                : typeof apiData.googleIosClientId === 'string'
                                 ? apiData.googleIosClientId.trim()
                                 : apiData.googleIosClientId) ||
+                            buildConfig?.googleIosClientId ||
                             initialConfig.googleIosClientId,
 
                         // ============================================================================
@@ -269,13 +368,18 @@ export const ConfigProvider = ({ children }) => {
                         brokerConnectEnabled: apiData.featureFlags?.brokerConnectEnabled !== undefined
                             ? apiData.featureFlags.brokerConnectEnabled
                             : true,
+                        tradeTimeSensitivePushEnabled: apiData.tradeTimeSensitivePushEnabled === true,
+                        tradeLiveActivityEnabled: apiData.tradeLiveActivityEnabled === true,
+                        tradeLockScreenReviewEnabled: apiData.tradeLockScreenReviewEnabled === true,
+                        deviceTotpEnabled: apiData.deviceTotpEnabled === true,
+                        aliceBlueDeviceLoginEnabled: apiData.aliceBlueDeviceLoginEnabled === true,
                         // When true, the client-side 09:15–15:30 IST gate is bypassed so
                         // advisors can queue orders after hours (broker decides accept/AMO).
-                        // Default true — gate is bypassed unless an admin explicitly sets
-                        // this flag to false on the advisor config record.
+                        // Fail closed: after-hours placement stays blocked unless an
+                        // advisor explicitly enables AMO from SupportAQ.
                         allowAfterHoursOrders: apiData.featureFlags?.allowAfterHoursOrders !== undefined
                             ? apiData.featureFlags.allowAfterHoursOrders
-                            : (apiData.allowAfterHoursOrders !== undefined ? apiData.allowAfterHoursOrders : true),
+                            : (apiData.allowAfterHoursOrders !== undefined ? apiData.allowAfterHoursOrders : false),
 
                         // Courses + Webinars per-advisor gates. Source of truth on
                         // the server is AdvisorConfig.{courses_enabled,webinars_enabled}
@@ -316,6 +420,11 @@ export const ConfigProvider = ({ children }) => {
                         // failed frontend-config fetch (parityFlags == {}) keeps the
                         // working legacy shared-key OAuth, never breaks connect.
                         useSharedAngelOneKey:    parityFlags.useSharedAngelOneKey ?? true,
+                        // Rebalance plan freeze flags — DEFAULT OFF. A failed
+                        // frontend-config fetch (parityFlags == {}) leaves both OFF,
+                        // so process-trade payloads stay byte-identical to legacy.
+                        rebalanceFreezePlan:     parityFlags.rebalanceFreezePlan ?? false,
+                        repairFreezePlan:        parityFlags.repairFreezePlan ?? false,
 
                         // ============================================================================
                         // PAYMENT CONFIGURATION
@@ -414,6 +523,10 @@ export const ConfigProvider = ({ children }) => {
                             apiData.digioConfig?.digioCheck || apiData.digioCheck || Config.REACT_APP_DIGIO_CHECK || 'beforePayment',
                         REACT_APP_ADVISOR_LOGO:
                             apiData.advisorLogo || Config.REACT_APP_ADVISOR_LOGO || '',
+                        REACT_APP_ADVISOR_PRIVACY_POLICY:
+                            apiData.REACT_APP_ADVISOR_PRIVACY_POLICY || apiData.privacyPolicy || apiData.privacy_policy || Config.REACT_APP_ADVISOR_PRIVACY_POLICY || '',
+                        REACT_APP_ADVISOR_TERMS_AND_CONDITION:
+                            apiData.REACT_APP_ADVISOR_TERMS_AND_CONDITION || apiData.termsAndConditions || apiData.terms_and_condition || Config.REACT_APP_ADVISOR_TERMS_AND_CONDITION || '',
                         // Semantic (camelCase) aliases for components that prefer config.* over the
                         // legacy REACT_APP_* shape.
                         whiteLabelText:
@@ -542,6 +655,22 @@ export const ConfigProvider = ({ children }) => {
 
                     setConfig(newConfig);
 
+                    // Make the last-known-good production theme available on
+                    // the next cold launch before the network request finishes.
+                    // A failed cache write is non-fatal; the static AlphaQuark
+                    // fallback above remains fully branded.
+                    try {
+                        await AsyncStorage.setItem(
+                            THEME_CACHE_KEY,
+                            JSON.stringify(themeCacheFromConfig(newConfig, validVariant)),
+                        );
+                    } catch (themeCacheError) {
+                        console.warn(
+                            '[ConfigContext] Failed to persist theme cache:',
+                            themeCacheError?.message,
+                        );
+                    }
+
                     // Sync fresh config to AsyncStorage so TradeContext also gets updated values
                     try {
                         const storedJson = await AsyncStorage.getItem('@app:advisorConfig');
@@ -549,6 +678,13 @@ export const ConfigProvider = ({ children }) => {
                             const stored = JSON.parse(storedJson);
                             const updatedStored = {
                                 ...stored,
+                                // TradeContext reads this AsyncStorage blob
+                                // independently of ConfigContext. Persist the
+                                // custom domain at the top level so every Kite
+                                // Publisher callsite resolves the same origin.
+                                customDomain:
+                                    newConfig.customDomain ||
+                                    stored.customDomain,
                                 config: {
                                     ...(stored.config || {}),
                                     REACT_APP_BROKER_CONNECT_REDIRECT_URL: newConfig.REACT_APP_BROKER_CONNECT_REDIRECT_URL,
@@ -566,6 +702,8 @@ export const ConfigProvider = ({ children }) => {
                                     REACT_APP_DIGIO_CHECK: newConfig.REACT_APP_DIGIO_CHECK || stored.config?.REACT_APP_DIGIO_CHECK,
                                     digioEnabled: newConfig.digioEnabled === true,
                                     REACT_APP_ADVISOR_LOGO: newConfig.REACT_APP_ADVISOR_LOGO || stored.config?.REACT_APP_ADVISOR_LOGO,
+                                    REACT_APP_ADVISOR_PRIVACY_POLICY: newConfig.REACT_APP_ADVISOR_PRIVACY_POLICY || stored.config?.REACT_APP_ADVISOR_PRIVACY_POLICY,
+                                    REACT_APP_ADVISOR_TERMS_AND_CONDITION: newConfig.REACT_APP_ADVISOR_TERMS_AND_CONDITION || stored.config?.REACT_APP_ADVISOR_TERMS_AND_CONDITION,
                                     // D3 / Codex T5: persist the parity flags into the same
                                     // AsyncStorage blob TradeContext reads, so useConfig() and
                                     // configData never disagree on a gate.
@@ -579,9 +717,12 @@ export const ConfigProvider = ({ children }) => {
                                     kycBlockingEnabled: newConfig.kycBlockingEnabled,
                                     useSharedAngelOneKey: newConfig.useSharedAngelOneKey,
                                     phoneFirstLoginEnabled: newConfig.phoneFirstLoginEnabled,
+                                    rebalanceFreezePlan: newConfig.rebalanceFreezePlan,
+                                    repairFreezePlan: newConfig.repairFreezePlan,
                                 },
                             };
                             await AsyncStorage.setItem('@app:advisorConfig', JSON.stringify(updatedStored));
+                            setRuntimeAdvisorConfig(updatedStored);
                             console.log('[ConfigContext] Synced fresh config to AsyncStorage');
                         }
                     } catch (syncErr) {
@@ -603,10 +744,19 @@ export const ConfigProvider = ({ children }) => {
         };
 
         fetchConfig();
-    }, []); // Empty dependency array - run only once on mount
+        // Re-run only when the selected tenant identity changes. Runtime
+        // config enrichment publishes a new object, but keeps this string
+        // stable and therefore cannot create a request loop.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [runtimeTenant]);
+
+    const contextValue = useMemo(
+        () => ({ ...config, configLoading: loading }),
+        [config, loading],
+    );
 
     return (
-        <ConfigContext.Provider value={{ ...config, configLoading: loading }}>
+        <ConfigContext.Provider value={contextValue}>
             {children}
         </ConfigContext.Provider>
     );

@@ -4,6 +4,7 @@ import EducationalCard from './EducationalCard'; // Assuming you have an Educati
 import { FadeLoading } from 'react-native-fade-loading';
 import Icon1 from 'react-native-vector-icons/FontAwesome5';
 import {XIcon, BanIcon, CalendarDays, MinusIcon, PlusIcon ,ChevronDownIcon,Download,FileText, ChevronRight} from "lucide-react-native";
+import { designColor, designFont } from '../../design/literalTokens';
 const pdfcicon = require('../../assets/pdf.png');
 const EducationalContent = () => {
   const { width: screenWidth } = useWindowDimensions();
@@ -44,15 +45,13 @@ const EducationalContent = () => {
     //  console.log('hererere');
       return (
         <View style={styles.pdfCard}>
-          
           <View style={{flexDirection:'row',alignContent:'center',alignItems:'center'}}>
           <Image source={pdfcicon} style={{ width: 45, height: 45 }} />
           <View style={styles.pdfCardContent}>
             <Text style={styles.pdfCardTitle}>{item.title}</Text>
-            <Text style={{fontFamily: 'Poppins-SemiBold',color: '#4B8CEE', padding: 1 }}>Download</Text>
+            <Text style={{fontFamily: designFont('Poppins-SemiBold'),color: designColor('4b8cee'), padding: 1 }}>Download</Text>
           </View>
           </View>
-          
           <TouchableOpacity style={styles.downloadButton} onPress={() => handleDownload(item)}>
              <ChevronRight size={25} color={'black'}/>
             </TouchableOpacity>
@@ -60,7 +59,7 @@ const EducationalContent = () => {
       );
     } else if (selectedTab === 'Blog') {
       return (
-     //   console.log('card'),
+        //   console.log('card'),
         <EducationalCard title={item.title} image={item.image} content={item.content} />
       );
     } else {
@@ -77,8 +76,8 @@ const EducationalContent = () => {
         {isLoading ? (
           <FadeLoading
             style={{ width: screenWidth * 0.5, height: 10, marginTop: 5 }} // Adjust width for price loading
-            primaryColor="#f0f0f0"
-            secondaryColor="#e0e0e0"
+            primaryColor={designColor('f0f0f0')}
+            secondaryColor={designColor('e0e0e0')}
             duration={500}
           />
         ) : (
@@ -89,8 +88,8 @@ const EducationalContent = () => {
           {isLoading ? (
             <FadeLoading
               style={{ width: screenWidth * 0.1, height: 10, marginTop: 5 }} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
+              primaryColor={designColor('f0f0f0')}
+              secondaryColor={designColor('e0e0e0')}
               duration={500}
             />
           ) : (
@@ -98,12 +97,11 @@ const EducationalContent = () => {
           )}
         </TouchableOpacity>
       </View>
-
       {isLoading ? (
         <FadeLoading
           style={{ width: screenWidth * 0.5, height: 20, marginTop: 5, marginLeft: 10 }} // Adjust width for price loading
-          primaryColor="#f0f0f0"
-          secondaryColor="#e0e0e0"
+          primaryColor={designColor('f0f0f0')}
+          secondaryColor={designColor('e0e0e0')}
           duration={500}
         />
       ) : (
@@ -129,7 +127,6 @@ const EducationalContent = () => {
           ))}
         </View>
       )}
-
       {/* Educational Cards */}
       <FlatList
         data={educationalData[selectedTab]}
@@ -149,13 +146,13 @@ const styles = StyleSheet.create({
   },
   seeAllText: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#4B8CEE',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('4b8cee'),
     marginRight: 10,
   },
   sectionTitle: {
     fontSize: 20,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     marginBottom: 10,
     color: 'black',
   },
@@ -164,47 +161,47 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginLeft: 10,
     paddingVertical: 2,
-    borderColor: '#E6E6E6',
+    borderColor: designColor('e6e6e6'),
     borderWidth: 1,
     paddingHorizontal: 25,
     marginLeft: 12,
   },
   filterButtonText: {
     fontSize: 13,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     color: 'black',
   },
   tabContainer: {
     flexDirection: 'row',
   },
   activeTabButton: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   inactiveTabButton: {
-    backgroundColor: '#F4F4F4',
+    backgroundColor: designColor('f4f4f4'),
   },
   activeTabButtonText: {
     color: 'black',
   },
   inactiveTabButtonText: {
-    color: '#ABABAB',
+    color: designColor('ababab'),
   },
   flatList: {
     marginTop: 10,
   },
   pdfCard: {
     justifyContent:'space-between',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: designColor('f5f5f5'),
     padding: 10,
     flexDirection: 'row',
     borderRadius: 10,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     elevation: 3,
     marginVertical: 5,
     marginHorizontal:10,
     alignItems:'center',
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -215,16 +212,16 @@ const styles = StyleSheet.create({
   },
   pdfCardTitle: {
     fontSize: 16,
-    fontFamily: 'Poppins-Medium',
-    color: '#333',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('333'),
   },
   downloadButton: {
     padding: 10,
   },
   pdfCardDescription: {
     fontSize: 12,
-    fontFamily: 'Poppins-Light',
-    color: '#858585',
+    fontFamily: designFont('Poppins-Light'),
+    color: designColor('858585'),
     marginTop: 5,
   },
 });

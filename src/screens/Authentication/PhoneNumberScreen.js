@@ -19,8 +19,12 @@ import server from '../../utils/serverConfig';
 import { useTrade } from '../TradeContext';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { useConfig } from '../../context/ConfigContext';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import { useComponent } from '../../design/useDesign';
+import { normalizePaymentPhone } from '../../utils/paymentPhone';
+import LogoSection from '../../components/LogoSection';
+
+import { designFont } from '../../design/literalTokens';
 
 const calculateProfileCompletion = (email, name, phone, telegram = false, telegramId = '') => {
     let completedFields = 0;
@@ -55,19 +59,16 @@ const PhoneNumberScreen = () => {
             type,
             text2: message2 + ' ' + message1,
             position: 'top',
-            text1Style: { color: 'black', fontSize: 11, fontFamily: 'Poppins-Medium' },
-            text2Style: { color: 'black', fontSize: 12, fontFamily: 'Poppins-Regular' },
+            text1Style: { color: 'black', fontSize: 11, fontFamily: designFont('Poppins-Medium') },
+            text2Style: { color: 'black', fontSize: 12, fontFamily: designFont('Poppins-Regular') },
         });
     };
 
     const handleProceed = useCallback(async () => {
         try {
-            if (!phoneNumber.trim()) {
-                Toast.show({ type: 'error', text1: '', text2: 'Please enter a phone number.' });
-                return;
-            }
-            if (phoneNumber.length !== 9 && phoneNumber.length !== 10 && phoneNumber.length !== 11) {
-                Toast.show({ type: 'error', text1: '', text2: 'Phone number must be between 9 and 11 numbers.' });
+            const normalizedPhone = normalizePaymentPhone(phoneNumber, countryCode);
+            if (!normalizedPhone.e164) {
+                Toast.show({ type: 'error', text1: '', text2: 'Please enter a valid phone number.' });
                 return;
             }
 
@@ -76,7 +77,7 @@ const PhoneNumberScreen = () => {
             const profileCompletion = calculateProfileCompletion(
                 userEmail,
                 userName,
-                phoneNumber,
+                normalizedPhone.nationalNumber,
                 showTelegram,
                 showTelegram ? userTelegram : '',
             );
@@ -86,8 +87,8 @@ const PhoneNumberScreen = () => {
                 {
                     email: userEmail,
                     advisorName,
-                    phoneNumber,
-                    countryCode,
+                    phoneNumber: normalizedPhone.nationalNumber,
+                    countryCode: normalizedPhone.countryCode,
                     telegramId: showTelegram ? userTelegram : '',
                     userName,
                     profileCompletion,
@@ -95,7 +96,7 @@ const PhoneNumberScreen = () => {
                 {
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                        'X-Advisor-Subdomain': getTenantSubdomain(),
                         'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
                     },
                 },
@@ -139,6 +140,7 @@ const PhoneNumberScreen = () => {
                 onTelegramChange: setUserTelegram,
                 onProceed: handleProceed,
             }}
+            slots={{ LogoSection }}
         />
     );
 };

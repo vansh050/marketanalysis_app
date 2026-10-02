@@ -8,13 +8,16 @@ import { generateToken } from '../utils/SecurityTokenManager';
 import Config from 'react-native-config';
 import useModalStore from '../GlobalUIModals/modalStore';
 import { refreshGrowwSession } from '../utils/growwRefresh';
+import {getTenantSubdomain} from '../utils/variantHelper';
+
+import { designColor, designFont } from '../design/literalTokens';
 
 // OAuth/re-consent brokers — the reconnect modal renders a single
 // "Reconnect {broker}" button for each. Groww is NOT in this list as
 // of 2026-04-21: it migrated to credential + TOTP-seed and has its
 // own dedicated branch (see broker === 'Groww' render block below)
 // that renders "Refresh Groww session" and calls refreshGrowwSession.
-const OAUTH_BROKERS = ['Zerodha', 'Angel One', 'Dhan', 'Fyers', 'Upstox', 'AliceBlue', 'Hdfc Securities', 'Motilal Oswal', 'Axis Securities'];
+const OAUTH_BROKERS = ['Zerodha', 'Angel One', 'Dhan', 'Fyers', 'Upstox', 'AliceBlue', 'Hdfc Securities', 'Motilal Oswal', 'Axis Securities', 'IIFL Securities'];
 
 const TokenExpireBrokerModal = ({
   openTokenExpireModel,
@@ -23,8 +26,6 @@ const TokenExpireBrokerModal = ({
   apiKey,
   secretKey,
   checkValidApiAnSecret,
-  clientCode,
-  my2pin,
   panNumber,
   mobileNumber,
   getUserDetails,
@@ -40,52 +41,6 @@ const TokenExpireBrokerModal = ({
   const [mpin, setMpin] = useState('');
   const [otp, setOtp] = useState('');
 
-  const handleIiflLogin = () => {
-    setLoginLoading(true);
-    const data = JSON.stringify({
-      clientCode,
-      password,
-      my2pin,
-      userId,
-    });
-
-    axios.post(`${server.server.baseUrl}api/iifl/generate-session`, data, {
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': Config.REACT_APP_HEADER_NAME,
-        'aq-encrypted-key': generateToken(
-          Config.REACT_APP_AQ_KEYS,
-          Config.REACT_APP_AQ_SECRET,
-        ),
-      },
-    })
-      .then(response => {
-        setLoginLoading(false);
-        if (getUserDetails) getUserDetails();
-        Toast.show({
-          type: 'success',
-          text1: 'You have been successfully logged in to IIFL Securities',
-          position: 'bottom',
-          visibilityTime: 5000,
-          autoHide: true,
-          topOffset: 50,
-        });
-        setOpenTokenExpireModel(false);
-      })
-      .catch(error => {
-        setLoginLoading(false);
-        const result = error.response?.data?.response || {};
-        Toast.show({
-          type: 'error',
-          text1: result.message || 'Login failed. Please check your credentials.',
-          position: 'bottom',
-          visibilityTime: 5000,
-          autoHide: true,
-          topOffset: 50,
-        });
-      });
-  };
-
   const updateKotakSecretKey = () => {
     setLoginLoading(true);
     const data = {
@@ -100,7 +55,7 @@ const TokenExpireBrokerModal = ({
     axios.post(`${server.server.baseUrl}api/kotak/update-key`, data, {
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': Config.REACT_APP_HEADER_NAME,
+        'X-Advisor-Subdomain': getTenantSubdomain(),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -143,7 +98,7 @@ const TokenExpireBrokerModal = ({
     axios.put(`${server.server.baseUrl}api/kotak/connect-broker`, data, {
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': Config.REACT_APP_HEADER_NAME,
+        'X-Advisor-Subdomain': getTenantSubdomain(),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -240,10 +195,10 @@ const TokenExpireBrokerModal = ({
             style={styles.closeButton}
             onPress={() => setOpenTokenExpireModel(false)}
           >
-            <X size={20} color="#666" />
+            <X size={20} color={designColor('666')} />
           </TouchableOpacity>
           <View style={styles.iconContainer}>
-            <Info size={48} color="#00000080" />
+            <Info size={48} color={designColor('00000080')} />
           </View>
           <Text style={styles.title}>
             {broker === 'Zerodha'
@@ -262,7 +217,7 @@ const TokenExpireBrokerModal = ({
                 disabled={loginLoading}
               >
                 {loginLoading ? (
-                  <ActivityIndicator color="#fff" />
+                  <ActivityIndicator color={designColor('fff')} />
                 ) : (
                   <Text style={styles.submitButtonText}>Refresh Groww session</Text>
                 )}
@@ -276,57 +231,13 @@ const TokenExpireBrokerModal = ({
                 <Text style={styles.submitButtonText}>Reconnect {broker}</Text>
               </TouchableOpacity>
             )}
-            {broker === 'IIFL Securities' && (
-              <View>
-                <TextInput
-                  style={styles.input}
-                  value={clientCode}
-                  placeholder="Client Code"
-                  placeholderTextColor="#999"
-                  editable={false}
-                />
-                <Text style={styles.label}>Client Code</Text>
-                <TextInput
-                  style={styles.input}
-                  value={my2pin}
-                  placeholder="My2Pin"
-                  placeholderTextColor="#999"
-                  editable={false}
-                />
-                <Text style={styles.label}>My2Pin</Text>
-                <View style={styles.passwordContainer}>
-                  <TextInput
-                    style={[styles.input, { flex: 1 }]}
-                    value={password}
-                    onChangeText={setPassword}
-                    placeholder="Password"
-                    placeholderTextColor="#999"
-                    secureTextEntry={!showPassword}
-                  />
-                  <TouchableOpacity
-                    style={styles.eyeIcon}
-                    onPress={() => setShowPassword(prev => !prev)}
-                  >
-                    {showPassword ? <Eye size={24} color="#00000060" /> : <EyeOff size={24} color="#00000060" />}
-                  </TouchableOpacity>
-                </View>
-                <Text style={styles.label}>Password</Text>
-                <TouchableOpacity
-                  style={[styles.submitButton, loginLoading && styles.submitButtonDisabled]}
-                  onPress={handleIiflLogin}
-                  disabled={loginLoading || !password}
-                >
-                  {loginLoading ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.submitButtonText}>Login</Text>}
-                </TouchableOpacity>
-              </View>
-            )}
             {broker === 'Kotak' && (
               <View>
                 <TextInput
                   style={styles.input}
                   value={panNumber || mobileNumber}
                   placeholder={panNumber ? 'Pan Number' : 'Mobile Number'}
-                  placeholderTextColor="#999"
+                  placeholderTextColor={designColor('999')}
                   editable={false}
                 />
                 <Text style={styles.label}>{panNumber ? 'Pan Number' : 'Mobile Number'}</Text>
@@ -336,14 +247,14 @@ const TokenExpireBrokerModal = ({
                     value={password}
                     onChangeText={setPassword}
                     placeholder="Password"
-                    placeholderTextColor="#999"
+                    placeholderTextColor={designColor('999')}
                     secureTextEntry={!showPassword}
                   />
                   <TouchableOpacity
                     style={styles.eyeIcon}
                     onPress={() => setShowPassword(prev => !prev)}
                   >
-                    {showPassword ? <Eye size={24} color="#00000060" /> : <EyeOff size={24} color="#00000060" />}
+                    {showPassword ? <Eye size={24} color={designColor('00000060')} /> : <EyeOff size={24} color={designColor('00000060')} />}
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.label}>Password</Text>
@@ -355,7 +266,7 @@ const TokenExpireBrokerModal = ({
                         value={mpin}
                         onChangeText={setMpin}
                         placeholder="Mpin"
-                        placeholderTextColor="#999"
+                        placeholderTextColor={designColor('999')}
                         keyboardType="numeric"
                         secureTextEntry={!showMpin}
                       />
@@ -363,7 +274,7 @@ const TokenExpireBrokerModal = ({
                         style={styles.eyeIcon}
                         onPress={() => setShowMpin(prev => !prev)}
                       >
-                        {showMpin ? <Eye size={24} color="#00000060" /> : <EyeOff size={24} color="#00000060" />}
+                        {showMpin ? <Eye size={24} color={designColor('00000060')} /> : <EyeOff size={24} color={designColor('00000060')} />}
                       </TouchableOpacity>
                     </View>
                     <Text style={styles.label}>Mpin</Text>
@@ -372,7 +283,7 @@ const TokenExpireBrokerModal = ({
                       value={otp}
                       onChangeText={setOtp}
                       placeholder="Otp"
-                      placeholderTextColor="#999"
+                      placeholderTextColor={designColor('999')}
                       keyboardType="numeric"
                     />
                     <Text style={styles.label}>Otp</Text>
@@ -381,7 +292,7 @@ const TokenExpireBrokerModal = ({
                       onPress={handleKotakLogin}
                       disabled={loginLoading}
                     >
-                      {loginLoading ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.submitButtonText}>Submit</Text>}
+                      {loginLoading ? <ActivityIndicator size="small" color={designColor('ffffff')} /> : <Text style={styles.submitButtonText}>Submit</Text>}
                     </TouchableOpacity>
                   </>
                 )}
@@ -391,7 +302,7 @@ const TokenExpireBrokerModal = ({
                     onPress={updateKotakSecretKey}
                     disabled={loginLoading || !password}
                   >
-                    {loginLoading ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.submitButtonText}>Update Key</Text>}
+                    {loginLoading ? <ActivityIndicator size="small" color={designColor('ffffff')} /> : <Text style={styles.submitButtonText}>Update Key</Text>}
                   </TouchableOpacity>
                 )}
               </View>
@@ -402,7 +313,7 @@ const TokenExpireBrokerModal = ({
                 onPress={handleOAuthReconnect}
                 disabled={loginLoading}
               >
-                {loginLoading ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.submitButtonText}>Reconnect ICICI Direct</Text>}
+                {loginLoading ? <ActivityIndicator size="small" color={designColor('ffffff')} /> : <Text style={styles.submitButtonText}>Reconnect ICICI Direct</Text>}
               </TouchableOpacity>
             )}
           </View>
@@ -445,22 +356,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     marginBottom: 20,
-    color: '#333',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('333'),
+    fontFamily: designFont('Satoshi-Medium'),
   },
   inputContainer: {
     marginBottom: 20,
   },
   input: {
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
+    borderBottomColor: designColor('ccc'),
     marginBottom: 10,
     padding: 10,
-    color: '#000',
+    color: designColor('000'),
   },
   label: {
     fontSize: 12,
-    color: '#777',
+    color: designColor('777'),
   },
   passwordContainer: {
     flexDirection: 'row',
@@ -471,7 +382,7 @@ const styles = StyleSheet.create({
     right: 10,
   },
   submitButton: {
-    backgroundColor: '#007bff',
+    backgroundColor: designColor('007bff'),
     padding: 15,
     borderRadius: 5,
     alignItems: 'center',
@@ -484,7 +395,7 @@ const styles = StyleSheet.create({
   submitButtonText: {
     color: 'white',
     fontSize: 16,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
   successMessage: {
     color: 'green',

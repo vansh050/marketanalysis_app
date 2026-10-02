@@ -5,6 +5,8 @@ import axios from 'axios';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
 
+import { designColor } from '../design/literalTokens';
+
 const ConfigContext = createContext();
 
 export const useConfig = () => {
@@ -16,7 +18,7 @@ export const ConfigProvider = ({children}) => {
   const [appConfig, setAppConfig] = useState({
     advisorName: Config.REACT_APP_URL || 'defaultAdvisor',
     baseUrl: server.server.baseUrl,
-    themeColor: '#0056B7',
+    themeColor: designColor('0056b7'),
   });
   const [loading, setLoading] = useState(true);
 

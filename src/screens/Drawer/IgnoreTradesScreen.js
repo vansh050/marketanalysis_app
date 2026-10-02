@@ -29,7 +29,7 @@ import CustomToolbar from '../../components/CustomToolbar';
 import MPCard from '../../components/ModelPortfolioComponents/MPCard';
 import {getAuth} from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
-import { validateStockExchanges } from '../../utils/brokerPublisher';
+import { convertToBasketItem, fetchFreshKiteProtectionPrices, validateStockExchanges } from '../../utils/brokerPublisher';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import EmptyMP from '../../assets/emptyModelPortfolio.svg';
 import {Alert} from 'react-native';
@@ -47,14 +47,22 @@ import {generateToken} from '../../utils/SecurityTokenManager';
 import {useTrade} from '../TradeContext';
 import {useConfig} from '../../context/ConfigContext';
 import { computeTradeVariant } from '../../utils/tradeVariant';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
-import useSdkClient from '../../sdk/useSdkClient';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
+import {
+  isAmbiguousPlacementError,
+  isReconciliationResponse,
+  prepareExecutionPayload,
+  reconciliationMessage,
+} from '../../utils/executionSafety';
 import {getAccountEmail} from '../../utils/accountEmail';
+import {getCustomerAuthHeaders} from '../../utils/customerAuthHeaders';
+import {
+  durableOrderExecutionEnabled,
+  isDurableDirectOrderEligible,
+  submitDurableOrder,
+} from '../../services/DurableOrderService';
 
-const isSdkExecuteAdviceEnabled = () => {
-  const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
-  return v === 'true' || v === '1';
-};
+import { designColor, designFont } from '../../design/literalTokens';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 const scale = SCREEN_WIDTH / 375; // Assuming the design is based on a 375px wide screen (iPhone X)
@@ -64,8 +72,6 @@ const IgnoreTradesScreen = () => {
   const {configData} = useTrade();
   // For trade `variant` — see docs/APP_ARCHITECTURE.md § 4.5.2.
   const { allowAfterHoursOrders } = useConfig() || {};
-  const sdkClient = useSdkClient();
-  const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
   const auth = getAuth();
   const user = auth.currentUser;
   const userEmail = getAccountEmail();
@@ -151,10 +157,14 @@ const IgnoreTradesScreen = () => {
 
   const checkValidApiAnSecret = data => {
     if (!data) return null;
-    const bytesKey = CryptoJS.AES.decrypt(data, 'ApiKeySecret');
-    const Key = bytesKey.toString(CryptoJS.enc.Utf8);
-    if (Key) {
-      return Key;
+    try {
+      const bytesKey = CryptoJS.AES.decrypt(data, 'ApiKeySecret');
+      const Key = bytesKey.toString(CryptoJS.enc.Utf8);
+      return Key || data;
+    } catch (error) {
+      // Decrypt-or-passthrough: plaintext credentials (e.g. Zerodha's API
+      // key) must be sent as-is (2026-08-13).
+      return data;
     }
   };
   // Build a fresh auth header set on each call. The `aq-encrypted-key` JWT has
@@ -164,7 +174,7 @@ const IgnoreTradesScreen = () => {
   // token; retry getUserDetails on 401).
   const buildAuthHeaders = () => ({
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain': getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,
@@ -591,85 +601,67 @@ const IgnoreTradesScreen = () => {
       }
     };
 
-    // Phase A trade-exec alignment (2026-05-01): now POSTs direct to ccxt-india
-    // /orders/process-trade. Falls back to legacy Node on 5xx / network error,
-    // gated by REACT_APP_BESPOKE_DIRECT_CCXT_FALLBACK (default 'true'). Spec:
-    // docs/SDK_TRADE_EXECUTION_MIGRATION.md § Phase A.
-    const directCcxtUrl = `${server.ccxtServer.baseUrl}orders/process-trade`;
-    const legacyNodeUrl = `${server.server.baseUrl}api/process-trades/order-place`;
-    const fallbackEnabled = (Config.REACT_APP_BESPOKE_DIRECT_CCXT_FALLBACK || 'true') === 'true';
-    const placeOrderHeaders = {
-      'Content-Type': 'application/json',
-      'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-      'aq-encrypted-key': generateToken(
-        Config.REACT_APP_AQ_KEYS,
-        Config.REACT_APP_AQ_SECRET,
-      ),
-    };
+    // Ignored recommendations are still standalone recommendations. The Node
+    // boundary re-reads their authoritative Mongo rows, reserves dedup, sends
+    // the broker request and records the broker-confirmed result.
+    const directCcxtUrl = `${server.server.baseUrl}api/process-trades/order-place`;
     const basePayloadIgn = getOrderPayload();
-    const payloadWithClientIds = {
-      ...basePayloadIgn,
-      trades: (basePayloadIgn.trades || []).map((t) => ({
-        ...t,
-        clientTradeId: t.clientTradeId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      })),
-    };
+    const payloadWithClientIds = prepareExecutionPayload(basePayloadIgn);
 
     (async () => {
       try {
         let response;
         let placementResults;
+        let placementEnvelope;
 
-        // SDK executeAdvice dual-path (Phase C). When the flag is on and SDK
-        // client is available, route through the SDK orchestrator. Legacy
-        // direct-ccxt path stays below as fallback.
-        if (sdkExecuteAdviceEnabled) {
-          try {
-            const sdkResult = await sdkClient.executeAdvice({
-              kind: 'bespokeSingle',
-              clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-              brokerName: broker,
-              trade: payloadWithClientIds.trades[0],
-              adviceId: stockDetails[0]?.adviceId || stockDetails[0]?._id || '',
-            });
-            placementResults = (sdkResult?.rows || []).map(row => ({
-              ...row,
-              orderStatus: row.status,
-              tradingSymbol: row.symbol,
-            }));
-            console.log('[IgnoreTradesScreen] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
-          } catch (sdkErr) {
-            console.error('[IgnoreTradesScreen] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
-            placementResults = null;
-          }
+        if (
+          durableOrderExecutionEnabled(configData) &&
+          isDurableDirectOrderEligible(payloadWithClientIds)
+        ) {
+          placementEnvelope = await submitDurableOrder(
+            payloadWithClientIds,
+            configData,
+          );
+          placementResults = placementEnvelope?.results || [];
         }
 
         if (!placementResults) {
-          try {
-            response = await axios.request({
-              method: 'post',
-              url: directCcxtUrl,
-              timeout: 120000,
-              headers: placeOrderHeaders,
-              data: JSON.stringify(payloadWithClientIds),
-            });
-            placementResults = response.data?.results || [];
-          } catch (directErr) {
-            const status = directErr?.response?.status;
-            const isNetworkOr5xx = !status || status >= 500;
-            if (fallbackEnabled && isNetworkOr5xx) {
-              console.warn('[IgnoreTradesScreen.placeOrder] direct-ccxt failed, falling back to legacy Node:', directErr?.message);
-              response = await axios.request({
-                method: 'post',
-                url: legacyNodeUrl,
-                headers: placeOrderHeaders,
-                data: JSON.stringify(payloadWithClientIds),
-              });
-              placementResults = response.data?.response || [];
-            } else {
-              throw directErr;
-            }
+          const customerAuthHeaders = await getCustomerAuthHeaders();
+          if (!customerAuthHeaders) {
+            throw new Error('Please sign in again before placing this trade.');
           }
+          const placeOrderHeaders = {
+            'Content-Type': 'application/json',
+            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
+            ...customerAuthHeaders,
+          };
+          response = await axios.request({
+            method: 'post',
+            url: directCcxtUrl,
+            timeout: 120000,
+            headers: {...placeOrderHeaders, 'x-request-id': payloadWithClientIds.requestId},
+            data: JSON.stringify(payloadWithClientIds),
+          });
+          placementEnvelope = response.data;
+          placementResults = response.data?.results || [];
+        }
+
+        if (isReconciliationResponse(response?.status, placementEnvelope)) {
+          setOrderPlacementResponse(placementResults);
+          if (placementResults.length) setOpenSucessModal(true);
+          setLoading(false);
+          setOpenReviewTrade(false);
+          Toast.show({
+            type: 'info',
+            text1: 'Checking with broker',
+            text2: reconciliationMessage(placementEnvelope),
+            visibilityTime: 7000,
+          });
+          return;
         }
 
         setOrderPlacementResponse(placementResults);
@@ -684,6 +676,25 @@ const IgnoreTradesScreen = () => {
       } catch (error) {
         console.error('Error placing order:', error);
         setLoading(false);
+        if (error?.response?.status === 503 && error?.response?.data?.retryAllowed === true) {
+          Toast.show({
+            type: 'error',
+            text1: 'Order not sent',
+            text2: error.response?.data?.message || 'Refresh and try again shortly.',
+            visibilityTime: 6000,
+          });
+          return;
+        }
+        if (error?.response?.status === 409 || isAmbiguousPlacementError(error)) {
+          Toast.show({
+            type: 'info',
+            text1: error?.response?.status === 409 ? 'Order already processing' : 'Checking with broker',
+            text2: error?.response?.data?.message || reconciliationMessage(error?.response?.data),
+            visibilityTime: 7000,
+          });
+          setOpenReviewTrade(false);
+          return;
+        }
         Toast.show({
           type: 'error',
           text1: 'Failed',
@@ -716,27 +727,6 @@ const IgnoreTradesScreen = () => {
   const [loadingStatus, setLoadingStatus] = useState(null); // Track success status
   const [mbasket, setmbasket] = useState(null);
 
-  // Helper function to map product type to Kite product type
-  const mapKiteProductType = (productType) => {
-    if (!productType) return "CNC";
-    const upper = productType.toUpperCase();
-    if (upper === "DELIVERY" || upper === "CNC") return "CNC";
-    if (upper === "INTRADAY" || upper === "MIS") return "MIS";
-    if (upper === "BO") return "BO";
-    if (upper === "CO") return "CO";
-    return "CNC";
-  };
-
-  // Helper function to map order type to Kite order type
-  const mapKiteOrderType = (orderType) => {
-    if (!orderType) return "MARKET";
-    const upper = orderType.toUpperCase();
-    if (upper === "MARKET") return "MARKET";
-    if (upper === "LIMIT") return "LIMIT";
-    if (upper === "SL" || upper === "SL_M" || upper === "STOP") return "SL";
-    return "MARKET";
-  };
-
   const handlefinal = async () => {
     // Pre-flight: refuse to send orders with missing exchange. Kite Publisher
     // silently drops basket items whose symbol/exchange combo it can't resolve.
@@ -762,6 +752,9 @@ const IgnoreTradesScreen = () => {
     const zerodhaTrades = (stockDetails || []).map(s => ({ ...s, variant: zerodhaVariant }));
 
     try {
+      const freshProtectionPrices = await fetchFreshKiteProtectionPrices(
+        stockDetails,
+      );
       // Store variant-tagged stockDetails in AsyncStorage
       await AsyncStorage.setItem(
         'stockDetailsZerodhaOrder',
@@ -770,7 +763,10 @@ const IgnoreTradesScreen = () => {
 
       const basket = stockDetails.map(stock => {
         // Get LTP for price calculation (default to 0 if not available)
-        const ltp = 0;
+        const adviceSymbol = String(
+          stock.tradingSymbol || stock.symbol || '',
+        ).replace(/-EQ$/, '').toUpperCase();
+        const ltp = Number(freshProtectionPrices?.[adviceSymbol]) || 0;
         let orderPrice = 0;
 
         if (stock.orderType === 'LIMIT') {
@@ -779,47 +775,15 @@ const IgnoreTradesScreen = () => {
           orderPrice = ltp !== '-' ? parseFloat(ltp) : 0;
         }
 
-        let baseOrder = {
-          variety: 'regular',
-          tradingsymbol: stock.tradingSymbol,
-          // exchange is guaranteed non-empty by validateStockExchanges() above
-          exchange: stock.exchange,
-          transaction_type: (stock.transactionType || 'BUY').toUpperCase(),
-          order_type: mapKiteOrderType(stock.orderType),
-          quantity: parseInt(stock.quantity, 10) || 1,
-          product: mapKiteProductType(stock.productType),
-          readonly: false,
+        const basketItem = convertToBasketItem('Zerodha', stock, undefined, {
           price: orderPrice,
-        };
+          quantity: parseInt(stock.quantity, 10) || 1,
+        });
 
-        if (stock.quantity > 100) {
-          baseOrder.readonly = true;
-        }
+        console.log('[ZerodhaPublisher] Basket item:', JSON.stringify(basketItem));
 
-        console.log('[ZerodhaPublisher] Basket item:', JSON.stringify(baseOrder));
-
-        return baseOrder;
+        return basketItem;
       });
-
-      // Send data to the server (for updating the trade recommendation)
-      const currentISTDateTime = new Date();
-      await axios.put(
-        `${server.server.baseUrl}api/zerodha/update-trade-reco`,
-        {
-          stockDetails: stockDetails,
-          leaving_datetime: currentISTDateTime,
-        },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
-          },
-        },
-      );
 
       // Prepare the redirect URL with the required parameters
       const redirectUrl = `https://kite.zerodha.com/connect/basket?api_key=${zerodhaApiKey}&data=${encodeURIComponent(
@@ -844,10 +808,6 @@ const IgnoreTradesScreen = () => {
       console.error('Error fetching redirect URL:', error);
     }
   };
-
-  useEffect(() => {
-    handleZerodhaRedirect(); // Call the function when the component mounts
-  }, []);
 
   const [zerodhaStockDetails, setZerodhaStockDetails] = useState(null);
   const [zerodhaAdditionalPayload, setZerodhaAdditionalPayload] =
@@ -950,7 +910,7 @@ const IgnoreTradesScreen = () => {
           {
             headers: {
               'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': getAdvisorSubdomain(),
+              'X-Advisor-Subdomain': getTenantSubdomain(),
               'aq-encrypted-key': generateToken(
                 Config.REACT_APP_AQ_KEYS,
                 Config.REACT_APP_AQ_SECRET,
@@ -1349,12 +1309,12 @@ const IgnoreTradesScreen = () => {
         color: 'black',
         fontSize: 11,
         fontWeight: 0,
-        fontFamily: 'Poppins-Medium',
+        fontFamily: designFont('Poppins-Medium'),
       },
       text2Style: {
         color: 'black',
         fontSize: 12,
-        fontFamily: 'Poppins-Regular',
+        fontFamily: designFont('Poppins-Regular'),
       },
     });
   };
@@ -1432,14 +1392,10 @@ const IgnoreTradesScreen = () => {
 
   // Trades---
   const handleTrade = () => {
-    if (broker === 'Zerodha') {
-      setOpenZerodhaModel(true);
+    if (brokerStatus === null) {
+      setBrokerModel(true);
     } else {
-      if (brokerStatus === null) {
-        setBrokerModel(true);
-      } else {
-        setOpenReviewTrade(true);
-      }
+      setOpenReviewTrade(true);
     }
   };
 
@@ -1555,7 +1511,7 @@ const IgnoreTradesScreen = () => {
           type: 'success',
           text1: 'Success',
           text2: 'You have successfully reverted your trade.',
-          text2Style: {fontFamily: 'Poppins-Medium', fontSize: 12},
+          text2Style: {fontFamily: designFont('Poppins-Medium'), fontSize: 12},
           visibilityTime: 5000,
           position: 'bottom',
           bottomOffset: 40,
@@ -1567,7 +1523,7 @@ const IgnoreTradesScreen = () => {
           },
           textStyle: {
             color: 'green',
-            fontFamily: 'Poppins-Medium',
+            fontFamily: designFont('Poppins-Medium'),
             fontSize: 20,
           },
         });
@@ -1612,7 +1568,7 @@ const IgnoreTradesScreen = () => {
 
 const styles = StyleSheet.create({
   sectionTitle: {
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     fontSize: responsiveFontSize(22),
     color: 'black',
     paddingHorizontal: 15,
@@ -1631,13 +1587,13 @@ const styles = StyleSheet.create({
   noDataText: {
     fontSize: 18,
     marginTop: 40,
-    fontFamily: 'Satoshi-Bold',
-    color: '#000000',
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designColor('000000'),
   },
   noDataSubtitle: {
     fontSize: 14,
-    color: '#8E8E93',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('8e8e93'),
+    fontFamily: designFont('Satoshi-Medium'),
     textAlign: 'center',
     marginVertical: 8,
     marginHorizontal: 10,

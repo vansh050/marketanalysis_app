@@ -19,10 +19,10 @@ import axios from 'axios';
 import server from '../../utils/serverConfig';
 import LottieView from 'lottie-react-native';
 import RebalanceCard from '../../UIComponents/RebalanceAdvicesUI/RebalanceCard'; // Assuming you have this component
+import {selectBrokerExecution} from '../../utils/modelPortfolioExecution';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
 import StockCardLoading from './StockCardLoading';
 import IIFLReviewTradeModal from '../IIFLReviewTradeModal';
-import RecommendationSuccessModal from '../ModelPortfolioComponents/RecommendationSuccessModal';
 import eventEmitter from '../EventEmitter';
 import {useTrade} from '../../screens/TradeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -34,6 +34,8 @@ import {FyersTpinModal} from '../DdpiModal';
 import Config from 'react-native-config';
 import {OtherBrokerModel} from '../DdpiModal';
 import {generateToken} from '../../utils/SecurityTokenManager';
+import { designColor, designFont } from '../../design/literalTokens';
+import {sellOrdersForAuth} from '../../utils/sellAuthOrders';
 const RebalanceAdviceContent = React.memo(
   ({
     type,
@@ -88,11 +90,13 @@ const RebalanceAdviceContent = React.memo(
     stockDataForModal,
     setStockDataForModal,
     setLatestRebalanceData,
+    onReviewRebalance,
+    setReviewStockTypeAndSymbol,
     setuserExecution,
     setmatchingFailedTrades,
+    setRebalanceExecutionStatus,
     setRepairmessageModal,
-    selectedOption,
-    setSelectedOption
+    onContinuePublisherBuys,
   }) => {
     const {
       modelPortfolioStrategyfinal,
@@ -277,7 +281,11 @@ const RebalanceAdviceContent = React.memo(
         const matchingFailedTrades = modelPortfolioRepairTrades?.find(
           trade =>
             trade.modelId === latest?.model_Id &&
-            trade.failedTrades.length !== 0,
+            (trade.failedTrades?.length > 0 ||
+              trade.requiresFreshRebalance === true ||
+              trade.reconciliationPending === true ||
+              (trade.executionComplete === true &&
+                String(trade.completionRecommendationId) === String(latest?.model_Id))),
         );
 
         //  console.log('mathcignL',modelPortfolioRepairTrades);
@@ -459,22 +467,19 @@ const RebalanceAdviceContent = React.memo(
       if (!latest) return null;
       const matchingFailedTrades = modelPortfolioRepairTrades?.find(
         trade =>
-          trade.modelId === latest?.model_Id && trade.failedTrades.length !== 0,
+          trade.modelId === latest?.model_Id &&
+          (trade.failedTrades?.length > 0 ||
+            trade.requiresFreshRebalance === true ||
+            trade.reconciliationPending === true ||
+            (trade.executionComplete === true &&
+              String(trade.completionRecommendationId) === String(latest?.model_Id))),
       );
 
-        const _execFiltered = (latest?.subscriberExecutions || []).filter(
-          e => e?.user_email === userEmail,
+        const userExecution = selectBrokerExecution(
+          latest?.subscriberExecutions,
+          userEmail,
+          broker,
         );
-        let userExecution =
-          _execFiltered.find(ex => broker && ex?.user_broker === broker) ||
-          _execFiltered.find(ex => ex?.user_broker === 'DummyBroker');
-        if (!userExecution && _execFiltered.length > 0) {
-          const anyMatch = _execFiltered[0];
-          const otherStatus = (anyMatch?.status || '').toLowerCase();
-          userExecution = otherStatus === 'executed'
-            ? {...anyMatch, status: 'toExecute', user_broker: broker}
-            : anyMatch;
-        }
 
       return (
         <View
@@ -517,34 +522,25 @@ const RebalanceAdviceContent = React.memo(
               setOpenTokenExpireModel={setOpenTokenExpireModel}
               setModelPortfolioModelId={setModelPortfolioModelId}
               setStoreModalName={setStoreModalName}
-              userExecution={(() => {
-                const execFiltered =
-                  item?.latestRebalance?.subscriberExecutions?.filter(
-                    execution => execution?.user_email === userEmail,
-                  ) || [];
-                let _ue =
-                  execFiltered.find(ex => broker && ex?.user_broker === broker) ||
-                  execFiltered.find(ex => ex?.user_broker === 'DummyBroker');
-                if (!_ue && execFiltered.length > 0) {
-                  const am = execFiltered[0];
-                  _ue = (am?.status || '').toLowerCase() === 'executed'
-                    ? {...am, status: 'toExecute', user_broker: broker}
-                    : am;
-                }
-                return _ue;
-              })()}
+              userExecution={selectBrokerExecution(
+                item?.latestRebalance?.subscriberExecutions,
+                userEmail,
+                broker,
+              )}
               brokerStatus={userDetails?.connect_broker_status}
               showstatusModal={showstatusModal}
               setShowstatusModal={setShowstatusModal}
               stockDataForModal={stockDataForModal}
               setStockDataForModal={setStockDataForModal}
               setLatestRebalanceData={setLatestRebalanceData}
+              onReviewRebalance={onReviewRebalance}
+              setStockTypeAndSymbol={setReviewStockTypeAndSymbol}
               setRepairmessageModal={setRepairmessageModal}
               setuserExecution={setuserExecution}
               setmatchingFailedTrades={setmatchingFailedTrades}
+              setRebalanceExecutionStatus={setRebalanceExecutionStatus}
               userExecutionFinal={userExecution}
-              selectedOption={selectedOption}
-              setSelectedOption={setSelectedOption}
+              onContinuePublisherBuys={onContinuePublisherBuys}
             />
           )}
         </View>
@@ -560,14 +556,13 @@ const RebalanceAdviceContent = React.memo(
               marginVertical: 10,
               marginLeft: 30,
             }} // Adjust width for price loading
-            primaryColor="#f0f0f0"
-            secondaryColor="#e0e0e0"
+            primaryColor={designColor('f0f0f0')}
+            secondaryColor={designColor('e0e0e0')}
             duration={500}
           />
         ) : (
           <View style={styles.tabContainer}></View>
         )}
-
         <View style={styles.carouselContainer}>
           <FlatList
             data={filteredAndSortedStrategies}
@@ -576,13 +571,14 @@ const RebalanceAdviceContent = React.memo(
             horizontal={type === 'home'}
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={{paddingHorizontal: 0}}
-            initialNumToRender={10} // Render only 10 items initially
-            maxToRenderPerBatch={10} // Render 10 more in subsequent batches
-            windowSize={5} // Number of screens worth of data to render
+            initialNumToRender={type === 'home' ? 2 : 10}
+            maxToRenderPerBatch={type === 'home' ? 2 : 10}
+            updateCellsBatchingPeriod={type === 'home' ? 80 : 50}
+            windowSize={type === 'home' ? 3 : 5}
             removeClippedSubviews={true}
             ListEmptyComponent={
               isDatafetchinMP ? ( // Show loading animation if still loading
-                <View
+                (<View
                   style={{
                     flex: 1,
                     alignItems: 'center',
@@ -591,7 +587,7 @@ const RebalanceAdviceContent = React.memo(
                     padding: 20,
                   }}>
                   <StockCardLoading />
-                </View>
+                </View>)
               ) : (
                 <View
                   style={{
@@ -610,7 +606,7 @@ const RebalanceAdviceContent = React.memo(
                   />
                   <Text
                     style={{
-                      fontFamily: 'Satoshi-Medium',
+                      fontFamily: designFont('Satoshi-Medium'),
                       color: 'grey',
                       alignSelf: 'center',
                     }}>
@@ -628,25 +624,9 @@ const RebalanceAdviceContent = React.memo(
             }
           />
         </View>
-
-
-        {openSuccessModal && (
-          <RecommendationSuccessModal
-            openSuccessModal={openSuccessModal}
-            setOpenSucessModal={setOpenSucessModal}
-            orderPlacementResponse={OrderPlacementResponse}
-            currentBroker={broker}
-            // 2026-05-07: MP context for the per-row "Mark as Placed"
-            // inline editor on FAILURE rows.
-            userEmail={userEmail}
-            modelId={modelPortfolioModelId}
-            modelName={storeModalName}
-            uniqueId={calculatedPortfolioData?.uniqueId}
-          />
-        )}
-
         {showDdpiModal && (
           <DdpiModal
+            sellOrders={sellOrdersForAuth(stockDetails)}
             isOpen={showDdpiModal}
             setIsOpen={handleCloseDdpiModal}
             proceedWithTpin={handleProceedWithTpin}
@@ -656,7 +636,6 @@ const RebalanceAdviceContent = React.memo(
             getUserDetails={getUserDeatils}
           />
         )}
-
         {false && (
           <ActivateNowModel
             isOpen={false}
@@ -665,9 +644,9 @@ const RebalanceAdviceContent = React.memo(
             userDetails={userDetails}
           />
         )}
-
         {showAngleOneTpinModel && (
           <AngleOneTpinModal
+            sellOrders={sellOrdersForAuth(stockDetails)}
             isOpen={showAngleOneTpinModel}
             setIsOpen={setShowAngleOneTpinModel}
             userDetails={userDetails}
@@ -677,9 +656,9 @@ const RebalanceAdviceContent = React.memo(
             getUserDetails={getUserDeatils}
           />
         )}
-
         {showFyersTpinModal && (
           <FyersTpinModal
+            sellOrders={sellOrdersForAuth(stockDetails)}
             isOpen={showFyersTpinModal}
             setIsOpen={setShowFyersTpinModal}
             userDetails={userDetails}
@@ -687,9 +666,9 @@ const RebalanceAdviceContent = React.memo(
             getUserDetails={getUserDeatils}
           />
         )}
-
         {showDhanTpinModel && (
           <DhanTpinModal
+            sellOrders={sellOrdersForAuth(stockDetails)}
             isOpen={showDhanTpinModel}
             setIsOpen={setShowDhanTpinModel}
             userDetails={userDetails}
@@ -698,11 +677,12 @@ const RebalanceAdviceContent = React.memo(
             singleStockTypeAndSymbol={singleStockTypeAndSymbol}
             reopenRebalanceModal={() => setOpenRebalanceModal(true)}
             getUserDetails={getUserDeatils}
+            onEdisStatusRefresh={setDhanEdisStatus}
           />
         )}
-
         {showOtherBrokerModel && (
           <OtherBrokerModel
+            sellOrders={sellOrdersForAuth(stockDetails)}
             userDetails={userDetails}
             onContinue={() => {
               setIsReturningFromOtherBrokerModal(true);
@@ -756,12 +736,12 @@ const styles = StyleSheet.create({
   StockTitle: {
     fontSize: 20,
     marginHorizontal: 5,
-    fontFamily: 'HelveticaNeueBold',
+    fontFamily: designFont('HelveticaNeueBold'),
     color: 'black',
   },
   filterButton: {
     backgroundColor: 'white',
-    borderColor: '#E6E6E6',
+    borderColor: designColor('e6e6e6'),
     borderRadius: 20,
     marginLeft: 10,
     padding: 5,
@@ -770,7 +750,7 @@ const styles = StyleSheet.create({
   },
   filterButtonText: {
     fontSize: 13,
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     color: 'black',
   },
   lottie: {
@@ -781,8 +761,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   filterButtonfade: {
-    backgroundColor: '#EEEEEE',
-    borderColor: '#E6E6E6',
+    backgroundColor: designColor('eeeeee'),
+    borderColor: designColor('e6e6e6'),
     borderRadius: 20,
     marginLeft: 10,
     padding: 5,
@@ -792,14 +772,14 @@ const styles = StyleSheet.create({
 
   filterButtonTextfade: {
     fontSize: 13,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     color: 'grey',
   },
 
   seeAllText: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#4B8CEE',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('4b8cee'),
     marginRight: 10,
   },
   carouselContainer: {},
@@ -811,16 +791,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   activeTabButton: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   inactiveTabButton: {
-    backgroundColor: '#F4F4F4',
+    backgroundColor: designColor('f4f4f4'),
   },
   activeTabButtonText: {
     color: 'black',
   },
   inactiveTabButtonText: {
-    color: '#ABABAB',
+    color: designColor('ababab'),
   },
 });
 

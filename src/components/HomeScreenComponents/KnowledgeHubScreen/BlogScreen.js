@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { useComponent } from '../../../design/useDesign';
+import KnowledgeHub from '../KnowledgeHub';
 
 const BlogScreen = ({ navigation, route }) => {
     const Presentation = useComponent('screens.BlogScreen');
@@ -14,6 +15,7 @@ const BlogScreen = ({ navigation, route }) => {
         <Presentation
             viewModel={{ navigation }}
             actions={{}}
+            slots={{ KnowledgeHub }}
         />
     );
 };

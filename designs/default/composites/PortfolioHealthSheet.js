@@ -1,253 +1,81 @@
 /**
- * PortfolioHealthSheet — composite (P2, web-parity, lockup C "Consent → Checklist").
- *
- * Self-gated launcher + bottom sheet for the Portfolio Health TOOL. Renders null
- * unless `config.portfolioHealthEnabled`. SEBI boundary (CUSTOMER_JOURNEY_NBA_REDESIGN):
- * FACTUAL only — gap-count headline, plain factual rows, ZERO buy/hold/sell language.
- * The advice (Transition) is a different surface (P5).
- *
- * Data: the canonical holdings input is the broker holdings already in TradeContext
- * (D18 spirit — one normalized source; the mobile aggregate is `allHoldingsData`).
- * Compute is the PORTED pure engine (src/utils/nba/portfolioHealth) — byte-aligned with
- * web via the drift tripwire. After an instant client compute we fire a best-effort
- * server reconcile (POST /api/model-portfolio/portfolio-health) for auditability; the
- * client result is authoritative on the screen if the server call fails.
- *
- * Consent: holdings are read only AFTER explicit consent, persisted in AsyncStorage
- * ('aq_health_holdings_consent'). Cross-ref: docs/WEB_PARITY_MIGRATION_2026-06.md §5.2.
+ * PortfolioHealthSheet — pure presentation.
+ * Consent persistence, holdings access, scoring and reconciliation live in
+ * src/components/designContainers/PortfolioHealthSheetContainer.js.
  */
 
-import React, { useState, useCallback } from 'react';
+import React from 'react';
 import {
-    View,
-    Text,
-    StyleSheet,
-    Modal,
-    TouchableOpacity,
-    ScrollView,
-    ActivityIndicator,
-    Pressable,
+  View, Text, Modal, TouchableOpacity, ScrollView, ActivityIndicator, Pressable, StyleSheet,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import axios from 'axios';
-import Config from 'react-native-config';
-import { getAuth } from '@react-native-firebase/auth';
-import server from '../../../src/utils/serverConfig';
-import { generateToken } from '../../../src/utils/SecurityTokenManager';
-import { useConfig } from '../../../src/context/ConfigContext';
-import { useTrade } from '../../../src/screens/TradeContext';
-import {
-    computeHealthSubScores,
-    DEFAULT_ENABLED,
-} from '../../../src/utils/nba/portfolioHealth';
-import {useAccountEmail} from '../../../src/utils/accountEmail';
 
-const CONSENT_KEY = 'aq_health_holdings_consent';
+const PortfolioHealthSheet = ({viewModel, actions}) => {
+  const {visible = false, open = false, phase = 'idle', result = null} = viewModel || {};
+  const {onLaunch = () => {}, onAllow = () => {}, onClose = () => {}} = actions || {};
+  if (!visible) return null;
 
-// Pull a per-stock holdings array out of the broker aggregate, tolerating the
-// various shapes fetchBrokerAllHoldings can return. Maps each row to the engine's
-// forgiving {symbol, quantity, ltp, value} input.
-const extractHoldings = blob => {
-    if (!blob) return [];
-    const arr =
-        (Array.isArray(blob) && blob) ||
-        blob.data ||
-        blob.holdings ||
-        blob.stocks ||
-        blob.stockData ||
-        blob.allStocks ||
-        blob.totalHoldings ||
-        [];
-    if (!Array.isArray(arr)) return [];
-    return arr
-        .map(h => ({
-            symbol:
-                h.symbol || h.tradingSymbol || h.tradingsymbol || h.symbolName || '',
-            quantity: Number(h.quantity || h.qty || 0),
-            ltp: Number(h.ltp || h.lastPrice || h.last_price || 0),
-            value: Number(
-                h.value || h.currentValue || h.holdingvalue || h.marketValue || 0,
-            ),
-            avgPrice: Number(
-                h.averagePrice || h.avgPrice || h.average_price || 0,
-            ),
-        }))
-        .filter(h => h.symbol);
-};
+  return (
+    <>
+      <TouchableOpacity style={styles.launcher} onPress={onLaunch}>
+        <View style={styles.launcherIcon}><Text style={{fontSize: 16}}>🛡</Text></View>
+        <View style={{flex: 1}}>
+          <Text style={styles.launcherTitle}>Check your portfolio health</Text>
+          <Text style={styles.launcherSub}>Factual concentration & spread — not advice</Text>
+        </View>
+        <Text style={styles.launcherCta}>›</Text>
+      </TouchableOpacity>
 
-const PortfolioHealthSheet = () => {
-    const config = useConfig();
-    const { allHoldingsData, configData } = useTrade();
-    // Apple users have no usable currentUser.email (null / relay alias);
-    // this component gates its fetch on `email`, and the identity can
-    // resolve AFTER mount — the reactive hook re-renders when it does.
-    const email = useAccountEmail();
-
-    const [open, setOpen] = useState(false);
-    const [phase, setPhase] = useState('idle'); // idle | consent | analyzing | done | empty
-    const [result, setResult] = useState(null);
-
-    const healthCfg = config?.portfolioHealth || {};
-    const enabled = healthCfg.enabled || DEFAULT_ENABLED;
-    const thresholds = healthCfg.thresholds || undefined;
-
-    const reconcile = useCallback(
-        (holdings, clientResult) => {
-            // Best-effort auditable server reconcile. Never blocks/clobbers the UI.
-            axios
-                .post(
-                    `${server.server.baseUrl}api/model-portfolio/portfolio-health`,
-                    { holdings, enabled, thresholds, email },
-                    {
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'X-Advisor-Subdomain':
-                                configData?.config?.REACT_APP_HEADER_NAME,
-                            'aq-encrypted-key': generateToken(
-                                Config.REACT_APP_AQ_KEYS,
-                                Config.REACT_APP_AQ_SECRET,
-                            ),
-                        },
-                    },
-                )
-                .catch(() => {
-                    /* client result stands */
-                });
-            return clientResult;
-        },
-        [enabled, thresholds, email, configData],
-    );
-
-    const runAnalysis = useCallback(() => {
-        setPhase('analyzing');
-        const holdings = extractHoldings(allHoldingsData);
-        if (holdings.length === 0) {
-            setPhase('empty');
-            return;
-        }
-        const res = computeHealthSubScores(holdings, { enabled, thresholds });
-        setResult(res);
-        reconcile(holdings, res);
-        setPhase('done');
-    }, [allHoldingsData, enabled, thresholds, reconcile]);
-
-    const onLaunch = useCallback(async () => {
-        setOpen(true);
-        try {
-            const consent = await AsyncStorage.getItem(CONSENT_KEY);
-            if (consent === 'true') runAnalysis();
-            else setPhase('consent');
-        } catch (e) {
-            setPhase('consent');
-        }
-    }, [runAnalysis]);
-
-    const onAllow = useCallback(async () => {
-        try {
-            await AsyncStorage.setItem(CONSENT_KEY, 'true');
-        } catch (e) {
-            /* non-fatal */
-        }
-        runAnalysis();
-    }, [runAnalysis]);
-
-    const onClose = () => {
-        setOpen(false);
-        setPhase('idle');
-    };
-
-    if (!config?.portfolioHealthEnabled) return null;
-
-    return (
-        <>
-            <TouchableOpacity style={styles.launcher} onPress={onLaunch}>
-                <View style={styles.launcherIcon}>
-                    <Text style={{ fontSize: 16 }}>🛡</Text>
+      <Modal visible={open} transparent animationType="slide" onRequestClose={onClose}>
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        <View style={styles.sheet}>
+          <View style={styles.grab} />
+          {phase === 'consent' && (
+            <View style={styles.consentCard}>
+              <Text style={styles.consentTitle}>🛡 Check your portfolio health</Text>
+              <Text style={styles.consentBody}>
+                We read your holdings from your broker to show factual concentration and spread. Nothing is shared.
+              </Text>
+              <TouchableOpacity style={styles.primaryBtn} onPress={onAllow}>
+                <Text style={styles.primaryBtnText}>Allow & analyze</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+          {phase === 'analyzing' && (
+            <View style={styles.center}>
+              <ActivityIndicator color="#0056B7" />
+              <Text style={styles.muted}>Analyzing your holdings…</Text>
+            </View>
+          )}
+          {phase === 'empty' && (
+            <View style={styles.center}>
+              <Text style={styles.headline}>No holdings to analyze</Text>
+              <Text style={styles.muted}>Connect a broker with holdings to see your portfolio health.</Text>
+            </View>
+          )}
+          {phase === 'done' && result && (
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <Text style={styles.headline}>
+                {result.gapCount === 0 ? 'Nothing to review' : `${result.gapCount} thing${result.gapCount !== 1 ? 's' : ''} to review`}
+              </Text>
+              <Text style={styles.factualTag}>Factual checks · not advice</Text>
+              {result.subScores.map(score => (
+                <View key={score.key} style={styles.checkRow}>
+                  <View style={[styles.flag, score.isGap ? styles.flagGap : styles.flagOk]}>
+                    <Text style={styles.flagText}>{score.isGap ? '⚑' : '✓'}</Text>
+                  </View>
+                  <Text style={styles.checkText}>{score.detail}</Text>
                 </View>
-                <View style={{ flex: 1 }}>
-                    <Text style={styles.launcherTitle}>Check your portfolio health</Text>
-                    <Text style={styles.launcherSub}>
-                        Factual concentration & spread — not advice
-                    </Text>
-                </View>
-                <Text style={styles.launcherCta}>›</Text>
-            </TouchableOpacity>
-
-            <Modal
-                visible={open}
-                transparent
-                animationType="slide"
-                onRequestClose={onClose}>
-                <Pressable style={styles.backdrop} onPress={onClose} />
-                <View style={styles.sheet}>
-                    <View style={styles.grab} />
-
-                    {phase === 'consent' && (
-                        <View>
-                            <View style={styles.consentCard}>
-                                <Text style={styles.consentTitle}>
-                                    🛡 Check your portfolio health
-                                </Text>
-                                <Text style={styles.consentBody}>
-                                    We read your holdings from your broker to show factual
-                                    concentration and spread. Nothing is shared.
-                                </Text>
-                                <TouchableOpacity style={styles.primaryBtn} onPress={onAllow}>
-                                    <Text style={styles.primaryBtnText}>Allow & analyze</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    )}
-
-                    {phase === 'analyzing' && (
-                        <View style={styles.center}>
-                            <ActivityIndicator color="#0056B7" />
-                            <Text style={styles.muted}>Analyzing your holdings…</Text>
-                        </View>
-                    )}
-
-                    {phase === 'empty' && (
-                        <View style={styles.center}>
-                            <Text style={styles.headline}>No holdings to analyze</Text>
-                            <Text style={styles.muted}>
-                                Connect a broker with holdings to see your portfolio health.
-                            </Text>
-                        </View>
-                    )}
-
-                    {phase === 'done' && result && (
-                        <ScrollView showsVerticalScrollIndicator={false}>
-                            <Text style={styles.headline}>
-                                {result.gapCount === 0
-                                    ? 'Nothing to review'
-                                    : `${result.gapCount} thing${result.gapCount !== 1 ? 's' : ''} to review`}
-                            </Text>
-                            <Text style={styles.factualTag}>Factual checks · not advice</Text>
-                            {result.subScores.map(s => (
-                                <View key={s.key} style={styles.checkRow}>
-                                    <View
-                                        style={[
-                                            styles.flag,
-                                            s.isGap ? styles.flagGap : styles.flagOk,
-                                        ]}>
-                                        <Text style={styles.flagText}>{s.isGap ? '⚑' : '✓'}</Text>
-                                    </View>
-                                    <Text style={styles.checkText}>{s.detail}</Text>
-                                </View>
-                            ))}
-                            <Text style={styles.footer}>
-                                Factual checks only — not investment advice.
-                            </Text>
-                        </ScrollView>
-                    )}
-
-                    <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-                        <Text style={styles.closeText}>Close</Text>
-                    </TouchableOpacity>
-                </View>
-            </Modal>
-        </>
-    );
+              ))}
+              <Text style={styles.footer}>Factual checks only — not investment advice.</Text>
+            </ScrollView>
+          )}
+          <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+            <Text style={styles.closeText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+    </>
+  );
 };
 
 const styles = StyleSheet.create({

@@ -10,6 +10,8 @@ import LottieView from "lottie-react-native";
 import StockCardLoading from "./AdviceScreenComponents/StockCardLoading";
 import { useConfig } from "./context/ConfigContext";
 
+import { designFont } from './design/literalTokens';
+
 const { width: screenWidth } = Dimensions.get("window");
 const BATCH_SIZE = 10; // Number of items to render in each batch
 
@@ -66,51 +68,51 @@ const StockScrollView = ({
     onScroll={handleScroll}
     scrollEventThrottle={16} // Improves scroll performance
   >
-    {visibleData.length > 0 ? (
-      visibleData.map((item, index) => (
-        <View key={index}>{renderItemOrder({ item, index })}</View>
-      ))
-    ) : isDatafetching ? (
-      <View
-        style={{
-          flex: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          width: screenWidth,
-          padding: 20,
-        }}
-      >
-        <StockCardLoading />
-      </View>
-    ) : (
-      <View
-        style={{
-          flex: 1,
-          alignItems: "center",
-          justifyContent: "center",
-          width: screenWidth,
-          padding: 20,
-        }}
-      >
-        <LottieView
-          ref={animationRef}
-          source={require(".././assets/EmptyAnimation.json")}
-          autoPlay
-          loop
-          style={{ width: 150, height: 150 }}
-        />
-        <Text
+      {visibleData.length > 0 ? (
+        visibleData.map((item, index) => (
+          <View key={index}>{renderItemOrder({ item, index })}</View>
+        ))
+      ) : isDatafetching ? (
+        <View
           style={{
-            fontFamily: "Satoshi-Medium",
-            color: "grey",
-            alignSelf: "center",
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            width: screenWidth,
+            padding: 20,
           }}
         >
-          No {config?.bespokePlanLabel || "Bespoke"} Recommendations Found!
-        </Text>
-      </View>
-    )}
-  </ScrollView>
+          <StockCardLoading />
+        </View>
+      ) : (
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            width: screenWidth,
+            padding: 20,
+          }}
+        >
+          <LottieView
+            ref={animationRef}
+            source={require(".././assets/EmptyAnimation.json")}
+            autoPlay
+            loop
+            style={{ width: 150, height: 150 }}
+          />
+          <Text
+            style={{
+              fontFamily: designFont('Satoshi-Medium'),
+              color: "grey",
+              alignSelf: "center",
+            }}
+          >
+            No {config?.bespokePlanLabel || "Bespoke"} Recommendations Found!
+          </Text>
+        </View>
+      )}
+    </ScrollView>
   );
 };
 

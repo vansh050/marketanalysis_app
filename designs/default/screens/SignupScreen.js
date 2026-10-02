@@ -121,7 +121,14 @@ const SignupScreen = ({ viewModel, actions }) => {
                     <View style={styles.content}>
                         <View style={styles.logoContainer}>
                             {renderLogo(logoComponent, configLoading, tokens.assets.logoPng)}
-                            <Text variant="title" style={styles.logoText}>
+                            <Text
+                                variant="title"
+                                style={styles.logoText}
+                                numberOfLines={1}
+                                adjustsFontSizeToFit
+                                minimumFontScale={0.8}
+                                allowFontScaling={false}
+                            >
                                 {whiteLabelText || Config?.REACT_APP_WHITE_LABEL_TEXT}
                             </Text>
                         </View>
@@ -258,10 +265,12 @@ const styles = StyleSheet.create({
     logoContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 30 },
     logo: { width: 40, height: 40, marginRight: 8 },
     logoText: {
+        flexShrink: 1,
         fontSize: 22,
-        fontWeight: '700',
+        fontWeight: '400',
         color: '#fff',
         letterSpacing: 1.5,
+        paddingRight: 4,
         fontFamily: Platform.select({ ios: 'Azonix', android: 'Azonix', default: 'System' }),
     },
     underline: { height: 2, width: '100%', backgroundColor: '#0D47A1', marginTop: 4 },

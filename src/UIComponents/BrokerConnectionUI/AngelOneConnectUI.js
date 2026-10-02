@@ -13,6 +13,8 @@ import { ChevronLeft, XIcon } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 
+import { designColor } from '../../design/literalTokens';
+
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('screen');
 
 const AngleOneConnectUI = ({ isVisible, onClose, authUrl, handleWebViewNavigationStateChange, handleClose }) => {
@@ -39,14 +41,14 @@ const AngleOneConnectUI = ({ isVisible, onClose, authUrl, handleWebViewNavigatio
             onPress={handleClose || onClose}
             style={styles.headerButton}
           >
-            <ChevronLeft size={24} color="#000" />
+            <ChevronLeft size={24} color={designColor('000')} />
           </TouchableOpacity>
           <View style={styles.handleIndicator} />
           <TouchableOpacity
             onPress={onClose}
             style={styles.headerButton}
           >
-            <XIcon size={24} color="#000" />
+            <XIcon size={24} color={designColor('000')} />
           </TouchableOpacity>
         </View>
         <WebView
@@ -80,7 +82,7 @@ const styles = StyleSheet.create({
   fullScreen: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   header: {
     height: 56,
@@ -89,19 +91,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-    backgroundColor: '#fff',
+    borderBottomColor: designColor('f0f0f0'),
+    backgroundColor: designColor('fff'),
   },
   headerButton: {
     padding: 12,
-    backgroundColor: '#f0f0f0',
+    backgroundColor: designColor('f0f0f0'),
     borderRadius: 20,
   },
   handleIndicator: {
     width: 40,
     height: 4,
     borderRadius: 2,
-    backgroundColor: '#e0e0e0',
+    backgroundColor: designColor('e0e0e0'),
   },
   webView: {
     flex: 1,

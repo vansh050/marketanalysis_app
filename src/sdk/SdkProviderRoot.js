@@ -12,13 +12,17 @@
  * Until REACT_APP_SDK_MINT_URL is set, mintSession throws a clear
  * error string so the developer knows what's missing.
  */
-import React, {useMemo} from 'react';
+import React, {useEffect, useMemo, useState} from 'react';
 import {AqSdkClient, AqSdkProvider, ExecuteAdviceOverlay as _MaybeExecuteAdviceOverlay} from '@alphaquark/mobile-sdk';
 import Config from 'react-native-config';
 import {getAuth} from '@react-native-firebase/auth';
 
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getTenantSubdomain} from '../utils/variantHelper';
+import {subscribeRuntimeAdvisor} from '../utils/runtimeAdvisor';
 import {useConfig} from '../context/ConfigContext';
+import {useDesign} from '../design/useDesign';
+
+import { designColor, designFont } from '../design/literalTokens';
 
 // Defensive fallback (2026-05-07): the installed @alphaquark/mobile-sdk
 // version doesn't export `ExecuteAdviceOverlay`, so the named import
@@ -42,20 +46,21 @@ const SDK_BASE_URL =
   Config?.REACT_APP_SDK_BASE_URL ||
   Config?.REACT_APP_NODE_SERVER_API_URL ||
   'https://server.alphaquark.in/';
-// Dev-only override — when set, SdkProviderRoot uses this userRef even
-// when no Firebase user is logged in. Lets the SDK test screen run
-// without the login flow.
-const SDK_TEST_USER_REF = Config?.REACT_APP_SDK_TEST_USER_REF || '';
+// Dev-only override — never bind a release build to a test identity,
+// even if a developer accidentally leaves the variable in the build
+// environment. Debug smoke builds can still use it without login.
+const SDK_TEST_USER_REF = __DEV__
+  ? Config?.REACT_APP_SDK_TEST_USER_REF || ''
+  : '';
 
 /**
  * Resolve the tenant subdomain for the X-Advisor-Subdomain header
  * sent on every mint request.
  *
- * This codebase ships PER-TENANT — `APP_VARIANT` in `.env` selects a
- * variant config in `src/utils/Config.js` whose `subdomain` field is
- * the canonical tenant id (e.g. `prod` for the AlphaQuark variant,
- * `zamzamcapital` for the Zamzam variant, `rgxresearch` for RGX).
- * `getAdvisorSubdomain()` does the lookup with safe fallbacks.
+ * Standalone builds are per-tenant. The AlphaB2B master build additionally
+ * supports runtime advisor selection after login, so minting must use the same
+ * canonical resolver as REST calls. Otherwise SDK broker writes can land in
+ * `prod` while TradeContext reads the selected advisor database.
  *
  * Why send the header explicitly instead of relying on the mint
  * server's default secret: every variant must mint sessions scoped
@@ -77,22 +82,18 @@ const SDK_TEST_USER_REF = Config?.REACT_APP_SDK_TEST_USER_REF || '';
  * Without that, mintSession returns 401 tenant_not_provisioned and
  * Phase 2 dual-writes silently skip.
  */
-function getTenantSubdomainForMint() {
-  // safeConfig flattens both react-native-config and the static
-  // APP_VARIANTS table; getAdvisorSubdomain reads APP_VARIANT then
-  // looks up the variant's subdomain. Falls back to 'alphaquark' →
-  // 'prod' if APP_VARIANT is unset.
-  return getAdvisorSubdomain() || '';
+function getTenantSubdomainForMint(tenantSubdomain) {
+  return tenantSubdomain || getTenantSubdomain() || '';
 }
 
-async function mintSession(userRef) {
+async function mintSession(userRef, tenantSubdomain) {
   if (!MINT_URL) {
     throw new Error(
       'SDK integration: REACT_APP_SDK_MINT_URL is not set. ' +
         'Wire your backend mint endpoint and rebuild.',
     );
   }
-  const subdomain = getTenantSubdomainForMint();
+  const subdomain = getTenantSubdomainForMint(tenantSubdomain);
   // Phase 1 of the SDK-mint end-user-auth hardening (2026-07-18): attach
   // the signed-in user's Firebase ID token so the backend can verify the
   // mint is for the caller's own account (observe mode today; per-tenant
@@ -194,16 +195,32 @@ async function mintSession(userRef) {
 
 export default function SdkProviderRoot({userEmail, children}) {
   const appConfig = useConfig();
-  // Single client instance per app lifetime — instantiated lazily so
-  // we don't burn a constructor when the SDK flag is off.
+  const {sdk: sdkComponents} = useDesign();
+  // AlphaB2B can change tenant after the Firebase identity is already known.
+  // The SDK session JWT is tenant-scoped, so userEmail alone is not a complete
+  // session identity. Subscribe directly to the runtime-advisor authority and
+  // replace the SDK client whenever the selected tenant changes.
+  const [tenantSubdomain, setTenantSubdomain] = useState(
+    () => getTenantSubdomain() || '',
+  );
+  useEffect(
+    () =>
+      subscribeRuntimeAdvisor(configData => {
+        setTenantSubdomain(getTenantSubdomain(configData) || '');
+      }),
+    [],
+  );
+
+  // One client per tenant selection. Binding mintSession to the resolved
+  // tenant prevents a later runtime change from mutating an in-flight mint.
   const client = useMemo(
     () =>
       new AqSdkClient({
         baseUrl: SDK_BASE_URL.replace(/\/+$/, ''),
-        mintSession,
+        mintSession: userRef => mintSession(userRef, tenantSubdomain),
         zerodhaApiKey: Config?.REACT_APP_ZERODHA_API_KEY || '',
       }),
-    [],
+    [tenantSubdomain],
   );
   const effectiveUserRef = userEmail || SDK_TEST_USER_REF || null;
   // SDK forms used their package-default Material blue/grey styling while
@@ -212,25 +229,25 @@ export default function SdkProviderRoot({userEmail, children}) {
   // including the lower half of broker connection pages.
   const sdkTheme = useMemo(() => {
     const primary =
-      appConfig?.mainColor || appConfig?.gradient2 || '#0056B7';
+      appConfig?.mainColor || appConfig?.gradient2 || designColor('0056b7');
     return {
       colors: {
         primary,
         secondary: primary,
-        surface: '#FFFFFF',
-        surfaceMuted: '#F4F7FB',
-        text: '#172033',
-        textMuted: '#64748B',
-        textLabel: '#334155',
-        inputBorder: '#CBD5E1',
-        inputBorderError: '#DC2626',
-        error: '#B91C1C',
-        warning: '#92400E',
-        success: '#047857',
+        surface: designColor('ffffff'),
+        surfaceMuted: designColor('f4f7fb'),
+        text: designColor('172033'),
+        textMuted: designColor('64748b'),
+        textLabel: designColor('334155'),
+        inputBorder: designColor('cbd5e1'),
+        inputBorderError: designColor('dc2626'),
+        error: designColor('b91c1c'),
+        warning: designColor('92400e'),
+        success: designColor('047857'),
         headerBackground: primary,
-        headerText: '#FFFFFF',
-        primaryDisabled: '#94A3B8',
-        divider: '#E2E8F0',
+        headerText: designColor('ffffff'),
+        primaryDisabled: designColor('94a3b8'),
+        divider: designColor('e2e8f0'),
       },
       typography: {
         titleSize: 19,
@@ -238,7 +255,7 @@ export default function SdkProviderRoot({userEmail, children}) {
         bodySize: 13,
         helperSize: 12,
         buttonSize: 15,
-        fontFamily: 'Satoshi-Regular',
+        fontFamily: designFont('Satoshi-Regular'),
       },
       shape: {radiusSm: 10, radiusMd: 14},
     };
@@ -256,9 +273,11 @@ export default function SdkProviderRoot({userEmail, children}) {
   // permanent spinner observed 2026-05-06/07.
   return (
     <AqSdkProvider
+      key={`aq-sdk-${tenantSubdomain || 'default'}`}
       client={client}
       userRef={effectiveUserRef}
-      theme={sdkTheme}>
+      theme={sdkTheme}
+      components={sdkComponents}>
       {children}
       <ExecuteAdviceOverlay />
     </AqSdkProvider>

@@ -1,5 +1,13 @@
 # AlphaPro App - Complete File Catalog
 
+## Architecture Entry Points
+
+- `docs/OVERALL_SYSTEM_TEST_ARCHITECTURE.md` — canonical cross-cutting system-test architecture, branch deltas, backend boundaries, and race conditions
+- `docs/APP_ARCHITECTURE.md` — full app/backend architecture overview
+- `docs/BROKER_CONNECTION.md` — broker auth and session model
+- `docs/MODEL_PORTFOLIO_ARCHITECTURE.md` — subscription, rebalance, and repair flow
+- `docs/SELL_AUTH_ARCHITECTURE.md` — DDPI / TPIN / EDIS behavior
+
 ## 📁 Files Organized by Screen/Feature
 
 This document catalogs all files in the AlphaPro app organized by their functionality and screen.

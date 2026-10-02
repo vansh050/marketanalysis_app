@@ -10,10 +10,9 @@
 
 import React from 'react';
 import { SafeAreaView, View, StyleSheet } from 'react-native';
-import KnowledgeHub from '../../../src/components/HomeScreenComponents/KnowledgeHub';
-
-const VideoScreen = ({ viewModel }) => {
+const VideoScreen = ({ viewModel, slots }) => {
     const { navigation } = viewModel || {};
+    const { KnowledgeHub } = slots || {};
 
     return (
         <SafeAreaView style={styles.container}>

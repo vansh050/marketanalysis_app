@@ -1,15 +1,16 @@
 import 'react-native-gesture-handler';
-// Session-token migration Phase 1: attaches the per-user Firebase ID token to
-// our API calls so backend observe-mode can measure coverage. Enforces nothing;
-// totally fail-open. Must load early, before the app makes any authed request.
-// See src/utils/authTokenInterceptor.js.
-import './src/utils/authTokenInterceptor';
 import React, {useState, useEffect} from 'react';
-import {StatusBar, Text, TextInput, SafeAreaView, Linking, Alert} from 'react-native';
+import {StatusBar, SafeAreaView, Linking, Alert} from 'react-native';
 import Toast from 'react-native-toast-message';
 import axios from 'axios';
+// Session-token migration Phase 1 — installs a fail-open axios request
+// interceptor that attaches Authorization: Bearer <firebase-id-token> to
+// our own API calls (observe-mode only, backend enforces nothing yet).
+// See src/utils/authTokenInterceptor.js.
+import './src/utils/authTokenInterceptor';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {getAuth, onAuthStateChanged} from '@react-native-firebase/auth';
+import crashlytics from '@react-native-firebase/crashlytics';
 import notifee, {EventType} from '@notifee/react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import {
@@ -17,6 +18,7 @@ import {
   SafeAreaProvider,
 } from 'react-native-safe-area-context';
 import { handleOAuthCallback } from './src/services/ZerodhaOAuthService';
+import { handleSmartLink, captureInstallReferrer } from './src/utils/smartLink';
 import Config from 'react-native-config';
 
 import Navigation from './src/components/Navigation';
@@ -24,16 +26,26 @@ import {CartProvider} from './src/components/CartContext';
 import {ModalProvider} from './src/components/ModalContext';
 import {SocialProofProvider} from './src/components/SocialProofProvider';
 import DesignProvider from './src/design/DesignProvider';
+import useTokens from './src/theme/useTokens';
 import server from './src/utils/serverConfig';
 import {TradeProvider} from './src/screens/TradeContext';
 import {ConfigProvider} from './src/context/ConfigContext';
+import SupportWidget from './src/components/SupportWidget/SupportWidget';
 import {GstConfigProvider} from './src/context/GstConfigContext';
+import eventEmitter from './src/components/EventEmitter';
+import {
+  getAccountEmailAsync,
+  ACCOUNT_EMAIL_EVENT,
+} from './src/utils/accountEmail';
 import ModalManager from './src/GlobalUIModals/ModalManager';
 import BrokerAlertModal from './src/GlobalUIModals/BrokerAlertModal';
-import UpdateAppModal from './src/UpdateAppModal';
+import {AppUpdateChecker} from './src/UpdateAppModal';
+import {PublisherWebViewHost} from './src/components/PublisherWebViewOverlay';
+import DdpiDeclarationPrompt from './src/components/SellAuth/DdpiDeclarationPrompt';
 import SdkProviderRoot, {
   isSdkIntegrationEnabled,
 } from './src/sdk/SdkProviderRoot';
+import {useComponent} from './src/design/useDesign';
 
 // Module-level wrappers — hoisted out of the App body so their component
 // identity is STABLE across App re-renders. Declaring them inline inside the
@@ -55,9 +67,11 @@ const SdkOn = ({userEmail, children}) => (
 
 const CustomStatusBar = ({barStyle}) => {
   const insets = useSafeAreaInsets();
+  const tokens = useTokens();
+  const statusBg = tokens.colors.brand.gradientStart;
   return (
     <LinearGradient
-      colors={['rgba(0, 86, 183, 1)', 'rgba(0, 86, 183, 1)']}
+      colors={[statusBg, statusBg]}
       start={{x: 0, y: 0}}
       end={{x: 1, y: 0}}
       style={{height: insets.top}}>
@@ -71,6 +85,16 @@ const CustomStatusBar = ({barStyle}) => {
   );
 };
 
+// App-root banner slot (regulatory strip etc.). Resolved from the active
+// design variant — the default registers a no-op, forks override it. Must be
+// a module-level component (like CustomStatusBar/SdkOn) rendered INSIDE
+// <DesignProvider>, because useComponent reads the DesignContext that
+// DesignProvider provides — App itself is the parent, not a child.
+const RootBannerSlot = () => {
+  const RootBanner = useComponent('composites.RootBanner');
+  return <RootBanner />;
+};
+
 const App = () => {
   const [isSplashCompleted, setSplashCompleted] = useState(false);
   const [iscomplete, setcomplete] = useState(false);
@@ -82,21 +106,48 @@ const App = () => {
 
   useEffect(() => {
     const auth = getAuth();
+    // App-root identity. This value feeds SdkProviderRoot's `userEmail` (the
+    // SDK session-mint identity), SupportWidget and the user-details fetch
+    // below — so reading `user.email` directly left Apple "Hide My Email"
+    // users with NO SDK session at all (every SDK-gated broker Connect
+    // button stays disabled on !ready) and no support/user context.
+    // getAccountEmailAsync applies the Apple-aware precedence. See
+    // src/utils/accountEmail.js.
+    const resolveIdentity = async user => {
+      if (!user) {
+        setUserEmail(null);
+        return;
+      }
+      try {
+        setUserEmail((await getAccountEmailAsync()) || null);
+      } catch {
+        setUserEmail(user.email || null);
+      }
+    };
+
     // Handle user state changes
     const unsubscribe = onAuthStateChanged(auth, user => {
       setUser(user);
-      if (user?.email) {
-        //console.log('got the emaiiilll:',user?.email);
-        setUserEmail(user.email);
-      } else {
-        setUserEmail(null);
-      }
+      // Correlate production crashes to the authenticated Firebase account
+      // without sending email addresses or broker credentials to Crashlytics.
+      // An empty ID clears stale identity after logout/account switching.
+      crashlytics().setUserId(user?.uid || '');
+      resolveIdentity(user);
       if (initializing) {
         setInitializing(false);
       }
     });
+
+    // The auth listener fires BEFORE an Apple user submits the email screen,
+    // so the identity can resolve after this effect has already run.
+    const onResolved = email => setUserEmail(email || null);
+    eventEmitter.on(ACCOUNT_EMAIL_EVENT, onResolved);
+
     // Cleanup subscription
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      eventEmitter.off(ACCOUNT_EMAIL_EVENT, onResolved);
+    };
   }, [initializing]);
 
   useEffect(() => {
@@ -143,6 +194,13 @@ const App = () => {
       const url = event.url;
       console.log('[App] Deep link received:', url);
 
+      // Campaign smart link (app-links.alphaquark.in/l/<tenant>?utm_*&dl=).
+      // Captures UTM attribution + routes to the dl destination. If it was a
+      // smart link, stop here so the Zerodha handler doesn't also run.
+      if (url && (await handleSmartLink(url))) {
+        return;
+      }
+
       // Check if it's a Zerodha OAuth callback
       const scheme = Config?.REACT_APP_DEEP_LINK_SCHEME || 'rgxapp';
       if (url && url.startsWith(`${scheme}://zerodha/callback`)) {
@@ -168,25 +226,19 @@ const App = () => {
       }
     });
 
+    // First-launch deferred deep link: recover UTM from the Play Install
+    // Referrer when the user installed via a smart link (Android only; no-op
+    // otherwise and when the native module isn't bundled yet).
+    captureInstallReferrer();
+
     return () => {
       linkingSubscription.remove();
     };
   }, []);
 
-  if (Text.defaultProps) {
-    Text.defaultProps.allowFontScaling = false;
-  } else {
-    Text.defaultProps = {};
-    Text.defaultProps.allowFontScaling = false;
-  }
-
-  // Override Text scaling in input fields
-  if (TextInput.defaultProps) {
-    TextInput.defaultProps.allowFontScaling = false;
-  } else {
-    TextInput.defaultProps = {};
-    TextInput.defaultProps.allowFontScaling = false;
-  }
+  // Do not override Text/TextInput font scaling. Respecting the operating
+  // system's accessibility text size is the native equivalent of allowing
+  // browser zoom on the public site.
 
   const getUserDetails = async () => {
     try {
@@ -233,10 +285,9 @@ const App = () => {
 
   return (
     <SafeAreaProvider style={{flex: 1}}>
-      <UpdateAppModal />
-      <CustomStatusBar barStyle={'dark-content'} />
       <GestureHandlerRootView style={{flex: 1}}>
         <DesignProvider>
+          <CustomStatusBar barStyle={'dark-content'} />
           <SocialProofProvider>
             <CartProvider>
               <ConfigProvider>
@@ -246,6 +297,7 @@ const App = () => {
                     {sdkOn ? (
                       <SdkOn userEmail={userEmail}>
                         <SafeAreaView style={{flex: 1}}>
+                          <RootBannerSlot />
                           <Navigation
                             iscomplete={iscomplete}
                             userEmail={userEmail}
@@ -255,10 +307,15 @@ const App = () => {
                         </SafeAreaView>
                         <ModalManager />
                         <BrokerAlertModal />
+                        <DdpiDeclarationPrompt />
+                        <SupportWidget userEmail={userEmail} visible={!!user} />
+                        <AppUpdateChecker />
+                        <PublisherWebViewHost />
                       </SdkOn>
                     ) : (
                       <>
                         <SafeAreaView style={{flex: 1}}>
+                          <RootBannerSlot />
                           <Navigation
                             iscomplete={iscomplete}
                             userEmail={userEmail}
@@ -268,6 +325,10 @@ const App = () => {
                         </SafeAreaView>
                         <ModalManager />
                         <BrokerAlertModal />
+                        <DdpiDeclarationPrompt />
+                        <SupportWidget userEmail={userEmail} visible={!!user} />
+                        <AppUpdateChecker />
+                        <PublisherWebViewHost />
                       </>
                     )}
                   </ModalProvider>

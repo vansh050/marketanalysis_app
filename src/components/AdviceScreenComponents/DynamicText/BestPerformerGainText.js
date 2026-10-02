@@ -2,6 +2,8 @@ import React, { useState, useEffect, useCallback } from "react";
 import { Text, StyleSheet, View } from "react-native";
 import WebSocketManager from "./WebSocketManager";
 
+import { designColor, designFont } from '../../../design/literalTokens';
+
 const MissedGainText = React.memo(({ symbol, advisedRangeCondition, advisedPrice, exchange, type }) => {
   const [price, setLtp] = useState(null);
 
@@ -72,8 +74,8 @@ const MissedGainText = React.memo(({ symbol, advisedRangeCondition, advisedPrice
   }
 
   const backgroundColor = missedGainPercentage != null && missedGainPercentage > 0
-    ? '#338D72'
-    : '#EF344A';
+    ? designColor('338d72')
+    : designColor('ef344a');
 
   return (
     <View>
@@ -91,7 +93,7 @@ const MissedGainText = React.memo(({ symbol, advisedRangeCondition, advisedPrice
                 alignSelf: 'center',
               }}
             >
-              <Text style={[styles.change, { color: '#fff' }]}>
+              <Text style={[styles.change, { color: designColor('fff') }]}>
                 {formatPercentage(missedGainPercentage)}%
               </Text>
             </View>
@@ -115,32 +117,32 @@ const MissedGainText = React.memo(({ symbol, advisedRangeCondition, advisedPrice
 const styles = StyleSheet.create({
   price: {
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: "black",
   },
   newsscreen: {
-    color: '#626262',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('626262'),
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 18,
   },
   watchlist: {
-    color: '#000',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('000'),
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 14,
   },
   portfolio: {
     fontSize: 14,
-    color: '#A0A0A0',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('a0a0a0'),
+    fontFamily: designFont('Satoshi-Medium'),
   },
   Aftersub: {
     fontSize: 16,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: "black",
   },
   change: {
     fontSize: 12,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
   },
   priceContainer: {
     flexDirection: 'row',

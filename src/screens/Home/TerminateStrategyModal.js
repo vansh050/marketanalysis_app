@@ -13,6 +13,7 @@ import {
   SafeAreaView,
 } from "react-native";
 import { Check } from "lucide-react-native";
+import { designColor, designFont } from '../../design/literalTokens';
 const TerminateStrategyModal = ({
   terminateModal,
   setTerminateModal,
@@ -51,7 +52,7 @@ const TerminateStrategyModal = ({
     <FlatList
       data={tableData || [{}]}
       keyExtractor={(item, index) => index.toString()}
-      contentContainerStyle={{ borderWidth: 1, borderColor: "#ccc" }}
+      contentContainerStyle={{ borderWidth: 1, borderColor: designColor('ccc') }}
       ListHeaderComponent={() => (
         <View style={[styles.row, styles.headerRow]}>
           {["Stock", "Current Price(₹)", "Avg. Buy Price(₹)", "Returns(%)", "Weights(%)", "Shares"].map(
@@ -93,7 +94,7 @@ const TerminateStrategyModal = ({
             <TextInput
               style={styles.input}
               placeholder="Reason for Terminate (Optional)"
-              placeholderTextColor="#aaa"
+              placeholderTextColor={designColor('aaa')}
               value={ignoreText}
               onChangeText={setIgnoreText}
             />
@@ -106,7 +107,7 @@ const TerminateStrategyModal = ({
           isConfirmed ? styles.checked : styles.unchecked,
         ]}
       >
-    {isConfirmed && <Check size={20} color={'#fff'} />}
+    {isConfirmed && <Check size={20} color={designColor('fff')} />}
       </TouchableOpacity>
             <Text style={styles.checkboxText}>
               I understand that this action cannot be undone and I want to
@@ -129,7 +130,7 @@ const TerminateStrategyModal = ({
               disabled={!isConfirmed}
             >
               {ignoreLoading ? (
-                <ActivityIndicator color="#fff" />
+                <ActivityIndicator color={designColor('fff')} />
               ) : (
                 <Text style={styles.terminateText}>Terminate</Text>
               )}
@@ -148,7 +149,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   
@@ -164,18 +165,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   checked: {
-    backgroundColor: '#10B981', // Tailwind color for success
-    borderColor: '#10B981', // Green border when checked
+    backgroundColor: designColor('10b981'), // Tailwind color for success
+    borderColor: designColor('10b981'), // Green border when checked
   },
   unchecked: {
-    backgroundColor: '#fff',
-    borderColor: '#D1D5DB', // Light gray border when unchecked
+    backgroundColor: designColor('fff'),
+    borderColor: designColor('d1d5db'), // Light gray border when unchecked
   },
   modalTitle: {
     fontSize: 18,
     textAlign: "center",
     color:'grey',
-    fontFamily:'Satoshi-Bold',
+    fontFamily:designFont('Satoshi-Bold'),
     marginBottom: 10,
   },
   tableContainer: {
@@ -185,17 +186,17 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     borderBottomWidth: 1,
-    borderColor: "#ccc",
+    borderColor: designColor('ccc'),
   },
   headerRow: {
-    backgroundColor: "#f5f5f5",
+    backgroundColor: designColor('f5f5f5'),
   },
   headerText: {
     flex: 1,
     textAlign: "center",
     padding: 5,
     color:'grey',
-    fontFamily:'Satoshi-Bold',
+    fontFamily:designFont('Satoshi-Bold'),
     fontSize: 12,
   },
   cell: {
@@ -203,20 +204,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
     padding: 5,
     color:'black',
-    fontFamily:'Satoshi-Medium',
+    fontFamily:designFont('Satoshi-Medium'),
     fontSize: 10,
   },
   altRow: {
-    backgroundColor: "#f9f9f9",
+    backgroundColor: designColor('f9f9f9'),
   },
   inputContainer: {
     marginVertical: 10,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: designColor('ccc'),
     borderRadius: 5,
-    color:'#000',
+    color:designColor('000'),
     padding: 10,
     fontSize: 14,
   },
@@ -239,20 +240,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "white",
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: designColor('ccc'),
     padding: 10,
     alignItems: "center",
     borderRadius: 5,
     marginRight: 5,
   },
   cancelText: {
-    color: "#000",
-    fontFamily:'Satoshi-Medium',
+    color: designColor('000'),
+    fontFamily:designFont('Satoshi-Medium'),
     fontSize: 14,
   },
   terminateButton: {
     flex: 1,
-    backgroundColor: "#e43d3d",
+    backgroundColor: designColor('e43d3d'),
     padding: 10,
     alignItems: "center",
     borderRadius: 5,
@@ -261,10 +262,10 @@ const styles = StyleSheet.create({
   terminateText: {
     color: "white",
     fontSize: 14,
-    fontFamily:'Satoshi-Medium',
+    fontFamily:designFont('Satoshi-Medium'),
   },
   disabledButton: {
-    backgroundColor: "#e0e0e0",
+    backgroundColor: designColor('e0e0e0'),
   },
 });
 

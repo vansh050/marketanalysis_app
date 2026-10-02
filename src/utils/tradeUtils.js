@@ -19,11 +19,17 @@ export const convertResponse = (dataArray, broker) => {
       productType: 'DELIVERY',
       orderType: 'MARKET',
       price: 0,
+      // Fail-safe reference for the sell→buy margin gate when a live tick is
+      // briefly unavailable while rebuilding the protected Kite basket.
+      referencePrice: item.rebalancePrice,
       tradingSymbol: item.symbol,
       token: item?.token ? item?.token : '',
       quantity: item.qty,
       priority: 0,
       user_broker: broker,
+      settledQuantity: item.settledQuantity,
+      t1Quantity: item.t1Quantity,
+      sameDayCredit: item.sameDayCredit,
     };
 
     if (broker === 'Zerodha' && item?.zerodhaTradeId) {

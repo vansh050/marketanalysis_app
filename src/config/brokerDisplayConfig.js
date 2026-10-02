@@ -56,10 +56,11 @@ export const brokerDisplayConfig = [
     key: 'Fyers',
     logo: require('../assets/fyers.png'),
   },
-  // IIFL Securities is intentionally not listed until its legacy v1
-  // authorisation service is restored and tested end-to-end. It is not the
-  // XTS/App-ID flow, so exposing it with XTS/IP-whitelist instructions would
-  // mislead new customers. Existing connections remain untouched.
+  {
+    name: 'IIFL Securities',
+    key: 'IIFL',
+    logo: require('../assets/iifl.png'),
+  },
   {
     name: 'Groww',
     key: 'Groww',
@@ -76,7 +77,7 @@ export const brokerDisplayConfig = [
     logo: require('../assets/arihant.png'),
   },
   {
-    name: 'DefinEdge',
+    name: 'Definedge',
     key: 'DefinEdge Securities',
     logo: require('../assets/definedge.png'),
   },

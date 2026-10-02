@@ -5,6 +5,8 @@ import {useNavigation} from '@react-navigation/native';
 import {useConfig} from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
 
+import { designFont } from '../../design/literalTokens';
+
 const RenderEmptyMessageCard = ({value}) => {
   const navigation = useNavigation();
 
@@ -51,7 +53,6 @@ const RenderEmptyMessageCard = ({value}) => {
           backgroundColor: 'rgba(255,255,255,0.08)',
         }}
       />
-
       {/* Icon container */}
       <LinearGradient
         colors={[gradient1, gradient2]}
@@ -90,11 +91,10 @@ const RenderEmptyMessageCard = ({value}) => {
           </View>
         </View>
       </LinearGradient>
-
       {/* Title */}
       <Text
         style={{
-          fontFamily: 'Satoshi-SemiBold',
+          fontFamily: designFont('Satoshi-SemiBold'),
           fontSize: 18,
           color: 'white',
           textAlign: 'center',
@@ -106,11 +106,10 @@ const RenderEmptyMessageCard = ({value}) => {
           ? 'No Holdings Data Available'
           : 'No model portfolio subscribed'}
       </Text>
-
       {/* Subtitle */}
       <Text
         style={{
-          fontFamily: 'Satoshi-Medium',
+          fontFamily: designFont('Satoshi-Medium'),
           fontSize: 14,
           color: 'rgba(255,255,255,0.8)',
           textAlign: 'center',
@@ -124,7 +123,6 @@ const RenderEmptyMessageCard = ({value}) => {
           ? 'Login to your broker to see holdings.'
           : 'Subscribe to a model portfolio for getting more detail'}
       </Text>
-
       {value === 'holdings' && (
         <TouchableOpacity
           onPress={() => navigation.navigate('Broker Setting')}
@@ -134,7 +132,7 @@ const RenderEmptyMessageCard = ({value}) => {
           }}>
           <Text
             style={{
-              fontFamily: 'Satoshi-Bold',
+              fontFamily: designFont('Satoshi-Bold'),
               fontSize: 14,
               color: 'rgba(255,255,255,0.8)',
               textDecorationLine: 'underline',

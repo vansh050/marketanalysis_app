@@ -136,14 +136,10 @@ describe('brokerSupport', () => {
   // ─── Broker Availability ───
 
   describe('broker availability', () => {
-    test('IIFL is marked unavailable', () => {
-      expect(BROKER_SUPPORT.iifl.unavailable).toBe(true);
-      expect(isBrokerAvailable('IIFL Securities')).toBe(false);
-    });
-
-    test('IIFL has unavailability reason', () => {
-      expect(BROKER_SUPPORT.iifl.unavailableReason).toBeDefined();
-      expect(getBrokerUnavailableReason('IIFL Securities')).toContain('temporarily unavailable');
+    test('IIFL direct flow is available', () => {
+      expect(BROKER_SUPPORT.iifl.unavailable).toBeUndefined();
+      expect(isBrokerAvailable('IIFL Securities')).toBe(true);
+      expect(getBrokerUnavailableReason('IIFL Securities')).toBeNull();
     });
 
     test('other brokers are available', () => {

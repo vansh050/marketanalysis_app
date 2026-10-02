@@ -10,15 +10,20 @@ import { getStoredBrokerCreds } from '../../utils/brokerCredentials';
 import KotakConnectUI from '../../UIComponents/BrokerConnectionUI/KotakConnectUI';
 import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import { useTrade } from '../../screens/TradeContext';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {useConfig} from '../../context/ConfigContext';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
-import {
-  useSdkBridge,
-  sdkConnectBroker,
-  sdkDualWriteSafely,
-} from '../../sdk/brokerSdkBridge';
 import {getAccountEmail} from '../../utils/accountEmail';
+import {
+  generateDeviceTotpFromSeed,
+  hasDeviceTotp,
+  removeDeviceTotp,
+  saveDeviceTotpSeed,
+  unlockDeviceTotpLogin,
+} from '../../services/DeviceTotpVault';
+
+import { designColor } from '../../design/literalTokens';
 
 const KotakModal = ({
   isVisible,
@@ -29,8 +34,10 @@ const KotakModal = ({
   setShowKotakModal,
 }) => {
   const { configData } = useTrade();
+  // Read the live runtime flag the dispatcher routed on; TradeContext's cached
+  // config can lack deviceTotpEnabled and hide quick reconnect (2026-09-30).
+  const freshConfig = useConfig();
   const showAlert = useModalStore((state) => state.showAlert);
-  const sdkBridge = useSdkBridge();
   const sheet = useRef(null);
   const scrollViewRef = useRef(null);
   const auth = getAuth();
@@ -44,6 +51,43 @@ const KotakModal = ({
   const [isLoading, setIsLoading] = useState(false);
   const [mpin, setMpin] = useState('');
   const [totp, settotp] = useState('');
+  const [deviceTotpSeed, setDeviceTotpSeed] = useState('');
+  const [hasSavedTotp, setHasSavedTotp] = useState(false);
+  const [saveTotpOnDevice, setSaveTotpOnDevice] = useState(false);
+  const unlockedTotpSeedRef = useRef('');
+
+  const advisorSubdomain =
+    getTenantSubdomain(configData);
+  const deviceTotpEnabled =
+    freshConfig?.deviceTotpEnabled === true ||
+    configData?.config?.deviceTotpEnabled === true ||
+    configData?.deviceTotpEnabled === true;
+  const totpIdentity = {advisor: advisorSubdomain, broker: 'Kotak', userEmail};
+
+  useEffect(() => {
+    if (!isVisible || !deviceTotpEnabled || !userEmail) return;
+    hasDeviceTotp(totpIdentity)
+      .then(setHasSavedTotp)
+      .catch(() => setHasSavedTotp(false));
+  }, [isVisible, deviceTotpEnabled, advisorSubdomain, userEmail]);
+
+  const unlockSavedTotp = async () => {
+    try {
+      const login = await unlockDeviceTotpLogin(totpIdentity);
+      if (login?.totp) settotp(login.totp);
+      if (login?.mpin) setMpin(login.mpin);
+      unlockedTotpSeedRef.current = login?.seed || '';
+    } catch (err) {
+      showAlert('error', 'Could not unlock key', err?.message || 'Device authentication failed.');
+    }
+  };
+
+  const forgetSavedTotp = async () => {
+    await removeDeviceTotp(totpIdentity);
+    unlockedTotpSeedRef.current = '';
+    setHasSavedTotp(false);
+    setSaveTotpOnDevice(false);
+  };
 
   const checkValidApiAnSecret = details => {
     const bytesKey = CryptoJS.AES.encrypt(details, 'ApiKeySecret');
@@ -59,7 +103,7 @@ const KotakModal = ({
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -141,7 +185,7 @@ const KotakModal = ({
   const lastKotakConnectAtRef = useRef(0);
   const _KOTAK_CONNECT_COOLDOWN_MS = 30 * 1000;
 
-  const updateKotakSecretKey = () => {
+  const updateKotakSecretKey = async () => {
     if (!egressReady) {
       setUnmetAck(true);
       return;
@@ -164,6 +208,39 @@ const KotakModal = ({
       );
       return;
     }
+    let activeTotp = totp;
+    let activeMpin = mpin;
+    if (
+      deviceTotpEnabled &&
+      saveTotpOnDevice &&
+      !hasSavedTotp &&
+      deviceTotpSeed
+    ) {
+      try {
+        activeTotp = generateDeviceTotpFromSeed(deviceTotpSeed);
+      } catch (err) {
+        showAlert(
+          'error',
+          'Invalid TOTP setup key',
+          err?.message || 'Copy the Base32 setup key shown by Kotak Neo and try again.',
+        );
+        return;
+      }
+    }
+    if (!activeTotp && hasSavedTotp && deviceTotpEnabled) {
+      try {
+        const login = await unlockDeviceTotpLogin(totpIdentity);
+        activeTotp = login?.totp || '';
+        activeMpin = activeMpin || login?.mpin || '';
+        unlockedTotpSeedRef.current = login?.seed || '';
+        if (activeTotp) settotp(activeTotp);
+        if (login?.mpin && !mpin) setMpin(login.mpin);
+      } catch (err) {
+        showAlert('error', 'Could not unlock key', err?.message || 'Device authentication failed.');
+        return;
+      }
+    }
+
     setIsLoading(true);
     isInFlightRef.current = true;
     lastKotakConnectAtRef.current = now;
@@ -196,14 +273,14 @@ const KotakModal = ({
       setMobileNumber(normalizedMobile);
     }
 
-    if (!/^\d{6}$/.test(mpin)) {
+    if (!/^\d{6}$/.test(activeMpin)) {
       setIsLoading(false);
       isInFlightRef.current = false;
       showAlert('error', 'Invalid MPIN', 'MPIN should be a 6-digit number.');
       return;
     }
 
-    if (!/^\d{6}$/.test(totp)) {
+    if (!/^\d{6}$/.test(activeTotp)) {
       setIsLoading(false);
       isInFlightRef.current = false;
       showAlert('error', 'Invalid TOTP', 'TOTP should be a 6-digit number.');
@@ -214,9 +291,9 @@ const KotakModal = ({
       uid: userId,
       apiKey: checkValidApiAnSecret(apiKey),
       mobileNumber: '+91' + normalizedMobile,
-      mpin: mpin,
+      mpin: activeMpin,
       ucc: ucc,
-      totp: totp,
+      totp: activeTotp,
     };
 
     let config = {
@@ -224,7 +301,7 @@ const KotakModal = ({
       url: `${server.server.baseUrl}api/kotak/connect-broker`,
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -235,32 +312,63 @@ const KotakModal = ({
 
     axios
       .request(config)
-      .then(response => {
+      .then(async response => {
         console.log('[Kotak Neo] Broker connected successfully, updating model portfolio...');
+
+        if (deviceTotpEnabled && saveTotpOnDevice && deviceTotpSeed) {
+          try {
+            await saveDeviceTotpSeed(
+              totpIdentity,
+              deviceTotpSeed,
+              '',
+              {mpin: activeMpin},
+            );
+            setHasSavedTotp(true);
+            setSaveTotpOnDevice(false);
+            setDeviceTotpSeed('');
+          } catch (vaultErr) {
+            console.warn('[Kotak Neo] connection succeeded but device key save failed:', vaultErr?.message);
+          }
+        } else if (
+          deviceTotpEnabled &&
+          hasSavedTotp &&
+          unlockedTotpSeedRef.current &&
+          activeMpin
+        ) {
+          // Backward-compatible upgrade: older records contained only the
+          // TOTP seed. After a successful customer-present reconnect, bind
+          // the validated MPIN into the same device-only protected record.
+          try {
+            await saveDeviceTotpSeed(
+              totpIdentity,
+              unlockedTotpSeedRef.current,
+              '',
+              {mpin: activeMpin},
+            );
+          } catch (vaultErr) {
+            console.warn(
+              '[Kotak Neo] connection succeeded but protected MPIN upgrade failed:',
+              vaultErr?.message,
+            );
+          }
+        }
 
         // EVERYTHING below this line runs AFTER the connect HTTP call
         // returned 2xx — the broker IS connected DB-side. Wrap each
         // independently-failable step so a JS runtime error here does
         // NOT bubble to the outer .catch and surface as "Connection
         // Issue" / "Incorrect credentials". Production 2026-04-28: a
-        // throw inside this first .then (suspect: generateToken with
-        // missing env, sdkBridge access, or sdkConnectBroker arg eval)
+        // throw inside this first .then (for example generateToken with
+        // missing environment configuration)
         // was producing the false-negative even after we hardened the
         // SECOND .then with the same wrap pattern. See CHANGELOG 3.9.41.
-        try {
-          if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
-            sdkDualWriteSafely(
-              sdkConnectBroker(sdkBridge.client, 'Kotak', data),
-              'Kotak',
-              'connect',
-            );
-          }
-        } catch (sdkErr) {
-          console.warn(
-            '[Kotak Neo] SDK dual-write threw synchronously (connection IS saved DB-side):',
-            sdkErr?.message || sdkErr,
-          );
-        }
+        // Do not dual-write Kotak's pre-login credential body to the SDK
+        // `/connect` route. The legacy endpoint above has already completed
+        // TOTP + MPIN validation and persisted the resulting jwtToken/sid/
+        // baseUrl. Sending `data` here (apiKey + MPIN + TOTP only) used to
+        // replace that complete connected_brokers entry with an incomplete
+        // one, leaving Broker Screen green while Home correctly showed
+        // Reconnect. The backend now rejects that incomplete shape too.
 
         try {
           let newBrokerData = {
@@ -273,7 +381,7 @@ const KotakModal = ({
             data: JSON.stringify(newBrokerData),
             headers: {
               'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+              'X-Advisor-Subdomain': getTenantSubdomain(configData),
               'aq-encrypted-key': generateToken(
                 Config.REACT_APP_AQ_KEYS,
                 Config.REACT_APP_AQ_SECRET,
@@ -301,8 +409,22 @@ const KotakModal = ({
         // Close the Kotak modal first so the migration sheet doesn't
         // stack underneath. See AliceBlueConnect.js comment for the
         // dual-modal-stacking rationale.
-        setShowKotakModal(false);
-        setShowBrokerModal(false);
+        // This sheet is opened through two paths:
+        //   1. older inline advice screens, which pass setShowKotakModal;
+        //   2. the app-root ModalManager used by the rebalance flow, which
+        //      passes only onClose.
+        // Calling the legacy setter unconditionally made a successful Kotak
+        // reconnect throw `setShowKotakModal is not a function` in path (2).
+        // Close through the common contract first, retaining the setters only
+        // as backward-compatible fallbacks for old inline callers.
+        if (typeof onClose === 'function') {
+          onClose();
+        } else if (typeof setShowKotakModal === 'function') {
+          setShowKotakModal(false);
+        }
+        if (typeof setShowBrokerModal === 'function') {
+          setShowBrokerModal(false);
+        }
         // The connect HTTP call already returned 200 by this point —
         // the broker IS connected DB-side. Wrap the post-success steps
         // (event emit, fetchBrokerStatusModal, showAlert) in their own
@@ -403,8 +525,8 @@ const KotakModal = ({
       broker="Kotak"
       config={{
         monogram: 'K',
-        brandFrom: '#e3001b',
-        brandTo: '#9c0014',
+        brandFrom: designColor('e3001b'),
+        brandTo: designColor('9c0014'),
         portalUrl: 'https://trade.kotakneo.com/Login',
         portalLabel: 'Open Kotak Neo',
         walkthroughVideoId: 'J15Z4dP19o8',
@@ -414,6 +536,8 @@ const KotakModal = ({
           'Copy your <b>API access token</b>',
           'Whitelist the <b>IP</b> below',
           'On that page, click <b>TOTP Registration</b> → verify mobile + OTP',
+          'Scan the QR in an authenticator and copy the <b>manual Base32 setup key</b> shown with it',
+          'Enter one generated TOTP in Kotak to complete registration; AlphaQuark generates its own verification code automatically',
           'Find your <b>Client Code (UCC)</b> in your Kotak profile',
         ],
         note:
@@ -462,22 +586,50 @@ const KotakModal = ({
           maxLength: 6,
           placeholder: 'Enter your 6-digit Neo MPIN',
         },
-        {
+        ...(!(deviceTotpEnabled && saveTotpOnDevice && !hasSavedTotp) ? [{
           label: 'TOTP',
           value: totp,
           onChange: (t) => settotp(t.replace(/\D/g, '').slice(0, 6)),
           keyboardType: 'number-pad',
           maxLength: 6,
           placeholder: 'Enter 6-digit TOTP',
-        },
+        }] : []),
+        ...(deviceTotpEnabled && saveTotpOnDevice && !hasSavedTotp ? [{
+          label: 'TOTP Secret Key (Base32)',
+          value: deviceTotpSeed,
+          onChange: (t) => setDeviceTotpSeed(String(t || '')),
+          password: true,
+          autoCapitalize: 'none',
+          placeholder: 'Secret shown below the authenticator QR',
+        }] : []),
       ]}
+      deviceTotp={{
+        enabled: deviceTotpEnabled,
+        // Offer quick reconnect before the credential fields, so the customer
+        // chooses it before typing a one-time 6-digit code (as Upstox does).
+        placeBeforeFields: true,
+        hasSaved: hasSavedTotp,
+        saveOnDevice: saveTotpOnDevice,
+        onToggleSave: () => setSaveTotpOnDevice(value => !value),
+        onUnlock: unlockSavedTotp,
+        onForget: forgetSavedTotp,
+        protectLabel: 'Protect this TOTP key and MPIN on this phone',
+        savedLabel:
+          'TOTP key and validated MPIN are device-only. Biometrics or the device PIN is required before reconnect.',
+        pendingLabel:
+          'Stores the TOTP key and MPIN only in the protected device keychain; neither is copied to AlphaQuark servers.',
+        unlockLabel: 'Unlock saved Kotak login',
+        forgetLabel: 'Forget Kotak login on this phone',
+      }}
       phase="creds"
       canSubmit={
         Boolean(ucc) &&
         Boolean(apiKey) &&
         Boolean(mobileNumber) &&
-        Boolean(mpin) &&
-        Boolean(totp)
+        (Boolean(mpin) || hasSavedTotp) &&
+        (Boolean(totp) || hasSavedTotp ||
+          (saveTotpOnDevice && Boolean(deviceTotpSeed))) &&
+        (!saveTotpOnDevice || hasSavedTotp || Boolean(deviceTotpSeed))
       }
       submitLabel="Connect Kotak"
       loading={isLoading}

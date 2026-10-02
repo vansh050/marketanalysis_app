@@ -75,12 +75,15 @@
 
 import React, {useState} from 'react';
 import Config from 'react-native-config';
+import {useConfig} from '../../context/ConfigContext';
+import {getAccountEmailAsync} from '../../utils/accountEmail';
+import {startAccountReconciliation} from '../../services/ModelPortfolioService';
+import {verifyPersistedBrokerConnection} from '../../utils/brokerConnectionVerification';
 
 // Legacy per-broker modals
 import IIFLModal from '../iiflmodal';
 import ICICIUPModal from './icicimodal';
 import UpstoxModal from './upstoxModal';
-import AngleOneBookingTrueSheet from './AngleoneBookingModal';
 import MotilalModal from './MotilalModal';
 import ZerodhaConnectModal from './ZerodhaConnectModal';
 import HDFCconnectModal from './HDFCconnectModal';
@@ -95,6 +98,7 @@ import DefinEdgeConnectModal from './DefinEdgeConnectModal';
 
 // SDK modal (all brokers when flag on, except re-auth)
 import Phase3SdkBrokerModal from './Phase3SdkBrokerModal';
+import DeviceTotpReconnectGate from './DeviceTotpReconnectGate';
 
 // Angel One pre-connect cautionary-listing warning (rendered as an
 // interstitial above whichever connect modal would normally show).
@@ -190,17 +194,16 @@ import AngelOneCautionaryWarning from './AngelOneCautionaryWarning';
 // that broker here with a PHASE3_PROGRESS.md entry (its stepper-ized legacy
 // modal remains fully functional as the rollback).
 // IIFL is deliberately kept on its native OAuth route. The current SDK
-// schema models IIFL as a credentials/TOTP form, while the live IIFL
-// integration starts at markets.iiflcapital.com and returns auth_token +
-// clientid to /iifl/login/client. Sending customers to the SDK form made
-// IIFL the odd broker out and, more importantly, did not complete the live
-// broker handshake. IIFLModal now owns the same branded guide + static-IP
-// gate as the SDK route, so this is a correctness fallback, not a UI
-// regression. Remove this entry only together with an SDK OAuth schema and
-// matching backend exchange-token route.
+// schema models IIFL as a credentials/TOTP form, while the live customer-owned
+// flow collects an IIFL App Key/App Secret, obtains the broker login URL from
+// Node, and exchanges authcode + clientid through Node so the App Secret never
+// returns to app JavaScript. IIFLModal also owns the branded developer-portal
+// guide, IPv6 whitelist gate and MongoDB persistence. This is a correctness
+// fallback, not a UI regression. Remove this entry only together with an SDK
+// direct-OAuth schema and matching secret-preserving backend exchange route.
 const SDK_LEGACY_FALLBACK = new Set(['IIFL']);
 
-const useSdkBrokerFlow = () => {
+const isSdkBrokerFlowEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_BROKER_FLOW || '')
     .trim()
     .toLowerCase();
@@ -229,6 +232,15 @@ const normalizeBrokerKey = (raw) => {
   return trimmed;
 };
 
+// Modal keys retain a few historical short names; ccxt account identity uses
+// the persisted user_broker spelling.
+const canonicalBrokerName = key => ({
+  ICICI: 'ICICI Direct',
+  HDFC: 'Hdfc Securities',
+  Motilal: 'Motilal Oswal',
+  IIFL: 'IIFL Securities',
+}[key] || key);
+
 const BrokerConnectModalDispatch = ({
   brokerName,
   isVisible,
@@ -238,17 +250,117 @@ const BrokerConnectModalDispatch = ({
   reauthConfig,
   ...rest
 }) => {
+  const runtimeConfig = useConfig();
   if (!isVisible) return null;
 
   const key = normalizeBrokerKey(brokerName);
-  // Angel One is per-customer only. Its legacy sheet signs every customer into
-  // a platform-shared SmartAPI app, so it must never be dispatched again.
+  // DefineEdge first-connect is SDK-backed. Before device credential
+  // protection existed, re-auth used the dedicated OTP modal so it could
+  // initiate with encrypted credentials stored on the account. When device
+  // TOTP is disabled we retain that SDK behavior; when enabled the native
+  // secureTotpHostFlow below owns DefinEdge reconnect and generates the TOTP
+  // from the phone vault. Broker API credentials remain server-side.
+  const defineEdgeReauth =
+    key === 'DefinEdge Securities' &&
+    reauthConfig?.definedgeStoredCredentials === true &&
+    runtimeConfig?.deviceTotpEnabled !== true;
+  // Angel One is per-customer only. Its legacy sheet (AngleoneBookingModal)
+  // signs every customer into a platform-shared SmartAPI app, so it must never
+  // be dispatched — including as the device-TOTP gate's full-login fallback.
+  // Until 2026-09-29 `angelOnePerCustomer && !secureTotpHostFlow` let
+  // device-TOTP tenants fall back to that shared-key sheet; Angel One now
+  // always resolves to the per-customer SDK modal, which the gate wraps.
   const angelOnePerCustomer = key === 'Angel One';
+  // Device-keystore TOTP needs native biometric callbacks owned by the host
+  // app. Until the SDK exposes that host callback contract, route only the
+  // reusable-seed brokers through their fully equivalent native sheets when
+  // the advisor enables device TOTP. Upstox is included because its native
+  // sheet owns the Firebase-bound direct PIN+TOTP reconnect path; normal
+  // OAuth remains the fallback.
+  const secureTotpHostFlow =
+    runtimeConfig?.deviceTotpEnabled === true &&
+    (key === 'Kotak' ||
+      key === 'Groww' ||
+      key === 'Upstox' ||
+      key === 'Dhan' ||
+      key === 'Angel One' ||
+      key === 'Motilal' ||
+      key === 'Zerodha' ||
+      key === 'Fyers' ||
+      key === 'DefinEdge Securities' ||
+      key === 'Arihant Capital');
+  // AliceBlue stays on the same partner OAuth product in both modes. When the
+  // shared device-TOTP feature is enabled, route it to the native modal so the
+  // customer can choose between phone-protected WebView assistance and the
+  // unchanged manual partner login. Keep the older AliceBlue-only flag as a
+  // backwards-compatible alias for advisors that enabled it before the flows
+  // were consolidated under deviceTotpEnabled.
+  const secureAliceBlueHostFlow =
+    (runtimeConfig?.deviceTotpEnabled === true ||
+      runtimeConfig?.aliceBlueDeviceLoginEnabled === true) &&
+    key === 'AliceBlue';
+  const refreshAndReconcile = async (...args) => {
+    const email = await getAccountEmailAsync();
+    // Refresh host state FIRST, then verify. Order matters: the legacy lane
+    // calls setShowBrokerModal(false) + onClose() *before* invoking this and
+    // swallows our throw (see BROKER_CONNECTION.md § Broker-connect
+    // post-success hygiene). Verifying first would mean a failed verification
+    // skipped the TradeContext refresh entirely while the sheet was already
+    // gone, stranding the app on pre-connect state. Refreshing first keeps
+    // that lane no worse than before while the throw below still suppresses
+    // its "Connected Successfully" toast.
+    const result = await fetchBrokerStatusModal?.(...args);
+
+    let verifiedUser = null;
+    let verificationError = null;
+    try {
+      verifiedUser = await verifyPersistedBrokerConnection({
+        broker: canonicalBrokerName(key),
+        userEmail: email,
+        configData: runtimeConfig,
+      });
+    } catch (error) {
+      verificationError = error;
+    }
+
+    // Reconcile unless verification positively CONTRADICTED the connect.
+    // verifiedUser === null means we could not read the record at all, which
+    // is not evidence of a bad save — treat it like the pre-gate behaviour and
+    // still enqueue. Only a contradiction (verificationError) suppresses it,
+    // because reconciling an unsaved selection would bind the account to the
+    // wrong broker. Do not hold the successful-connect UI open: the endpoint
+    // queues server work, while Calculate independently enforces the same
+    // account barrier.
+    if (!verificationError) {
+      Promise.resolve(email)
+        .then(accountEmail => {
+          if (!accountEmail || !key) {
+            return null;
+          }
+          return startAccountReconciliation(
+            accountEmail,
+            canonicalBrokerName(key),
+            runtimeConfig,
+          );
+        })
+        .catch(error => {
+          console.warn(
+            '[BrokerConnect] account reconciliation enqueue failed:',
+            error?.message,
+          );
+        });
+    }
+
+    if (verificationError) {
+      throw verificationError;
+    }
+    return {...(result || {}), verifiedUser};
+  };
   const commonProps = {
     isVisible: true,
     onClose,
     setShowBrokerModal,
-    fetchBrokerStatusModal,
+    fetchBrokerStatusModal: refreshAndReconcile,
     reauthConfig: reauthConfig || null,
     ...rest,
   };
@@ -260,11 +372,30 @@ const BrokerConnectModalDispatch = ({
   let modal;
   if (
     angelOnePerCustomer ||
-    (useSdkBrokerFlow() && !SDK_LEGACY_FALLBACK.has(key))
+    defineEdgeReauth ||
+    (isSdkBrokerFlowEnabled() &&
+      !secureTotpHostFlow &&
+      !secureAliceBlueHostFlow &&
+      !SDK_LEGACY_FALLBACK.has(key))
   ) {
-    modal = <Phase3SdkBrokerModal {...commonProps} brokerName={key} />;
+    modal = defineEdgeReauth
+      ? renderLegacyModal(key, commonProps)
+      : <Phase3SdkBrokerModal {...commonProps} brokerName={key} />;
   } else {
     modal = renderLegacyModal(key, commonProps);
+  }
+
+  if (
+    secureTotpHostFlow &&
+    (key === 'Angel One' || key === 'Motilal' || key === 'Zerodha' || key === 'Fyers')
+  ) {
+    modal = (
+      <DeviceTotpReconnectGate
+        {...commonProps}
+        brokerName={canonicalBrokerName(key)}
+        fallback={modal}
+      />
+    );
   }
 
   return modal;
@@ -276,8 +407,6 @@ const renderLegacyModal = (key, commonProps) => {
       return <ICICIUPModal {...commonProps} />;
     case 'Upstox':
       return <UpstoxModal {...commonProps} />;
-    case 'Angel One':
-      return <AngleOneBookingTrueSheet {...commonProps} />;
     case 'Motilal':
       return <MotilalModal {...commonProps} />;
     case 'Zerodha':

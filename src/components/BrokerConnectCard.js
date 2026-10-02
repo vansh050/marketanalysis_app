@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-nati
 import { Pencil } from 'lucide-react-native';
 import CustomToolbar from '../components/CustomToolbar';
 
+import { designColor, designFont } from '../design/literalTokens';
+
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const formatDate = (dateString) => {
@@ -27,24 +29,23 @@ const formatDate = (dateString) => {
 const BrokerConnectCard = ({ isBrokerConnected, openModal, brokername, createdDate }) => {
   return (
     <View>
-
-    <View style={styles.cardContainer}>
-      <View style={styles.row}>
-        <View style={styles.column}>
-          <Text style={styles.detailLabel1}>Created Date :</Text>
-          <Text style={styles.detailLabel2}>Broker :</Text>
-        </View>
-        <View style={styles.column}>
-          <Text style={styles.detailValue}>{formatDate(createdDate)}</Text>
-          <View style={styles.brokerInput}>
-            <Text style={styles.detailValueBtn}>{brokername}</Text>
-            <TouchableOpacity style={styles.editIcon} onPress={openModal}>
-              <Pencil size={screenWidth * 0.048} color="#000" />
-            </TouchableOpacity>
+      <View style={styles.cardContainer}>
+        <View style={styles.row}>
+          <View style={styles.column}>
+            <Text style={styles.detailLabel1}>Created Date :</Text>
+            <Text style={styles.detailLabel2}>Broker :</Text>
+          </View>
+          <View style={styles.column}>
+            <Text style={styles.detailValue}>{formatDate(createdDate)}</Text>
+            <View style={styles.brokerInput}>
+              <Text style={styles.detailValueBtn}>{brokername}</Text>
+              <TouchableOpacity style={styles.editIcon} onPress={openModal}>
+                <Pencil size={screenWidth * 0.048} color={designColor('000')} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
-    </View>
     </View>
   );
 };
@@ -52,10 +53,10 @@ const BrokerConnectCard = ({ isBrokerConnected, openModal, brokername, createdDa
 const styles = StyleSheet.create({
   cardContainer: {
     height: screenHeight * 0.2,
-    backgroundColor: '#f2f2f2',
+    backgroundColor: designColor('f2f2f2'),
     padding: screenWidth * 0.04,
     borderRadius: 10,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     alignContent:'center',
     justifyContent:'center',
     shadowOffset: { width: 0, height: 2 },
@@ -77,31 +78,31 @@ const styles = StyleSheet.create({
   },
   detailLabel1: {
     fontSize: screenWidth * 0.038,
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
     color: 'black',
   },
   detailLabel2: {
     fontSize: screenWidth * 0.038,
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
     color: 'black',
     paddingVertical:10,
     marginTop: screenHeight * 0.02,
   },
   detailValue: {
     fontSize: screenWidth * 0.038,
-    fontFamily:'Poppins-Medium',
-    color: '#333',
+    fontFamily:designFont('Poppins-Medium'),
+    color: designColor('333'),
   },
   detailValueBtn: {
     fontSize: screenWidth * 0.038,
-    fontFamily:'Poppins-Medium',
+    fontFamily:designFont('Poppins-Medium'),
     color: 'black',
   },
   brokerInput: {
     flexDirection: 'row',
     alignItems: 'center',
     borderTopWidth:1,
-    borderColor:'#ccc',
+    borderColor:designColor('ccc'),
     borderBottomWidth:1,
     paddingVertical:10,
     justifyContent:'space-between',
@@ -112,7 +113,7 @@ const styles = StyleSheet.create({
   },
   line2: {
     height: 1,
-    backgroundColor: '#ccc',
+    backgroundColor: designColor('ccc'),
     marginTop: screenHeight * 0.01,
     width: '55%',
     alignSelf: 'flex-end',

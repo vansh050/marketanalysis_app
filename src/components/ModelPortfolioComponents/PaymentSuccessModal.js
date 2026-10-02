@@ -3,6 +3,7 @@ import { View, Text, Modal, TouchableOpacity, Image, StyleSheet,Dimensions } fro
 import { X as XIcon } from "lucide-react-native"; // Adjust import if using another library
 import Checked from "../../assets/checked.png"; // Adjust path as needed
 import { useConfig } from "../../context/ConfigContext";
+import { designColor, designFont } from '../../design/literalTokens';
 const { height: screenHeight } = Dimensions.get('window');
 const PaymentSuccessModal = ({
   visible,
@@ -38,7 +39,7 @@ const PaymentSuccessModal = ({
               }}
               style={styles.closeButton}
             >
-              <XIcon size={24} color="#999" />
+              <XIcon size={24} color={designColor('999')} />
             </TouchableOpacity>
           </View>
 
@@ -51,7 +52,7 @@ const PaymentSuccessModal = ({
            
             <Text style={styles.successTitle}>Payment Successful!</Text>
             <Text style={styles.successMessage}>
-            Your payment for the <Text style={{color:'black',fontFamily:'Satoshi-Bold'}}>{specificPlan?.name}
+            Your payment for the <Text style={{color:'black',fontFamily:designFont('Satoshi-Bold')}}>{specificPlan?.name}
               </Text> {specificPlan?.type === "model portfolio" ? "Model Portfolio " : `${config?.bespokePlanLabel || "Bespoke Plan"} `}
              has been processed successfully.
             </Text>
@@ -69,7 +70,7 @@ const styles = StyleSheet.create({
       backgroundColor: 'rgba(0,0,0,0.5)',
   },
   modalContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     height: screenHeight / 2.1,
@@ -82,13 +83,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
  
-    borderBottomColor: "#E0E0E0",
+    borderBottomColor: designColor('e0e0e0'),
   },
   headerText: {
     fontSize: 20,
     fontWeight: "bold",
-    fontFamily: "Montserrat",
-    color: "#000",
+    fontFamily: designFont('Montserrat'),
+    color: designColor('000'),
   },
   closeButton: {
     padding: 8,
@@ -109,16 +110,16 @@ const styles = StyleSheet.create({
   },
   successTitle: {
     fontSize: 22,
-    color:'#000000CC',
-    fontFamily: "Satoshi-Bold",
+    color:designColor('000000cc'),
+    fontFamily: designFont('Satoshi-Bold'),
     marginBottom: 8,
     marginTop:15,
     textAlign: "center",
   },
   successMessage: {
     fontSize: 16,
-    fontFamily: "Satoshi-Regular",
-    color: "#666666",
+    fontFamily: designFont('Satoshi-Regular'),
+    color: designColor('666666'),
     textAlign: "center",
     maxWidth: 400,
     lineHeight: 24,

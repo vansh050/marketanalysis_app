@@ -46,11 +46,10 @@ describe('Broker Connection', () => {
     it('should display supported brokers', async () => {
       const brokers = ['Zerodha', 'Angel One', 'Dhan', 'Groww'];
       for (const broker of brokers) {
-        try {
-          await expect(element(by.text(broker))).toBeVisible();
-        } catch {
-          // Broker may need scrolling to be visible
-        }
+        await waitFor(element(by.id(`broker-card-${broker}`)))
+          .toExist()
+          .whileElement(by.type('RCTScrollView'))
+          .scroll(180, 'down');
       }
     });
 
@@ -63,31 +62,21 @@ describe('Broker Connection', () => {
 
   describe('Broker Connection Modal', () => {
     it('should open Dhan credential form', async () => {
-      try {
-        await element(by.text('Dhan')).tap();
-        await waitForLoading();
-        await assertScreenLoaded();
-        await takeNamedScreenshot('BROKER-002_dhan_modal');
-
-        // Close modal
-        await device.pressBack();
-      } catch {
-        // Dhan not visible, needs scroll
-      }
+      await waitFor(element(by.id('broker-card-Dhan'))).toExist().withTimeout(10000);
+      await element(by.id('broker-card-Dhan')).tap();
+      await waitForLoading();
+      await assertScreenLoaded();
+      await takeNamedScreenshot('BROKER-002_dhan_modal');
+      await device.pressBack();
     });
 
     it('should open Zerodha OAuth WebView', async () => {
-      try {
-        await element(by.text('Zerodha')).tap();
-        await waitForLoading();
-        await assertScreenLoaded();
-        await takeNamedScreenshot('BROKER-002_zerodha_webview');
-
-        // Close WebView
-        await device.pressBack();
-      } catch {
-        // Zerodha already connected or not visible
-      }
+      await waitFor(element(by.id('broker-card-Zerodha'))).toExist().withTimeout(10000);
+      await element(by.id('broker-card-Zerodha')).tap();
+      await waitForLoading();
+      await assertScreenLoaded();
+      await takeNamedScreenshot('BROKER-002_zerodha_webview');
+      await device.pressBack();
     });
   });
 

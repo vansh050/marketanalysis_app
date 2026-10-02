@@ -7,7 +7,8 @@ import formatCurrency from './formateCurrency';
 import Config from 'react-native-config';
 import { generateToken } from '../utils/SecurityTokenManager';
 import { useTrade } from '../screens/TradeContext';
-export const PaymentContext = createContext(); 
+import { designColor } from '../design/literalTokens';
+export const PaymentContext = createContext();
 
 // Payment handling function
 const handlePayment = async (props) => {
@@ -402,7 +403,7 @@ async function subscribeToPlan(props) {
           email: userEmail, // User's email
         },
         theme: {
-          color: "#F37254",
+          color: designColor('f37254'),
         },
       };
       
@@ -642,15 +643,19 @@ async function completeSubscription(props, paymentDetails) {
         console.log(error);
       });
 
-    // MP-only guard: bespoke recurring plans have no strategyDetails /
-    // latestRebalance — unguarded latestRebalance.model_Id is the same
-    // TypeError class as the 2026-07-07 one-time incident.
-    if (strategyDetails && latestRebalance) {
+    // MP-only guard: bespoke recurring plans have no strategyDetails, so
+    // skip them. Do NOT also gate on latestRebalance — a model with no
+    // rebalance history yet (or whose pre-purchase strategy fetch was access
+    // restricted) leaves it null, and gating on it silently DROPPED the
+    // customer's stated investment amount, so the first rebalance asked for it
+    // again. model_id is optional to insert-user-doc (the server falls back to
+    // the model name), so `?.` is enough to avoid the 2026-07-07 TypeError.
+    if (strategyDetails) {
       let data2 = JSON.stringify({
         userEmail: userEmail,
         model: strategyDetails?.model_name,
         advisor: strategyDetails?.advisor,
-        model_id: latestRebalance.model_Id,
+        model_id: latestRebalance?.model_Id,
         userBroker: broker ? broker : "",
         subscriptionAmountRaw: [
           {
@@ -753,7 +758,7 @@ async function handleSinglePayment(props) {
           contact: '', // Add phone number if available
           name: '', // Add name if available
         },
-        theme: { color: "#F37254" }
+        theme: { color: designColor('f37254') }
       };
 
       // ONLY the Razorpay checkout itself is a "payment". Post-payment
@@ -1011,13 +1016,13 @@ async function completeSinglePayment(props, paymentDetails) {
     // Invoice + notifications handled by handleClientUpdate.
     // Removed sendNotifications() — was producing duplicate invoices.
 
-    // (also requires latestRebalance — see the guard note on the block below)
-    if (strategyDetails && latestRebalance) {
+    // (see the guard note on the block below)
+    if (strategyDetails) {
       let data2 = JSON.stringify({
         userEmail: userEmail,
         model: strategyDetails?.model_name,
         advisor: strategyDetails?.advisor,
-        model_id: latestRebalance.model_Id,
+        model_id: latestRebalance?.model_Id,
         userBroker: broker ? broker : "",
         subscriptionAmountRaw: [
           {
@@ -1072,17 +1077,18 @@ async function completeSinglePayment(props, paymentDetails) {
       data.subscription
     );
 
-    // MP-only: insert the subscriber doc on ccxt. Guarded because bespoke
-    // plans have no strategyDetails/latestRebalance — referencing
-    // latestRebalance.model_Id unguarded threw a TypeError AFTER the payment
-    // succeeded, which propagated up as a false "Payment Failed" alert
-    // (2026-07-07 arfs incident). Skip entirely for bespoke.
-    if (strategyDetails && latestRebalance) {
+    // MP-only: insert the subscriber doc on ccxt. Skipped for bespoke, which
+    // has no strategyDetails. Referencing latestRebalance.model_Id unguarded
+    // threw a TypeError AFTER the payment succeeded, surfacing as a false
+    // "Payment Failed" alert (2026-07-07 arfs incident) — `?.` fixes that
+    // without gating the whole write on latestRebalance, which was dropping
+    // the customer's investment amount on a first purchase.
+    if (strategyDetails) {
       let data2 = JSON.stringify({
         userEmail: userEmail,
         model: strategyDetails?.model_name,
         advisor: strategyDetails?.advisor,
-        model_id: latestRebalance.model_Id,
+        model_id: latestRebalance?.model_Id,
         userBroker: broker ? broker : "",
         subscriptionAmountRaw: [
           {

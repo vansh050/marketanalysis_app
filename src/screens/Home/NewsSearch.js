@@ -24,6 +24,8 @@ import server from "../../utils/serverConfig";
 import LinkOpeningWeb from "./NewsScreen/LinkOpeningWeb";
 import { useTrade } from "../TradeContext";
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const { width: screenWidth } = Dimensions.get('window');
 const NewsSearch = ({ setIsSearchActive, isSearchActive }) => {
   const {configData}=useTrade();
@@ -192,20 +194,19 @@ const NewsSearch = ({ setIsSearchActive, isSearchActive }) => {
       animationType="slide"
       onRequestClose={handleClose}
     >
-      
       <View style={styles.modalOverlay}>
 
         <View style={styles.modalContent}>
         <View style={{ flexDirection: 'row',justifyContent:'center', alignItems: 'center',alignContent:'center',alignSelf:'center', }}>
           <ChevronLeft onPress={handleClose} size={18} style={{alignContent:'center',alignItems:'center',alignSelf:'center',}}/>
     <TouchableOpacity style={styles.searchBarContainer}>
-          <SearchIcon size={18} color={'#918F8F'} />
+          <SearchIcon size={18} color={designColor('918f8f')} />
           <TextInput
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 autoFocus={true}
             textAlignVertical="bottom"
-            placeholderTextColor={'#918F8F'}
+            placeholderTextColor={designColor('918f8f')}
             style={styles.searchBar}
             placeholder='Enter "Reliance" to get latest updates'
           />
@@ -228,7 +229,7 @@ const NewsSearch = ({ setIsSearchActive, isSearchActive }) => {
   <Calendar size={15} color={'black'} style={{marginLeft:8,alignSelf:'center'}}/>
 </TouchableOpacity>
         
-          <TouchableOpacity style={styles.filterButton}><Text style={{color:'white',fontFamily:'Poppins-Regular',fontSize:11}}>Clear</Text>
+          <TouchableOpacity style={styles.filterButton}><Text style={{color:'white',fontFamily:designFont('Poppins-Regular'),fontSize:11}}>Clear</Text>
           </TouchableOpacity>
         </View>
         
@@ -243,7 +244,6 @@ const NewsSearch = ({ setIsSearchActive, isSearchActive }) => {
           />
         </View>
       </View>
-
       <Modal
         visible={newsModalOpen}
         animationType="slide"
@@ -255,8 +255,6 @@ const NewsSearch = ({ setIsSearchActive, isSearchActive }) => {
           onClose={closeNewsModal}
         />
       </Modal>
-     
-   
       <Modal
         animationType="slide"
         transparent={true}
@@ -274,10 +272,10 @@ const NewsSearch = ({ setIsSearchActive, isSearchActive }) => {
               monthTitleStyle={{color:'black'}}
               previousTitleStyle={{color:'black'}}
               nextTitleStyle={{color:'black'}}
-              todayBackgroundColor="#9EAEC1"
-              selectedDayColor="#002a5c"
+              todayBackgroundColor={designColor('9eaec1')}
+              selectedDayColor={designColor('002a5c')}
       
-              selectedDayTextColor="#FFFFFF"
+              selectedDayTextColor={designColor('ffffff')}
               onDateChange={onDateChange}
             />
       
@@ -295,7 +293,7 @@ const NewsSearch = ({ setIsSearchActive, isSearchActive }) => {
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>   
+      </Modal>
     </Modal>
   );
 };
@@ -309,7 +307,7 @@ const styles = StyleSheet.create({
   modalContent: {
     width: "100%",
     height: "100%",
-    backgroundColor: "#fff",
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     padding:10,
     elevation: 5,
@@ -324,10 +322,10 @@ const styles = StyleSheet.create({
     
     marginHorizontal: 10,
     borderWidth: 1,
-    borderColor: '#fff', // Space between search bar and coin
+    borderColor: designColor('fff'), // Space between search bar and coin
   },
   coinText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontWeight: 'bold',
     fontSize: 16,
   },
@@ -335,23 +333,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flex: 1,
     alignItems: 'center',
-    backgroundColor: '#F8F8F8',
+    backgroundColor: designColor('f8f8f8'),
     borderRadius: 5,
     paddingLeft: 10,
     alignContent:'center',
     alignSelf:'center',
-    borderColor: '#E6E6E6',
+    borderColor: designColor('e6e6e6'),
     marginLeft: 10,
   },
   searchBar: {
     flex: 1,
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     textAlignVertical:'center',
     fontSize: 13,
     marginLeft: 10,
   },
   datePicker: {
-    borderColor: '#E4E4E4',
+    borderColor: designColor('e4e4e4'),
     backgroundColor:'white',
     paddingVertical:8,
     paddingHorizontal:10,
@@ -362,7 +360,7 @@ const styles = StyleSheet.create({
     alignContent:'center',
     alignItems:'center',
     alignSelf:'center',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     borderRadius: 4,
     marginRight: 8,
     color: 'black',
@@ -371,13 +369,13 @@ const styles = StyleSheet.create({
   datepickerText: {
     fontSize: 11,
     color:'black',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
 
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: "#333",
+    color: designColor('333'),
   },
   clearButton: {
     marginLeft: 10,
@@ -385,12 +383,12 @@ const styles = StyleSheet.create({
   newsItem: {
     padding: 10,
     borderBottomWidth: 1.5,
-    borderBottomColor: "#eee",
+    borderBottomColor: designColor('eee'),
   },
   newsTitle: {
     fontSize: 16,
-    color: "#333",
-    fontFamily:'Satoshi-Medium',
+    color: designColor('333'),
+    fontFamily:designFont('Satoshi-Medium'),
   },
       
   centeredView: {
@@ -405,7 +403,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 20,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.25,
     shadowRadius: 4,
@@ -413,13 +411,13 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     marginTop: 20,
-    backgroundColor: '#002a5c',
+    backgroundColor: designColor('002a5c'),
     paddingHorizontal: 10,
     paddingVertical:5,
     borderRadius: 20,
   },
   closeButtonText: {
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
     fontSize: 16,
   },
 });

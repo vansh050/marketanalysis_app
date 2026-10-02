@@ -15,6 +15,12 @@
 // at all" rather than "primary is usable").
 
 const EXPIRED_STATUSES = new Set(['expired', 'error']);
+const DISCONNECTED_STATUSES = new Set([
+  'disconnected',
+  'removed',
+  'revoked',
+  'deleted',
+]);
 
 export const isStatusExpired = (status) =>
   typeof status === 'string' && EXPIRED_STATUSES.has(status.toLowerCase());
@@ -51,9 +57,86 @@ export const getPrimaryBrokerEntry = (userDetails) => {
   );
 };
 
+const hasText = value => typeof value === 'string' && value.trim().length > 0;
+
+const brokerOwnsRootCredentials = (userDetails, brokerName) =>
+  userDetails?.primary_broker === brokerName ||
+  userDetails?.user_broker === brokerName;
+
+const credentialValue = (userDetails, entry, brokerName, field) => {
+  if (hasText(entry?.[field])) return entry[field];
+  return brokerOwnsRootCredentials(userDetails, brokerName) &&
+    hasText(userDetails?.[field])
+    ? userDetails[field]
+    : '';
+};
+
+/**
+ * Classify the reconnect path from the latest server user document.
+ *
+ * Presence in connected_brokers[] alone is not enough: a hard disconnect may
+ * leave a stale/disconnected slot, and an old slot may not contain the API
+ * credentials that the server-side quick-reconnect endpoint requires. The
+ * returned object deliberately contains metadata only—never credential
+ * values—so it is safe to use in diagnostics.
+ */
+export const getServerBrokerReconnectState = (userDetails, brokerName) => {
+  const slots = Array.isArray(userDetails?.connected_brokers)
+    ? userDetails.connected_brokers
+    : [];
+  const entry = slots.find(item => item?.broker === brokerName) || null;
+  const status = String(entry?.status || '').trim().toLowerCase();
+  const explicitlyDisconnected = DISCONNECTED_STATUSES.has(status);
+
+  let credentialsComplete = Boolean(entry);
+  if (entry) {
+    switch (brokerName) {
+      case 'Fyers':
+        credentialsComplete =
+          hasText(credentialValue(userDetails, entry, brokerName, 'secretKey')) &&
+          (hasText(credentialValue(userDetails, entry, brokerName, 'apiKey')) ||
+            hasText(credentialValue(userDetails, entry, brokerName, 'clientCode')));
+        break;
+      case 'Motilal Oswal':
+        credentialsComplete =
+          hasText(credentialValue(userDetails, entry, brokerName, 'apiKey')) &&
+          hasText(credentialValue(userDetails, entry, brokerName, 'clientCode'));
+        break;
+      case 'Angel One':
+      case 'Zerodha':
+        credentialsComplete = hasText(
+          credentialValue(userDetails, entry, brokerName, 'apiKey'),
+        );
+        break;
+      default:
+        credentialsComplete = true;
+    }
+  }
+
+  const requiresOAuth =
+    !entry || explicitlyDisconnected || !credentialsComplete;
+  const reason = !entry
+    ? 'slot_missing'
+    : explicitlyDisconnected
+      ? 'server_disconnected'
+      : !credentialsComplete
+        ? 'server_credentials_incomplete'
+        : 'server_reconnect_ready';
+
+  return {
+    hasSlot: Boolean(entry),
+    slotCount: slots.length,
+    status: status || 'unknown',
+    credentialsComplete,
+    requiresOAuth,
+    reason,
+  };
+};
+
 export default {
   isStatusExpired,
   isTokenExpired,
   isBrokerSessionExpired,
   getPrimaryBrokerEntry,
+  getServerBrokerReconnectState,
 };

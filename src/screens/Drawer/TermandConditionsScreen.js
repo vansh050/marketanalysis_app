@@ -10,15 +10,17 @@ import { useNavigation } from '@react-navigation/native';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
+import Config from 'react-native-config';
+
+import { designColor } from '../../design/literalTokens';
 
 const TermsandConditionsScreen = () => {
     const { configData } = useTrade();
-    const tncURL = configData?.config?.REACT_APP_ADVISOR_TERMS_AND_CONDITION;
-
     const config = useConfig();
+    const tncURL = configData?.config?.REACT_APP_ADVISOR_TERMS_AND_CONDITION || config?.termsAndConditions || config?.terms_and_condition || Config.REACT_APP_ADVISOR_TERMS_AND_CONDITION;
     const gradient1 = config?.gradient1 || 'rgba(0, 86, 183, 1)';
     const gradient2 = config?.gradient2 || 'rgba(0, 38, 81, 1)';
-    const mainColor = config?.mainColor || '#0056B7';
+    const mainColor = config?.mainColor || designColor('0056b7');
     const [isValidUrl, setIsValidUrl] = useState(true);
     const navigation = useNavigation();
 

@@ -142,22 +142,179 @@ export async function clearOAuthState(broker) {
   }
 }
 
+const decodeOAuthComponent = value => {
+  try {
+    return decodeURIComponent(String(value || '').replace(/\+/g, ' '));
+  } catch {
+    return String(value || '');
+  }
+};
+
+const parseOAuthParamString = rawValue => {
+  const params = {};
+  if (!rawValue) {
+    return params;
+  }
+
+  rawValue.split('&').forEach(pair => {
+    if (!pair) {
+      return;
+    }
+    const separator = pair.indexOf('=');
+    const rawKey = separator >= 0 ? pair.slice(0, separator) : pair;
+    const rawParamValue = separator >= 0 ? pair.slice(separator + 1) : '';
+    const key = decodeOAuthComponent(rawKey);
+    if (!key || Object.prototype.hasOwnProperty.call(params, key)) {
+      return;
+    }
+    params[key] = decodeOAuthComponent(rawParamValue);
+  });
+  return params;
+};
+
+/**
+ * Parse an absolute HTTP(S) URL without relying on React Native's `URL`
+ * implementation.
+ *
+ * Hermes in RN 0.78 does not fully implement URL.search/searchParams. A
+ * browser-style parser therefore works in Jest and on the web, but can throw
+ * inside the production app and silently discard a real broker callback. This
+ * pure-string parser is shared by callback extraction and validation so both
+ * paths behave identically on Hermes, JSC and browsers.
+ */
+export function parseBrokerCallbackUrl(url) {
+  if (typeof url !== 'string' || !url.trim()) {
+    return null;
+  }
+
+  const match = url
+    .trim()
+    .match(
+      /^([a-z][a-z0-9+.-]*):\/\/([^/?#]+)([^?#]*)(?:\?([^#]*))?(?:#(.*))?$/i,
+    );
+  if (!match) {
+    return null;
+  }
+
+  const scheme = match[1].toLowerCase();
+  if (scheme !== 'http' && scheme !== 'https') {
+    return null;
+  }
+
+  const queryParams = parseOAuthParamString(match[4] || '');
+  const fragment = match[5] || '';
+  const fragmentQueryIndex = fragment.indexOf('?');
+  const fragmentParamString =
+    fragmentQueryIndex >= 0
+      ? fragment.slice(fragmentQueryIndex + 1)
+      : fragment.includes('=')
+        ? fragment
+        : '';
+  const fragmentParams = parseOAuthParamString(fragmentParamString);
+
+  Object.keys(fragmentParams).forEach(key => {
+    if (!Object.prototype.hasOwnProperty.call(queryParams, key)) {
+      queryParams[key] = fragmentParams[key];
+    }
+  });
+
+  return {
+    origin: `${scheme}://${match[2]}`.toLowerCase(),
+    pathname: match[3] || '/',
+    params: queryParams,
+    paramKeys: Object.keys(queryParams),
+  };
+}
+
 /**
  * Parse OAuth callback URL and extract auth parameters.
  */
 export function parseOAuthCallback(url) {
+  const parsed = parseBrokerCallbackUrl(url);
+  if (!parsed) {
+    return null;
+  }
+
+  return {
+    authToken: parsed.params.auth_token ?? null,
+    requestToken: parsed.params.request_token ?? null,
+    state: parsed.params.state ?? null,
+    code: parsed.params.code ?? null,
+    status: parsed.params.status ?? null,
+    errorMessage: parsed.params.error_message ?? null,
+  };
+}
+
+/**
+ * Validate a Zerodha callback before exchanging its single-use request token.
+ *
+ * WebViews visit many URLs during login. A `request_token` alone is not proof
+ * that the current login succeeded: it can come from a stale history entry or
+ * an unrelated URL. Accept only an explicit success callback on the advisor's
+ * configured redirect origin/path.
+ */
+export function validateZerodhaOAuthCallback(url, expectedRedirectUrl) {
   try {
-    const urlObj = new URL(url);
+    if (!url || !expectedRedirectUrl) {
+      return {isCallback: false, valid: false, reason: 'missing_redirect'};
+    }
+
+    const actual = parseBrokerCallbackUrl(url);
+    const expected = parseBrokerCallbackUrl(
+      /^https?:\/\//i.test(expectedRedirectUrl)
+        ? expectedRedirectUrl
+        : `https://${expectedRedirectUrl}`,
+    );
+    if (!actual || !expected) {
+      return {isCallback: false, valid: false, reason: 'invalid_url'};
+    }
+    const normalizePath = path => {
+      const normalized = (path || '/').replace(/\/+$/, '');
+      return (normalized || '/').toLowerCase();
+    };
+
+    if (
+      actual.origin !== expected.origin ||
+      normalizePath(actual.pathname) !== normalizePath(expected.pathname)
+    ) {
+      return {isCallback: false, valid: false, reason: 'unexpected_url'};
+    }
+
+    const status = actual.params.status ?? null;
+    const requestToken = actual.params.request_token ?? null;
+    const loginAction =
+      actual.params.action || actual.params.type || null;
+    const hasCallbackSignal =
+      status !== null || requestToken !== null || loginAction !== null;
+
+    if (!hasCallbackSignal) {
+      return {isCallback: false, valid: false, reason: 'callback_not_ready'};
+    }
+    if ((status || '').toLowerCase() !== 'success') {
+      return {
+        isCallback: true,
+        valid: false,
+        reason: actual.params.error_message || 'login_failed',
+      };
+    }
+    if (
+      loginAction &&
+      loginAction.toLowerCase() !== 'login'
+    ) {
+      return {isCallback: true, valid: false, reason: 'unexpected_action'};
+    }
+    if (!requestToken) {
+      return {isCallback: true, valid: false, reason: 'missing_request_token'};
+    }
+
     return {
-      authToken: urlObj.searchParams.get('auth_token'),
-      requestToken: urlObj.searchParams.get('request_token'),
-      state: urlObj.searchParams.get('state'),
-      code: urlObj.searchParams.get('code'),
-      status: urlObj.searchParams.get('status'),
-      errorMessage: urlObj.searchParams.get('error_message'),
+      isCallback: true,
+      valid: true,
+      requestToken,
+      status: 'success',
     };
   } catch {
-    return null;
+    return {isCallback: false, valid: false, reason: 'invalid_url'};
   }
 }
 

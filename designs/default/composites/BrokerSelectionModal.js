@@ -79,6 +79,7 @@ const BrokerSelectionModal = ({ viewModel, actions }) => {
         broker = null,
         showMessage = false,
         loginLoading = false,
+        continueWithoutBrokerLoading = false,
     } = viewModel || {};
     const {
         onClose = () => {},
@@ -216,14 +217,22 @@ const BrokerSelectionModal = ({ viewModel, actions }) => {
                                     </View>
                                 ) : (
                                     <TouchableOpacity
-                                        style={styles.continueButton}
+                                        style={[styles.continueButton, continueWithoutBrokerLoading && styles.connectingButton]}
                                         activeOpacity={0.7}
                                         hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
                                         onPress={onContinueWithoutBroker}
+                                        disabled={continueWithoutBrokerLoading}
                                     >
-                                        <Text style={styles.continueButtonText}>
-                                            Continue without connecting broker
-                                        </Text>
+                                        {continueWithoutBrokerLoading ? (
+                                            <>
+                                                <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 10 }} />
+                                                <Text style={styles.continueButtonText}>Continuing...</Text>
+                                            </>
+                                        ) : (
+                                            <Text style={styles.continueButtonText}>
+                                                Continue without connecting broker
+                                            </Text>
+                                        )}
                                     </TouchableOpacity>
                                 )}
 

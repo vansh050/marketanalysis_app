@@ -4,7 +4,7 @@
  * ============================================================================
  *
  * `useDesign()` returns the full resolved design bundle:
- *   { variant, tokens, components }
+ *   { variant, tokens, components, sdk }
  *
  * `useComponent(key)` returns the variant-aware implementation of a single
  * design-system component (primitive / composite / screen). Throws if the key
@@ -32,6 +32,9 @@
  * (build*() builders + DEFAULT_* objects); it does NOT layer ConfigContext on
  * top. Use `useTokens()` in components; use `useDesign().tokens` for variant-
  * level introspection / build-time decisions only.
+ *
+ * `useDesign().sdk` is the resolved SDK presentation-slot map. It is consumed
+ * once by SdkProviderRoot and passed to AqSdkProvider's `components` prop.
  * ============================================================================
  */
 

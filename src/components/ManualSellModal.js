@@ -23,6 +23,8 @@ import {X, AlertTriangle, ChevronLeft, ExternalLink} from 'lucide-react-native';
 import Toast from 'react-native-toast-message';
 import useModalStore from '../GlobalUIModals/modalStore';
 
+import { designColor } from '../design/literalTokens';
+
 const ManualSellModal = ({isOpen, onClose, onRetry, broker = 'ICICI Direct'}) => {
   const [isSellAllowed, setIsSellAllowed] = useState(false);
   const [showHowTo, setShowHowTo] = useState(false);
@@ -47,7 +49,7 @@ const ManualSellModal = ({isOpen, onClose, onRetry, broker = 'ICICI Direct'}) =>
         <SafeAreaView style={styles.overlay}>
           <View style={styles.modalContainer}>
             <TouchableOpacity style={styles.backBtn} onPress={() => setShowHowTo(false)}>
-              <ChevronLeft size={24} color="#6B7280" />
+              <ChevronLeft size={24} color={designColor('6b7280')} />
             </TouchableOpacity>
 
             <ScrollView style={styles.howToContent}>
@@ -61,7 +63,7 @@ const ManualSellModal = ({isOpen, onClose, onRetry, broker = 'ICICI Direct'}) =>
                   Visit the ICICI Direct portfolio page and click on the Portfolio tab.
                 </Text>
                 <TouchableOpacity onPress={openICICIPortfolio} style={styles.linkRow}>
-                  <ExternalLink size={14} color="#2563EB" />
+                  <ExternalLink size={14} color={designColor('2563eb')} />
                   <Text style={styles.linkText}>
                     Open ICICI Direct Portfolio
                   </Text>
@@ -111,12 +113,12 @@ const ManualSellModal = ({isOpen, onClose, onRetry, broker = 'ICICI Direct'}) =>
       <SafeAreaView style={styles.overlay}>
         <View style={styles.modalContainer}>
           <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-            <X size={22} color="#6B7280" />
+            <X size={22} color={designColor('6b7280')} />
           </TouchableOpacity>
 
           <View style={styles.mainContent}>
             <View style={styles.alertRow}>
-              <AlertTriangle size={24} color="#DC2626" />
+              <AlertTriangle size={24} color={designColor('dc2626')} />
               <View style={{flex: 1}}>
                 <Text style={styles.alertTitle}>
                   Action Required: Stock Authorization to Sell
@@ -134,7 +136,7 @@ const ManualSellModal = ({isOpen, onClose, onRetry, broker = 'ICICI Direct'}) =>
               style={styles.ddpiNudgeRow}
               onPress={() => openModal('DdpiHelp', {broker})}
               activeOpacity={0.7}>
-              <ExternalLink size={16} color="#0a7a5a" />
+              <ExternalLink size={16} color={designColor('0a7a5a')} />
               <Text style={styles.ddpiNudgeText}>
                 Show me how to activate DDPI on {broker}
               </Text>
@@ -173,46 +175,46 @@ const ManualSellModal = ({isOpen, onClose, onRetry, broker = 'ICICI Direct'}) =>
 
 const styles = StyleSheet.create({
   overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16},
-  modalContainer: {backgroundColor: '#fff', borderRadius: 12, maxHeight: '85%'},
+  modalContainer: {backgroundColor: designColor('fff'), borderRadius: 12, maxHeight: '85%'},
   closeBtn: {position: 'absolute', top: 12, right: 12, zIndex: 1, padding: 4},
   backBtn: {padding: 12},
   mainContent: {padding: 20, paddingTop: 28},
   alertRow: {flexDirection: 'row', gap: 12, marginBottom: 20},
-  alertTitle: {fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 10},
-  alertText: {fontSize: 13, color: '#6B7280', marginBottom: 6, lineHeight: 18},
+  alertTitle: {fontSize: 16, fontWeight: '600', color: designColor('111827'), marginBottom: 10},
+  alertText: {fontSize: 13, color: designColor('6b7280'), marginBottom: 6, lineHeight: 18},
   checkboxRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16, marginBottom: 20, paddingLeft: 4},
-  checkbox: {width: 20, height: 20, borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 4, alignItems: 'center', justifyContent: 'center'},
-  checkboxChecked: {backgroundColor: '#2563EB', borderColor: '#2563EB'},
-  checkmark: {color: '#fff', fontSize: 14, fontWeight: '700'},
-  checkboxLabel: {fontSize: 13, color: '#374151'},
+  checkbox: {width: 20, height: 20, borderWidth: 1.5, borderColor: designColor('d1d5db'), borderRadius: 4, alignItems: 'center', justifyContent: 'center'},
+  checkboxChecked: {backgroundColor: designColor('2563eb'), borderColor: designColor('2563eb')},
+  checkmark: {color: designColor('fff'), fontSize: 14, fontWeight: '700'},
+  checkboxLabel: {fontSize: 13, color: designColor('374151')},
   buttonRow: {flexDirection: 'row', gap: 12},
-  retryBtn: {backgroundColor: '#DC2626', paddingVertical: 10, paddingHorizontal: 20, borderRadius: 6},
+  retryBtn: {backgroundColor: designColor('dc2626'), paddingVertical: 10, paddingHorizontal: 20, borderRadius: 6},
   retryBtnDisabled: {opacity: 0.5},
-  retryBtnText: {color: '#fff', fontSize: 13, fontWeight: '500'},
-  howToBtn: {borderWidth: 1, borderColor: '#DC2626', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 6},
-  howToBtnText: {color: '#DC2626', fontSize: 13, fontWeight: '500'},
+  retryBtnText: {color: designColor('fff'), fontSize: 13, fontWeight: '500'},
+  howToBtn: {borderWidth: 1, borderColor: designColor('dc2626'), paddingVertical: 10, paddingHorizontal: 16, borderRadius: 6},
+  howToBtnText: {color: designColor('dc2626'), fontSize: 13, fontWeight: '500'},
   howToContent: {padding: 20},
-  howToTitle: {fontSize: 15, fontWeight: '600', color: '#111827', marginBottom: 16},
+  howToTitle: {fontSize: 15, fontWeight: '600', color: designColor('111827'), marginBottom: 16},
   stepContainer: {marginBottom: 12},
-  stepText: {fontSize: 13, color: '#374151', lineHeight: 18},
+  stepText: {fontSize: 13, color: designColor('374151'), lineHeight: 18},
   stepBold: {fontWeight: '600'},
   linkRow: {flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6},
-  linkText: {fontSize: 13, color: '#2563EB', textDecorationLine: 'underline'},
+  linkText: {fontSize: 13, color: designColor('2563eb'), textDecorationLine: 'underline'},
   // DDPI nudge (opens BrokerDdpiHelpModal via global store).
-  inlineLink: {color: '#0a7a5a', fontWeight: '600', textDecorationLine: 'underline'},
+  inlineLink: {color: designColor('0a7a5a'), fontWeight: '600', textDecorationLine: 'underline'},
   ddpiNudgeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#e5f7f0',
-    borderColor: '#b9e4d2',
+    backgroundColor: designColor('e5f7f0'),
+    borderColor: designColor('b9e4d2'),
     borderWidth: 1,
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 14,
     marginBottom: 14,
   },
-  ddpiNudgeText: {fontSize: 13, color: '#0a7a5a', fontWeight: '600', flexShrink: 1},
+  ddpiNudgeText: {fontSize: 13, color: designColor('0a7a5a'), fontWeight: '600', flexShrink: 1},
 });
 
 export default ManualSellModal;

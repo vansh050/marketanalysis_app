@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
 import YoutubePlayer from "react-native-youtube-iframe";
+import { designColor, designFont } from '../../../design/literalTokens';
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 const ZerodhaHelpContent = ({ expanded, onExpandChange }) => {
@@ -88,66 +89,66 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 12,
     overflow: 'hidden',
-    backgroundColor: '#000',
+    backgroundColor: designColor('000'),
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1F2937',
+    color: designColor('1f2937'),
     marginBottom: 12,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   content: {
     marginTop: 8,
   },
   instruction: {
     fontSize: 14,
-    color: '#374151',
+    color: designColor('374151'),
     marginBottom: 12,
     lineHeight: 20,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   linkContainer: {
-    backgroundColor: '#EBF5FF',
+    backgroundColor: designColor('ebf5ff'),
     paddingVertical: 8,
     paddingHorizontal: 12,
     borderRadius: 6,
     marginVertical: 8,
     borderLeftWidth: 3,
-    borderLeftColor: '#0056B7',
+    borderLeftColor: designColor('0056b7'),
   },
   link: {
-    color: '#0056B7',
+    color: designColor('0056b7'),
     fontWeight: '600',
     fontSize: 13,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
   },
   noteContainer: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: designColor('fef3c7'),
     padding: 12,
     borderRadius: 8,
     marginTop: 16,
     borderLeftWidth: 4,
-    borderLeftColor: '#F59E0B',
+    borderLeftColor: designColor('f59e0b'),
   },
   noteTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#92400E',
+    color: designColor('92400e'),
     marginBottom: 8,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   noteText: {
     fontSize: 13,
-    color: '#78350F',
+    color: designColor('78350f'),
     marginBottom: 6,
     lineHeight: 18,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   supportContainer: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: designColor('f3f4f6'),
     padding: 12,
     borderRadius: 8,
     marginTop: 12,
@@ -155,15 +156,15 @@ const styles = StyleSheet.create({
   supportTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1F2937',
+    color: designColor('1f2937'),
     marginBottom: 6,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   supportText: {
     fontSize: 13,
-    color: '#6B7280',
+    color: designColor('6b7280'),
     lineHeight: 18,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
 });
 

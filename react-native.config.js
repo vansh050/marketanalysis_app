@@ -4,8 +4,11 @@ module.exports = {
       android: {},
     },
     dependencies: {
-      // IAP is used only by the iOS payment flow. Do not package its legacy
-      // Google Play Billing dependency in Android until Android IAP exists.
+      // Apple IAP is invoked only from the iOS payment flow.  Leaving this
+      // native module linked on Android embeds its legacy Play Billing 7
+      // dependency even though the Android app never uses it, which causes
+      // Google Play's Billing Library compliance notice.  Keep the iOS pod
+      // linked and exclude only Android until/if Android IAP is introduced.
       'react-native-iap': {
         platforms: {
           android: null,

@@ -23,7 +23,7 @@ import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
 
@@ -57,7 +57,7 @@ const ResetPasswordScreen = () => {
                 {
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                        'X-Advisor-Subdomain': getTenantSubdomain(),
                         'aq-encrypted-key': generateToken(
                             Config.REACT_APP_AQ_KEYS,
                             Config.REACT_APP_AQ_SECRET,

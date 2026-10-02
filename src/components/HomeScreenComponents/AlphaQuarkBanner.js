@@ -13,6 +13,8 @@ import ProfileModal from '../ProfileModal';
 import LinearGradient from 'react-native-linear-gradient';
 import Config from 'react-native-config';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const AlphaQuarkBanner = () => {
   const {
     stockRecoNotExecutedfinal,
@@ -39,7 +41,7 @@ const AlphaQuarkBanner = () => {
       {/* Banner */}
       <View style={styles.bannerContainer}>
         <LinearGradient
-          colors={['#1A358C', '#2D5CF2']}
+          colors={[designColor('1a358c'), designColor('2d5cf2')]}
           start={{x: 0, y: 0}}
           end={{x: 1, y: 1}}
           style={styles.alphaQuarkBanner}>
@@ -66,7 +68,6 @@ const AlphaQuarkBanner = () => {
           </View>
         </LinearGradient>
       </View>
-
       {/* Profile Modal */}
       <ProfileModal
         showModal={showModal}
@@ -108,22 +109,22 @@ const styles = StyleSheet.create({
   },
   bannerTitle: {
     fontSize: 16,
-    color: '#FFFFFF',
-    fontFamily: 'Poppins-SemiBold',
+    color: designColor('ffffff'),
+    fontFamily: designFont('Poppins-SemiBold'),
     marginBottom: 4,
     textTransform: 'capitalize',
   },
   bannerSubtitle: {
     fontSize: 12,
-    color: '#ffffff',
-    fontFamily: 'Poppins-Regular',
+    color: designColor('ffffff'),
+    fontFamily: designFont('Poppins-Regular'),
   },
   profileButton: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     paddingHorizontal: 20,
     paddingVertical: 5,
     borderRadius: 20,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -131,9 +132,9 @@ const styles = StyleSheet.create({
   },
   profileButtonText: {
     fontSize: 12,
-    color: '#2C5BEF',
+    color: designColor('2c5bef'),
     marginTop: 2,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
 
   promoCardVectorImg: {

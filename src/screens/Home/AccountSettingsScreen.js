@@ -7,8 +7,9 @@
  * Renders presentation resolved from `screens.AccountSettingsScreen`.
  */
 
-import React, { useState } from 'react';
-import { Platform } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { InteractionManager, Platform } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import axios from 'axios';
 import { useConfig } from '../../context/ConfigContext';
 import APP_VARIANTS from '../../utils/Config';
@@ -26,38 +27,114 @@ import {
     Trash2,
     UserPlus,
     MessageSquare,
-    Ban,
-    History,
 } from 'lucide-react-native';
+
 import { getAuth } from '@react-native-firebase/auth';
 import DeviceInfo from 'react-native-device-info';
 import Config from '../../utils/safeConfig';
 import { useTrade } from '../TradeContext';
 import { useComponent } from '../../design/useDesign';
+import useTokens from '../../theme/useTokens';
 import ProfileModal from '../../components/ProfileModal';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import { getAccountEmail, setAccountEmail } from '../../utils/accountEmail';
+import { countUnreadNotifications } from '../../utils/notificationDedup';
+import {getAdvisorContentProfile} from '../../utils/advisorContentProfile';
+import { useNavigationLayout } from '../../navigation/useNavigationLayout';
+
+// Catalog icon names (src/navigation/screenCatalog.js MORE_ITEM_CATALOG) →
+// lucide components.
+const MORE_ICONS = {
+    link: Link,
+    bookPlus: BookPlus,
+    graduationCap: GraduationCap,
+    receipt: Receipt,
+    crown: Crown,
+    tags: Tags,
+    logOut: LogOut,
+    bookmark: Bookmark,
+    bookOpen: BookOpen,
+    video: Video,
+    trash: Trash2,
+    userPlus: UserPlus,
+    messageSquare: MessageSquare,
+};
+
+// "Change Manager" lets a user switch which advisor/RA they sit under — only
+// meaningful on the multi-advisor PARENT app (APP_VARIANT 'alphaquark' =
+// AlphaQuark B2B). Whitelabel builds (alphanomy, zamzamcapital, rgxresearch,
+// arfs, …) are single-tenant, so the option is hidden there by default.
+// Still force-overridable via the existing flags.
+const isChangeManagerVisible = () => {
+    const hideChangeManagerCodes = Config?.REACT_APP_HIDE_CHANGE_MANAGER_FOR_CODES
+        ?.split(',')
+        .map(code => code.trim().toUpperCase()) || [];
+    const currentCode = Config?.ADVISOR_RA_CODE?.toUpperCase() || '';
+    const appVariant = Config?.APP_VARIANT || 'alphaquark';
+    const isWhitelabel = appVariant !== 'alphaquark';
+    const shouldHide = isWhitelabel ||
+        Config?.REACT_APP_HIDE_CHANGE_MANAGER === 'true' ||
+        hideChangeManagerCodes.includes(currentCode);
+    return !shouldHide;
+};
 
 const AccountSettingsScreen = ({ navigation }) => {
-    const { userDetails, getUserDeatils } = useTrade();
+    const {
+        userDetails,
+        getUserDeatils,
+        allNotifications,
+        getAllNotifcations,
+        userEmail,
+    } = useTrade();
     // Profile-edit modal: opened from the alphanomy presentation's "Edit"
     // pill on the gradient profile card. Same `<ProfileModal>` the legacy
     // Drawer renders — its body handles the form, save, and toast; we just
     // mount it here so the alphanomy variant has somewhere to open it from.
     const [showProfileModal, setShowProfileModal] = useState(false);
     const config = useConfig();
+    const tokens = useTokens();
+    const advisorContent = getAdvisorContentProfile();
     const selectedVariant = Config?.APP_VARIANT || 'rgxresearch';
     const validVariant = APP_VARIANTS[selectedVariant] ? selectedVariant : 'rgxresearch';
     const fallbackConfig = APP_VARIANTS[validVariant] || {};
 
-    const showBackgroundLogo = config?.showBackgroundLogo !== false;
+    // The translucent background logo reads as a faint white SQUARE patch on
+    // the More page for tenants with a rectangular wordmark (tinted white at
+    // 15% opacity) — RA request 2026-08-13: whitelabel/content.js flag
+    // MONEYMAN_HIDE_BACKGROUND_LOGO hides it for that tenant.
+    const showBackgroundLogo =
+        !advisorContent.hideBackgroundLogo && config?.showBackgroundLogo !== false;
     const backgroundLogo = config?.backgroundLogo || config?.logo || fallbackConfig.logo;
 
     const auth = getAuth();
     const user = auth.currentUser;
     const imageUrl = user?.photoURL;
+    const hasUnreadNotifications =
+        countUnreadNotifications(allNotifications?.notifications) > 0;
+
+    // The More screen can remain mounted while notification read state changes
+    // elsewhere. Refresh on focus so its bell always reflects backend state.
+    useFocusEffect(
+        useCallback(() => {
+            // getAllNotifcations is recreated with TradeContext state. Depending
+            // on it would refetch after every response while this screen is
+            // focused; userEmail is the stable identity that should retrigger.
+            // Let the stack transition and first More-screen paint finish
+            // before refreshing the global notification feed. Starting this
+            // request during tabPress made the More tab appear unresponsive
+            // on slower Samsung devices when several startup responses landed
+            // in the same frame.
+            const task = InteractionManager.runAfterInteractions(() => {
+                if (typeof getAllNotifcations === 'function') {
+                    getAllNotifcations({background: true});
+                }
+            });
+            return () => task.cancel();
+            // eslint-disable-next-line react-hooks/exhaustive-deps
+        }, [userEmail]),
+    );
 
     const getInitials = name => {
         return name?.length > 0 ? name[0]?.toUpperCase() : '';
@@ -67,6 +144,23 @@ const AccountSettingsScreen = ({ navigation }) => {
         if (navigation?.navigate) {
             navigation.navigate(screenName);
         }
+    };
+
+    const handleWebsitePage = ({ label, url }) => {
+        navigation?.navigate?.('WebViewScreen', {
+            title: label,
+            url,
+            pageType: 'legal',
+        });
+    };
+
+    // Apple App Store guideline 5.1.1(v) requires an in-app path to account
+    // deletion — link-out to a webpage is regularly rejected on iOS review.
+    // Navigates to the in-app DeleteAccountScreen (preview + confirm + DELETE
+    // /api/account/delete + logout). SEBI 5-year retention carve-out is
+    // enumerated in-screen; no external browser step required.
+    const handleDeleteAccount = () => {
+        handleMenuPress('DeleteAccountScreen');
     };
 
     // Optional, user-initiated account linking for Sign-in-with-Apple
@@ -99,7 +193,7 @@ const AccountSettingsScreen = ({ navigation }) => {
                             {
                                 headers: {
                                     'Content-Type': 'application/json',
-                                    'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                                    'X-Advisor-Subdomain': getTenantSubdomain(),
                                     'aq-encrypted-key': generateToken(
                                         Config.REACT_APP_AQ_KEYS,
                                         Config.REACT_APP_AQ_SECRET,
@@ -121,166 +215,61 @@ const AccountSettingsScreen = ({ navigation }) => {
         });
     };
 
-    const menuItems = [
-        {
-            id: 'account',
-            title: 'Account',
-            items: [
-                {
-                    icon: Link,
-                    label: 'Broker Account',
-                    onPress: () => handleMenuPress('Broker Setting'),
-                },
-                {
-                    icon: Crown,
-                    label: 'My Subscription',
-                    onPress: () => handleMenuPress('MySubscriptionsScreen'),
-                },
-                ...(Platform.OS === 'ios' && isRelayIdentity
-                    ? [
-                        {
-                            icon: UserPlus,
-                            label: 'Link an existing account',
-                            onPress: handleLinkExistingAccount,
-                        },
-                    ]
-                    : []),
-                ...((() => {
-                    const hideChangeManagerCodes = Config?.REACT_APP_HIDE_CHANGE_MANAGER_FOR_CODES
-                        ?.split(',')
-                        .map(code => code.trim().toUpperCase()) || [];
-                    const currentCode = Config?.ADVISOR_RA_CODE?.toUpperCase() || '';
-                    // "Change Manager" lets a user switch which advisor/RA they
-                    // sit under — only meaningful on the multi-advisor PARENT app
-                    // (APP_VARIANT 'alphaquark' = AlphaQuark B2B). Whitelabel
-                    // builds (alphanomy, zamzamcapital, rgxresearch, arfs, …) are
-                    // single-tenant, so the option is hidden there by default.
-                    // Still force-overridable via the existing flags.
-                    const appVariant = Config?.APP_VARIANT || 'alphaquark';
-                    const isWhitelabel = appVariant !== 'alphaquark';
-                    const shouldHide = isWhitelabel ||
-                        Config?.REACT_APP_HIDE_CHANGE_MANAGER === 'true' ||
-                        hideChangeManagerCodes.includes(currentCode);
-                    return !shouldHide;
-                })()
-                    ? [
-                        {
-                            icon: Tags,
-                            label: 'Change Manager',
-                            // Navigation registers this screen as "Advisor Change".
-                            // The former display-label route ("Manager Change") did
-                            // not exist in any navigator and produced a red-screen
-                            // console error instead of opening the manager picker.
-                            onPress: () => handleMenuPress('Advisor Change'),
-                        },
-                    ]
-                    : []),
-            ],
-        },
-        {
-            id: 'insights',
-            title: 'Insights',
-            items: [
-                {
-                    icon: BookPlus,
-                    label: 'Research Report',
-                    onPress: () => handleMenuPress('ResearchReportScreen'),
-                },
-                {
-                    icon: Bookmark,
-                    label: 'Watchlists',
-                    onPress: () => handleMenuPress('WatchList'),
-                },
-                {
-                    icon: Receipt,
-                    label: 'My Invoices',
-                    onPress: () => handleMenuPress('PaymentHistoryScreen'),
-                },
-                {
-                    icon: GraduationCap,
-                    label: 'Knowledge Hub',
-                    onPress: () => handleMenuPress('KnowledgeHub'),
-                },
-                // Adopted from the retired right-drawer (2026-08-01). These three
-                // had NO other navigation caller anywhere in src/ — the drawer was
-                // their only entry point, so removing it without re-homing them
-                // would have orphaned three live screens.
-                {
-                    icon: MessageSquare,
-                    label: 'Recommendation Messages',
-                    onPress: () => handleMenuPress('RecommendationMessages'),
-                },
-                {
-                    icon: History,
-                    label: 'Executed Trade History',
-                    onPress: () => handleMenuPress('HistoryScreen'),
-                },
-                {
-                    icon: Ban,
-                    label: 'Ignored Trades',
-                    onPress: () => handleMenuPress('Ignored Trades'),
-                },
-                // Courses + Webinars surfaced here (under Insights). The
-                // legacy right-drawer that used to also list them was RETIRED
-                // 2026-08-01 (see Navigation.js) — this screen is now the sole
-                // home for ancillary navigation.
-                // Same coursesEnabled / webinarsEnabled gating as the
-                // drawer rows (Navigation.js:893-917).
-                ...(config?.coursesEnabled
-                    ? [
-                        {
-                            icon: BookOpen,
-                            label: 'Courses',
-                            onPress: () => handleMenuPress('MyCourses'),
-                        },
-                    ]
-                    : []),
-                ...(config?.webinarsEnabled
-                    ? [
-                        {
-                            icon: Video,
-                            label: 'Webinars',
-                            onPress: () => handleMenuPress('WebinarsList'),
-                        },
-                    ]
-                    : []),
-            ],
-        },
-        {
-            id: 'legal',
-            title: 'Legal',
-            items: [
-                {
-                    icon: Link,
-                    label: 'Privacy Policy',
-                    onPress: () => handleMenuPress('Privacy Policy'),
-                },
-                {
-                    icon: Link,
-                    label: 'Terms & Conditions',
-                    onPress: () => handleMenuPress('Terms & Conditions'),
-                },
-                // In-app account deletion — required by Google Play for any
-                // app with account creation. Soft-delete + SEBI retention
-                // carve-out handled server-side (DELETE /api/account/delete);
-                // see docs/ACCOUNT_DELETION_ARCHITECTURE.md.
-                {
-                    icon: Trash2,
-                    label: 'Delete Account',
-                    onPress: () => handleMenuPress('DeleteAccountScreen'),
-                },
-                {
-                    icon: LogOut,
-                    label: 'Log Out',
-                    onPress: () => handleMenuPress('Logout'),
-                    isLogout: true,
-                },
-            ],
-        },
-    ];
+    // Menu STRUCTURE (sections, order, which rows) comes from the variant's
+    // navigation manifest (designs/<variant>/navigation.js `moreMenu`),
+    // resolved against src/navigation/screenCatalog.js. Runtime flags below
+    // only HIDE catalog rows. Log Out, legal pages and Delete Account are
+    // catalog-required: the resolver re-adds them if a manifest drops them
+    // (Apple 5.1.1(v) in-app deletion). See
+    // docs/CONFIGURABLE_NAVIGATION_DESIGN.md §4.
+    //
+    // Route notes kept from the pre-manifest menu:
+    //  - "Change Manager" navigates to "Advisor Change" (the former display-
+    //    label route "Manager Change" did not exist in any navigator).
+    //  - Recommendation Messages / Courses / Webinars were adopted from the
+    //    retired right-drawer (2026-08-01); this screen is their only entry.
+    const navLayout = useNavigationLayout({
+        appleRelayIdentity: Platform.OS === 'ios' && isRelayIdentity,
+        changeManagerVisible: isChangeManagerVisible(),
+        coursesEnabled: Boolean(config?.coursesEnabled),
+        webinarsEnabled: Boolean(config?.webinarsEnabled),
+    });
 
-    const gradientStart = config?.gradient1 || '#002651';
-    const gradientEnd = config?.gradient2 || '#0056B7';
+    const ACTIONS = {
+        linkAccount: handleLinkExistingAccount,
+    };
+
+    const toMenuItem = item => ({
+        icon: MORE_ICONS[item.icon] || Link,
+        label: item.label,
+        onPress: item.action
+            ? ACTIONS[item.action]
+            : item.key === 'deleteAccount'
+                ? handleDeleteAccount
+                : () => handleMenuPress(item.route),
+        ...(item.destructive ? { isLogout: true } : {}),
+    });
+
+    const menuItems = navLayout.moreSections
+        .map(section => ({
+            id: section.id,
+            title: section.title,
+            items: section.items.flatMap(item =>
+                item.expand === 'tenantLinks'
+                    ? advisorContent.moreLinks.map(link => ({
+                        icon: Link,
+                        label: link.label,
+                        onPress: () => handleWebsitePage(link),
+                    }))
+                    : [toMenuItem(item)],
+            ),
+        }))
+        // A section left empty (e.g. More Links with no tenant links) is
+        // dropped, matching the pre-manifest conditional section.
+        .filter(section => section.items.length > 0);
+
+    const gradientStart = tokens.colors.brand.gradientStart;
+    const gradientEnd = tokens.colors.brand.gradientEnd;
 
     const Presentation = useComponent('screens.AccountSettingsScreen');
 
@@ -309,6 +298,7 @@ const AccountSettingsScreen = ({ navigation }) => {
                     // Additive — default presentation ignores these.
                     appVersion,
                     whiteLabelText,
+                    hasUnreadNotifications,
                 }}
                 actions={{
                     onGoBack: () => navigation?.goBack(),

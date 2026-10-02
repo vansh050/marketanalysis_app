@@ -19,16 +19,17 @@ import Animated, {
 import Loader from '../utils/Loader';
 import {ChevronRight} from 'lucide-react-native';
 import Config from '../utils/safeConfig';
+import { designColor, designFont } from '../design/literalTokens';
 const selectedVariant = Config?.APP_VARIANT || 'rgxresearch'; // Default to "rgxresearch" if not set
 
 const SliderButton = ({
   loading,
   onSlideComplete = () => {},
   text = 'Swipe To Raise The Alert',
-  backgroundColor = '#000',
-  textColor = '#fff',
-  buttonColor = '#fff',
-  iconColor = '#E64040',
+  backgroundColor = designColor('000'),
+  textColor = designColor('fff'),
+  buttonColor = designColor('fff'),
+  iconColor = designColor('e64040'),
   disabled = false, // New prop to handle disabling
 }) => {
   const screenWidth = Dimensions.get('window').width;
@@ -94,20 +95,20 @@ const SliderButton = ({
     <View
       style={[
         styles.sliderContainer,
-        {backgroundColor: disabled ? '#cccccc' : backgroundColor}, // Dim background if disabled
+        {backgroundColor: disabled ? designColor('cccccc') : backgroundColor}, // Dim background if disabled
       ]}>
       {loading ? (
         selectedVariant === 'magnus' ? (
-          <ActivityIndicator size="small" color="#FFF" />
+          <ActivityIndicator size="small" color={designColor('fff')} />
         ) : (
-          <Loader color={'#fff'} width={25} height={25} />
+          <Loader color={designColor('fff')} width={25} height={25} />
         )
       ) : (
         <>
           <Animated.Text
             style={[
               styles.sliderText,
-              {color: disabled ? '#aaaaaa' : textColor}, // Dim text if disabled
+              {color: disabled ? designColor('aaaaaa') : textColor}, // Dim text if disabled
               textAnimatedStyle,
             ]}>
             {text}
@@ -117,16 +118,16 @@ const SliderButton = ({
               style={[
                 styles.swipeBtn,
                 animatedStyle,
-                {backgroundColor: disabled ? '#dddddd' : 'transparent'}, // Dim button if disabled
+                {backgroundColor: disabled ? designColor('dddddd') : 'transparent'}, // Dim button if disabled
               ]}>
               <ChevronRight
                 size={20}
-                color={disabled ? '#aaaaaa' : 'grey'}
+                color={disabled ? designColor('aaaaaa') : 'grey'}
                 style={{marginRight: -12}}
               />
               <ChevronRight
                 size={20}
-                color={disabled ? '#aaaaaa' : '#fff'}
+                color={disabled ? designColor('aaaaaa') : designColor('fff')}
                 style={{margin: 0}}
               />
             </Animated.View>
@@ -143,20 +144,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     width: '100%',
-    backgroundColor: '#000',
+    backgroundColor: designColor('000'),
     position: 'relative',
     height: 35,
     overflow: 'hidden',
     borderRadius: 15,
   },
   sliderText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
     alignContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
 
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
   swipeBtn: {
     width: 30,

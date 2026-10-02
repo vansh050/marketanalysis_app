@@ -28,6 +28,8 @@ import upstoxIcon from '../../assets/upstox.png';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 
 const UpstoxConnectUI = ({
@@ -84,7 +86,7 @@ const UpstoxConnectUI = ({
           {shouldRenderContent && !showWebView ? (
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <TouchableOpacity style={styles.backButton} onPress={onClose}>
-                <ChevronLeft size={24} color="#000" />
+                <ChevronLeft size={24} color={designColor('000')} />
               </TouchableOpacity>
               <Text style={styles.headerTitle}>Connect to Upstox</Text>
             </View>
@@ -92,7 +94,7 @@ const UpstoxConnectUI = ({
             <TouchableOpacity
               onPress={onClose}
               style={styles.backButtonContainer}>
-              <ChevronLeft size={20} color="#fff" />
+              <ChevronLeft size={20} color={designColor('fff')} />
               <Text style={styles.backButtonText}>Back</Text>
             </TouchableOpacity>
           )}
@@ -107,7 +109,7 @@ const UpstoxConnectUI = ({
         <View style={styles.contentContainer}>
           {shouldRenderContent && !showWebView && expanded ? (
             /* Full Screen Help when expanded */
-            <View style={styles.fullScreenHelp}>
+            (<View style={styles.fullScreenHelp}>
               <ScrollView
                 ref={scrollViewRef}
                 style={{flex: 1}}
@@ -120,12 +122,12 @@ const UpstoxConnectUI = ({
                     onPress={() => setExpanded(false)}>
                     <Text style={styles.toggleText}>See Less</Text>
                     <View style={styles.toggleIconContainer}>
-                      <ChevronUp size={14} color="#000" />
+                      <ChevronUp size={14} color={designColor('000')} />
                     </View>
                   </TouchableOpacity>
                 </View>
               </ScrollView>
-            </View>
+            </View>)
           ) : shouldRenderContent && !showWebView ? (
             <KeyboardAvoidingView
               style={{flex: 1}}
@@ -146,7 +148,7 @@ const UpstoxConnectUI = ({
                   style={styles.toggleContainer}>
                   <Text style={styles.toggleText}>Read More</Text>
                   <View style={styles.toggleIconContainer}>
-                    <ChevronDown size={14} color="#000" />
+                    <ChevronDown size={14} color={designColor('000')} />
                   </View>
                 </TouchableOpacity>
 
@@ -210,14 +212,14 @@ const UpstoxConnectUI = ({
                       {
                         backgroundColor:
                           apiKey && secretKey && egressReady
-                            ? '#0056B7'
-                            : '#d3d3d3',
+                            ? designColor('0056b7')
+                            : designColor('d3d3d3'),
                       },
                     ]}
                     onPress={updateSecretKey}
                     disabled={!(apiKey && secretKey && egressReady)}>
                     {isLoading ? (
-                      <ActivityIndicator size={27} color="#fff" />
+                      <ActivityIndicator size={27} color={designColor('fff')} />
                     ) : (
                       <Text style={styles.proceedButtonText}>
                         Connect Upstox
@@ -250,12 +252,12 @@ const styles = StyleSheet.create({
   fullScreen: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   backButton: {
     padding: 4,
     borderRadius: 5,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     elevation: 4,
   },
   headerRow: {
@@ -264,25 +266,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
     paddingVertical: 13,
   },
   headerLabel: {
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     fontSize: 14,
     marginVertical: 5,
     color: 'black',
   },
   headerTitle: {
     fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#fff',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('fff'),
     marginLeft: 20,
   },
   headerIcon: {
     width: 35,
     height: 35,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 3,
   },
   backButtonContainer: {
@@ -291,8 +293,8 @@ const styles = StyleSheet.create({
   },
   backButtonText: {
     fontSize: 16,
-    fontFamily: 'Poppins-Medium',
-    color: '#fff',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('fff'),
     marginLeft: 4,
   },
   contentContainer: {
@@ -300,19 +302,19 @@ const styles = StyleSheet.create({
   },
   guideBox: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 8,
     marginHorizontal: 8,
     marginTop: 8,
     padding: 12,
     elevation: 2,
-    shadowColor: '#ccc',
+    shadowColor: designColor('ccc'),
   },
-  fullScreenHelp: {flex: 1, backgroundColor: '#fff'},
+  fullScreenHelp: {flex: 1, backgroundColor: designColor('fff')},
   toggleWrapper: {
     borderTopWidth: 1,
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
     paddingVertical: 5,
   },
   helpScrollContent: {
@@ -326,12 +328,12 @@ const styles = StyleSheet.create({
   },
   toggleText: {
     fontSize: 14,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#0056B7',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('0056b7'),
     marginRight: 8,
   },
   toggleIconContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     elevation: 3,
     borderRadius: 20,
     alignItems: 'center',
@@ -339,20 +341,20 @@ const styles = StyleSheet.create({
     padding: 3,
   },
   inputCard: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 16,
     padding: 16,
     marginHorizontal: 8,
     marginTop: 18,
     elevation: 3,
-    shadowColor: '#ccc',
+    shadowColor: designColor('ccc'),
   },
   connectRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    backgroundColor: designColor('f5f5f5'),
     padding: 10,
     borderRadius: 3,
     marginBottom: 10,
@@ -360,13 +362,13 @@ const styles = StyleSheet.create({
   connectLabel: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#000',
-    fontFamily: 'Poppins-SemiBold',
+    color: designColor('000'),
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   connectIcon: {
     width: 30,
     height: 30,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 3,
   },
   inputContainer: {
@@ -375,11 +377,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
   },
   inputStyles: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     paddingVertical: 5,
   },
   proceedButton: {
@@ -395,7 +397,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: 'white',
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   webViewContainer: {
     flex: 1,

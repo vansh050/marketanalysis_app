@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, FlatList, Image, StyleSheet, TouchableOpacity,Dimensions } from 'react-native';
 import { Clock } from 'lucide-react-native';
+import { designColor, designFont } from '../../design/literalTokens';
 const edu1= require('../../assets/edu1.png')
 const edu2= require('../../assets/edu2.png')
 const edu3= require('../../assets/edu3.png')
@@ -157,27 +158,27 @@ const styles = StyleSheet.create({
 
   headerTitle: {
     fontSize: 20,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     marginBottom: 10,
     color: 'black',
   },
   seeAllText: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#4B8CEE',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('4b8cee'),
     marginRight: 10,
   },
   blogList: {
     paddingHorizontal: 5,
   },
   blogCard: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     overflow: 'hidden',
     width: width/2-25,
     marginRight: 15,
     height:110,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
@@ -195,7 +196,7 @@ const styles = StyleSheet.create({
   },
   blogTitle: {
     fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     color: 'white',
   },
   textOverlay: {
@@ -218,7 +219,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: 'white',
     alignSelf:'flex-start',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
 });
 

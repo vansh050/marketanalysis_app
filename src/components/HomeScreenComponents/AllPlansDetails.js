@@ -27,6 +27,7 @@ import RenderHTML from 'react-native-render-html';
 import { useWindowDimensions } from 'react-native';
 import PlanCard from './PlanCard';
 import {useAccountEmail} from '../../utils/accountEmail';
+import { designColor } from '../../design/literalTokens';
 const { width } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.8;
 const CARD_SPACING = 16;
@@ -181,7 +182,7 @@ const AllPlanDetails = ({ type }) => {
       <View style={styles.carouselCard}>
         <View style={styles.cardHeader}>
           <View style={styles.cardIcon}>
-            <MaterialIcon name="finance" size={24} color="#4A90E2" />
+            <MaterialIcon name="finance" size={24} color={designColor('4a90e2')} />
           </View>
           <View style={styles.cardTitleContainer}>
             <Text style={styles.cardTitle}>{card.title}</Text>
@@ -191,7 +192,6 @@ const AllPlanDetails = ({ type }) => {
             </Text>
           </View>
         </View>
-
         {subscribed && (
           <View style={styles.cardBody}>
             <View style={styles.cardInfo}>
@@ -207,14 +207,12 @@ const AllPlanDetails = ({ type }) => {
             </View>
           </View>
         )}
-
         <TouchableOpacity
           style={styles.detailsButton}
           onPress={() => openModal(item)}
         >
           <Text style={styles.detailsButtonText}>Details</Text>
         </TouchableOpacity>
-
         {!subscribed && (
           <TouchableOpacity
             onPress={() => navigation.navigate('Model Portfolio')}
@@ -238,7 +236,7 @@ const AllPlanDetails = ({ type }) => {
           key={index}
           style={[
             styles.paginationDot,
-            { backgroundColor: index === activeIndex ? '#FFFFFF' : '#6A7A9C' },
+            { backgroundColor: index === activeIndex ? designColor('ffffff') : designColor('6a7a9c') },
           ]}
         />
       ))}
@@ -307,8 +305,6 @@ const renderPlanItem = ({ item }) => {
           ]}
         />
       </View>
-
-
       {/* Your existing modal code */}
       <Modal
         visible={modalVisible}
@@ -326,7 +322,7 @@ const renderPlanItem = ({ item }) => {
                   styles.planTag,
                   {
                     backgroundColor:
-                      selectedPlan?.type === 'bespoke' ? '#F59E0B' : '#10B981',
+                      selectedPlan?.type === 'bespoke' ? designColor('f59e0b') : designColor('10b981'),
                   },
                 ]}
               >
@@ -450,11 +446,11 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#000'
+    color: designColor('000')
   },
   viewAllText: {
     fontSize: 14,
-    color: '#1976D2',
+    color: designColor('1976d2'),
     fontWeight: '600'
   },
   // Modal styles
@@ -466,11 +462,11 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: '90%',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 16,
     padding: 16,
     maxHeight: '80%',
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 6,
@@ -485,7 +481,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#1F2937',
+    color: designColor('1f2937'),
     flex: 1,
     flexWrap: 'wrap',
   },
@@ -494,37 +490,37 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-  planTagText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  planTagText: { color: designColor('fff'), fontSize: 12, fontWeight: '600' },
   modalContent: { marginTop: 8 },
   infoCard: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: designColor('f3f4f6'),
     borderRadius: 10,
     padding: 12,
     marginBottom: 10,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 3,
   },
-  infoLabel: { fontSize: 12, fontWeight: '500', color: '#6B7280', marginBottom: 4 },
-  infoValue: { fontSize: 14, fontWeight: '600', color: '#111827' },
+  infoLabel: { fontSize: 12, fontWeight: '500', color: designColor('6b7280'), marginBottom: 4 },
+  infoValue: { fontSize: 14, fontWeight: '600', color: designColor('111827') },
   optionRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingVertical: 4,
     borderBottomWidth: 0.5,
-    borderBottomColor: '#E5E7EB',
+    borderBottomColor: designColor('e5e7eb'),
   },
-  optionLabel: { fontSize: 14, color: '#374151', fontWeight: '500' },
-  optionValue: { fontSize: 14, color: '#111827', fontWeight: '600' },
+  optionLabel: { fontSize: 14, color: designColor('374151'), fontWeight: '500' },
+  optionValue: { fontSize: 14, color: designColor('111827'), fontWeight: '600' },
   modalCloseButton: {
     marginTop: 12,
-    backgroundColor: '#2563EB',
+    backgroundColor: designColor('2563eb'),
     paddingVertical: 10,
     borderRadius: 12,
     alignItems: 'center',
   },
-  modalCloseButtonText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
+  modalCloseButtonText: { color: designColor('fff'), fontWeight: '700', fontSize: 14 },
 });
 
 export default AllPlanDetails;

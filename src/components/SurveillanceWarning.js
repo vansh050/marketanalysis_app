@@ -14,6 +14,8 @@ import React from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import {AlertTriangle as AlertTriangleIcon} from 'lucide-react-native';
 
+import { designColor, designFont } from '../design/literalTokens';
+
 const SurveillanceWarning = ({surveillanceStocks}) => {
   if (!Array.isArray(surveillanceStocks) || surveillanceStocks.length === 0) {
     return null;
@@ -22,7 +24,7 @@ const SurveillanceWarning = ({surveillanceStocks}) => {
   return (
     <View style={styles.surveillanceWarning}>
       <View style={styles.surveillanceHeader}>
-        <AlertTriangleIcon size={18} color="#DC2626" />
+        <AlertTriangleIcon size={18} color={designColor('dc2626')} />
         <Text style={styles.surveillanceTitle}>Surveillance Alert</Text>
       </View>
       <Text style={styles.surveillanceText}>
@@ -48,9 +50,9 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
     marginVertical: 8,
     padding: 12,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: designColor('fef2f2'),
     borderLeftWidth: 4,
-    borderLeftColor: '#DC2626',
+    borderLeftColor: designColor('dc2626'),
     borderRadius: 4,
   },
   surveillanceHeader: {
@@ -60,30 +62,30 @@ const styles = StyleSheet.create({
   },
   surveillanceTitle: {
     fontSize: 14,
-    fontFamily: 'Poppins-Bold',
-    color: '#DC2626',
+    fontFamily: designFont('Poppins-Bold'),
+    color: designColor('dc2626'),
     marginLeft: 8,
   },
   surveillanceText: {
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: '#991B1B',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('991b1b'),
     marginBottom: 6,
   },
   surveillanceStock: {
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: '#B91C1C',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('b91c1c'),
     marginLeft: 8,
     marginBottom: 2,
   },
   surveillanceStockName: {
-    fontFamily: 'Poppins-Bold',
+    fontFamily: designFont('Poppins-Bold'),
   },
   surveillanceNote: {
     fontSize: 11,
-    fontFamily: 'Poppins-Regular',
-    color: '#DC2626',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('dc2626'),
     marginTop: 6,
     fontStyle: 'italic',
   },

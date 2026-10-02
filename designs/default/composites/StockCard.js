@@ -80,11 +80,14 @@ import {
   X,
 } from 'lucide-react-native';
 
-import BlurredComponent from '../../../src/components/GlassmorphicText';
-import PriceTextAdvice from '../../../src/components/AdviceScreenComponents/DynamicText/PriceTextAdvice';
-import {adviceHeaderLabel, orderTypeDisplay} from '../../../src/utils/adviceDisplay';
+import {
+  adviceHeaderLabel,
+  isExitAdvice,
+  orderTypeDisplay,
+} from '../../../src/utils/adviceDisplay';
 
-const StockCard = ({ viewModel, actions }) => {
+const StockCard = ({ viewModel, actions, slots }) => {
+  const { BlurredComponent, PriceTextAdvice } = slots || {};
   const {
     symbol = '',
     tradeId = '',
@@ -122,6 +125,10 @@ const StockCard = ({ viewModel, actions }) => {
     cancel,
     edit,
     tradePlaceStatus,
+    isOpenPosition = false,
+    tradedQty,
+    tradedPrice,
+    positionBroker,
     rejectionMessage,
     rejectionClassification,
     rejectionBroker,
@@ -151,12 +158,13 @@ const StockCard = ({ viewModel, actions }) => {
     onOpenDdpiHelp = () => {},
     onOpenManualPlacement = () => {},
   } = actions || {};
+  const showExitBadge = isExitAdvice(closurestatus);
 
   return (
     <TouchableOpacity
       style={[styles.container]}
       activeOpacity={1}
-      disabled={!planList || !advisedRangeCondition}>
+      disabled={!planList}>
       <View style={styles.outerBorderContainer}>
         <View style={styles.glassBackground} />
 
@@ -222,6 +230,11 @@ const StockCard = ({ viewModel, actions }) => {
                       <Paperclip size={16} color="#0056B7" />
                     </TouchableOpacity>
                   )}
+                  {showExitBadge && (
+                    <View style={styles.exitBadge}>
+                      <Text style={styles.exitText}>EXIT</Text>
+                    </View>
+                  )}
                   <View
                     style={[
                       styles.actionBadge,
@@ -248,6 +261,7 @@ const StockCard = ({ viewModel, actions }) => {
                 symbol={symbol}
                 stockDetails={stockRecoNotExecuted}
                 advisedPrice={advisedPrice}
+                priceOverride={price}
               />
             </View>
           </View>
@@ -304,7 +318,13 @@ const StockCard = ({ viewModel, actions }) => {
                   symbol={symbol}
                   stockDetails={stockRecoNotExecuted}
                   advisedPrice={advisedPrice}
+                  priceOverride={price}
                 />
+                {!advisedRangeCondition && (
+                  <Text style={styles.rangeWarningText}>
+                    **Price is out of advised range
+                  </Text>
+                )}
               </View>
 
               {/* SL/PT Row */}
@@ -329,7 +349,9 @@ const StockCard = ({ viewModel, actions }) => {
               {pnl !== null && (
                 <View style={[styles.row1, {paddingVertical: 2}]}>
                   <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                    <Text style={styles.slPtLabel}>P&L </Text>
+                    <Text style={styles.slPtLabel}>
+                      P&L since advice ₹{entryPrice.toFixed(2)}{' '}
+                    </Text>
                     <Text style={[styles.slPtValue, {color: pnl >= 0 ? '#16A34A' : '#DC2626'}]}>
                       {pnl >= 0 ? '₹' : '-₹'}{Math.abs(pnl).toFixed(2)}
                     </Text>
@@ -409,6 +431,19 @@ const StockCard = ({ viewModel, actions }) => {
                     <Text style={styles.tradeButtonTextCancel}>Cancelled</Text>
                   </TouchableOpacity>
                 </View>
+              ) : isOpenPosition ? (
+                // Executed-but-not-closed position (2026-08-25 web parity):
+                // read-only — no cart / Trade Now for a held position.
+                <View style={[styles.actionButtons, {marginBottom: 10}]}>
+                  <View style={styles.positionOpenBar}>
+                    <Text style={styles.positionOpenText}>
+                      Position Open
+                      {positionBroker ? ` in ${positionBroker}` : ''}
+                      {tradedQty ? ` — ${tradedQty} shares` : ''}
+                      {tradedPrice ? ` @ ₹${Number(tradedPrice).toFixed(2)}` : ''}
+                    </Text>
+                  </View>
+                </View>
               ) : type === 'OSrejected' ? (
                 <View style={[styles.actionButtons, {marginBottom: 10}]}>
                   <TouchableOpacity
@@ -432,7 +467,6 @@ const StockCard = ({ viewModel, actions }) => {
               ) : (
                 <View style={[styles.actionButtons, {marginBottom: 10}]}>
                   <TouchableOpacity
-                    disabled={!advisedRangeCondition}
                     onPress={() =>
                       onAddToCart(
                         symbol,
@@ -459,7 +493,6 @@ const StockCard = ({ viewModel, actions }) => {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    disabled={!advisedRangeCondition}
                     onPress={() => {
                       if (!planList) {
                         onNavigateModelPortfolio();
@@ -474,6 +507,11 @@ const StockCard = ({ viewModel, actions }) => {
                     <Text style={styles.tradeButtonText}>Trade Now</Text>
                   </TouchableOpacity>
                 </View>
+              )}
+              {!cancel && String(closurestatus || '').toLowerCase() !== 'fullclose' && ['recommend', 'rejected', 'failure', 'failed'].includes(String(tradePlaceStatus || '').toLowerCase()) && (
+                <TouchableOpacity onPress={onOpenManualPlacement} style={styles.manualPlacementButton}>
+                  <Text style={styles.manualPlacementText}>I placed this trade manually</Text>
+                </TouchableOpacity>
               )}
             </Animated.View>
           )}
@@ -521,6 +559,7 @@ const StockCard = ({ viewModel, actions }) => {
                       advisedRangeLower={advisedRangeLower}
                       symbol={symbol}
                       stockDetails={stockRecoNotExecuted}
+                      priceOverride={price}
                     />
                   </View>
                 </View>
@@ -549,6 +588,16 @@ const StockCard = ({ viewModel, actions }) => {
               </View>
 
               <View style={{paddingBottom: 0}}>
+                {isOpenPosition ? (
+                  <View style={styles.actionButtons}>
+                    <View style={styles.positionOpenBar}>
+                      <Text style={styles.positionOpenText}>
+                        Position Open{positionBroker ? ` in ${positionBroker}` : ''} — the exit will appear when your advisor closes this trade.
+                      </Text>
+                    </View>
+                  </View>
+                ) : (
+                  <>
                 <View style={styles.actionButtons}>
                   <View style={styles.quantityContainer}>
                     <Text style={styles.quantityLabel}>Quantity</Text>
@@ -639,11 +688,8 @@ const StockCard = ({ viewModel, actions }) => {
                     </View>
                   </TouchableOpacity>
                 </View>
-              {!cancel && String(closurestatus || '').toLowerCase() !== 'fullclose' && ['recommend', 'rejected', 'failure', 'failed'].includes(String(tradePlaceStatus || '').toLowerCase()) && (
-                <TouchableOpacity onPress={onOpenManualPlacement} style={styles.manualPlacementButton}>
-                  <Text style={styles.manualPlacementText}>I placed this trade manually</Text>
-                </TouchableOpacity>
-              )}
+                  </>
+                )}
               </View>
             </Animated.View>
           )}
@@ -742,6 +788,8 @@ const StockCard = ({ viewModel, actions }) => {
 };
 
 const styles = StyleSheet.create({
+  manualPlacementButton: {alignSelf: 'flex-start', marginHorizontal: 15, marginBottom: 10, paddingVertical: 4},
+  manualPlacementText: {fontSize: 12, color: '#1D4ED8', fontFamily: 'Satoshi-SemiBold', textDecorationLine: 'underline'},
   container: {
     position: 'relative',
     marginHorizontal: 5,
@@ -842,6 +890,22 @@ const styles = StyleSheet.create({
     shadowOpacity: 1,
     shadowRadius: 4,
     elevation: 2,
+  },
+  exitBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 3,
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderColor: 'rgba(217, 119, 6, 0.35)',
+    borderWidth: 1,
+  },
+  exitText: {
+    color: '#B45309',
+    fontSize: 10,
+    marginTop: 2,
+    fontFamily: 'Poppins-SemiBold',
   },
   buyBadge: {
     backgroundColor: '#29A400',
@@ -979,6 +1043,23 @@ const styles = StyleSheet.create({
     borderColor: '#c94d49',
     borderWidth: 1,
   },
+  positionOpenBar: {
+    flex: 1,
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+    borderRadius: 3,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderColor: 'rgba(5, 150, 105, 0.35)',
+    borderWidth: 1,
+  },
+  positionOpenText: {
+    color: '#047857',
+    fontSize: 12,
+    fontFamily: 'Poppins-Medium',
+    textAlign: 'center',
+  },
   tradeButtonExpanded: {
     flex: 1.2,
     backgroundColor: 'rgba(5, 86, 130, 0.95)',
@@ -1068,17 +1149,11 @@ const styles = StyleSheet.create({
     color: '#64748B',
     fontFamily: 'Poppins-Medium',
   },
-  manualPlacementButton: {
-    alignSelf: 'flex-start',
-    marginHorizontal: 15,
-    marginBottom: 10,
-    paddingVertical: 4,
-  },
-  manualPlacementText: {
-    fontSize: 12,
-    color: '#1D4ED8',
-    fontFamily: 'Poppins-Medium',
-    textDecorationLine: 'underline',
+  rangeWarningText: {
+    fontSize: 10,
+    color: '#DC2626',
+    fontFamily: 'Poppins-SemiBold',
+    marginTop: 2,
   },
   slPtValue: {
     fontSize: 11,

@@ -1,6 +1,9 @@
 import React, {useState, useEffect, useCallback} from 'react';
 import {Text, StyleSheet} from 'react-native';
 import WebSocketManager from './WebSocketManager';
+import {calculatePositionPnl} from '../../../utils/positionPnl';
+
+import { designColor, designFont } from '../../../design/literalTokens';
 
 const PortfolioPositionText = React.memo(
   ({
@@ -8,26 +11,20 @@ const PortfolioPositionText = React.memo(
     advisedRangeCondition,
     advisedPrice,
     exchange,
+    liveLtp,
     type,
     data,
-    isClosed,
   }) => {
     const [price, setLtp] = useState(null);
 
-const updatePrice = useCallback((symbol, newPrice) => {
-  const actualPrice = newPrice?.ltp ?? newPrice;
-  
-  // Add validation
-  if (typeof actualPrice === 'number' && !isNaN(actualPrice)) {
-    setLtp(actualPrice);
-  }
-}, []);
+    const updatePrice = useCallback((symbol, newPrice) => {
+      const actualPrice = newPrice?.ltp ?? newPrice;
 
-    const buyQuantity = parseFloat(data?.buyQuantity || 0);
-    const sellQuantity = parseFloat(data?.sellQuantity || 0);
-    const netQuantity = parseFloat(data?.netQuantity || 0);
-    const buyPrice = parseFloat(data?.buyAvgPrice ?? 0);
-    const sellPrice = parseFloat(data?.sellAvgPrice ?? 0);
+      // Add validation
+      if (typeof actualPrice === 'number' && !isNaN(actualPrice)) {
+        setLtp(actualPrice);
+      }
+    }, []);
 
     useEffect(() => {
       const wsInstance = WebSocketManager.getInstance();
@@ -62,50 +59,20 @@ const updatePrice = useCallback((symbol, newPrice) => {
       };
     }, [symbol, exchange, updatePrice]);
 
-    const isPositionClosed = buyQuantity === sellQuantity || isClosed;
-    const isShortPosition =
-      netQuantity < 0 || (sellQuantity > 0 && buyQuantity === 0);
-
-    let profitOrLoss = 0;
-    let pnlPercent = 0;
-
-    const currentPrice = parseFloat(price ?? 0);
-
-    if (isShortPosition) {
-      if (isPositionClosed && buyQuantity > 0) {
-        // Closed short position: sold first, then bought back
-        profitOrLoss = (sellPrice - buyPrice) * Math.abs(sellQuantity);
-        pnlPercent =
-          sellPrice > 0 ? ((sellPrice - buyPrice) / sellPrice) * 100 : 0;
-      } else {
-        // Open short position: only sold, not bought back yet
-        profitOrLoss = currentPrice
-          ? (sellPrice - currentPrice) * Math.abs(sellQuantity)
-          : 0;
-        pnlPercent =
-          sellPrice > 0 && currentPrice
-            ? ((sellPrice - currentPrice) / sellPrice) * 100
-            : 0;
-      }
-    } else {
-      // Long position logic (existing)
-      if (isPositionClosed) {
-        profitOrLoss = (sellPrice - buyPrice) * buyQuantity;
-        pnlPercent =
-          buyPrice > 0 ? ((sellPrice - buyPrice) / buyPrice) * 100 : 0;
-      } else {
-        profitOrLoss = currentPrice
-          ? (currentPrice - buyPrice) * buyQuantity
-          : 0;
-        pnlPercent =
-          buyPrice > 0 && currentPrice
-            ? ((currentPrice - buyPrice) / buyPrice) * 100
-            : 0;
-      }
-    }
+    const currentPrice =
+      Number.isFinite(Number(liveLtp)) && Number(liveLtp) > 0
+        ? Number(liveLtp)
+        : parseFloat(price ?? 0);
+    const positionPnl = calculatePositionPnl(data, currentPrice);
+    const profitOrLoss = positionPnl?.pnl ?? null;
+    const pnlPercent = positionPnl?.pnlPercentage ?? null;
 
     const pnlColor =
-      profitOrLoss > 0 ? '#338D72' : profitOrLoss < 0 ? '#EF344A' : '#A0A0A0';
+      profitOrLoss > 0
+        ? designColor('338d72')
+        : profitOrLoss < 0
+          ? designColor('ef344a')
+          : designColor('a0a0a0');
 
     const formatWithSign = value => {
       if (value > 0) return `+₹${value.toFixed(2)}`;
@@ -122,27 +89,21 @@ const updatePrice = useCallback((symbol, newPrice) => {
     if (type === 'positionpnlPercent') {
       return (
         <Text
-          style={{color: pnlColor, fontSize: 14, fontFamily: 'Satoshi-Medium'}}>
-          {/* Fixed condition for short positions */}
-          {isPositionClosed || buyQuantity > 0 || isShortPosition
-            ? `${formatWithSignpnl(pnlPercent)}%`
-            : '0.00%'}
+          style={{color: pnlColor, fontSize: 14, fontFamily: designFont('Satoshi-Medium')}}>
+          {pnlPercent === null ? '—' : `${formatWithSignpnl(pnlPercent)}%`}
         </Text>
       );
     } else if (type === 'positionpnlRupee') {
       return (
         <Text
-          style={{color: pnlColor, fontSize: 14, fontFamily: 'Satoshi-Medium'}}>
-          {/* Fixed condition for short positions */}
-          {isPositionClosed || buyQuantity > 0 || isShortPosition
-            ? `${formatWithSign(profitOrLoss)}`
-            : '-'}
+          style={{color: pnlColor, fontSize: 14, fontFamily: designFont('Satoshi-Medium')}}>
+          {profitOrLoss === null ? '—' : formatWithSign(profitOrLoss)}
         </Text>
       );
     } else if (type === 'arfsHoldingCalculationPnl') {
       return (
         <Text
-          style={{color: pnlColor, fontSize: 14, fontFamily: 'Satoshi-Medium'}}>
+          style={{color: pnlColor, fontSize: 14, fontFamily: designFont('Satoshi-Medium')}}>
           {(price - data?.avgPrice) * data?.quantity > 0 ? (
             <Text style={styles.poschangeValue}>
               +
@@ -167,7 +128,7 @@ const updatePrice = useCallback((symbol, newPrice) => {
     } else if (type === 'arfsHoldingCalculationRupee') {
       return (
         <Text
-          style={{color: pnlColor, fontSize: 14, fontFamily: 'Satoshi-Medium'}}>
+          style={{color: pnlColor, fontSize: 14, fontFamily: designFont('Satoshi-Medium')}}>
           {(price - data?.avgPrice) * data?.quantity > 0 ? (
             <Text style={styles.poschangeValue}>
               + ₹
@@ -186,7 +147,7 @@ const updatePrice = useCallback((symbol, newPrice) => {
     } else {
       return (
         <Text
-          style={{fontSize: 14, color: '#000', fontFamily: 'Satoshi-Medium'}}>
+          style={{fontSize: 14, color: designColor('000'), fontFamily: designFont('Satoshi-Medium')}}>
           {price ? `₹${price?.toFixed(2)}` : '₹-'}
         </Text>
       );
@@ -197,40 +158,40 @@ const updatePrice = useCallback((symbol, newPrice) => {
 const styles = StyleSheet.create({
   price: {
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'black',
   },
   newsscreen: {
-    color: '#626262',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('626262'),
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 18,
   },
   watchlist: {
-    color: '#000',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('000'),
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 14,
   },
   portfolio: {
     fontSize: 14,
-    color: '#A0A0A0',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('a0a0a0'),
+    fontFamily: designFont('Satoshi-Medium'),
   },
   Aftersub: {
     fontSize: 12,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
     color: 'black',
   },
   change: {
     fontSize: 12,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
   },
   priceContainer: {
     flexDirection: 'row',
   },
   poschangeValue: {
     fontSize: 14,
-    color: '#16A085',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('16a085'),
+    fontFamily: designFont('Satoshi-Medium'),
     justifyContent: 'flex-end',
     alignContent: 'flex-end',
     alignItems: 'flex-end',
@@ -238,8 +199,8 @@ const styles = StyleSheet.create({
   },
   negchangeValue: {
     fontSize: 14,
-    color: '#E6626F',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('e6626f'),
+    fontFamily: designFont('Satoshi-Medium'),
     justifyContent: 'flex-end',
     alignContent: 'flex-end',
     alignItems: 'flex-end',

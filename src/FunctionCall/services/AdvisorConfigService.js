@@ -84,7 +84,7 @@
  * bespokePlansEnabled: boolean (default: true)
  *
  * --- PAYMENT CONFIGURATION ---
- * paymentPlatform: enum('razorpay', 'cashfree', 'payu') - Payment gateway
+ * paymentPlatform: enum('razorpay', 'cashfree', 'payu', 'phonepe') - Payment gateway
  * razorpayKey: string - Razorpay API key
  * cashfreeAppId: string - Cashfree App ID
  * cashfreeSecretKey: string - Cashfree secret (encrypted)
@@ -216,6 +216,8 @@ import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
 
+import { designColor } from '../../design/literalTokens';
+
 // Default config structure for new advisors
 // This schema should match the backend database model
 // NOTE: Field names use camelCase for API consistency
@@ -260,7 +262,7 @@ const DEFAULT_ADVISOR_CONFIG = {
   // ============================================================================
   // PAYMENT CONFIGURATION
   // ============================================================================
-  paymentPlatform: 'cashfree', // 'razorpay', 'cashfree', or 'payu'
+  paymentPlatform: 'cashfree', // 'razorpay', 'cashfree', 'payu', or 'phonepe'
   razorpayKey: '',
   cashfreeAppId: '',
   cashfreeSecretKey: '',
@@ -279,14 +281,14 @@ const DEFAULT_ADVISOR_CONFIG = {
   // BRANDING & THEME COLORS
   // All colors should be hex format (#RRGGBB)
   // ============================================================================
-  themeColor: '#000000',
+  themeColor: designColor('000000'),
   logo: '',           // URL to logo image
   toolbarlogo: '',    // URL to toolbar logo image
-  mainColor: '#000000',
-  secondaryColor: '#F0F0F0',
-  gradient1: '#F0F0F0',
-  gradient2: '#F0F0F0',
-  placeholderText: '#FFFFFF',
+  mainColor: designColor('000000'),
+  secondaryColor: designColor('f0f0f0'),
+  gradient1: designColor('f0f0f0'),
+  gradient2: designColor('f0f0f0'),
+  placeholderText: designColor('ffffff'),
 
   // ============================================================================
   // LAYOUT CONFIGURATION
@@ -309,10 +311,10 @@ const DEFAULT_ADVISOR_CONFIG = {
   // - bottomTabBg -> bottomTabbg
   // - selectedTabColor -> selectedTabcolor
   // ============================================================================
-  tabIconColor: '#000',
+  tabIconColor: designColor('000'),
   bottomTabBorderTopWidth: 1.5,
-  bottomTabBg: '#fff',
-  selectedTabColor: '#000',
+  bottomTabBg: designColor('fff'),
+  selectedTabColor: designColor('000'),
 
   // ============================================================================
   // BASKET COLORS (for stock basket cards)
@@ -320,24 +322,24 @@ const DEFAULT_ADVISOR_CONFIG = {
   // - basketColor -> basketcolor
   // - basketSymbolBg -> basketsymbolbg
   // ============================================================================
-  basket1: '#9D2115',
-  basket2: '#6B1207',
-  basketColor: '#721E30',
-  basketSymbolBg: '#8D2952',
+  basket1: designColor('9d2115'),
+  basket2: designColor('6b1207'),
+  basketColor: designColor('721e30'),
+  basketSymbolBg: designColor('8d2952'),
 
   // ============================================================================
   // PAYMENT MODAL UI CUSTOMIZATION
   // ============================================================================
   paymentModal: {
-    headerBg: '#0056B7',
-    stepActiveColor: '#0056B7',
-    stepCompletedColor: '#29A400',
-    buttonPrimaryBg: '#0056B7',
-    buttonSecondaryBg: '#0056B7',
-    accentColor: '#0056B7',
-    checkboxActiveColor: '#29A400',
-    linkColor: '#0056B7',
-    progressBarColor: '#0056B7',
+    headerBg: designColor('0056b7'),
+    stepActiveColor: designColor('0056b7'),
+    stepCompletedColor: designColor('29a400'),
+    buttonPrimaryBg: designColor('0056b7'),
+    buttonSecondaryBg: designColor('0056b7'),
+    accentColor: designColor('0056b7'),
+    checkboxActiveColor: designColor('29a400'),
+    linkColor: designColor('0056b7'),
+    progressBarColor: designColor('0056b7'),
   },
 
   // ============================================================================
@@ -345,14 +347,14 @@ const DEFAULT_ADVISOR_CONFIG = {
   // NOTE: API uses camelCase (emptyStateUi), ConfigContext also accepts EmptyStateUi
   // ============================================================================
   emptyStateUi: {
-    backgroundColor: '#6B1400',
-    darkerColor: '#3A0B00',
-    mediumColor: '#4D2418',
-    brighterColor: '#8B2500',
-    mutedColor: '#5A3327',
-    lightColor: '#F8E8E5',
-    mediumLightShade: '#F5DDD8',
-    lightWarmColor: '#E4F1FE',
+    backgroundColor: designColor('6b1400'),
+    darkerColor: designColor('3a0b00'),
+    mediumColor: designColor('4d2418'),
+    brighterColor: designColor('8b2500'),
+    mutedColor: designColor('5a3327'),
+    lightColor: designColor('f8e8e5'),
+    mediumLightShade: designColor('f5ddd8'),
+    lightWarmColor: designColor('e4f1fe'),
   },
 };
 
@@ -790,8 +792,8 @@ export const updatePaymentConfig = async (subdomain, paymentConfig) => {
     }
 
     // Validate payment platform
-    if (paymentConfig.paymentPlatform && !['razorpay', 'cashfree', 'payu'].includes(paymentConfig.paymentPlatform)) {
-      throw new Error('Payment platform must be "razorpay", "cashfree", or "payu"');
+    if (paymentConfig.paymentPlatform && !['razorpay', 'cashfree', 'payu', 'phonepe'].includes(paymentConfig.paymentPlatform)) {
+      throw new Error('Payment platform must be "razorpay", "cashfree", "payu", or "phonepe"');
     }
 
     const updateData = {
@@ -918,8 +920,8 @@ export const validateAdvisorConfig = configData => {
     errors.push('Digio check must be either "beforePayment" or "afterPayment"');
   }
 
-  if (configData.paymentPlatform && !['razorpay', 'cashfree', 'payu'].includes(configData.paymentPlatform)) {
-    errors.push('Payment platform must be "razorpay", "cashfree", or "payu"');
+  if (configData.paymentPlatform && !['razorpay', 'cashfree', 'payu', 'phonepe'].includes(configData.paymentPlatform)) {
+    errors.push('Payment platform must be "razorpay", "cashfree", "payu", or "phonepe"');
   }
 
   return {

@@ -1,6 +1,12 @@
 import moment from "moment";
 
 export default function IsMarketHours() {
+  const nowIST = moment().utcOffset("+05:30");
+  // moment().day(): Sunday=0, Saturday=6. A time-only check previously
+  // enabled placement on weekend mornings.
+  if (nowIST.day() === 0 || nowIST.day() === 6) {
+    return false;
+  }
   const currentTimeIST = moment()
     .utcOffset("+05:30")
     .format("DD-MM-YYYY HH:mm:ss");

@@ -13,6 +13,7 @@ import Config from 'react-native-config';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { useComponent } from '../../design/useDesign';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 
 const { width: ScreenWidth } = Dimensions.get('window');
 
@@ -42,7 +43,7 @@ const DistributionGrid = ({
                 url: `${server.ccxtServer.baseUrl}angelone/market-data`,
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Advisor-Subdomain': Config.REACT_APP_ADVISOR_SUBDOMAIN || '',
+                    'X-Advisor-Subdomain': getTenantSubdomain(),
                     'aq-encrypted-key': generateToken(
                         Config.REACT_APP_AQ_KEYS,
                         Config.REACT_APP_AQ_SECRET,

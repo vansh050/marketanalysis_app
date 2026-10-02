@@ -1,3 +1,4 @@
+import {availableFundsOptions, availableFundsPayload, getFundingReview, insufficientFundsAttemptOptions} from '../../utils/fundingContinuation';
 /**
  * RebalanceReviewScreen — Step 2 of rebalance flow.
  * Shows preference selection, calculates rebalance, displays buy/sell orders,
@@ -11,15 +12,7 @@
  *   heldSymbols: string[] (from CurrentHoldingsScreen)
  */
 import React, { useCallback, useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  ActivityIndicator,
-  Alert,
-} from 'react-native';
+import {Alert} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import axios from 'axios';
 import Config from 'react-native-config';
@@ -27,10 +20,9 @@ import Config from 'react-native-config';
 import server from '../../utils/serverConfig';
 import LowFundsRebalanceWarning from '../../components/LowFundsRebalanceWarning';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 import {
   buildBrokerPayloadFields,
-  isFundsErrorOrMissing,
   isRebalanceErrorResponse,
   isSubscriptionAmountError,
   isLowAllowedBalanceError,
@@ -38,17 +30,21 @@ import {
   checkPortfolioShortfall,
 } from '../../utils/rebalanceHelpers';
 import useModalStore from '../../GlobalUIModals/modalStore';
+import eventEmitter from '../../components/EventEmitter';
+import {getCanonicalRebalanceTrades, getRebalanceContract} from '../../utils/rebalanceContract';
+import {useComponent} from '../../design/useDesign';
 
 const getHeaders = () => ({
   'Content-Type': 'application/json',
-  'X-Advisor-Subdomain': getAdvisorSubdomain(),
+  'X-Advisor-Subdomain': getTenantSubdomain(),
   'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
 });
 
 const RebalanceReviewScreen = () => {
+  const Presentation = useComponent('screens.RebalanceReviewScreen');
   const navigation = useNavigation();
   const route = useRoute();
-  const { portfolio, userEmail, broker, brokerCredentials, heldSymbols } = route.params || {};
+  const { portfolio, userEmail, broker, brokerCredentials } = route.params || {};
   const showAlert = useModalStore((state) => state.showAlert);
 
   const modelName = portfolio?.modelName || portfolio?.model_name;
@@ -57,24 +53,40 @@ const RebalanceReviewScreen = () => {
     (portfolio?.rebalanceHistory?.length > 0 ? portfolio.rebalanceHistory[portfolio.rebalanceHistory.length - 1].model_Id : '');
 
   // ── State ──
-  const [rebalanceFlag, setRebalanceFlag] = useState(null); // null = show preference, 0 or 1
+  // Calculator mode is advisor-owned; customers no longer choose between a
+  // 2% threshold and full rebalance. Preserve the established default payload.
+  const [rebalanceFlag] = useState(1);
   const [loading, setLoading] = useState(false);
   const [buyOrders, setBuyOrders] = useState([]);
   const [sellOrders, setSellOrders] = useState([]);
   const [uniqueId, setUniqueId] = useState(null);
   const [caPendingInfo, setCaPendingInfo] = useState([]);
+  // Rebalance plan freeze (docs/REBALANCE_PLAN_FREEZE_PLAN.md §4.2/§4.4):
+  // additive fields on the calculate response. Forwarded on Accept
+  // (ExecutionStatusScreen) only when rebalanceFreezePlan is on.
+  const [planId, setPlanId] = useState(null);
+  const [planVersion, setPlanVersion] = useState(null);
+  const [planHash, setPlanHash] = useState(null);
+  const [customerAction, setCustomerAction] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [alreadyAligned, setAlreadyAligned] = useState(false);
+  const [funding, setFunding] = useState({});
+  const [reducingFunding, setReducingFunding] = useState(false);
+
+  const rebalanceContract = getRebalanceContract(funding);
+  const fundingConsent = getFundingReview(rebalanceContract, funding);
 
   const isDummyBroker = broker === 'DummyBroker' || !broker;
 
   // ── Calculate rebalance ──
-  const calculateRebalance = useCallback(async (flag) => {
+  const calculateRebalance = useCallback(async (flag, options = {}) => {
     setLoading(true);
+    setTermsAccepted(false);
     setErrorMsg(null);
     setBuyOrders([]);
     setSellOrders([]);
+    setAlreadyAligned(false);
 
     try {
       const body = {
@@ -85,6 +97,8 @@ const RebalanceReviewScreen = () => {
         userBroker: broker || 'DummyBroker',
         userFund: '0',
         flag,
+        ...(options?.forceRefresh ? {forceRefresh: true} : {}),
+        ...availableFundsPayload(options),
       };
 
       // Add broker-specific credentials
@@ -102,6 +116,23 @@ const RebalanceReviewScreen = () => {
       );
 
       const data = resp.data?.data || resp.data;
+
+      // Broker session expired — surface a reconnect prompt instead of
+      // silently rendering a trade list that can't be placed (DefinEdge
+      // 2026-08-14: rebalance returned no error but placed nothing).
+      if (data?.sessionExpired === true) {
+        setErrorMsg('Broker session expired. Please reconnect your broker and try again.');
+        setLoading(false);
+        return;
+      }
+
+      const decision = getRebalanceContract(data);
+      setCustomerAction(decision?.customerAction || null);
+      if (decision?.customerAction?.blocking && !decision?.fundingConsent?.required) {
+        setErrorMsg(decision.presentation?.message || data?.message || decision.presentation?.title);
+        setLoading(false);
+        return;
+      }
 
       // Portfolio shortfall — INFORMATIONAL ONLY, never a blocker.
       // Backend tags shortfall responses with status === 1, which would
@@ -132,17 +163,13 @@ const RebalanceReviewScreen = () => {
         return;
       }
 
-      const buy = data?.buy || [];
-      const sell = data?.sell || [];
+      const {buy, sell} = getCanonicalRebalanceTrades(data);
 
-      // Filter sells by held symbols
-      const heldSet = new Set((heldSymbols || []).map((s) => s?.toUpperCase()));
-      const filteredSell = sell.filter((s) => {
-        const sym = (s.symbol || s.tradingSymbol || '').toUpperCase();
-        return heldSet.has(sym) || heldSet.size === 0;
-      });
+      // Calculate already verified and netted sells against live holdings.
+      // Keeping its rows avoids silently dropping EQ/BE series migrations.
+      const filteredSell = sell;
 
-      if (buy.length === 0 && filteredSell.length === 0) {
+      if (buy.length === 0 && filteredSell.length === 0 && !decision?.fundingConsent?.required) {
         setAlreadyAligned(true);
       }
 
@@ -150,11 +177,16 @@ const RebalanceReviewScreen = () => {
       setSellOrders(filteredSell);
       setUniqueId(data?.uniqueId || data?.unique_id);
       setCaPendingInfo(data?.caPendingInfo || []);
+      // Additive plan-freeze fields (absent when the backend flag is off).
+      setPlanId(decision?.plan?.id || data?.plan_id || null);
+      setPlanVersion(decision?.plan?.version || data?.plan_version || null);
+      setPlanHash(decision?.plan?.hash || null);
+      setFunding(data || {});
     } catch (e) {
       setErrorMsg(e.response?.data?.message || e.message || 'Failed to calculate rebalance');
     }
     setLoading(false);
-  }, [userEmail, modelName, advisor, modelId, broker, brokerCredentials, heldSymbols]);
+  }, [userEmail, modelName, advisor, modelId, broker, brokerCredentials]);
 
   // ── Auto-calculate when preference selected ──
   useEffect(() => {
@@ -163,15 +195,101 @@ const RebalanceReviewScreen = () => {
     }
   }, [rebalanceFlag, calculateRebalance]);
 
+  const retryAfterAddingFunds = () =>
+    calculateRebalance(rebalanceFlag, {forceRefresh: true});
+
+  const showAddFundsInstructions = () => {
+    Alert.alert(
+      `Add balance to ${broker || 'your broker'}`,
+      `Add at least ₹${Number(fundingConsent?.shortfall || 0).toLocaleString('en-IN')} to your ${broker || 'broker'} account. Once the balance is available, return here and retry the rebalance.\n\nYour investment amount will remain unchanged.`,
+      [
+        {text: 'Not now', style: 'cancel'},
+        {text: "I've added funds — Retry", onPress: retryAfterAddingFunds},
+      ],
+    );
+  };
+
+  const continueWithAvailableFunds = async () => {
+    if (reducingFunding) return;
+    try {
+      setReducingFunding(true);
+      await calculateRebalance(rebalanceFlag, availableFundsOptions());
+    } catch (error) {
+      Alert.alert('Could not refresh calculation', 'Your investment target is unchanged. Please try again.');
+    } finally {
+      setReducingFunding(false);
+    }
+  };
+
+  const attemptWithInsufficientFunds = async () => {
+    if (reducingFunding) return;
+    try {
+      setReducingFunding(true);
+      await calculateRebalance(rebalanceFlag, insufficientFundsAttemptOptions());
+    } catch (error) {
+      Alert.alert('Could not prepare orders', 'No orders were placed. Your investment target is unchanged. Please try again.');
+    } finally {
+      setReducingFunding(false);
+    }
+  };
+
+  const showFundingDecision = () => {
+    const canContinue = fundingConsent?.canContinueWithAvailableFunds === true;
+    const canAttempt = fundingConsent?.canAttemptWithInsufficientFunds === true;
+    Alert.alert(
+      rebalanceContract?.presentation?.title || 'Investment amount needs review',
+      `Your full plan needs ₹${Number(fundingConsent?.desiredAmount || 0).toLocaleString('en-IN')} but only ₹${Number(fundingConsent?.fundedAmount || 0).toLocaleString('en-IN')} is available today (cash + sale proceeds). Add ₹${Number(fundingConsent?.shortfall || 0).toLocaleString('en-IN')}${canContinue ? ' to include everything, or continue with available funds for this calculation' : canAttempt ? ', or review the target stocks and attempt the buy. The broker may reject orders that exceed your buying power' : ' to your broker, then calculate again'}. Your investment target stays unchanged.`,
+      canContinue
+        ? [
+            {text: 'Not now', style: 'cancel'},
+            {text: 'Add funds instead', onPress: showAddFundsInstructions},
+            {text: 'Continue with available funds', onPress: continueWithAvailableFunds},
+          ]
+        : canAttempt
+          ? [
+              {text: 'Not now', style: 'cancel'},
+              {text: 'How to add funds', onPress: showAddFundsInstructions},
+              {text: 'Review stocks and attempt buy', onPress: attemptWithInsufficientFunds},
+            ]
+          : [
+            {text: 'Not now', style: 'cancel'},
+            {text: 'How to add funds', onPress: showAddFundsInstructions},
+          ],
+    );
+  };
+
+  // ── Frozen-plan 409 recovery (docs/REBALANCE_PLAN_FREEZE_PLAN.md §4.4) ──
+  // ExecutionStatusScreen emits this before navigating back when
+  // process-trade 409s with `recompute:true` — the plan_id it held is dead
+  // (drifted/expired/consumed). Re-run calculate to mint a fresh plan,
+  // mirroring web's "Continue re-runs calculateRebalance" recovery.
+  useEffect(() => {
+    const onRecompute = () => {
+      if (rebalanceFlag !== null) {
+        calculateRebalance(rebalanceFlag);
+      }
+    };
+    eventEmitter.on('rebalancePlanRecompute', onRecompute);
+    return () => eventEmitter.removeListener('rebalancePlanRecompute', onRecompute);
+  }, [rebalanceFlag, calculateRebalance]);
+
   // ── Execute: navigate to ExecutionStatusScreen ──
   const handleExecute = () => {
+    if (fundingConsent?.required) {
+      showFundingDecision();
+      return;
+    }
+    if (customerAction && customerAction.code !== 'EXECUTE') {
+      Alert.alert('Rebalance needs attention', customerAction.label);
+      return;
+    }
     const orders = [
-      ...buyOrders.map((o) => ({
-        ...o, transactionType: 'BUY',
-        symbol: o.symbol || o.tradingSymbol,
-      })),
       ...sellOrders.map((o) => ({
         ...o, transactionType: 'SELL',
+        symbol: o.symbol || o.tradingSymbol,
+      })),
+      ...buyOrders.map((o) => ({
+        ...o, transactionType: 'BUY',
         symbol: o.symbol || o.tradingSymbol,
       })),
     ];
@@ -187,6 +305,9 @@ const RebalanceReviewScreen = () => {
       advisor,
       uniqueId,
       caPendingInfo,
+      planId,
+      planVersion,
+      planHash,
     });
   };
 
@@ -210,257 +331,33 @@ const RebalanceReviewScreen = () => {
     }
   };
 
-  // ── Preference selection ──
-  if (rebalanceFlag === null) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Text style={styles.backBtnText}>{'<'}</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Rebalance Preference</Text>
-          <View style={{ width: 40 }} />
-        </View>
-        <View style={styles.prefContent}>
-          <Text style={styles.prefTitle}>Choose your rebalance strategy</Text>
-
-          <TouchableOpacity style={styles.prefCard} onPress={() => setRebalanceFlag(1)}>
-            <Text style={styles.prefCardTitle}>Optimize Costs (2% Threshold)</Text>
-            <Text style={styles.prefCardDesc}>
-              Only rebalance stocks where the change exceeds 2% of your capital. Fewer trades, lower brokerage.
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.prefCard} onPress={() => setRebalanceFlag(0)}>
-            <Text style={styles.prefCardTitle}>Full Rebalance</Text>
-            <Text style={styles.prefCardDesc}>
-              Align portfolio exactly to the model. Includes all changes, even small ones. Higher trade frequency.
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
-    );
-  }
-
-  // ── Loading ──
-  if (loading) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1A237E" />
-        <Text style={styles.loadingText}>Calculating rebalance...</Text>
-      </View>
-    );
-  }
-
-  // ── Error ──
-  if (errorMsg) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.errorIcon}>!</Text>
-        <Text style={styles.errorTitle}>Calculation Failed</Text>
-        <Text style={styles.errorDesc}>{errorMsg}</Text>
-        <TouchableOpacity style={styles.retryBtn} onPress={() => calculateRebalance(rebalanceFlag)}>
-          <Text style={styles.retryBtnText}>Retry</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.goBackBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.goBackBtnText}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // ── Already aligned ──
-  if (alreadyAligned) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.alignedIcon}>✓</Text>
-        <Text style={styles.alignedTitle}>Already Aligned</Text>
-        <Text style={styles.alignedDesc}>Your portfolio matches the model allocation. No trades needed.</Text>
-        <TouchableOpacity style={styles.continueBtn} onPress={handleAlreadyAligned}>
-          <Text style={styles.continueBtnText}>Confirm</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
-
-  // ── Review trades ──
-  const totalOrders = buyOrders.length + sellOrders.length;
-
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Text style={styles.backBtnText}>{'<'}</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Review Rebalance</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Summary */}
-        <View style={styles.summaryBox}>
-          <Text style={styles.summaryText}>{buyOrders.length} BUY + {sellOrders.length} SELL = {totalOrders} orders</Text>
-        </View>
-
-        {/* Buy orders */}
-        {buyOrders.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>BUY Orders</Text>
-            {buyOrders.map((o, i) => (
-              <View key={`buy-${i}`} style={styles.orderRow}>
-                <View style={[styles.badge, styles.badgeBuy]}><Text style={styles.badgeText}>BUY</Text></View>
-                <Text style={styles.orderSymbol} numberOfLines={1}>{o.symbol || o.tradingSymbol}</Text>
-                <Text style={styles.orderQty}>Qty: {o.quantity}</Text>
-                <Text style={styles.orderPrice}>₹{Number(o.price || 0).toFixed(1)}</Text>
-              </View>
-            ))}
-          </>
-        )}
-
-        {/* Sell orders */}
-        {sellOrders.length > 0 && (
-          <>
-            <Text style={styles.sectionTitle}>SELL Orders</Text>
-            {sellOrders.map((o, i) => (
-              <View key={`sell-${i}`} style={styles.orderRow}>
-                <View style={[styles.badge, styles.badgeSell]}><Text style={styles.badgeText}>SELL</Text></View>
-                <Text style={styles.orderSymbol} numberOfLines={1}>{o.symbol || o.tradingSymbol}</Text>
-                <Text style={styles.orderQty}>Qty: {o.quantity}</Text>
-                <Text style={styles.orderPrice}>₹{Number(o.price || 0).toFixed(1)}</Text>
-              </View>
-            ))}
-          </>
-        )}
-
-        {/* Non-blocking low-funds / T+1-settlement warning (web parity —
-            LowFundsRebalanceWarning). Self-hides unless a real shortfall is
-            known: requiredFund + pendingSellProceeds are computed from the
-            order rows here; availableCash comes from route.params when the
-            caller has broker funds (self-hides when absent, so this is
-            non-breaking — wiring the broker-funds fetch into this flow is a
-            tracked follow-up). */}
-        <LowFundsRebalanceWarning
-          availableCash={route.params?.availableCash}
-          requiredFund={buyOrders.reduce(
-            (s, o) => s + (Number(o.quantity) || 0) * (Number(o.price) || 0),
-            0,
-          )}
-          pendingSellProceeds={sellOrders.reduce(
-            (s, o) => s + (Number(o.quantity) || 0) * (Number(o.price) || 0),
-            0,
-          )}
-          pricesReady={!loading && buyOrders.length > 0}
-        />
-
-        {/* Terms */}
-        <TouchableOpacity style={styles.checkboxRow} onPress={() => setTermsAccepted(!termsAccepted)}>
-          <View style={[styles.checkbox, termsAccepted && styles.checkboxChecked]}>
-            {termsAccepted && <Text style={styles.checkmark}>✓</Text>}
-          </View>
-          <Text style={styles.checkboxLabel}>
-            I understand the risks and confirm these orders should be placed.
-          </Text>
-        </TouchableOpacity>
-      </ScrollView>
-
-      {/* Bottom CTA */}
-      <View style={styles.bottomSection}>
-        <TouchableOpacity
-          style={[styles.executeBtn, !termsAccepted && styles.executeBtnDisabled]}
-          onPress={handleExecute}
-          disabled={!termsAccepted}
-        >
-          <Text style={styles.executeBtnText}>
-            {isDummyBroker ? 'Confirm Manual Execution' : 'Accept & Execute Rebalance'}
-          </Text>
-        </TouchableOpacity>
-      </View>
-    </View>
+    <Presentation
+      viewModel={{
+        loading,
+        errorMsg,
+        alreadyAligned,
+        buyOrders,
+        sellOrders,
+        funding,
+        fundingConsent,
+        reducingFunding,
+        termsAccepted,
+        isDummyBroker,
+      }}
+      actions={{
+        onRetry: () => calculateRebalance(rebalanceFlag),
+        onBack: () => navigation.goBack(),
+        onConfirmAligned: handleAlreadyAligned,
+        onContinueAvailableFunds: continueWithAvailableFunds,
+        onAttemptInsufficientFunds: attemptWithInsufficientFunds,
+        onShowAddFunds: showAddFundsInstructions,
+        onToggleTerms: () => setTermsAccepted(value => !value),
+        onExecute: handleExecute,
+      }}
+      slots={{LowFundsWarning: LowFundsRebalanceWarning}}
+    />
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FC' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  loadingText: { marginTop: 12, color: '#666', fontSize: 14 },
-
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 50, paddingBottom: 12, backgroundColor: '#1A237E',
-  },
-  backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  backBtnText: { color: '#fff', fontSize: 22, fontWeight: '600' },
-  headerTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
-
-  // Preference selection
-  prefContent: { flex: 1, padding: 24, justifyContent: 'center' },
-  prefTitle: { fontSize: 20, fontWeight: '700', color: '#333', textAlign: 'center', marginBottom: 24 },
-  prefCard: {
-    padding: 20, backgroundColor: '#fff', borderRadius: 16, marginBottom: 16,
-    borderWidth: 1, borderColor: '#E0E0E0',
-    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 3 },
-    elevation: 3,
-  },
-  prefCardTitle: { fontSize: 16, fontWeight: '700', color: '#1A237E', marginBottom: 8 },
-  prefCardDesc: { fontSize: 13, color: '#666', lineHeight: 20 },
-
-  // Error
-  errorIcon: {
-    width: 56, height: 56, borderRadius: 28, backgroundColor: '#EF5350',
-    color: '#fff', fontSize: 28, fontWeight: '700', textAlign: 'center', lineHeight: 56, marginBottom: 16,
-  },
-  errorTitle: { fontSize: 20, fontWeight: '700', color: '#333', marginBottom: 8 },
-  errorDesc: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 24, lineHeight: 20 },
-  retryBtn: { backgroundColor: '#1A237E', paddingVertical: 12, paddingHorizontal: 32, borderRadius: 12, marginBottom: 12 },
-  retryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  goBackBtn: { paddingVertical: 10, paddingHorizontal: 24 },
-  goBackBtnText: { color: '#1A237E', fontSize: 14, fontWeight: '600' },
-
-  // Already aligned
-  alignedIcon: {
-    width: 56, height: 56, borderRadius: 28, backgroundColor: '#4CAF50',
-    color: '#fff', fontSize: 28, fontWeight: '700', textAlign: 'center', lineHeight: 56, marginBottom: 16,
-  },
-  alignedTitle: { fontSize: 20, fontWeight: '700', color: '#333', marginBottom: 8 },
-  alignedDesc: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 24 },
-  continueBtn: { backgroundColor: '#4CAF50', paddingVertical: 12, paddingHorizontal: 32, borderRadius: 12 },
-  continueBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-
-  // Orders review
-  scrollContent: { padding: 16, paddingBottom: 100 },
-  summaryBox: { padding: 14, backgroundColor: '#E8EAF6', borderRadius: 12, marginBottom: 16, alignItems: 'center' },
-  summaryText: { fontSize: 14, fontWeight: '600', color: '#1A237E' },
-
-  sectionTitle: { fontSize: 14, fontWeight: '700', color: '#333', marginTop: 12, marginBottom: 8 },
-
-  orderRow: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
-  },
-  badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 10 },
-  badgeBuy: { backgroundColor: '#E8F5E9' },
-  badgeSell: { backgroundColor: '#FFEBEE' },
-  badgeText: { fontSize: 10, fontWeight: '700' },
-  orderSymbol: { flex: 1, fontSize: 13, fontWeight: '600', color: '#333' },
-  orderQty: { fontSize: 12, color: '#666', marginRight: 12 },
-  orderPrice: { fontSize: 12, fontWeight: '500', color: '#555' },
-
-  checkboxRow: { flexDirection: 'row', alignItems: 'flex-start', marginTop: 20, paddingHorizontal: 4 },
-  checkbox: {
-    width: 22, height: 22, borderRadius: 4, borderWidth: 2, borderColor: '#CCC',
-    justifyContent: 'center', alignItems: 'center', marginRight: 10, marginTop: 1,
-  },
-  checkboxChecked: { backgroundColor: '#1A237E', borderColor: '#1A237E' },
-  checkmark: { color: '#fff', fontSize: 14, fontWeight: '700' },
-  checkboxLabel: { flex: 1, fontSize: 13, color: '#555', lineHeight: 20 },
-
-  bottomSection: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16,
-    backgroundColor: '#F8F9FC', borderTopWidth: 1, borderTopColor: '#E0E0E0',
-  },
-  executeBtn: { backgroundColor: '#1A237E', paddingVertical: 15, borderRadius: 14, alignItems: 'center' },
-  executeBtnDisabled: { opacity: 0.4 },
-  executeBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-});
 
 export default RebalanceReviewScreen;

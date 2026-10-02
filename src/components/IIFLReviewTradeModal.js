@@ -31,7 +31,8 @@ import Toast from 'react-native-toast-message';
 import Config from 'react-native-config';
 import {generateToken} from '../utils/SecurityTokenManager';
 import {useTrade} from '../screens/TradeContext';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
+import { designColor, designFont } from '../design/literalTokens';
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 const commonHeight = screenHeight * 0.06;
 const commonWidth = '100%';
@@ -59,7 +60,6 @@ const IIFLReviewTradeModal = ({
   setOpenTokenExpireModel,
   setShowBrokerModal,
   fetchBrokerStatusModal,
-  handleOpenBrokerModal,
   showIIFLModal,
   setShowIIFLModal,
 
@@ -113,7 +113,7 @@ const IIFLReviewTradeModal = ({
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -149,10 +149,6 @@ const IIFLReviewTradeModal = ({
 
   const broker = userDetails?.user_broker;
 
-  const handleOpen = broker => {
-    handleOpenBrokerModal(broker);
-  };
-
   const [showMessage, setShowMessage] = useState(false);
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -185,23 +181,23 @@ const IIFLReviewTradeModal = ({
       animationOut="slideOutDown">
       <View
         style={{
-          backgroundColor: '#fff',
+          backgroundColor: designColor('fff'),
           borderTopLeftRadius: 20,
           borderTopRightRadius: 20,
           padding: screenWidth * 0.05,
         }}>
         <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-          <XIcon size={24} color="#000" />
+          <XIcon size={24} color={designColor('000')} />
         </TouchableOpacity>
 
         {!showMessage || !broker ? (
           // Show loader while `showMessage` is false
-          <View style={styles.loaderContainer}>
-            <ActivityIndicator size="large" color="#000" />
-          </View>
+          (<View style={styles.loaderContainer}>
+            <ActivityIndicator size="large" color={designColor('000')} />
+          </View>)
         ) : (
           // Show content when `showMessage` is true
-          <View style={{marginTop: 10}}>
+          (<View style={{marginTop: 10}}>
             <View
               style={{
                 flexDirection: 'row',
@@ -218,7 +214,6 @@ const IIFLReviewTradeModal = ({
                 Please login to your broker to continue investments
               </Text>
             </View>
-
             {broker === 'IIFL Securities' && (
               <TouchableOpacity
                 style={styles.proceedButton}
@@ -228,7 +223,6 @@ const IIFLReviewTradeModal = ({
                 <ArrowRight size={18} color={'grey'} />
               </TouchableOpacity>
             )}
-
             {broker === 'Kotak' && (
               <TouchableOpacity
                 style={styles.proceedButton}
@@ -238,7 +232,6 @@ const IIFLReviewTradeModal = ({
                 <ArrowRight size={18} color={'grey'} />
               </TouchableOpacity>
             )}
-
             {/* Render other broker buttons similarly */}
             {broker === 'ICICI Direct' && (
               <TouchableOpacity
@@ -251,7 +244,6 @@ const IIFLReviewTradeModal = ({
                 <ArrowRight size={18} color={'grey'} />
               </TouchableOpacity>
             )}
-
             {broker === 'Upstox' && (
               <TouchableOpacity
                 style={styles.proceedButton}
@@ -261,17 +253,15 @@ const IIFLReviewTradeModal = ({
                 <ArrowRight size={18} color={'grey'} />
               </TouchableOpacity>
             )}
-
             {broker === 'Zerodha' && (
               <TouchableOpacity
                 style={styles.proceedButton}
-                onPress={() => handleOpen(broker)}
+                onPress={() => setShowzerodhaModal?.(true)}
                 disabled={loginLoading}>
                 <Text style={styles.proceedButtonText}>Login to Zerodha</Text>
                 <ArrowRight size={18} color={'grey'} />
               </TouchableOpacity>
             )}
-
             {broker === 'Angel One' && (
               <TouchableOpacity
                 style={styles.proceedButton}
@@ -328,7 +318,7 @@ const IIFLReviewTradeModal = ({
                 <ArrowRight size={18} color={'grey'} />
               </TouchableOpacity>
             )}
-          </View>
+          </View>)
         )}
       </View>
     </Modal>
@@ -341,7 +331,7 @@ const styles = StyleSheet.create({
     margin: 0,
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: screenWidth * 0.05,
@@ -381,12 +371,12 @@ const styles = StyleSheet.create({
   stepGuide: {
     fontSize: 20,
     color: 'black',
-    fontFamily: 'Poppin-Bold',
+    fontFamily: designFont('Poppin-Bold'),
   },
   instruction: {
     fontSize: 15,
     color: 'black',
-    fontFamily: 'Poppin-Bold',
+    fontFamily: designFont('Poppin-Bold'),
     marginVertical: 3,
   },
   link: {
@@ -395,7 +385,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 18,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
     textAlign: 'center',
     flex: 1,
     color: 'black',
@@ -408,7 +398,7 @@ const styles = StyleSheet.create({
     marginBottom: 5,
   },
   inputContainer: {
-    borderColor: '#d5d4d4',
+    borderColor: designColor('d5d4d4'),
     alignSelf: 'center',
     borderWidth: 1,
     borderRadius: 10,
@@ -417,7 +407,7 @@ const styles = StyleSheet.create({
     height: commonHeight, // Apply common height
   },
   proceedButton: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderWidth: 1,
     borderRadius: 20,
     paddingVertical: 5,
@@ -431,7 +421,7 @@ const styles = StyleSheet.create({
   },
   proceedButtonText: {
     fontSize: 14, // Dynamic font size
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
     color: 'black',
   },
 });

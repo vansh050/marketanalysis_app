@@ -1,6 +1,7 @@
+import { designColor } from '../design/literalTokens';
 <View style={styles.modalContent}>
         <View style={styles.iconContainer}>
-          <Info size={64} color="#00000080" />
+          <Info size={64} color={designColor('00000080')} />
         </View>
         <Text style={styles.title}>
           Please login to your broker to continue investments
@@ -35,7 +36,7 @@
                   style={styles.eyeIcon}
                   onPress={() => setShowPassword(prev => !prev)}
                 >
-                  {showPassword ? <Eye size={24} color="#00000060" /> : <EyeOff size={24} color="#00000060" />}
+                  {showPassword ? <Eye size={24} color={designColor('00000060')} /> : <EyeOff size={24} color={designColor('00000060')} />}
                 </TouchableOpacity>
                 <Text style={styles.label}>Password</Text>
               </View>
@@ -62,7 +63,7 @@
                   style={styles.eyeIcon}
                   onPress={() => setShowPassword(prev => !prev)}
                 >
-                  {showPassword ? <Eye size={24} color="#00000060" /> : <EyeOff size={24} color="#00000060" />}
+                  {showPassword ? <Eye size={24} color={designColor('00000060')} /> : <EyeOff size={24} color={designColor('00000060')} />}
                 </TouchableOpacity>
                 <Text style={styles.label}>Password</Text>
               </View>
@@ -98,7 +99,7 @@
                     onPress={handleKotakLogin}
                     disabled={loginLoading}
                   >
-                    {loginLoading ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.submitButtonText}>Submit</Text>}
+                    {loginLoading ? <ActivityIndicator size="small" color={designColor('ffffff')} /> : <Text style={styles.submitButtonText}>Submit</Text>}
                   </TouchableOpacity>
                 </>
               )}
@@ -108,7 +109,7 @@
                   onPress={updateKotakSecretKey}
                   disabled={loginLoading}
                 >
-                  {loginLoading ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.submitButtonText}>Update Key</Text>}
+                  {loginLoading ? <ActivityIndicator size="small" color={designColor('ffffff')} /> : <Text style={styles.submitButtonText}>Update Key</Text>}
                 </TouchableOpacity>
               )}
             </View>
@@ -119,7 +120,7 @@
               onPress={() => {}}
               disabled={loginLoading}
             >
-              {loginLoading ? <ActivityIndicator size="small" color="#ffffff" /> : <Text style={styles.submitButtonText}>Submit</Text>}
+              {loginLoading ? <ActivityIndicator size="small" color={designColor('ffffff')} /> : <Text style={styles.submitButtonText}>Submit</Text>}
             </TouchableOpacity>
           )}
         </View>

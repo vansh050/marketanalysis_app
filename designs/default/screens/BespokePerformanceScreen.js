@@ -50,7 +50,6 @@ import {
     Image,
     ScrollView,
     Dimensions,
-    FlatList,
     SafeAreaView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -62,16 +61,6 @@ import {
     FileText,
 } from 'lucide-react-native';
 import LinearGradient from 'react-native-linear-gradient';
-import PieChart from 'react-native-pie-chart';
-import EmptyMP from '../../../src/assets/emptyModelPortfolio.svg';
-import PaymentSuccessModal from '../../../src/components/ModelPortfolioComponents/PaymentSuccessModal';
-import UserStrategySubscribeModal from '../../../src/components/ModelPortfolioComponents/UserStrategySubscribeModal';
-import MPInvestNowModal from '../../../src/components/ModelPortfolioComponents/MPInvestNowModal';
-import MPReviewTradeModal from '../../../src/components/ModelPortfolioComponents/MPReviewTradeModal';
-import RecommendationSuccessModal from '../../../src/components/ModelPortfolioComponents/RecommendationSuccessModal';
-import RebalanceTimeLineModal from '../../../src/components/ModelPortfolioComponents/RebalanceTimelineModal';
-import CustomTabBarMPPerformance from '../../../src/screens/Drawer/CustomTabbarMPPerformance';
-import ConsentPopup from '../../../src/components/ModelPortfolioComponents/ConsentPopUp';
 import { withGst, gstLabel } from '../../../src/utils/gstHelpers';
 import { resolveImageUrl } from '../../../src/utils/resolveImageUrl';
 
@@ -80,92 +69,19 @@ const Alpha100 = require('../../../src/assets/alpha-100.png');
 const defaultScreenWidth = Dimensions.get('window').width;
 const defaultScreenHeight = Dimensions.get('window').height;
 
-/* ---------- Distribution sub-component (purely visual + local modal state) ---------- */
-const Distribution = ({
-    latestRebalance,
-    colorMap,
-    chartData,
-    strategyDetails,
-}) => {
-    const [showRebalanceTimelineModal, setShowRebalanceTimelineModal] = useState(false);
-
-    const seriesData = chartData.map(entry => Number(entry.value));
-
-    if (seriesData.length === 0) {
-        return (
-            <View style={styles.emptyContainer}>
-                <EmptyMP />
-                <Text style={styles.noDataText}>No Data Found</Text>
-                <Text style={styles.noDataSubtitle}>
-                    Explore our curated Model Portfolios and start investing today!
-                </Text>
-            </View>
-        );
-    }
-
-    return (
-        <View style={{ flex: 1, paddingHorizontal: 10 }}>
-            <View style={{ marginTop: 20, marginHorizontal: 10 }}>
-                <Text style={{ color: 'grey', fontFamily: 'Satoshi-Regular' }}>
-                    Click to view the{' '}
-                    <Text
-                        onPress={() => setShowRebalanceTimelineModal(true)}
-                        style={{ color: '#3B82F6' }}>
-                        latest rebalance updates{' '}
-                    </Text>
-                    and history.
-                </Text>
-            </View>
-
-            <View style={{ marginTop: 30, marginHorizontal: 10 }}>
-                <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                    <Text style={{ color: 'black', fontFamily: 'Satoshi-Regular', fontSize: 14 }}>
-                        Equity
-                    </Text>
-                    <Text style={{ color: 'black', fontFamily: 'Satoshi-Regular', fontSize: 14 }}>
-                        Weightage (%)
-                    </Text>
-                </View>
-
-                <FlatList
-                    data={latestRebalance?.adviceEntries}
-                    renderItem={({ item }) => (
-                        <View style={[styles.equityItem, { borderLeftColor: colorMap[item.symbol] }]}>
-                            <Text style={{ color: 'black', fontFamily: 'Satoshi-Regular', fontSize: 16, marginLeft: 10 }}>
-                                {item.symbol}
-                            </Text>
-                            <Text style={{ color: 'black', fontFamily: 'Satoshi-Regular', marginRight: 10 }}>
-                                {(item.value * 100).toFixed(2)}
-                            </Text>
-                        </View>
-                    )}
-                    keyExtractor={(item, index) => index.toString()}
-                />
-            </View>
-
-            <View style={{ alignSelf: 'center', justifyContent: 'center', marginVertical: 10 }}>
-                <PieChart
-                    widthAndHeight={250}
-                    series={seriesData}
-                    sliceColor={chartData.map(entry => entry.fill)}
-                    coverRadius={0.01}
-                    coverFill={'#FFF'}
-                />
-            </View>
-            {showRebalanceTimelineModal && (
-                <RebalanceTimeLineModal
-                    closeRebalanceTimelineModal={() => setShowRebalanceTimelineModal(false)}
-                    strategyDetails={strategyDetails}
-                />
-            )}
-        </View>
-    );
-};
-
 /* ---------- Main Presentation ---------- */
-const BespokePerformanceScreen = ({ viewModel, actions }) => {
+const BespokePerformanceScreen = ({ viewModel, actions, slots }) => {
     const vm = viewModel || {};
     const act = actions || {};
+    const {
+        PaymentSuccessModal,
+        UserStrategySubscribeModal,
+        MPInvestNowModal,
+        MPReviewTradeModal,
+        RecommendationSuccessModal,
+        CustomTabBarMPPerformance,
+        ConsentPopup,
+    } = slots || {};
     const insets = useSafeAreaInsets();
 
     const {
@@ -212,6 +128,9 @@ const BespokePerformanceScreen = ({ viewModel, actions }) => {
         configGst = false,
         configGstWithText = false,
         serverBaseUrl = '',
+        gradient1 = '#002651',
+        gradient2 = '#0076fb',
+        mainColor = '#0056B7',
     } = vm;
 
     const {
@@ -244,6 +163,12 @@ const BespokePerformanceScreen = ({ viewModel, actions }) => {
         onHandleTabLayout = () => () => {},
     } = act;
 
+    // The Plan selected from the catalogue is the authoritative presentation
+    // record. It is available synchronously and carries the current logo and
+    // admin-authored content. The model_portfolio strategy record is allowed
+    // only as a legacy fallback because it can be sparse or stale.
+    const planPresentation = specificPlan || planDetails || strategyDetails || {};
+
     return (
         <SafeAreaView style={styles.container}>
             <ScrollView contentContainerStyle={{ lex: 1 }}>
@@ -253,7 +178,7 @@ const BespokePerformanceScreen = ({ viewModel, actions }) => {
                             <View style={styles.container}>
                                 <TouchableOpacity activeOpacity={1}>
                                     <LinearGradient
-                                        colors={['#002651', '#0076fb']}
+                                        colors={[gradient1, gradient2]}
                                         start={{ x: 0, y: 1 }}
                                         end={{ x: 1, y: 1 }}
                                         style={[styles.cardContainer, { width: screenWidth, maxWidth: screenWidth }]}>
@@ -289,8 +214,8 @@ const BespokePerformanceScreen = ({ viewModel, actions }) => {
                                             <View style={styles.logoContainer}>
                                                 <Image
                                                     source={
-                                                        strategyDetails?.image
-                                                            ? { uri: resolveImageUrl(strategyDetails?.image, serverBaseUrl) }
+                                                        planPresentation?.image
+                                                            ? { uri: resolveImageUrl(planPresentation.image, serverBaseUrl) }
                                                             : Alpha100
                                                     }
                                                     style={styles.icon}
@@ -370,7 +295,37 @@ const BespokePerformanceScreen = ({ viewModel, actions }) => {
                         <TabView
                             navigationState={{ index: tabIndex, routes }}
                             renderScene={SceneMap({
-                                keyfeatures: () => (
+                                keyfeatures: () => {
+                                    // UPDATE 4 (2026-07-24, revised 2): read from
+                                    // `specificPlan` (available synchronously from
+                                    // navigation params) first, then `planDetails` (the
+                                    // async detail-endpoint response), then
+                                    // `strategyDetails` as last-resort fallback. The plan
+                                    // LIST endpoint that populates specificPlan already
+                                    // returns the FULL Plan doc including keyFeature /
+                                    // keyBenefit / investmentManagement / researchInvestment
+                                    // (verified in aq_backend_github/Routes/Admin/Plans/
+                                    // PlanRouter.js — the aggregation only $projects OUT
+                                    // internal helper fields), so this data is available
+                                    // on mount with zero async wait. Reading from
+                                    // strategyDetails alone was broken because two
+                                    // endpoints race to write it and the model-portfolio
+                                    // one (which has none of these fields) usually wins.
+                                    // Also normalize bad shapes so we don't crash on
+                                    // string-instead-of-array or array-instead-of-string
+                                    // admin data.
+                                    const planDoc = planPresentation;
+                                    const rawFeatures = planDoc?.keyFeature;
+                                    const featureList = Array.isArray(rawFeatures)
+                                        ? rawFeatures.filter(f => f && (f.label || f.description))
+                                        : [];
+                                    const rawBenefits = planDoc?.keyBenefit;
+                                    const benefitText = typeof rawBenefits === 'string'
+                                        ? rawBenefits
+                                        : Array.isArray(rawBenefits)
+                                            ? rawBenefits.join('\n')
+                                            : '';
+                                    return (
                                     <ScrollView
                                         nestedScrollEnabled
                                         showsVerticalScrollIndicator={false}
@@ -379,8 +334,8 @@ const BespokePerformanceScreen = ({ viewModel, actions }) => {
                                             Key Features
                                         </Text>
 
-                                        {strategyDetails?.keyFeature?.length > 0 ? (
-                                            strategyDetails.keyFeature.map((feature, idx) => (
+                                        {featureList.length > 0 ? (
+                                            featureList.map((feature, idx) => (
                                                 <View
                                                     key={idx}
                                                     style={{
@@ -423,8 +378,8 @@ const BespokePerformanceScreen = ({ viewModel, actions }) => {
                                             Key Benefits
                                         </Text>
 
-                                        {strategyDetails?.keyBenefit ? (
-                                            strategyDetails.keyBenefit
+                                        {benefitText ? (
+                                            benefitText
                                                 .split('\n')
                                                 .filter(line => line.trim() !== '')
                                                 .map((benefit, idx) => (
@@ -452,33 +407,70 @@ const BespokePerformanceScreen = ({ viewModel, actions }) => {
                                             </Text>
                                         )}
                                     </ScrollView>
-                                ),
+                                    );
+                                },
 
-                                overview: () => (
+                                overview: () => {
+                                    // UPDATE 7 (2026-07-24, revised 2): same source-of-truth
+                                    // priority as the keyfeatures tab above - specificPlan
+                                    // (nav param, synchronous) first, planDetails second,
+                                    // strategyDetails last. See the keyfeatures comment for
+                                    // the race-condition root cause.
+                                    const planDoc = planPresentation;
+                                    const investmentMgmt = (planDoc?.investmentManagement || '').trim();
+                                    const researchInv = (planDoc?.researchInvestment || '').trim();
+                                    const hasAdminContent = investmentMgmt.length > 0 || researchInv.length > 0;
+                                    return (
                                     <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
                                         <ScrollView
                                             nestedScrollEnabled
                                             showsVerticalScrollIndicator={false}
                                             contentContainerStyle={{ alignItems: 'flex-start', paddingHorizontal: 16, paddingTop: 0, paddingBottom: 0 }}>
-                                            <View style={{ backgroundColor: '#EEF4FF', borderRadius: 16, borderWidth: 1, borderColor: '#C7D2FE', padding: 20, marginTop: 20 }}>
-                                                <Text style={{ fontSize: 18, fontWeight: '600', color: '#1E293B', marginBottom: 8 }}>
-                                                    Subscribe & Get Expert Research Guidance
-                                                </Text>
-                                                <Text style={{ fontSize: 14, color: '#475569', marginBottom: 16, lineHeight: 20 }}>
-                                                    Start by subscribing to our{' '}
-                                                    <Text style={{ fontWeight: '600', color: '#1F54DB' }}>Research Investment Plan</Text>
-                                                    . Once subscribed, you'll receive personalized{' '}
-                                                    <Text style={{ fontWeight: '600' }}>buy/sell recommendations</Text>{' '}
-                                                    directly from our certified RA/RIA professionals —
-                                                    tailored to your goals and market opportunities. Our
-                                                    experts will work with you to build and refine a
-                                                    portfolio that aligns perfectly with your financial
-                                                    objectives and risk profile.
-                                                </Text>
-                                            </View>
+                                            {hasAdminContent ? (
+                                                <View style={{ width: '100%', marginTop: 20 }}>
+                                                    {investmentMgmt.length > 0 && (
+                                                        <View style={{ backgroundColor: '#F8FAFC', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', padding: 16, marginBottom: 12 }}>
+                                                            <Text style={{ fontSize: 16, fontWeight: '700', color: mainColor, marginBottom: 6 }}>
+                                                                Investment Management
+                                                            </Text>
+                                                            <Text style={{ fontSize: 14, color: '#334155', lineHeight: 20 }}>
+                                                                {investmentMgmt}
+                                                            </Text>
+                                                        </View>
+                                                    )}
+                                                    {researchInv.length > 0 && (
+                                                        <View style={{ backgroundColor: '#F8FAFC', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', padding: 16 }}>
+                                                            <Text style={{ fontSize: 16, fontWeight: '700', color: mainColor, marginBottom: 6 }}>
+                                                                Research Investment
+                                                            </Text>
+                                                            <Text style={{ fontSize: 14, color: '#334155', lineHeight: 20 }}>
+                                                                {researchInv}
+                                                            </Text>
+                                                        </View>
+                                                    )}
+                                                </View>
+                                            ) : (
+                                                <View style={{ backgroundColor: '#EEF4FF', borderRadius: 16, borderWidth: 1, borderColor: '#C7D2FE', padding: 20, marginTop: 20 }}>
+                                                    <Text style={{ fontSize: 18, fontWeight: '600', color: '#1E293B', marginBottom: 8 }}>
+                                                        Subscribe & Get Expert Research Guidance
+                                                    </Text>
+                                                    <Text style={{ fontSize: 14, color: '#475569', marginBottom: 16, lineHeight: 20 }}>
+                                                        Start by subscribing to our{' '}
+                                                        <Text style={{ fontWeight: '600', color: '#1F54DB' }}>Research Investment Plan</Text>
+                                                        . Once subscribed, you'll receive personalized{' '}
+                                                        <Text style={{ fontWeight: '600' }}>buy/sell recommendations</Text>{' '}
+                                                        directly from our certified RA/RIA professionals —
+                                                        tailored to your goals and market opportunities. Our
+                                                        experts will work with you to build and refine a
+                                                        portfolio that aligns perfectly with your financial
+                                                        objectives and risk profile.
+                                                    </Text>
+                                                </View>
+                                            )}
                                         </ScrollView>
                                     </SafeAreaView>
-                                ),
+                                    );
+                                },
                             })}
                             onIndexChange={onTabIndexChange}
                             initialLayout={{ width: screenWidth }}
@@ -498,7 +490,7 @@ const BespokePerformanceScreen = ({ viewModel, actions }) => {
                     </TouchableOpacity>
                 ) : (
                     <View style={{ flexDirection: 'row', alignContent: 'center', alignItems: 'center', alignSelf: 'center' }}>
-                        <TouchableOpacity onPress={onInvestNow} style={styles.investButton}>
+                        <TouchableOpacity onPress={onInvestNow} style={[styles.investButton, { backgroundColor: mainColor }]}>
                             <Text style={styles.investButtonText}>
                                 {subscriptionStatus === 'active'
                                     ? 'Subscribed'

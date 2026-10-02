@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "canonical": ["complete", "pending", "rejected", "cancelled", "partial", "needs_reconciliation", "unknown"],
+  "aliases": {
+    "complete": ["complete", "completed", "traded", "filled", "executed"],
+    "pending": ["pending", "trigger pending", "trigger_pending", "requested", "am", "after market", "after market order req received", "open", "transit", "placed", "ordered", "pending_confirmation", "pending confirmation", "awaiting_broker", "waiting_for_sells", "manually_placed", "manually placed"],
+    "rejected": ["rejected", "failed", "failure", "error", "declined", "order_not_found", "order not found", "not_found"],
+    "cancelled": ["cancelled", "canceled", "cancelled by user", "cancelled by system"],
+    "partial": ["partially filled", "partial", "partially_filled"],
+    "needs_reconciliation": ["needs_reconciliation", "needs reconciliation"]
+  },
+  "labels": {
+    "complete": "Complete",
+    "pending": "Pending",
+    "rejected": "Rejected",
+    "cancelled": "Cancelled",
+    "partial": "Partial",
+    "needs_reconciliation": "Awaiting broker confirmation",
+    "not_sent": "Not sent",
+    "unknown": "Unknown"
+  }
+}

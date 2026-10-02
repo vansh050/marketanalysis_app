@@ -11,7 +11,7 @@ import CryptoJS from 'react-native-crypto-js';
 
 const PASSPHRASE = 'ApiKeySecret';
 
-const decryptValue = (encrypted) => {
+export const decryptBrokerCredential = (encrypted) => {
   if (!encrypted) return '';
   try {
     const bytes = CryptoJS.AES.decrypt(encrypted, PASSPHRASE);
@@ -46,7 +46,7 @@ export const getStoredBrokerCreds = (userDetails, brokerName) => {
   if (brokerName === 'Fyers') {
     // Field-naming inversion. See FyersConnect.js:345-355.
     return {
-      apiKey: decryptValue(entry.secretKey),    // OAuth secret
+      apiKey: decryptBrokerCredential(entry.secretKey),    // OAuth secret
       secretKey: entry.clientCode || '',         // clientId (plaintext)
       clientCode: entry.clientCode || '',
     };
@@ -63,7 +63,7 @@ export const getStoredBrokerCreds = (userDetails, brokerName) => {
     // totp on every reconnect — that's the best achievable for a
     // PIN-protected broker.
     return {
-      apiKey: decryptValue(entry.apiKey),
+      apiKey: decryptBrokerCredential(entry.apiKey),
       ucc: entry.clientCode || '',
     };
   }
@@ -77,16 +77,16 @@ export const getStoredBrokerCreds = (userDetails, brokerName) => {
     // that field name; legacy GrowwConnectModal doesn't pre-fill at
     // all (legacy bug — every reconnect was a full re-paste).
     return {
-      apiKey: decryptValue(entry.apiKey),
-      totpToken: decryptValue(entry.totp_seed || entry.totpToken),
+      apiKey: decryptBrokerCredential(entry.apiKey),
+      totpToken: decryptBrokerCredential(entry.totp_seed || entry.totpToken),
     };
   }
 
   return {
-    apiKey: decryptValue(entry.apiKey),
-    secretKey: decryptValue(entry.secretKey),
+    apiKey: decryptBrokerCredential(entry.apiKey),
+    secretKey: decryptBrokerCredential(entry.secretKey),
     clientCode: entry.clientCode || '',
   };
 };
 
-export default { getStoredBrokerCreds };
+export default {decryptBrokerCredential, getStoredBrokerCreds};

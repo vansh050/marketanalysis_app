@@ -40,6 +40,8 @@ import { useConfig } from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
 import { useGstConfig } from '../../context/GstConfigContext';
 import { withGst, gstLabel } from '../../utils/gstHelpers';
+import usePlanPaymentAmount from '../../hooks/usePlanPaymentAmount';
+import { normalizePaymentPhone } from '../../utils/paymentPhone';
 import FormatDateTime, { FormatDate } from '../../utils/formatDateTime';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CFPaymentGatewayService } from 'react-native-cashfree-pg-sdk';
@@ -70,11 +72,16 @@ import {
   PayUOneTimePayment,
   PayUSIPayment,
 } from '../../FunctionCall/services/PayUService';
+// NB: `pollDigioStatus` / `checkSubscriptionStatus` are deliberately NOT
+// imported here. They read `subscription.digio_status`, which is unreachable
+// in the pre-payment MITC flow (no subscription exists until after payment)
+// and webhook-dependent besides — that is the 2026-08-01 "customer signs but
+// never reaches payment" bug. Digio-completion checks go through
+// checkDigioDocumentStatus / pollDigioDocumentStatus, which ask Digio itself.
+// They remain exported from PaymentStatusService for other callers; do not
+// re-import them into this file.
 import {
-  checkCashfreePaymentStatus,
-  checkSubscriptionStatus,
   pollPaymentStatus,
-  pollDigioStatus,
   checkDigioDocumentStatus,
   pollDigioDocumentStatus,
   PaymentStatus,
@@ -91,8 +98,10 @@ import {
   getPendingDigio,
   updatePendingPayment,
 } from '../../FunctionCall/services/PendingPaymentManager';
+import {createPaymentCompletionCoordinator} from '../../FunctionCall/services/PaymentCompletionCoordinator';
 import {logPayment} from '../../utils/Logging';
 import {isDigioEnabledFromBackend} from '../../utils/digioConfig';
+import { normalizeKraDob } from '../../utils/normalizeKraDob';
 import {
   Digio,
   DigioConfig,
@@ -107,6 +116,13 @@ import { useComponent } from '../../design/useDesign';
 // Rendered by the container, not the presentation — see the note at the
 // return statement (third-party WebView surfaces are not design surfaces).
 import DigioModal from './DigioModal';
+import DisclaimerModal from './DisclaimerModal';
+import DigioSuccessModal from './DigioSuccessModal';
+import TelegramCollectionModal from './TelegramCollectionModal';
+import DatePickerSection from './DatePickerSection';
+import PayUWebView from '../PayUWebView';
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 function arrayBufferToBase64(buffer) {
   let binary = '';
@@ -116,6 +132,28 @@ function arrayBufferToBase64(buffer) {
   }
   return btoa(binary);
 }
+
+// A 502/503/504 is returned by the reverse proxy while the API process is
+// reconnecting; the request never reached Cashfree. Retry once with the exact
+// same payload before showing a failure. Do not retry any gateway/API response
+// that was actually processed, as payment creation is not safely repeatable.
+const TRANSIENT_PAYMENT_API_STATUSES = new Set([502, 503, 504]);
+const retryPaymentInitialization = async (request) => {
+  try {
+    return await request();
+  } catch (error) {
+    if (!TRANSIENT_PAYMENT_API_STATUSES.has(error?.response?.status)) {
+      throw error;
+    }
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    return request();
+  }
+};
+
+const paymentInitializationErrorMessage = error =>
+  TRANSIENT_PAYMENT_API_STATUSES.has(error?.response?.status)
+    ? 'Our payment service is briefly reconnecting. No payment was started; please try again in a moment.'
+    : error?.response?.data?.message || error?.message || 'Failed to initialize payment. Please try again.';
 
 const MPInvestNowModal = ({
   visible,
@@ -158,7 +196,7 @@ const MPInvestNowModal = ({
   const gradient1 = tokens.colors.brand.gradientStart;
   const gradient2 = tokens.colors.brand.gradientEnd;
   const mainColor = gradient2;
-  const stepCompletedColor = config?.paymentModal?.stepCompletedColor || '#29A400';
+  const stepCompletedColor = config?.paymentModal?.stepCompletedColor || designColor('29a400');
 
   // API configuration from your Postman
   const PDF_API_CONFIG = {
@@ -253,6 +291,12 @@ const MPInvestNowModal = ({
   const appStateRef = useRef(AppState.currentState);
   const pollingShouldStopRef = useRef(false);
   const digioPollingShouldStopRef = useRef(false);
+  const paymentRecoveryCheckRef = useRef(null);
+  const cashfreeCheckoutActiveRef = useRef(false);
+  const paymentCompletionCoordinatorRef = useRef(null);
+  if (!paymentCompletionCoordinatorRef.current) {
+    paymentCompletionCoordinatorRef.current = createPaymentCompletionCoordinator();
+  }
   // Indirection so the background poller (defined above handleDigioSuccess) can
   // route completion through the exact same handler the WebView callback uses.
   // Assigned on every render, read only at call time — no TDZ risk.
@@ -315,7 +359,12 @@ const MPInvestNowModal = ({
     }
   };
   const [isStepTransitioning, setIsStepTransitioning] = useState(false);
-  const [countryCode, setCountryCode] = useState('+91');
+  const paymentPhone = normalizePaymentPhone(
+    mobileNumber,
+    userDetails?.country_code || userDetails?.countryCode || '+91',
+  );
+  const countryCode = paymentPhone.countryCode;
+  const paymentMobileNumber = paymentPhone.nationalNumber;
   const [showDisclaimer, setShowDisclaimer] = useState(false);
 
   const [birthDate, setBirthDate] = useState(
@@ -429,6 +478,9 @@ const MPInvestNowModal = ({
         nextAppState === 'active'
       ) {
         console.log('[MPInvestNowModal] App came to foreground, checking pending payments...');
+        // The native checkout has returned. Its callback and AppState recovery
+        // can arrive in either order; the completion coordinator joins them.
+        cashfreeCheckoutActiveRef.current = false;
         await checkPendingPaymentRecovery();
       }
       appStateRef.current = nextAppState;
@@ -448,7 +500,23 @@ const MPInvestNowModal = ({
 
   // Check and recover pending payment
   const checkPendingPaymentRecovery = async () => {
-    if (!configData || !visible) return;
+    if (!configData || !visible || cashfreeCheckoutActiveRef.current) return;
+    if (paymentRecoveryCheckRef.current) {
+      return paymentRecoveryCheckRef.current;
+    }
+
+    const recoveryCheck = performPendingPaymentRecovery();
+    paymentRecoveryCheckRef.current = recoveryCheck;
+    try {
+      return await recoveryCheck;
+    } finally {
+      if (paymentRecoveryCheckRef.current === recoveryCheck) {
+        paymentRecoveryCheckRef.current = null;
+      }
+    }
+  };
+
+  const performPendingPaymentRecovery = async () => {
 
     try {
       // First check for pending Digio signature (independent of payment)
@@ -561,19 +629,21 @@ const MPInvestNowModal = ({
 
   // Handle completion of pending payment that succeeded
   const handlePendingPaymentCompletion = async (recoveryResult) => {
-    const { pendingPayment, status } = recoveryResult;
+    const {pendingPayment} = recoveryResult;
+    const completionId = pendingPayment.paymentType === PaymentType.RECURRING
+      ? pendingPayment.subscriptionId
+      : pendingPayment.orderId;
 
-    try {
-      setLoading(true);
-      setPaymentPollingMessage('Completing your subscription...');
-
-      // Complete the subscription using CashFreeOneTimePayment
-      if (pendingPayment.paymentType === PaymentType.ONE_TIME) {
-        await CashFreeOneTimePayment({
+    return runCashfreeCompletion(
+      `${pendingPayment.paymentType}:${completionId}`,
+      async () => {
+        if (pendingPayment.paymentType === PaymentType.ONE_TIME) {
+          await CashFreeOneTimePayment({
           paymentDetails: pendingPayment.orderId,
           email: pendingPayment.userEmail,
           name: pendingPayment.userDetails?.name || name,
           panNumber: pendingPayment.userDetails?.pan || panNumber,
+          gstNumber: pendingPayment.userDetails?.gstNumber || gstNumber,
           mobileNumber: pendingPayment.userDetails?.phone || mobileNumber,
           countryCode: pendingPayment.userDetails?.countryCode || countryCode,
           formattedName,
@@ -586,28 +656,21 @@ const MPInvestNowModal = ({
           planDetails,
           configData,
           panCategory: '',
-        });
-
-        // Clear pending payment and show success
-        await clearPendingPayment();
-        setLoading(false);
-        setPaymentPollingMessage('');
-        handlePaymentSuccessWithTelegram();
+          });
+        } else if (pendingPayment.paymentType === PaymentType.RECURRING) {
+          await handlePaymentComplete('ACTIVE', pendingPayment.subscriptionId);
+        } else {
+          throw new Error(`Unsupported payment type: ${pendingPayment.paymentType}`);
+        }
 
         await logPayment('PENDING_PAYMENT_RECOVERED_SUCCESS', {
           orderId: pendingPayment.orderId,
+          subscriptionId: pendingPayment.subscriptionId,
           userEmail: pendingPayment.userEmail,
         }, configData);
-      }
-    } catch (error) {
-      console.error('[MPInvestNowModal] Error completing pending payment:', error);
-      setLoading(false);
-      setPaymentPollingMessage('');
-      Alert.alert(
-        'Recovery Error',
-        'Could not complete your subscription. Please contact support.',
-      );
-    }
+      },
+      {loadingMessage: 'Completing your subscription...'},
+    );
   };
 
   // Background polling for Digio status while the signing WebView is open.
@@ -777,7 +840,7 @@ const MPInvestNowModal = ({
           birthDate &&
           !panError &&
           (specificPlan?.type !== 'model portfolio' ||
-            invetAmount >= specificPlan?.minInvestment)
+            Number(invetAmount) >= Number(specificPlan?.minInvestment || 0))
         );
       case 2:
         return (
@@ -865,11 +928,11 @@ const MPInvestNowModal = ({
       setPanError('Please enter a valid PAN (format ABCDE1234F) to continue.');
       return false;
     }
-    // birthDate is a Date object in this modal; the KRA expects a date string.
-    const dobStr =
-      birthDate instanceof Date
-        ? `${birthDate.getFullYear()}-${String(birthDate.getMonth() + 1).padStart(2, '0')}-${String(birthDate.getDate()).padStart(2, '0')}`
-        : String(birthDate || '').trim();
+    // User data can contain a legacy ISO instant for Indian midnight. Always
+    // submit the intended calendar DOB, never the UTC server day (KRA DOBs are
+    // Indian calendar dates; 2003-07-04T18:30:00.000Z must not become the
+    // previous day).
+    const dobStr = normalizeKraDob(birthDate);
     if (!dobStr) {
       Toast.show({
         type: 'error',
@@ -1372,63 +1435,92 @@ const MPInvestNowModal = ({
   console.log('authUrl>>>>>>', authUrl);
 
   const handlePaymentComplete = async (status, subscriptionId) => {
-    if (status === 'ACTIVE') {
+    if (status !== 'ACTIVE') {
+      throw new Error(`Cashfree subscription is not active: ${status || 'unknown'}`);
+    }
+
+    // Get the durable checkout context. This survives Android recreating the
+    // Activity while the Cashfree app is in the foreground.
+    const userInfoString = await AsyncStorage.getItem('userInfo');
+    const specificPlanString = await AsyncStorage.getItem('specificPlan');
+    const singleStrategyString = await AsyncStorage.getItem(
+      'singleStrategyDetails',
+    );
+
+    const userInfo = userInfoString ? JSON.parse(userInfoString) : null;
+    const pendingSpecificDetails = specificPlanString
+      ? JSON.parse(specificPlanString)
+      : null;
+    const singleStrategyDetails = singleStrategyString
+      ? JSON.parse(singleStrategyString)
+      : null;
+
+    if (!subscriptionId || !userInfo || !pendingSpecificDetails) {
+      throw new Error('Recurring payment recovery context is incomplete');
+    }
+
+    await CashFreeRecurringPayment({
+      paymentDetails: subscriptionId,
+      email: userInfo.email,
+      name: userInfo.name,
+      panNumber: userInfo.panNumber,
+      gstNumber: userInfo.gstNumber,
+      mobileNumber: userInfo.mobileNumber,
+      countryCode: userInfo.countryCode,
+      formattedName: userInfo.formattedName,
+      specificPlan: pendingSpecificDetails,
+      whiteLabelText,
+      telegramId: userInfo?.telegramId,
+      advisorTag,
+      birthDate: userInfo?.birthDate,
+      invetAmount: userInfo?.invetAmount,
+      singleStrategyDetails,
+      configData,
+      panCategory: '',
+    });
+  };
+
+  const runCashfreeCompletion = async (
+    completionKey,
+    completionTask,
+    {loadingMessage = 'Confirming your payment...'} = {},
+  ) => paymentCompletionCoordinatorRef.current.run(completionKey, async () => {
+    try {
+      cashfreeCheckoutActiveRef.current = false;
+      setLoading(true);
+      setLoadingmp(true);
+      setPaymentPollingMessage(loadingMessage);
+
+      // Do not clear durable recovery state or show success until every
+      // server-side completion call has succeeded.
+      await completionTask();
+      await clearPendingPayment();
+      setShowPaymentFail(false);
       handlePaymentSuccessWithTelegram();
-
-      try {
-        // Get stored user data using AsyncStorage
-        const userInfoString = await AsyncStorage.getItem('userInfo');
-        const specificPlanString = await AsyncStorage.getItem('specificPlan');
-        const singleStrategyString = await AsyncStorage.getItem(
-          'singleStrategyDetails',
-        );
-
-        const userInfo = userInfoString ? JSON.parse(userInfoString) : null;
-        const pendingSpecificDetails = specificPlanString
-          ? JSON.parse(specificPlanString)
-          : null;
-        const singleStrategyDetails = singleStrategyString
-          ? JSON.parse(singleStrategyString)
-          : null;
-
-        // Process successful payment
-        if (userInfo && pendingSpecificDetails) {
-          await CashFreeRecurringPayment({
-            paymentDetails: subscriptionId,
-            email: userInfo.email,
-            name: userInfo.name,
-            panNumber: userInfo.panNumber,
-            mobileNumber: userInfo.mobileNumber,
-            countryCode: userInfo.countryCode,
-            formattedName: userInfo.formattedName,
-            specificPlan: pendingSpecificDetails,
-            whiteLabelText,
-            telegramId: userInfo?.telegramId,
-            advisorTag,
-            birthDate: userInfo?.birthDate,
-            invetAmount: userInfo?.invetAmount,
-            singleStrategyDetails: singleStrategyDetails,
-            configData,
-            panCategory: '',
-          });
-
-          // Clear pending payment after successful recurring payment completion
-          await clearPendingPayment();
-        }
-      } catch (error) {
-        console.error('Error retrieving payment session data:', error);
-        setPaymentSuccess(false);
-        setShowPaymentFail(true);
-        setLoadingmp(false);
-        onClose();
-      }
-    } else {
+      return true;
+    } catch (error) {
+      console.error('[Cashfree] Post-payment completion failed:', error);
       setPaymentSuccess(false);
       setShowPaymentFail(true);
+      await logPayment('CASHFREE_POST_PAYMENT_COMPLETION_ERROR', {
+        completionKey,
+        message: error?.message,
+        userEmail,
+        advisor: advisorTag,
+        platform: Platform.OS,
+        osVersion: String(Platform.Version),
+      }, configData).catch(() => {});
+      Alert.alert(
+        'Payment received — completion pending',
+        'We could not finish activating your subscription yet. Your payment is saved and the app will retry safely when you return.',
+      );
+      return false;
+    } finally {
+      setLoading(false);
       setLoadingmp(false);
-      onClose();
+      setPaymentPollingMessage('');
     }
-  };
+  });
 
   const onErrorCountRef = useRef(0);
 
@@ -1472,9 +1564,9 @@ const MPInvestNowModal = ({
         {
           amount: onetimeamount,
           plan_id: plandata?._id,
-          customerId: `A-${mobileNumber}`,
+          customerId: `A-${paymentMobileNumber}`,
           user_email: userEmail,
-          mobileNumber: mobileNumber,
+          mobileNumber: paymentMobileNumber,
           advisor: advisorTag,
           name: name,
           panNumber: panNumber,
@@ -1523,7 +1615,12 @@ const MPInvestNowModal = ({
       const paymentSessionId = response?.data?.data?.payment_session_id;
       const subscriptionId = response?.data?.subscription?.id;
       if (!paymentId || !paymentSessionId) {
-        throw new Error('Missing payment session data from server');
+        // Prefer the server's own refusal text (e.g. an existing mandate) over
+        // a generic message — same HTTP-200-with-status-false shape as the
+        // recurring path above.
+        throw new Error(
+          response?.data?.message || 'Missing payment session data from server',
+        );
       }
 
       setCurrentPaymentId(paymentId);
@@ -1562,10 +1659,14 @@ const MPInvestNowModal = ({
           name,
           email: userEmail,
           pan: panNumber,
-          phone: mobileNumber,
+          gstNumber,
+          phone: paymentMobileNumber,
           countryCode,
         },
         digioRequired: isDigioEnabled,
+        couponId: appliedCouponId,
+        couponCode: couponCode || appliedCoupon?.couponCode || appliedCoupon?.code || null,
+        gateway: 'cashfree',
       });
       await savePendingPayment(pendingPaymentData);
       console.log('[OneTime] Saved pending payment for recovery:', paymentId);
@@ -1583,15 +1684,17 @@ const MPInvestNowModal = ({
             clearTimeout(handledOrderIds.timeout);
           }
           pollingShouldStopRef.current = true;
+          cashfreeCheckoutActiveRef.current = false;
           console.log('[OneTime] Payment verified for orderId:', orderId);
-          // Clear pending payment on successful callback
-          await clearPendingPayment();
-          handlePaymentSuccessWithTelegram();
-          setShowPaymentFail(false);
-          setLoading(false);
-          handlePaymentVerification(orderId);
-          CFPaymentGatewayService.removeCallback();
-          CFPaymentGatewayService.removeEventSubscriber();
+          try {
+            await runCashfreeCompletion(
+              `one_time:${orderId}`,
+              () => handlePaymentVerification(orderId),
+            );
+          } finally {
+            CFPaymentGatewayService.removeCallback();
+            CFPaymentGatewayService.removeEventSubscriber();
+          }
         },
         onError: async (error, orderId) => {
           const errorKey =
@@ -1605,6 +1708,7 @@ const MPInvestNowModal = ({
             clearTimeout(handledOrderIds.timeout);
           }
           pollingShouldStopRef.current = true;
+          cashfreeCheckoutActiveRef.current = false;
 
           console.error('[OneTime] Payment Error:', error, 'Order:', orderId);
 
@@ -1672,12 +1776,12 @@ const MPInvestNowModal = ({
         .build();
 
       const theme = new CFThemeBuilder()
-        .setNavigationBarBackgroundColor('#94ee95')
-        .setNavigationBarTextColor('#FFFFFF')
-        .setButtonBackgroundColor('#FFC107')
-        .setButtonTextColor('#FFFFFF')
-        .setPrimaryTextColor('#212121')
-        .setSecondaryTextColor('#757575')
+        .setNavigationBarBackgroundColor(designColor('94ee95'))
+        .setNavigationBarTextColor(designColor('ffffff'))
+        .setButtonBackgroundColor(designColor('ffc107'))
+        .setButtonTextColor(designColor('ffffff'))
+        .setPrimaryTextColor(designColor('212121'))
+        .setSecondaryTextColor(designColor('757575'))
         .build();
 
       const dropPayment = new CFDropCheckoutPayment(
@@ -1718,14 +1822,16 @@ const MPInvestNowModal = ({
         if (pollResult.status === PaymentStatus.SUCCESS) {
           console.log('[OneTime] Payment confirmed via polling');
           pollingShouldStopRef.current = true;
-          await clearPendingPayment();
-          setPaymentPollingMessage('');
-          handlePaymentSuccessWithTelegram();
-          setShowPaymentFail(false);
-          setLoading(false);
-          handlePaymentVerification(paymentId);
-          CFPaymentGatewayService.removeCallback();
-          CFPaymentGatewayService.removeEventSubscriber();
+          cashfreeCheckoutActiveRef.current = false;
+          try {
+            await runCashfreeCompletion(
+              `one_time:${paymentId}`,
+              () => handlePaymentVerification(paymentId),
+            );
+          } finally {
+            CFPaymentGatewayService.removeCallback();
+            CFPaymentGatewayService.removeEventSubscriber();
+          }
         } else if (pollResult.status === PaymentStatus.FAILED) {
           console.log('[OneTime] Payment failed via polling');
           pollingShouldStopRef.current = true;
@@ -1760,6 +1866,7 @@ const MPInvestNowModal = ({
 
       try {
         console.log('[OneTime] Initiating Cashfree payment with environment:', cfEnvironment);
+        cashfreeCheckoutActiveRef.current = true;
         CFPaymentGatewayService.doPayment(dropPayment);
 
         // Start polling in background after initiating payment
@@ -1772,6 +1879,7 @@ const MPInvestNowModal = ({
         // actionable "install from Play Store" message instead of leaving the
         // spinner running for the full ~5-min poll. See utils/cashfreeEnv.js.
         pollingShouldStopRef.current = true;
+        cashfreeCheckoutActiveRef.current = false;
         console.error('[OneTime] SDK doPayment error:', sdkError);
         logPayment('CASHFREE_ONETIME_SDK_ERROR', {
           orderId: paymentId,
@@ -1818,8 +1926,7 @@ const MPInvestNowModal = ({
   // == Deduplicated Payment Verification Handler ==
   const handlePaymentVerification = async orderID => {
     console.log('this hit00000000', orderID);
-    try {
-      const verificationResponse = await axios.get(
+    const verificationResponse = await axios.get(
         `${server.server.baseUrl}api/cashfree`,
         {
           headers: {
@@ -1833,17 +1940,21 @@ const MPInvestNowModal = ({
           params: { orderId: orderID },
         },
       );
-      const checkPaymentStatus = verificationResponse?.data?.data[0];
-      const res = verificationResponse.data?.data[0];
-      console.log('Here pay1');
-      if (res?.payment_status === 'SUCCESS') {
-        let telegramId = '';
-        console.log('this hitting-----');
-        await CashFreeOneTimePayment({
+    const payments = verificationResponse?.data?.data;
+    const paymentAttempts = Array.isArray(payments) ? payments : [payments].filter(Boolean);
+    const res = paymentAttempts.find(
+      payment => ['SUCCESS', 'PAID'].includes(payment?.payment_status),
+    );
+    if (!res) {
+      throw new Error('Cashfree payment has not been confirmed by the server');
+    }
+
+    await CashFreeOneTimePayment({
           paymentDetails: res?.order_id,
           email: userEmail,
           name,
           panNumber,
+          gstNumber,
 
           mobileNumber,
           countryCode,
@@ -1857,19 +1968,8 @@ const MPInvestNowModal = ({
           planDetails,
           configData,
           panCategory: '',
-        });
-        // Clear pending payment on successful completion
-        await clearPendingPayment();
-        setLoading(false);
-        handlePaymentSuccessWithTelegram();
-      } else {
-        setLoading(false);
-        setShowPaymentFail(true);
-      }
-    } catch (error) {
-      console.error('Verification error:', error, error.data, error.message);
-      setShowPaymentFail(true);
-    }
+    });
+    return true;
   };
 
   //CF END
@@ -1880,12 +1980,13 @@ const MPInvestNowModal = ({
     try {
       setLoadingmp(true);
 
-      const response = await axios.post(
-        `${server.server.baseUrl}api/cashfree/subscription/create/payment`,
-        {
+      const response = await retryPaymentInitialization(() =>
+        axios.post(
+          `${server.server.baseUrl}api/cashfree/subscription/create/payment`,
+          {
           plan_id: strategyDetails?._id,
           user_email: userEmail,
-          mobileNumber: mobileNumber,
+          mobileNumber: paymentMobileNumber,
           name: name,
           appliedCouponId,
           panNumber: panNumber,
@@ -1898,8 +1999,8 @@ const MPInvestNowModal = ({
           telegramId: telegramId,
           capital: invetAmount,
           couponId: appliedCouponId,
-        },
-        {
+          },
+          {
           headers: {
             'Content-Type': 'application/json',
             'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
@@ -1908,7 +2009,8 @@ const MPInvestNowModal = ({
               Config.REACT_APP_AQ_SECRET,
             ),
           },
-        },
+          },
+        ),
       );
       setLoadingmp(false);
 
@@ -1921,6 +2023,26 @@ const MPInvestNowModal = ({
       // Cashfree's hosted checkout rendered its raw error page
       // ("payload: <no value> / errorMessage: no referrer…") instead of
       // the payment UI (alphanomy, 2026-06-12).
+      // The server answers HTTP 200 even when it REFUSES (ResponseHelper.apiNew
+      // always does res.status(200).json({status:false, message, ...})), so
+      // axios resolves and nothing here failed loudly. On a refusal there is no
+      // `data.data`, so both ids below are undefined — and handing undefined to
+      // CFSubscriptionSession makes the Cashfree SDK throw "Cannot read property
+      // 'trim' of undefined" from inside its own validation. The customer saw
+      // that instead of the real reason, e.g. "A CashFree mandate for this plan
+      // already exists ... Please contact your advisor."
+      //
+      // Check the refusal FIRST and surface the server's own message.
+      if (response?.data?.status === false || !response?.data?.data) {
+        setLoadingmp(false);
+        Alert.alert(
+          'Unable to start payment',
+          response?.data?.message ||
+            'We could not start this payment. Please try again or contact support.',
+        );
+        return;
+      }
+
       const subsSessionId = response?.data?.data?.subscription_session_id;
       const orderId = response?.data?.data?.order_id;
       const redirectTarget = '_self';
@@ -1929,6 +2051,7 @@ const MPInvestNowModal = ({
         email: userEmail,
         name,
         panNumber,
+        gstNumber,
         mobileNumber,
         countryCode,
         formattedName,
@@ -1958,6 +2081,10 @@ const MPInvestNowModal = ({
         planDetails: strategyDetails,
         userDetails: userInfo,
         digioRequired: isDigioEnabled,
+        couponId: appliedCouponId,
+        couponCode: couponCode || appliedCoupon?.couponCode || appliedCoupon?.code || null,
+        gateway: 'cashfree',
+        frequency: selectedCard,
       });
       await savePendingPayment(pendingPaymentData);
       console.log('[CF Recurring] Saved pending payment for recovery:', orderId);
@@ -1969,11 +2096,16 @@ const MPInvestNowModal = ({
         onVerify: async subscriptionId => {
           console.log('[CF Recurring] Subscription verified:', subscriptionId);
           pollingShouldStopRef.current = true;
-          await clearPendingPayment();
-          handlePaymentSuccessWithTelegram();
-          handlePaymentComplete('ACTIVE', subscriptionId);
-          CFPaymentGatewayService.removeCallback();
-          CFPaymentGatewayService.removeEventSubscriber();
+          cashfreeCheckoutActiveRef.current = false;
+          try {
+            await runCashfreeCompletion(
+              `recurring:${subscriptionId}`,
+              () => handlePaymentComplete('ACTIVE', subscriptionId),
+            );
+          } finally {
+            CFPaymentGatewayService.removeCallback();
+            CFPaymentGatewayService.removeEventSubscriber();
+          }
         },
         onError: async (error, subscriptionId) => {
           console.error('[CF Recurring] Payment error:', error);
@@ -1994,6 +2126,7 @@ const MPInvestNowModal = ({
             advisor: advisorTag,
           }, configData);
           pollingShouldStopRef.current = true;
+          cashfreeCheckoutActiveRef.current = false;
 
           const isCancellation = error?.code === 'CANCELLED' ||
             error?.code === 'USER_CANCELLED' ||
@@ -2004,7 +2137,8 @@ const MPInvestNowModal = ({
           }
 
           setPaymentSuccess(false);
-          handlePaymentComplete('FAIL', subscriptionId);
+          setShowPaymentFail(true);
+          setLoadingmp(false);
           CFPaymentGatewayService.removeCallback();
           CFPaymentGatewayService.removeEventSubscriber();
         },
@@ -2017,6 +2151,17 @@ const MPInvestNowModal = ({
       });
 
       const subscriptionId = response?.data?.data?.subscription_id;
+      // Never construct a Cashfree session from a missing id — that is what
+      // surfaced as the opaque `.trim()` crash.
+      if (!subsSessionId || !subscriptionId) {
+        setLoadingmp(false);
+        Alert.alert(
+          'Unable to start payment',
+          response?.data?.message ||
+            'The payment session could not be created. Please try again or contact support.',
+        );
+        return;
+      }
       console.log('End of this--', subsSessionId, orderId);
       const session = new CFSubscriptionSession(
         subsSessionId,
@@ -2024,14 +2169,22 @@ const MPInvestNowModal = ({
         getCashfreeEnvironment(),
       );
 
+      cashfreeCheckoutActiveRef.current = true;
       CFPaymentGatewayService.doSubscriptionPayment(session);
     } catch (err) {
       // doSubscriptionPayment throws synchronously on the same native
       // install-source block as the one-time path. Surface the actionable
       // Play-Store message rather than a generic "Failed to initialize".
+      cashfreeCheckoutActiveRef.current = false;
       setLoadingmp(false);
       const _d = describeCashfreeDecline(err);
-      Alert.alert(_d.title, _d.message);
+      const message = paymentInitializationErrorMessage(err);
+      Alert.alert(
+        TRANSIENT_PAYMENT_API_STATUSES.has(err?.response?.status)
+          ? 'Payment temporarily unavailable'
+          : _d.title,
+        TRANSIENT_PAYMENT_API_STATUSES.has(err?.response?.status) ? message : _d.message,
+      );
       console.error('[CF Recurring] Payment failed to initialize:', err?.message, err.response);
     }
   };
@@ -2056,7 +2209,7 @@ const MPInvestNowModal = ({
         amount,
         user_email: userEmail,
         name,
-        phone: mobileNumber,
+        phone: paymentMobileNumber,
         plan_id: plandata?._id,
         duration: oneTimeDurationPlan || 30,
         couponId: appliedCouponId,
@@ -2102,11 +2255,13 @@ const MPInvestNowModal = ({
           name,
           email: userEmail,
           pan: panNumber,
-          phone: mobileNumber,
+          phone: paymentMobileNumber,
           countryCode,
         },
         digioRequired: isDigioEnabled,
         gateway: 'payu',
+        couponId: appliedCouponId,
+        couponCode: couponCode || appliedCoupon?.couponCode || appliedCoupon?.code || null,
       });
       await savePendingPayment(pendingPaymentData);
       console.log('[PayU] Saved pending payment for recovery:', response.data.txnid);
@@ -2145,7 +2300,7 @@ const MPInvestNowModal = ({
         amount,
         user_email: userEmail,
         name,
-        phone: mobileNumber,
+        phone: paymentMobileNumber,
         plan_id: plandata?._id,
         frequency,
         duration: 12,
@@ -2178,12 +2333,14 @@ const MPInvestNowModal = ({
           name,
           email: userEmail,
           pan: panNumber,
-          phone: mobileNumber,
+          phone: paymentMobileNumber,
           countryCode,
         },
         digioRequired: isDigioEnabled,
         gateway: 'payu',
         frequency,
+        couponId: appliedCouponId,
+        couponCode: couponCode || appliedCoupon?.couponCode || appliedCoupon?.code || null,
       });
       await savePendingPayment(pendingPaymentData);
       console.log('[PayU SI] Saved pending payment for recovery:', response.data.txnid);
@@ -2326,6 +2483,14 @@ const MPInvestNowModal = ({
   // END PAYU PAYMENT FUNCTIONS
 
   const handlePaymentType = async () => {
+    if (!paymentPhone.e164) {
+      Alert.alert(
+        'Check your phone number',
+        'Update your profile with the correct country code and phone number before starting payment.',
+      );
+      return;
+    }
+
     if (payu) {
       if (selectedPlanType === 'recurring') {
         initiatePayUSIPayment(plandata, selectedCard);
@@ -2428,30 +2593,42 @@ const MPInvestNowModal = ({
   };
 
   const handleDigioPayment = async () => {
-    await updateLeadUser();
+    // Immediate feedback across the WHOLE digio sequence — lead-user update,
+    // server digio-status check, MITC PDF download + upload are several
+    // sequential network calls, but previously `loading` only became true
+    // inside openDigioModal (i.e. after the first two calls), leaving a dead
+    // period with no spinner after "Complete Investment" (2026-08-17).
+    setLoading(true);
+    try {
+      await updateLeadUser();
 
-    if (!isDigioEnabled) {
-      console.log('Digio is disabled for this advisor, proceeding to payment');
-      handlePaymentType();
-      return;
-    }
+      if (!isDigioEnabled) {
+        console.log('Digio is disabled for this advisor, proceeding to payment');
+        handlePaymentType();
+        return;
+      }
 
-    // Authoritative server-side check (matches web). Replaces the stale cached
-    // advisorSpecificUserDetails?.digio_verification guard that re-prompted
-    // already-signed users.
-    const alreadyCompleted = await isDigioAlreadyCompleted(specificPlan?._id);
-    if (alreadyCompleted) {
-      console.log('[Digio] Already completed (server check) — skipping Digio');
-      handlePaymentType();
-      return;
-    }
+      // Authoritative server-side check (matches web). Replaces the stale cached
+      // advisorSpecificUserDetails?.digio_verification guard that re-prompted
+      // already-signed users.
+      const alreadyCompleted = await isDigioAlreadyCompleted(specificPlan?._id);
+      if (alreadyCompleted) {
+        console.log('[Digio] Already completed (server check) — skipping Digio');
+        handlePaymentType();
+        return;
+      }
 
-    if (digioCheck === 'beforePayment') {
-      openDigioModal();
-    } else if (digioCheck === 'afterPayment') {
-      handlePaymentType();
-    } else {
-      handlePaymentType();
+      if (digioCheck === 'beforePayment') {
+        // openDigioModal sets its own loading(true/false); awaiting it keeps
+        // the spinner up until the modal actually opens.
+        await openDigioModal();
+      } else if (digioCheck === 'afterPayment') {
+        handlePaymentType();
+      } else {
+        handlePaymentType();
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -2549,13 +2726,13 @@ const MPInvestNowModal = ({
         color: 'black',
         fontSize: 12,
         fontWeight: 0,
-        fontFamily: 'Poppins-Medium',
+        fontFamily: designFont('Poppins-Medium'),
       },
 
       text2Style: {
         color: 'black',
         fontSize: 13,
-        fontFamily: 'Poppins-Regular',
+        fontFamily: designFont('Poppins-Regular'),
       },
     });
   };
@@ -2613,7 +2790,7 @@ const MPInvestNowModal = ({
           telegramId: telegramId,
           birthDate: birthDate,
           capital: invetAmount,
-          mobileNumber: mobileNumber,
+          mobileNumber: paymentMobileNumber,
           countryCode: countryCode,
           couponId: appliedCouponId,
         },
@@ -2690,7 +2867,7 @@ const MPInvestNowModal = ({
             email: userEmail,
           },
           theme: {
-            color: '#F37254',
+            color: designColor('f37254'),
           },
         };
 
@@ -2833,6 +3010,7 @@ const MPInvestNowModal = ({
         location: data.location || '',
         telegram: telegramId || '',
         pan: panNumber || '',
+        gstNumber: gstNumber || '',
         creationDate: FormatDateTime(new Date()),
         comments: data.comments || '',
         advisorName: advisorTag,
@@ -2924,7 +3102,7 @@ const MPInvestNowModal = ({
         advisor: advisorTag,
         name: name,
         panNumber: panNumber,
-        mobileNumber: mobileNumber,
+        mobileNumber: paymentMobileNumber,
         birthDate: birthDate,
         capital: invetAmount,
         telegramId: telegramId,
@@ -2942,7 +3120,7 @@ const MPInvestNowModal = ({
           advisor: advisorTag,
           name: name,
           panNumber: panNumber,
-          mobileNumber: mobileNumber,
+          mobileNumber: paymentMobileNumber,
           birthDate: birthDate,
           capital: invetAmount,
           telegramId: telegramId,
@@ -2996,7 +3174,7 @@ const MPInvestNowModal = ({
             contact: '',
             name: '',
           },
-          theme: { color: '#F37254' },
+          theme: { color: designColor('f37254') },
         };
 
         try {
@@ -3161,7 +3339,7 @@ const MPInvestNowModal = ({
           userEmail: userEmail,
           model: strategyDetails?.model_name,
           advisor: configData?.config?.REACT_APP_HEADER_NAME,
-          model_id: latestRebalance.model_Id,
+          model_id: latestRebalance?.model_Id,
           userBroker: broker ? broker : '',
           subscriptionAmountRaw: [
             {
@@ -3451,129 +3629,27 @@ const MPInvestNowModal = ({
     setIsApplyingCoupon(false);
   };
 
-  let price = '';
-  let oldPrice = '';
-  let saveText = '';
-  let total = '';
-  let durationText = '';
-
-  // Common variables
   const gstText = gstLabel(configGst, configGstWithText);
-  const hasDiscount = specificPlan?.discountPercentage > 0;
-
-  const displayAmount = (base) => {
-    const amt = Number(base || 0);
-    return configGst && configGstWithText ? withGst(amt) : amt;
+  const displayAmount = base => {
+    const amount = Number(base || 0);
+    return configGst && configGstWithText ? withGst(amount) : amount;
   };
-  const paymentAmount = (base) => {
-    const amt = Number(base || 0);
-    return configGst ? withGst(amt) : amt;
+  const paymentAmount = base => {
+    const amount = Number(base || 0);
+    return configGst ? withGst(amount) : amount;
   };
-
-  if (selectedPlanType === 'recurring' && selectedCard) {
-    console.log('selected Card here------', selectedCard);
-    durationText =
-      selectedCard?.charAt(0)?.toUpperCase() + selectedCard?.slice(1);
-    const offerDetails = appliedCoupon
-      ? specificPlan?.offer_plans_details?.find(
-          (detail) => detail.couponId?.toString() === appliedCouponId?.toString(),
-        )
-      : specificPlan?.offer_plans_details?.[0];
-
-    if (appliedCoupon && offerDetails) {
-      const originalRecurringAmount =
-        specificPlan?.pricingWithoutGst?.[selectedCard];
-      const discountedRecurringAmount = Math?.round(
-        offerDetails?.pricingWithoutGst?.[selectedCard],
-      );
-      oldPrice = `₹${originalRecurringAmount}`;
-      price = `₹${displayAmount(discountedRecurringAmount)}${gstText}`;
-      saveText = 'Coupon Applied';
-      total = price;
-      setOneTimeAmount(paymentAmount(discountedRecurringAmount));
-    } else if (hasDiscount) {
-      const discountedAmount = specificPlan.pricingWithoutGst?.[selectedCard];
-      const mrp = Math.round(
-        discountedAmount * (100 / (100 - specificPlan.discountPercentage)),
-      );
-      oldPrice = `₹${mrp}`;
-      price = `₹${displayAmount(discountedAmount)}${gstText}`;
-      saveText = `${specificPlan.discountPercentage}% OFF`;
-      total = price;
-      setOneTimeAmount(paymentAmount(discountedAmount));
-    } else {
-      const recurringAmount = specificPlan.pricingWithoutGst?.[selectedCard];
-      oldPrice = '';
-      price = `₹${displayAmount(recurringAmount)}${gstText}`;
-      saveText = '';
-      total = price;
-      setOneTimeAmount(paymentAmount(recurringAmount));
-    }
-  } else {
-    const selectedOnetimeOption = specificPlan.onetimeOptions.find(
-      (opt, idx) => `onetime-${opt.id || idx}` === selectedCard,
-    );
-
-    const originalAmount = Number(
-      selectedOnetimeOption?.amountWithoutGst ||
-      specificPlan?.onetimeOptions?.[0]?.amountWithoutGst ||
-      0,
-    );
-    const durationInDays =
-      selectedOnetimeOption?.duration ||
-      specificPlan?.onetimeOptions?.[0]?.duration;
-
-    if (durationInDays) {
-      durationText = `${durationInDays} Days`;
-    } else {
-      durationText = 'One-Time Payment';
-    }
-
-    if (appliedCoupon) {
-      if (appliedCoupon?.discountType === 'percentage') {
-        const discounted = Math.round(
-          originalAmount -
-          (originalAmount * appliedCoupon?.discountValue) / 100,
-        );
-        oldPrice = `₹${displayAmount(originalAmount)}${gstText}`;
-        price = `₹${displayAmount(discounted)}${gstText}`;
-        saveText = `Coupon ${appliedCoupon?.discountValue}% Off`;
-        total = price;
-        setOneTimeAmount(paymentAmount(discounted));
-      } else {
-        const discounted = Math.round(
-          originalAmount - appliedCoupon?.discountValue,
-        );
-        oldPrice = `₹${displayAmount(originalAmount)}${gstText}`;
-        price = `₹${displayAmount(discounted)}${gstText}`;
-        saveText = `Coupon ₹${appliedCoupon?.discountValue} Off`;
-        total = price;
-        setOneTimeAmount(paymentAmount(discounted));
-      }
-    } else if (hasDiscount) {
-      const mrp = Math.round(
-        originalAmount * (1 + specificPlan.discountPercentage / 100),
-      );
-      oldPrice = `₹${displayAmount(mrp)}${gstText}`;
-      price = `₹${displayAmount(originalAmount)}${gstText}`;
-      saveText = `${specificPlan.discountPercentage}% OFF`;
-      total = price;
-      setOneTimeAmount(paymentAmount(originalAmount));
-    } else {
-      oldPrice = '';
-      price = `₹${displayAmount(originalAmount)}${gstText}`;
-      saveText = '';
-      total = price;
-      setOneTimeAmount(paymentAmount(originalAmount));
-    }
-  }
+  usePlanPaymentAmount(
+    {specificPlan, selectedPlanType, selectedCard, appliedCoupon, appliedCouponId, configGst},
+    onetimeamount,
+    setOneTimeAmount,
+  );
 
   const isDisabled =
     ((specificPlan?.frequency?.length > 0 ||
       specificPlan?.onetimeOptions?.length > 0) &&
       !selectedCard) ||
     (specificPlan?.type !== 'bespoke' &&
-      !(invetAmount >= specificPlan?.minInvestment));
+      !(Number(invetAmount) >= Number(specificPlan?.minInvestment || 0)));
 
   // Compute plan type label for presentation
   const planTypeLabel = (planDetails?.type || specificPlan?.type)
@@ -3739,7 +3815,17 @@ const MPInvestNowModal = ({
   // See docs/DESIGN_SYSTEM_ARCHITECTURE.md § "What does NOT belong in a variant".
   return (
     <>
-      <Presentation viewModel={viewModel} actions={actions} />
+      <Presentation
+        viewModel={viewModel}
+        actions={actions}
+        slots={{
+          DisclaimerModal,
+          DigioSuccessModal,
+          TelegramCollectionModal,
+          DatePickerSection,
+          PayUWebView,
+        }}
+      />
 
       {digioModalOpen ? (
         <DigioModal

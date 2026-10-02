@@ -3,6 +3,13 @@
  * Provides polyfills and global mocks needed by the test suite.
  */
 
+// React strips `act()` from its production build, which hook tests need
+// (react-test-renderer). Some shells export NODE_ENV=production, and jest
+// inherits it, so pin the development build for the suite explicitly.
+if (process.env.NODE_ENV === 'production') {
+  process.env.NODE_ENV = 'test';
+}
+
 // Polyfill for btoa/atob (used in brokerAuth.js)
 if (typeof global.btoa === 'undefined') {
   global.btoa = (str) => Buffer.from(str, 'binary').toString('base64');

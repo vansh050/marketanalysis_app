@@ -2,7 +2,7 @@
 progname="${0##*/}"
 progname="${progname%.sh}"
 
-# usage: check_elf_alignment.sh [path to *.so files|path to *.apk]
+# usage: check_elf_alignment.sh [path to *.so files|path to *.apk|path to *.aab]
 
 cleanup_trap() {
   if [ -n "${tmp}" -a -d "${tmp}" ]; then
@@ -65,6 +65,22 @@ if [[ "${dir}" == *.apk ]]; then
   dir="${tmp}"
 fi
 
+if [[ "${dir}" == *.aab ]]; then
+  trap 'cleanup_trap' EXIT
+
+  echo
+  echo "Recursively analyzing $dir"
+  echo
+
+  dir_filename=$(basename "${dir}")
+  tmp=$(mktemp -d -t "${dir_filename%.aab}_out_XXXXX")
+  unzip "${dir}" 'base/lib/*' -d "${tmp}" >/dev/null 2>&1 || {
+    echo "Failed to extract native libraries from AAB." >&2
+    exit 1
+  }
+  dir="${tmp}"
+fi
+
 if [[ "${dir}" == *.apex ]]; then
   trap 'cleanup_trap' EXIT
 
@@ -96,6 +112,10 @@ for match in $matches; do
 
   [[ $(file "${match}") == *"ELF"* ]] || continue
 
+  # Android's 16 KB page-size requirement applies to 64-bit device ABIs.
+  # 32-bit armeabi-v7a libraries legitimately retain 4 KB LOAD alignment.
+  [[ "${match}" == *"/arm64-v8a/"* || "${match}" == *"/x86_64/"* ]] || continue
+
   res="$(objdump -p "${match}" | grep LOAD | awk '{ print $NF }' | head -1)"
   if [[ $res =~ 2\*\*(1[4-9]|[2-9][0-9]|[1-9][0-9]{2,}) ]]; then
     echo -e "${match}: ${GREEN}ALIGNED${ENDCOLOR} ($res)"
@@ -106,7 +126,8 @@ for match in $matches; do
 done
 
 if [ ${#unaligned_libs[@]} -gt 0 ]; then
-  echo -e "${RED}Found ${#unaligned_libs[@]} unaligned libs (only arm64-v8a/x86_64 libs need to be aligned).${ENDCOLOR}"
+  echo -e "${RED}Found ${#unaligned_libs[@]} unaligned 64-bit libs.${ENDCOLOR}"
+  exit 1
 elif [ -n "${dir_filename}" ]; then
   echo -e "ELF Verification Successful"
 fi

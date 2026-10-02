@@ -1,53 +1,40 @@
 import React, { useState } from "react";
-import {
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    ScrollView,
-    Image,
-    Modal,
-    SafeAreaView,
-    Platform,
-} from "react-native";
-import moment from "moment";
-import axios from "axios";
-import Config from "react-native-config";
-import server from "../../utils/serverConfig";
-import { generateToken } from "../../utils/SecurityTokenManager";
-import { Linking } from "react-native";
-import RNFS from "react-native-fs";
-import Share from "react-native-share";
-import { decode as atob } from "base-64";
-import YoutubePlayer from 'react-native-youtube-iframe';
-import { Video, Play, BookOpen, FileText, ArrowLeft, XIcon, Download, Clock, ChevronLeft } from "lucide-react-native";
+import {Linking, Platform} from 'react-native';
+import moment from 'moment';
+import axios from 'axios';
+import Config from 'react-native-config';
+import RNFS from 'react-native-fs';
+import {decode as atob} from 'base-64';
 import { useNavigation } from "@react-navigation/native";
 import Toast from "react-native-toast-message";
-import { WebView } from "react-native-webview";
 import { useTrade } from "../../screens/TradeContext";
 import LinkOpeningWeb from "../../screens/Home/NewsScreen/LinkOpeningWeb";
 import FileViewer from 'react-native-file-viewer';
-import LinearGradient from "react-native-linear-gradient";
 import { useConfig } from "../../context/ConfigContext";
+import {getAdvisorContentProfile} from '../../utils/advisorContentProfile';
+import server from '../../utils/serverConfig';
+import {generateToken} from '../../utils/SecurityTokenManager';
 
+import {designColor, designFont} from '../../design/literalTokens';
+import {useComponent} from '../../design/useDesign';
+
+// Classify a video from /misc/videos: youtube | vimeo | direct (mp4/webm).
+// Older rows carry no video_type → default to youtube.
 const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
+    const advisorContent = getAdvisorContentProfile();
+    const navigationHook = useNavigation();
     const {configData}=useTrade();
 
     // Get dynamic gradient colors from config
     const config = useConfig();
-    const gradient1 = config?.gradient1 || '#0076FB';
-    const gradient2 = config?.gradient2 || '#002651';
-    const mainColor = config?.mainColor || '#0056B7';
-    const navigation = props.navigation || useNavigation();
+    const gradient1 = config?.gradient1 || designColor('0076fb');
+    const gradient2 = config?.gradient2 || designColor('002651');
+    const mainColor = config?.mainColor || designColor('0056b7');
+    const navigation = props.navigation || navigationHook;
     const { blogs, pdf, videos } = useTrade();
     const [activeTab, setActiveTab] = useState("Videos");
     const [selectedBlog, setSelectedBlog] = useState(null);
 
-    const tabs = [
-        { id: "Videos", label: "Videos", iconComponent: Video },
-        { id: "Blogs", label: "Blogs", iconComponent: BookOpen },
-        { id: "PDFs", label: "PDFs", iconComponent: FileText },
-    ];
 
     const convertToTimeAgo = (dateString) => {
         return moment(dateString).fromNow();
@@ -103,12 +90,12 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
                 color: "black",
                 fontSize: 11,
                 fontWeight: 0,
-                fontFamily: "Poppins-Medium",
+                fontFamily: designFont('Poppins-Medium'),
             },
             text2Style: {
                 color: "black",
                 fontSize: 12,
-                fontFamily: "Poppins-Regular",
+                fontFamily: designFont('Poppins-Regular'),
             },
         });
     };
@@ -223,11 +210,11 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
       line-height: 1.8;
       margin: 0;
       padding: 20px;
-      background-color: #ffffff;
-      color: #333;
+      background-color: ${designColor('ffffff')};
+      color: ${designColor('333')};
     }
     h1 {
-      color: #1a1a1a;
+      color: ${designColor('1a1a1a')};
       font-size: 24px;
       margin-top: 0;
       margin-bottom: 16px;
@@ -235,7 +222,7 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
       line-height: 1.3;
     }
     h2, h3, h4, h5, h6 {
-      color: #2c3e50;
+      color: ${designColor('2c3e50')};
       margin-top: 28px;
       margin-bottom: 16px;
       font-weight: 600;
@@ -258,33 +245,33 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
       margin: 20px 0;
     }
     a {
-      color: #3498db;
+      color: ${designColor('3498db')};
       text-decoration: none;
       border-bottom: 1px solid rgba(52, 152, 219, 0.3);
       transition: border-color 0.2s;
     }
     a:hover {
-      border-color: #3498db;
+      border-color: ${designColor('3498db')};
     }
     strong { font-weight: 600;}
     em { font-style: italic;}
     ol, ul { padding-left: 24px; margin-bottom: 20px;}
     li { margin-bottom: 10px;}
     blockquote {
-      border-left: 4px solid #e0e0e0;
+      border-left: 4px solid ${designColor('e0e0e0')};
       padding-left: 16px;
       margin-left: 0;
-      color: #555;
+      color: ${designColor('555')};
       font-style: italic;
     }
     code {
-      background-color: #f5f5f5;
+      background-color: ${designColor('f5f5f5')};
       padding: 2px 5px;
       border-radius: 3px;
       font-family: monospace;
     }
     pre {
-      background-color: #f5f5f5;
+      background-color: ${designColor('f5f5f5')};
       padding: 16px;
       border-radius: 8px;
       overflow-x: auto;
@@ -292,17 +279,17 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
     .blog-header {
       margin-bottom: 24px;
       padding-bottom: 16px;
-      border-bottom: 1px solid #eaeaea;
+      border-bottom: 1px solid ${designColor('eaeaea')};
     }
     .blog-description {
-      color: #555;
+      color: ${designColor('555')};
       font-size: 15px;
       line-height: 1.6;
       margin-bottom: 12px;
       font-style: italic;
     }
     .blog-meta {
-      color: #666;
+      color: ${designColor('666')};
       font-size: 14px;
       margin-bottom: 24px;
       display: flex;
@@ -329,9 +316,8 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
   </div>
   <div>
    ${item.imageUrl
-                    ? `<img src="${item.imageUrl}" alt="${item.title}" />`
-                    : ''
-                }
+        ? `<img src="${item.imageUrl}" alt="${item.title}" />`
+        : ''}
   </div>
   <div class="blog-content">
     ${item.content}
@@ -355,8 +341,8 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       text-align: center;
       padding: 40px 20px;
-      background-color: #f8f9fa;
-      color: #666;
+      background-color: ${designColor('f8f9fa')};
+      color: ${designColor('666')};
       line-height: 1.6;
     }
     .message {
@@ -368,7 +354,7 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
       margin: 0 auto;
     }
     h2 {
-      color: #333;
+      color: ${designColor('333')};
       font-size: 22px;
       margin-bottom: 16px;
     }
@@ -378,7 +364,7 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
     }
     .timestamp {
       font-size: 14px;
-      color: #999;
+      color: ${designColor('999')};
       margin-top: 20px;
     }
     .icon {
@@ -415,837 +401,30 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
         }
     };
 
-    // Reusable Empty State component
-    const EmptyState = ({ type }) => {
-        const messages = {
-            Videos: {
-                title: "No Videos Available",
-                subtitle: "New learning videos will appear here once added.",
-                emoji: "🎥",
-            },
-            Blogs: {
-                title: "No Blogs Available",
-                subtitle: "Stay tuned! Blogs will show up here once published.",
-                emoji: "✍️",
-            },
-            PDFs: {
-                title: "No PDFs Available",
-                subtitle: "Your documents will be available here once uploaded.",
-                emoji: "📄",
-            },
-        };
-
-        const { title, subtitle, emoji } = messages[type] || {};
-
-        return (
-            <LinearGradient
-                colors={[gradient1, gradient2]}
-                style={{
-                    flex: 1,
-                    alignItems: "center",
-                    justifyContent: "center",
-                    padding: 24,
-                    marginVertical: 20,
-                    marginHorizontal: 20,
-                    borderRadius: 20,
-                    overflow: "hidden",
-                    width: "90%",
-                    alignSelf: "center",
-                }}
-            >
-                {/* Glow circles */}
-                <View
-                    style={{
-                        position: "absolute",
-                        top: -100,
-                        right: -100,
-                        width: 300,
-                        height: 300,
-                        borderRadius: 150,
-                        backgroundColor: "rgba(255,255,255,0.12)",
-                    }}
-                />
-                <View
-                    style={{
-                        position: "absolute",
-                        bottom: -80,
-                        left: -80,
-                        width: 250,
-                        height: 250,
-                        borderRadius: 125,
-                        backgroundColor: "rgba(255,255,255,0.08)",
-                    }}
-                />
-
-                {/* Icon container */}
-                <LinearGradient
-                    colors={[gradient1, gradient2]}
-                    style={{
-                        width: 90,
-                        height: 90,
-                        borderRadius: 45,
-                        justifyContent: "center",
-                        alignItems: "center",
-                        marginBottom: 20,
-                        shadowColor: gradient2,
-                        shadowOffset: { width: 0, height: 4 },
-                        shadowOpacity: 0.25,
-                        shadowRadius: 8,
-                        elevation: 6,
-                    }}
-                >
-                    <View
-                        style={{
-                            width: 70,
-                            height: 70,
-                            borderRadius: 35,
-                            backgroundColor: "rgba(255,255,255,0.2)",
-                            justifyContent: "center",
-                            alignItems: "center",
-                        }}
-                    >
-                        <View
-                            style={{
-                                width: 50,
-                                height: 50,
-                                borderRadius: 25,
-                                backgroundColor: "rgba(255,255,255,0.85)",
-                                justifyContent: "center",
-                                alignItems: "center",
-                            }}
-                        >
-                            <Text style={{ fontSize: 28 }}>{emoji}</Text>
-                        </View>
-                    </View>
-                </LinearGradient>
-
-                {/* Title */}
-                <Text
-                    style={{
-                        fontFamily: "Satoshi-SemiBold",
-                        fontSize: 18,
-                        color: "white",
-                        textAlign: "center",
-                        marginBottom: 12,
-                    }}
-                >
-                    {title}
-                </Text>
-
-                {/* Subtitle */}
-                <Text
-                    style={{
-                        fontFamily: "Satoshi-Medium",
-                        fontSize: 14,
-                        color: "rgba(255,255,255,0.85)",
-                        textAlign: "center",
-                        maxWidth: "85%",
-                        lineHeight: 20,
-                        marginBottom: 12,
-                    }}
-                >
-                    {subtitle}
-                </Text>
-            </LinearGradient>
+    const Presentation = useComponent('screens.KnowledgeHub');
+    const handleOpenInsights = () => {
+        if (!advisorContent.insightsUrl) return;
+        Linking.openURL(advisorContent.insightsUrl).catch(error =>
+            console.warn('[KnowledgeHub] Unable to open insights link:', error?.message),
         );
     };
-
-    // --- NEW Video Card UX here ---
-    const renderContentItem = (item, contentType) => {
-        if (contentType === "Videos") {
-            return (
-                <TouchableOpacity
-                    key={item._id || item.video_id}
-                    style={styles.videoCard}
-                    onPress={() => handleContentPress(item, contentType)}
-                    activeOpacity={0.94}
-                >
-                    <View style={styles.thumbnailContainer}>
-                        <Image source={{ uri: item.thumbnail_url }} style={styles.thumbnailImage} />
-                        <View style={styles.playIconOverlay}>
-                            <Play size={40} color="#fff" />
-                        </View>
-                    </View>
-                    <View style={styles.videoInfo}>
-                        <Text style={styles.videoTitle} numberOfLines={2}>
-                            {item.title}
-                        </Text>
-                        <Text style={styles.videoDescription} numberOfLines={1}>
-                            {item.description}
-                        </Text>
-                        <View style={styles.videoFooter}>
-                            <TouchableOpacity>
-                                <Text style={styles.watchVideoButton}>Watch Video →</Text>
-                            </TouchableOpacity>
-                            <View style={styles.durationBox}>
-                                <Clock size={15} color="#6B7280" />
-                                <Text style={styles.durationText}>
-                                    {moment(item.created_at).fromNow()}  {/* shows "2 days ago" */}
-                                </Text>
-                            </View>
-                        </View>
-                    </View>
-                </TouchableOpacity>
-            );
-        }
-        if (contentType === "Blogs") {
-            return (
-                <TouchableOpacity
-                    key={item._id || item.blog_id}
-                    style={styles.blogCard}
-                    onPress={() => handleContentPress(item, contentType)}
-                    activeOpacity={0.94}
-                >
-                    <View style={styles.blogThumbnailContainer}>
-                        <Image
-                            source={{ uri: item.imageUrl || "https://via.placeholder.com/350x160" }}
-                            style={styles.blogThumbnail}
-                        />
-                    </View>
-                    <View style={styles.blogInfo}>
-                        <Text style={styles.blogTitle} numberOfLines={2}>{item.title}</Text>
-                        <Text style={styles.blogDescription} numberOfLines={2}>{item.description}</Text>
-                        <View style={styles.blogFooter}>
-                            <View style={styles.blogMeta}>
-                                <BookOpen size={15} color="#6B7280" />
-                                <Text style={styles.blogMetaText}>{item.readTime ? item.readTime + " min read" : "Read"}</Text>
-                            </View>
-                            <Text style={styles.blogReadMore}>Read More</Text>
-                        </View>
-                    </View>
-                </TouchableOpacity>
-            );
-        }
-        if (contentType === "PDFs") {
-            return (
-                <TouchableOpacity
-                    key={item._id}
-                    style={styles.pdfCard}
-                    onPress={() => handleContentPress(item, contentType)}
-                    activeOpacity={0.94}
-                >
-                    <View style={styles.pdfIconContainer}>
-                        <Image
-                            source={{ uri: "https://cdn-icons-png.flaticon.com/512/337/337946.png" }}
-                            style={styles.pdfIcon}
-                        />
-                    </View>
-                    <View style={styles.pdfInfo}>
-                        <Text style={styles.pdfTitle} numberOfLines={2}>{item.title}</Text>
-                        <Text style={styles.pdfDescription} numberOfLines={2}>{item.description}</Text>
-                        <View style={styles.pdfFooter}>
-                            <View style={styles.pdfMeta}>
-                                <BookOpen size={14} color="#6B7280" style={{ marginRight: 2 }} />
-                                <Text style={styles.pdfMetaText}>{formatFileSize(item.file_size)}</Text>
-                            </View>
-                            <Text style={styles.pdfView}>View PDF</Text>
-                        </View>
-                    </View>
-                </TouchableOpacity>
-            );
-        }
-
-    };
-
-    const contentData = {
-        Videos: videos || [],
-        Blogs: blogs || [],
-        PDFs: pdf || [],
-    };
-
-    const displayContent =
-        type === "home"
-            ? contentData[activeTab]?.slice(0, maxItems)
-            : contentData[activeTab];
-
     return (
-        <View style={styles.container}>
-            <View>
-                <View style={styles.headerouter}>
-                    {type === "home" && (
-                        <View>
-                            <Text style={styles.sectionTitle}>Knowledge Hub</Text>
-                            <Text style={styles.sectionSubtitle}>
-                                Learn with trusted manager content.
-                            </Text>
-                        </View>
-                    )}
-                    {type === "home" && (
-                        <TouchableOpacity
-                            onPress={handleViewAllPress}
-                            style={styles.viewAllButton}
-                        >
-                            <Text style={styles.viewAllText}>View All</Text>
-                        </TouchableOpacity>
-                    )}
-                </View>
-                <View style={styles.header}>
-
-                    {type === "home" && (
-                        <View style={{ flexDirection: 'row', paddingVertical: 5, }}>
-                            {tabs.map((tab) => {
-                                const IconComponent = tab.iconComponent;
-                                return (
-                                    <TouchableOpacity
-                                        key={tab.id}
-                                        style={[styles.tabouter, activeTab === tab.id && { backgroundColor: mainColor, borderColor: mainColor }]}
-                                        onPress={() => handleTabPress(tab.id)}
-                                    >
-                                        <IconComponent
-                                            size={14}
-                                            color={activeTab === tab.id ? "#FFFFFF" : mainColor}
-                                            style={styles.tabIconStyleouter}
-                                        />
-                                        <Text
-                                            style={[
-                                                styles.tabTextouter,
-                                                { color: mainColor },
-                                                activeTab === tab.id && styles.activeTabTextouter,
-                                            ]}
-                                        >
-                                            {tab.label}
-                                        </Text>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </View>
-                    )}
-                </View>
-            </View>
-
-            {!(type === "home") && (
-                <LinearGradient
-                    colors={[gradient1, gradient2]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 0, y: 1 }}
-                    style={{ paddingHorizontal: 15, paddingTop: 10, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, marginBottom: 10, }}
-                >
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, }}>
-                        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-                            <ChevronLeft size={24} color="#000" />
-                        </TouchableOpacity>
-                        <View style={{ justifyContent: 'center' }}>
-                            <Text style={{ fontSize: 20, fontFamily: 'Poppins-Medium', color: '#fff' }}>
-                                Knowledge Hub
-                            </Text>
-                        </View>
-                    </View>
-                    <View style={{ marginLeft: 45, marginTop: 2 }}>
-                        <Text style={{ fontSize: 12, fontFamily: 'Poppins-Regular', color: '#f0f0f0' }}>
-                            Learn with trusted manager content.
-                        </Text>
-                    </View>
-                    <View style={styles.tabContainer}>
-                        {tabs.map((tab) => {
-                            const IconComponent = tab.iconComponent;
-                            return (
-                                <TouchableOpacity
-                                    key={tab.id}
-                                    style={[styles.tab, activeTab === tab.id && { backgroundColor: mainColor, borderColor: mainColor }]}
-                                    onPress={() => handleTabPress(tab.id)}
-                                >
-                                    <IconComponent
-                                        size={16}
-                                        color={activeTab === tab.id ? "#FFFFFF" : "#fff"}
-                                        style={styles.tabIconStyle}
-                                    />
-                                    <Text
-                                        style={[
-                                            styles.tabText,
-                                            activeTab === tab.id && styles.activeTabText,
-                                        ]}
-                                    >
-                                        {tab.label}
-                                    </Text>
-                                </TouchableOpacity>
-                            );
-                        })}
-                    </View>
-                </LinearGradient>
-            )}
-
-
-
-
-            <SafeAreaView style={{ flex: 0, paddingHorizontal: 20, }}>
-                <ScrollView
-                    contentContainerStyle={{
-                        paddingBottom: type === "home" ? 0 : 200, // extra space only for View All
-                    }}
-
-                    showsVerticalScrollIndicator={false}
-                >
-{displayContent.length > 0 ? (
-  displayContent.map((item) => renderContentItem(item, activeTab))
-) : (
-  <EmptyState type={activeTab} />
-)}
-
-                </ScrollView>
-            </SafeAreaView>
-
-
-            <LinkOpeningWeb
-                symbol={title}
-                setWebview={setModalVisible}
-                webViewVisible={modalVisible}
-                currentUrl={currentUrl}
-            />
-
-            {selectedVideo && (
-                <Modal
-                    visible={videoModalVisible}
-                    transparent={true}
-                    animationType="fade"
-                    onRequestClose={() => {
-                        setVideoModalVisible(false);
-                        setSelectedVideo(null);
-                    }}
-                >
-                    <View style={styles.videoModalBackground}>
-                        <View style={styles.videoModalContent}>
-                            <View style={styles.videoModalHeader}>
-                                <Text style={styles.videoModalTitle} numberOfLines={1}>
-                                    {selectedVideo.title}
-                                </Text>
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setVideoModalVisible(false);
-                                        setSelectedVideo(null);
-                                    }}
-                                >
-                                    <XIcon size={20} color="#fff" />
-                                </TouchableOpacity>
-                            </View>
-                            <YoutubePlayer height={250} play={true} videoId={selectedVideo.video_id} onChangeState={onStateChange} />
-                        </View>
-                    </View>
-                </Modal>
-            )}
-        </View>
+        <Presentation
+            viewModel={{
+                type, maxItems, gradient1, gradient2, mainColor, activeTab,
+                videos, blogs, pdf, modalVisible, title, currentUrl,
+                selectedVideo, videoModalVisible, insightsUrl: advisorContent.insightsUrl,
+            }}
+            actions={{
+                handleViewAllPress, handleTabPress, handleContentPress,
+                setModalVisible, setVideoModalVisible, setSelectedVideo,
+                onStateChange, formatFileSize,
+                onBack: () => navigation.goBack(),
+                onOpenInsights: handleOpenInsights,
+            }}
+            slots={{WebLink: LinkOpeningWeb}}
+        />
     );
 };
-
-const styles = StyleSheet.create({
-    container: {
-        backgroundColor: "transparent",
-        paddingVertical: 0,
-        paddingHorizontal: 0,
-    },
-    header: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        paddingHorizontal: 20,
-
-    },
-    headerouter: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        paddingHorizontal: 20,
-        marginTop: 0,
-
-    },
-    backButton: { padding: 4, borderRadius: 5, backgroundColor: '#fff', marginRight: 10 },
-    sectionTitle: {
-        fontSize: 18,
-        fontWeight: "600",
-        color: "#1A1A1A",
-        fontFamily: "Poppins-SemiBold",
-        marginBottom: 4,
-    },
-    sectionSubtitle: {
-        fontSize: 10,
-        color: "#959595",
-        fontFamily: "Poppins-Regular",
-    },
-    viewAllButton: {
-        borderWidth: 1,
-        borderRadius: 3,
-        borderColor: "#1F7AE0",
-        paddingHorizontal: 16,
-        paddingVertical: 4,
-    },
-    viewAllText: {
-        fontSize: 10,
-        color: "#1F7AE0",
-        fontFamily: "Poppins-Medium",
-    },
-    tabContainer: {
-        flexDirection: "row",
-        borderRadius: 12,
-        paddingHorizontal: 10,
-
-    },
-    tab: {
-        flex: 1,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: 8,
-        paddingHorizontal: 8,
-        borderRadius: 3,
-        marginTop: 10,
-        marginHorizontal: 2,
-    },
-    activeTab: {
-        backgroundColor: "#0056B7",
-        borderColor: "#0056B7",
-    },
-    tabIconStyle: {
-        marginRight: 6,
-    },
-    tabText: {
-        fontSize: 14,
-        fontFamily: "Poppins-Medium",
-        color: "#fff",
-    },
-    activeTabText: {
-        color: "#FFFFFF",
-    },
-
-    //
-    tabouter: {
-        flex: 1,
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: 8,
-        paddingHorizontal: 8,
-        borderRadius: 3,
-        marginTop: 5,
-        backgroundColor: '#fff',
-        marginHorizontal: 2,
-    },
-    activeTabouter: {
-        backgroundColor: "#0056B7",
-        borderColor: "#0056B7",
-    },
-    tabIconStyleouter: {
-        marginRight: 6,
-    },
-    tabTextouter: {
-        fontSize: 12,
-        fontFamily: "Poppins-Medium",
-        color: "#0056B7",
-    },
-    activeTabTextouter: {
-        color: "#FFFFFF",
-    },
-    contentContainer: {
-
-    },
-
-    // ----------- NEW Video Card Styles --------------
-    videoCard: {
-        backgroundColor: "#fff",
-        borderRadius: 10,
-        overflow: "hidden",
-        marginBottom: 22,
-        borderWidth: 1,
-        borderColor: "#E5E7EB",
-        shadowColor: "#111",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.09,
-        shadowRadius: 8,
-        elevation: 2,
-    },
-    thumbnailContainer: {
-        width: "100%",
-        height: 120,
-        position: "relative",
-        backgroundColor: "#F3F4F6",
-        overflow: "hidden",
-        borderTopLeftRadius: 8,
-        borderTopRightRadius: 8,
-    },
-    thumbnailImage: {
-        width: "100%",
-        height: "100%",
-        resizeMode: "cover",
-    },
-    playIconOverlay: {
-        position: "absolute",
-        top: "50%",
-        left: "50%",
-        transform: [{ translateX: -18 }, { translateY: -18 }],
-        backgroundColor: "rgba(0,0,0,0.32)",
-        borderRadius: 30,
-        padding: 7,
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    videoInfo: {
-        paddingHorizontal: 16,
-        paddingBottom: 16,
-        paddingTop: 12,
-    },
-    videoTitle: {
-        fontSize: 15,
-        fontWeight: "bold",
-        color: "#222",
-        fontFamily: "Poppins-SemiBold",
-        marginBottom: 4,
-    },
-    videoDescription: {
-        fontSize: 12,
-        color: "#555",
-        fontFamily: "Poppins-Regular",
-        marginBottom: 6,
-    },
-    videoFooter: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginTop: 2,
-    },
-    watchVideoButton: {
-        fontSize: 13,
-        color: "#1F7AE0",
-        fontFamily: "Poppins-Medium",
-        paddingVertical: 2,
-    },
-    durationBox: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "#F1F5F9",
-        borderRadius: 7,
-        paddingHorizontal: 8,
-        paddingVertical: 3,
-    },
-    durationText: {
-        fontSize: 11,
-        color: "#6B7280",
-        fontFamily: "Poppins-Regular",
-        marginLeft: 5,
-    },
-    // ------------ End NEW Video Card Styles -----------
-
-    contentItem: {
-        flexDirection: "row",
-        backgroundColor: "#FFFFFF",
-        borderRadius: 12,
-        padding: 12,
-        marginBottom: 12,
-        borderWidth: 1,
-        borderColor: "#E5E7EB",
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 4,
-        elevation: 2,
-    },
-    thumbnail: {
-        width: 120,
-        height: 80,
-        borderRadius: 8,
-        backgroundColor: "#F3F4F6",
-    },
-    contentInfo: {
-        flex: 1,
-        marginLeft: 12,
-    },
-    contentTitle: {
-        fontSize: 14,
-        fontWeight: "600",
-        color: "#1F2937",
-        fontFamily: "Poppins-SemiBold",
-        marginBottom: 4,
-    },
-    contentDescription: {
-        fontSize: 12,
-        color: "#6B7280",
-        fontFamily: "Poppins-Regular",
-        lineHeight: 16,
-        marginBottom: 8,
-    },
-    contentMeta: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-    },
-    metaText: {
-        fontSize: 11,
-        color: "#9CA3AF",
-        fontFamily: "Poppins-Regular",
-    },
-    watchButton: {
-        fontSize: 11,
-        color: "#4A6CF7",
-        fontFamily: "Poppins-Medium",
-    },
-    modalHeader: {
-        flexDirection: "row",
-        alignItems: "center",
-        padding: 12,
-        borderBottomWidth: 1,
-        borderBottomColor: "#E5E7EB",
-    },
-    modalTitle: {
-        fontSize: 16,
-        fontFamily: "Poppins-SemiBold",
-        color: "#111",
-    },
-    videoModalBackground: {
-        flex: 1,
-        backgroundColor: "rgba(0, 0, 0, 0.8)",
-        justifyContent: "center",
-        alignItems: "center",
-    },
-    videoModalContent: {
-        width: "90%",
-        backgroundColor: "#000",
-        borderRadius: 12,
-        overflow: "hidden",
-    },
-    videoModalHeader: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        padding: 15,
-        backgroundColor: "#111",
-    },
-    videoModalTitle: {
-        color: "#fff",
-        fontFamily: "Satoshi-Bold",
-        fontSize: 16,
-        flex: 1,
-        marginRight: 10,
-    },
-    blogCard: {
-        backgroundColor: "#fff",
-        borderRadius: 10,
-        overflow: "hidden",
-        marginBottom: 22,
-        borderWidth: 1,
-        borderColor: "#E5E7EB",
-        shadowColor: "#111",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.09,
-        shadowRadius: 8,
-        elevation: 2,
-    },
-    blogThumbnailContainer: {
-        width: "100%",
-        height: 120,
-        backgroundColor: "#EEF2F6",
-        overflow: "hidden",
-        borderTopLeftRadius: 8,
-        borderTopRightRadius: 8,
-    },
-    blogThumbnail: {
-        width: "100%",
-        height: "100%",
-        resizeMode: "cover",
-    },
-    blogInfo: {
-        paddingHorizontal: 16,
-        paddingBottom: 14,
-        paddingTop: 12,
-    },
-    blogTitle: {
-        fontSize: 15,
-        fontWeight: "bold",
-        color: "#212121",
-        fontFamily: "Poppins-SemiBold",
-        marginBottom: 4,
-    },
-    blogDescription: {
-        fontSize: 12,
-        color: "#555",
-        fontFamily: "Poppins-Regular",
-        marginBottom: 6,
-    },
-    blogFooter: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginTop: 2,
-    },
-    blogMeta: {
-        flexDirection: "row",
-        alignItems: "center",
-    },
-    blogMetaText: {
-        marginLeft: 4,
-        fontSize: 11,
-        color: "#6B7280",
-        fontFamily: "Poppins-Regular",
-    },
-    blogReadMore: {
-        fontSize: 13,
-        color: "#1F7AE0",
-        fontFamily: "Poppins-Medium",
-    },
-
-    pdfCard: {
-        backgroundColor: "#fff",
-        borderRadius: 10,
-        overflow: "hidden",
-        marginBottom: 22,
-        borderWidth: 1,
-        borderColor: "#E5E7EB",
-        shadowColor: "#111",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.09,
-        shadowRadius: 8,
-        elevation: 2,
-        alignItems: "center",
-        paddingBottom: 13,
-    },
-    pdfIconContainer: {
-        width: "100%",
-        alignItems: "center",
-        backgroundColor: "#F7F7FA",
-        paddingVertical: 20,
-    },
-    pdfIcon: {
-        width: 52,
-        height: 52,
-        borderRadius: 0,
-        backgroundColor: "#F7F7FA",
-    },
-    pdfInfo: {
-        width: "100%",
-        paddingHorizontal: 18,
-        paddingTop: 10,
-    },
-    pdfTitle: {
-        fontSize: 15,
-        fontWeight: "bold",
-        color: "#353535",
-        fontFamily: "Poppins-SemiBold",
-        marginBottom: 4,
-    },
-    pdfDescription: {
-        fontSize: 12,
-        color: "#666",
-        fontFamily: "Poppins-Regular",
-        marginBottom: 6,
-    },
-    pdfFooter: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        marginTop: 2,
-    },
-    pdfMeta: {
-        flexDirection: "row",
-        alignItems: "center",
-    },
-    pdfMetaText: {
-        marginLeft: 3,
-        fontSize: 11,
-        color: "#6B7280",
-        fontFamily: "Poppins-Regular",
-    },
-    pdfView: {
-        fontSize: 13,
-        color: "#1F7AE0",
-        fontFamily: "Poppins-Medium",
-    },
-
-});
 
 export default KnowledgeHub;

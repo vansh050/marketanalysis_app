@@ -5,8 +5,11 @@ import { IndianRupee } from "lucide-react-native";
 import Icon1 from 'react-native-vector-icons/FontAwesome';
 // Import the WebSocketManager
 import WebSocketManager from "./WebSocketManager";
+import { isPriceInRecommendedRange } from "../../../utils/recommendationPnl";
 
-const PriceTextAdvice = React.memo(({ closurestatus, type, action, symbol, advisedPrice, advisedRangeCondition, Exchange, advisedRangeHigher, advisedRangeLower }) => {
+import { designColor, designFont } from '../../../design/literalTokens';
+
+const PriceTextAdvice = React.memo(({ closurestatus, type, action, symbol, advisedPrice, advisedRangeCondition, Exchange, advisedRangeHigher, advisedRangeLower, priceOverride }) => {
   // const [price, setPrice] = useState(null);
   const [price, setLtp] = useState(null);
   const configPercentage = Config.REACT_APP_PERCENTAGE_GAIN;
@@ -19,6 +22,12 @@ const updateLtp = useCallback((data) => {
 
 
   useEffect(() => {
+    // StockCard already owns the canonical live quote through useLTPStore.
+    // When it supplies that quote, avoid a second independently-timed quote.
+    if (priceOverride !== undefined && priceOverride !== null) {
+      return undefined;
+    }
+
     const wsInstance = WebSocketManager.getInstance();
     wsInstance.subscribe(symbol, Exchange, updateLtp);
     wsInstance.getLTP(symbol).then(setLtp).catch(() => { });
@@ -26,40 +35,35 @@ const updateLtp = useCallback((data) => {
     return () => {
       wsInstance.unsubscribe?.(symbol, updateLtp);
     };
-  }, [symbol, Exchange, updateLtp]);
+  }, [symbol, Exchange, updateLtp, priceOverride]);
+
+  const displayPrice =
+    priceOverride !== undefined && priceOverride !== null
+      ? priceOverride
+      : price;
 
   let missedGainPercentage = null;
   let percent = null;
 
-  if (price != null && advisedPrice != null) {
+  if (displayPrice != null && advisedPrice != null) {
     let missedGain;
 
     if (action === "BUY") {
-      missedGain = price - advisedPrice;
+      missedGain = displayPrice - advisedPrice;
       percent = (missedGain / advisedPrice) * 100;
       missedGainPercentage = (percent * 100000) / 100;
     } else if (action === "SELL") {
-      missedGain = advisedPrice - price;
+      missedGain = advisedPrice - displayPrice;
       percent = (missedGain / advisedPrice) * 100;
       missedGainPercentage = (percent * 100000) / 100;
     }
   }
 
-  const advisedRangeConditionfinal =
-    (advisedRangeHigher === 0 && advisedRangeLower === 0) ||
-    (advisedRangeHigher === null && advisedRangeLower === null) ||
-    (advisedRangeHigher > 0 &&
-      advisedRangeLower > 0 &&
-      parseFloat(advisedRangeHigher) >= parseFloat(price) &&
-      parseFloat(price) >= parseFloat(advisedRangeLower)) ||
-    (advisedRangeHigher > 0 &&
-      advisedRangeLower === 0 &&
-      advisedRangeLower === null &&
-      parseFloat(advisedRangeHigher) >= parseFloat(price)) ||
-    (advisedRangeLower > 0 &&
-      advisedRangeHigher === 0 &&
-      advisedRangeHigher === null &&
-      parseFloat(advisedRangeLower) <= parseFloat(price));
+  const advisedRangeConditionfinal = isPriceInRecommendedRange(
+    displayPrice,
+    advisedRangeLower,
+    advisedRangeHigher,
+  );
 
   const priceTextStyle = [
     styles.priceText,
@@ -73,44 +77,41 @@ const updateLtp = useCallback((data) => {
 
   return (
     <View style={{ flexDirection: "row", alignItems: 'baseline', justifyContent: 'space-between', alignContent: 'flex-end', }}>
-
       {type === 'mainLTP' && (
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', flex: 1 }}>
-          <Text style={priceTextStyle}>₹ {price !== null ? price : '-'}</Text>
+          <Text style={priceTextStyle}>₹ {displayPrice !== null ? displayPrice : '-'}</Text>
           {!advisedRangeConditionfinal && (
-            <Text style={styles.redalert}>**Advice out of range</Text>
+            <Text style={styles.redalert}>**Recommendation out of range</Text>
           )}
         </View>
       )}
-
       {/* Only render Running Profit if advice is in range */}
       {type === 'mainLTP' && advisedRangeConditionfinal && missedGainPercentage !== null && percent > configPercentage && !closurestatus && (
         <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 4 }}>
-          <View style={{ borderWidth: 1, borderColor: '#33D37C', padding: 2, borderRadius: 20 }}>
-            <IndianRupee size={9} color={'#33D37C'} />
+          <View style={{ borderWidth: 1, borderColor: designColor('33d37c'), padding: 2, borderRadius: 20 }}>
+            <IndianRupee size={9} color={designColor('33d37c')} />
           </View>
-          <Icon1 name="angle-double-up" size={12} color={'#33D37C'} style={{ paddingHorizontal: 4 }} />
+          <Icon1 name="angle-double-up" size={12} color={designColor('33d37c')} style={{ paddingHorizontal: 4 }} />
           <Text style={[styles.gainText, { fontSize: 10 }]}>Running Profit</Text>
-          <Text style={[styles.gainText, { color: "#33D37C", marginLeft: 2 }]}>
+          <Text style={[styles.gainText, { color: designColor('33d37c'), marginLeft: 2 }]}>
             {missedGainPercentage.toFixed(2)}
           </Text>
         </View>
       )}
-
       {type === 'aftersubCP' && (
         <View style={{ flexDirection: 'row', justifyContent: 'center', alignContent: 'center', alignItems: 'center' }}>
-          <Text style={priceTextStyle}>₹ {price !== null ? price : '-'}</Text>
+          <Text style={priceTextStyle}>₹ {displayPrice !== null ? displayPrice : '-'}</Text>
         </View>
       )}
       {type === 'News' && (
         <View style={{ flexDirection: 'row', justifyContent: 'center', alignContent: 'center', alignItems: 'center' }}>
-          <Text style={priceTextStyle}>₹ {price !== null ? price : '-'}</Text>
+          <Text style={priceTextStyle}>₹ {displayPrice !== null ? displayPrice : '-'}</Text>
         </View>
       )}
       {type === 'bestP1' && (
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', flex: 1 }}>
-          <Text style={priceTextStyle}>₹ {price !== null ? price : '-'}</Text>
-          <Text style={styles.bestP1change}>₹ {price !== null ? price : '-'}</Text>
+          <Text style={priceTextStyle}>₹ {displayPrice !== null ? displayPrice : '-'}</Text>
+          <Text style={styles.bestP1change}>₹ {displayPrice !== null ? displayPrice : '-'}</Text>
         </View>
       )}
     </View>
@@ -120,60 +121,60 @@ const updateLtp = useCallback((data) => {
 const styles = StyleSheet.create({
   priceText: {
     fontSize: 18,
-    fontFamily: 'Satoshi-Medium',
-    color: '#6B46C1',
+    fontFamily: designFont('Satoshi-Medium'),
+    color: designColor('6b46c1'),
   },
   bestP1: {
     fontSize: 14,
-    fontFamily: 'Satoshi-Medium',
-    color: '#fff',
+    fontFamily: designFont('Satoshi-Medium'),
+    color: designColor('fff'),
   },
   bestP1: {
     fontSize: 16,
-    color: "#FFFFFF",
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('ffffff'),
+    fontFamily: designFont('Satoshi-Medium'),
     marginTop: 2,
   },
   bestP1change: {
     fontSize: 16,
-    color: "#14C46F",
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('14c46f'),
+    fontFamily: designFont('Satoshi-Medium'),
     marginTop: 4,
     marginLeft: 20,
   },
   priceText1: {
     fontSize: 13,
-    fontFamily: 'Poppins-Medium',
-    color: '#000000ff',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('000000ff'),
     marginTop: 0,
   },
   redalert: {
     fontSize: 11,
-    fontFamily: 'Satoshi-Medium',
-    color: '#C84444',
+    fontFamily: designFont('Satoshi-Medium'),
+    color: designColor('c84444'),
     marginTop: 4,
   },
   headerCardPriceDate: {
-    color: '#626262',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('626262'),
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 18,
   },
   value: {
     fontSize: 15,
-    color: '#C7C7C7',
+    color: designColor('c7c7c7'),
     marginBottom: 4,
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
   },
   value1: {
     fontSize: 13,
-    color: '#000',
+    color: designColor('000'),
     marginBottom: 4,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
   gainText: {
     fontSize: 12,
-    color: '#33D37C',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('33d37c'),
+    fontFamily: designFont('Satoshi-Medium'),
   }
 });
 

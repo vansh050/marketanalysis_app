@@ -34,6 +34,8 @@
 import React, {useState} from 'react';
 import {Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet} from 'react-native';
 
+import { designColor } from '../../design/literalTokens';
+
 const AngelOneCautionaryWarning = ({reauthConfig, onClose, children}) => {
   const skipWarning = !!reauthConfig;
   const [acked, setAcked] = useState(skipWarning);
@@ -111,7 +113,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
@@ -128,13 +130,13 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: '#FEF3C7',
+    backgroundColor: designColor('fef3c7'),
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   iconText: {
-    color: '#92400E',
+    color: designColor('92400e'),
     fontSize: 22,
     fontWeight: '700',
   },
@@ -142,23 +144,23 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     fontWeight: '700',
-    color: '#1F2937',
+    color: designColor('1f2937'),
   },
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1F2937',
+    color: designColor('1f2937'),
     marginBottom: 6,
   },
   body: {
     fontSize: 13,
-    color: '#4B5563',
+    color: designColor('4b5563'),
     lineHeight: 19,
     marginBottom: 12,
   },
   calloutBlue: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#BFDBFE',
+    backgroundColor: designColor('eff6ff'),
+    borderColor: designColor('bfdbfe'),
     borderWidth: 1,
     borderRadius: 10,
     padding: 12,
@@ -167,12 +169,12 @@ const styles = StyleSheet.create({
   calloutTitle: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#1E40AF',
+    color: designColor('1e40af'),
     marginBottom: 8,
   },
   calloutBullet: {
     fontSize: 12,
-    color: '#1D4ED8',
+    color: designColor('1d4ed8'),
     lineHeight: 19,
     marginBottom: 4,
   },
@@ -185,26 +187,26 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#9CA3AF',
+    borderColor: designColor('9ca3af'),
     alignItems: 'center',
     marginRight: 10,
   },
   cancelText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
+    color: designColor('374151'),
   },
   proceedBtn: {
     flex: 2,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: '#1A237E',
+    backgroundColor: designColor('1a237e'),
     alignItems: 'center',
   },
   proceedText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
   },
 });
 

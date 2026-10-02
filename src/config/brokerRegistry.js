@@ -191,11 +191,11 @@ export const brokerRegistry = [
     ],
   },
   {
-    // IIFL Securities — OAuth via markets.iiflcapital.com. Callback
-    // returns ?authcode=&clientid= which the modal exchanges via
-    // POST ccxt /iifl/login/client → returns sessionToken (jwtToken)
-    // persisted on the user doc. Mirrors web src/Home/LivePortfolioSection/
-    // connectBroker.js handleIIFLLogin (lines 1114–1167).
+    // IIFL Securities — customer-owned App Key/App Secret direct OAuth via
+    // markets.iiflcapital.com. The native legacy-fallback modal owns the
+    // credential/IP guide and exchanges ?authcode=&clientid= through Node so
+    // the App Secret never returns to the WebView. The resulting accessToken
+    // is persisted in connected_brokers[] by /api/user/connect-broker.
     name: 'IIFL Securities',
     key: 'iifl',
     apiBrokerName: 'IIFL Securities',

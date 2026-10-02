@@ -156,6 +156,26 @@ export const BROKER_SUPPORT = {
     notes: "Smart Orders API provides GTT and OCO functionality.",
   },
 
+  definedge: {
+    name: "DefinEdge Securities",
+    displayName: "DefinEdge Securities",
+    orderTypes: {
+      MARKET: true,
+      LIMIT: true,
+      SL: true,
+      SL_M: true,
+      GTT: false,
+      GTT_OCO: false,
+    },
+    features: {
+      slpt: false,
+      oco: false,
+      gtt_multi_leg: false,
+    },
+    notes: "Regular MARKET, LIMIT, SL and SL-M orders are enabled. GTT/OCO stays hidden until the production execution route supports it end to end.",
+    gttAlternative: "Use SL or SL-M; these orders are valid for the trading day.",
+  },
+
   // Brokers WITHOUT GTT support
   kotak: {
     name: "Kotak",
@@ -200,8 +220,6 @@ export const BROKER_SUPPORT = {
   iifl: {
     name: "IIFL",
     displayName: "IIFL Securities",
-    unavailable: true,
-    unavailableReason: "IIFL Securities integration is temporarily unavailable. Please use another broker.",
     orderTypes: {
       MARKET: true,
       LIMIT: true,
@@ -215,7 +233,7 @@ export const BROKER_SUPPORT = {
       oco: false,
       gtt_multi_leg: false,
     },
-    notes: "IIFL Securities broker integration is temporarily unavailable.",
+    notes: "Customer-owned Individual Trader API; daily browser login required.",
     gttAlternative: "Use SL order type - will be valid only for the trading day.",
   },
 
@@ -313,6 +331,8 @@ const BROKER_NAME_MAP = {
   "icici direct": "icici",
   icici: "icici",
   groww: "groww",
+  definedge: "definedge",
+  "definedge securities": "definedge",
   kotak: "kotak",
   "kotak securities": "kotak",
   hdfc: "hdfc",

@@ -1,13 +1,20 @@
+import {createPublisherBatchDispatcher} from '../../utils/publisherBatchDispatch';
 import React, {
   useState,
   useEffect,
   forwardRef,
   useRef,
   useCallback,
+  useMemo,
 } from 'react';
 import {XIcon, Calendar} from 'lucide-react-native';
 import axios from 'axios';
-import {applyKiteMarketProtection, getPublisherWebViewBaseUrl, resolveZerodhaSymbol} from '../../utils/brokerPublisher';
+import {PUBLISHER_ACK_TIMEOUT_MS, isPublisherActivationAcknowledged} from '../../utils/publisherAcknowledgement';
+import {applyKiteMarketProtection, fetchFreshKiteProtectionPrices, getPublisherWebViewBaseUrl, resolveZerodhaSymbol, voidUnsentPublisherRecos} from '../../utils/brokerPublisher';
+import {
+  createZerodhaPublisherAttempt,
+  getKitePublisherTag,
+} from '../../utils/publisherOutcome';
 import useZerodhaSymbolMap from '../../hooks/useZerodhaSymbolMap';
 import {
   View,
@@ -31,6 +38,9 @@ import server from '../../utils/serverConfig';
 import LoadingSpinner from '../LoadingSpinner';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import useWebSocketCurrentPrice from '../../FunctionCall/useWebSocketCurrentPrice';
+import useKiteHandoffGuard from '../../hooks/useKiteHandoffGuard';
+import {executionBundleHeaders, handleStaleExecutionBundle} from '../../utils/executionBundleSafety';
+import {accountRecoveryMetadata} from '../../utils/accountRecoveryUx';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
 import MissedGainText from '../AdviceScreenComponents/DynamicText/BestPerformerGainText';
 import WebsocketSubText from '../AdviceScreenComponents/DynamicText/WebsocketSubText';
@@ -40,7 +50,7 @@ import {generateToken} from '../../utils/SecurityTokenManager';
 import {useTotalAmount} from '../AdviceScreenComponents/DynamicText/websocketPrice';
 import Config from 'react-native-config';
 import Toast from 'react-native-toast-message';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import {useTrade} from '../../screens/TradeContext';
 import {convertResponse} from '../../utils/tradeUtils';
 import {useConfig} from '../../context/ConfigContext';
@@ -52,6 +62,10 @@ import { validateBrokerSession } from '../../utils/brokerSessionUtils';
 import { isZerodhaSellAuthorized } from '../../utils/zerodhaDdpiGate';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import useSdkClient from '../../sdk/useSdkClient';
+import {getPlatformDisplayName} from '../../utils/advisorContentProfile';
+import PublisherWebViewOverlay from '../PublisherWebViewOverlay';
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -143,7 +157,7 @@ const UserStrategySubscribeModal = ({
           {
             headers: {
               'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': getAdvisorSubdomain(),
+              'X-Advisor-Subdomain': getTenantSubdomain(),
               'aq-encrypted-key': generateToken(
                 Config.REACT_APP_AQ_KEYS,
                 Config.REACT_APP_AQ_SECRET,
@@ -213,6 +227,58 @@ const UserStrategySubscribeModal = ({
 
   const [calculatedPortfolioData, setCaluculatedPortfolioData] = useState([]);
   const [calculatedLoading, setCalculateLoading] = useState(false);
+
+  // Phase 1 plan freeze (prod-alphaquark-github docs/REBALANCE_PLAN_FREEZE_PLAN.md
+  // §4.4/§4.5; this repo's docs/WEB_TO_APP_PORT_PLAN_2026-07.md rebalance-freeze
+  // entry): forward the frozen plan_id/plan_version `rebalance/calculate` returned
+  // so ccxt executes the server-frozen, re-validated plan instead of the
+  // client-posted `trades` — mirrors web's UserStrategySubscribeModal.placeOrder
+  // (commit a4cb3c23). This modal has no live repair path (the `matchingRepairTrade`
+  // branch in `getAdditionalPayload` below is dead code — that function is never
+  // called), so there is no repair-vs-fresh-calc "approve what you see" ambiguity
+  // to guard here: every plan_id this modal ever holds came from THIS calculate.
+  // Flag off / no plan_id ⇒ fields absent ⇒ byte-identical legacy payload.
+  const freezeOn = appConfig?.rebalanceFreezePlan === true;
+  const frozenPlanFields = freezeOn && calculatedPortfolioData?.plan_id
+    ? {
+        plan_id: calculatedPortfolioData.plan_id,
+        plan_version: calculatedPortfolioData.plan_version,
+      }
+    : {};
+
+  // Frozen-plan 409 (PLAN_DRIFTED / expired / ALREADY_CONSUMED — see
+  // REBALANCE_PLAN_FREEZE_PLAN.md §4.4): the plan_id we hold is dead, so
+  // re-sliding "Place Order" would 409 forever. Drop back to the pre-confirm
+  // step (`setConfirmOrder(false)`) whose "Confirm Details" button re-runs
+  // calculateRebalance, minting a fresh plan. Mirrors web's recompute handling.
+  const handleFrozenPlanRecompute = (error) => {
+    const recovery = accountRecoveryMetadata(error);
+    if (error?.response?.status === 409 &&
+        (error?.response?.data?.recompute || recovery.running)) {
+      const verificationPending =
+        error?.response?.data?.code === 'RECHECK_UNAVAILABLE' || recovery.running;
+      if (recovery.operationId) {
+        console.info('[AccountRecovery] Waiting for operation', recovery.operationId);
+      }
+      setConfirmOrder(false);
+      Toast.show({
+        type: 'info',
+        text1: verificationPending ? 'Checking your broker' : 'Portfolio refreshed',
+        text2: verificationPending
+          ? 'Nothing was sent. We will refresh this automatically.'
+          : (error?.response?.data?.message || 'Please review the updated trades.'),
+        visibilityTime: 5000,
+      });
+      if (verificationPending) {
+        setTimeout(
+          () => calculateRebalance(),
+          recovery.retryAfterSeconds * 1000,
+        );
+      }
+      return true;
+    }
+    return false;
+  };
 
   const calculateRebalance = () => {
     console.log('hereeeeee', broker, funds?.status);
@@ -429,6 +495,28 @@ const UserStrategySubscribeModal = ({
       axios
         .request(config)
         .then(response => {
+          if (response.data?.reconciliationPending || response.data?.code === 'PUBLISHER_RECONCILIATION_PENDING') {
+            setCalculateLoading(false);
+            setConfirmOrder(false);
+            setCaluculatedPortfolioData([]);
+            Toast.show({
+              type: 'info',
+              text1: 'Verifying broker portfolio',
+              text2: response.data?.message || 'No new orders were placed. Refresh status shortly.',
+              visibilityTime: 8000,
+            });
+            return;
+          }
+          if (response.data?.sessionExpired === true) {
+            setCalculateLoading(false);
+            setConfirmOrder(false);
+            Toast.show({
+              type: 'error',
+              text1: 'Broker session expired',
+              text2: 'Please reconnect your broker and try again.',
+            });
+            return;
+          }
           if (response.data) {
             console.log('resposidi:', response.data);
             setCaluculatedPortfolioData(response.data);
@@ -442,6 +530,16 @@ const UserStrategySubscribeModal = ({
         })
         .catch(error => {
           setCalculateLoading(false);
+          setConfirmOrder(false);
+          setCaluculatedPortfolioData([]);
+          const body = error?.response?.data;
+          const pending = body?.reconciliationPending || body?.code === 'PUBLISHER_RECONCILIATION_PENDING';
+          Toast.show({
+            type: pending ? 'info' : 'error',
+            text1: pending ? 'Verifying broker portfolio' : 'Could not calculate rebalance',
+            text2: body?.message || 'Please refresh status and try again.',
+            visibilityTime: 8000,
+          });
           console.log(error);
         });
     }
@@ -532,6 +630,7 @@ const UserStrategySubscribeModal = ({
         advisor: strategyDetails?.advisor,
         model_id: latestRebalance?.model_Id,
         unique_id: calculatedPortfolioData?.uniqueId,
+        ...frozenPlanFields,
         returnDateTime: istDatetime,
         trades: stockDetails.map(s => ({ ...s, variant: fyersVariant })),
       };
@@ -542,7 +641,7 @@ const UserStrategySubscribeModal = ({
         try {
           const sdkResult = await sdkClient.executeAdvice({
             kind: 'mpInitialAllocation',
-            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            clientAdviceId: `mp-initial:Fyers:${latestRebalance?._id || calculatedPortfolioData?.uniqueId || latestRebalance?.model_Id}`,
             brokerName: 'Fyers',
             modelId: latestRebalance?.model_Id,
             modelName: strategyDetails?.model_name,
@@ -558,8 +657,8 @@ const UserStrategySubscribeModal = ({
           response = { data: { results: mappedRows } };
           console.log('[UserStrategySubscribeModal] SDK executeAdvice (Fyers) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
         } catch (sdkErr) {
-          console.error('[UserStrategySubscribeModal] SDK executeAdvice (Fyers) failed, falling back to legacy:', sdkErr?.message);
-          response = null;
+          console.error('[UserStrategySubscribeModal] SDK owns this Fyers attempt; legacy fallback blocked:', sdkErr?.message);
+          throw sdkErr;
         }
       }
       if (!response) {
@@ -647,6 +746,7 @@ const UserStrategySubscribeModal = ({
               order_results: checkData,
               user_email: userEmail,
               user_broker: 'Fyers',
+              ...frozenPlanFields,
             },
             { headers: requestHeaders },
           );
@@ -678,6 +778,10 @@ const UserStrategySubscribeModal = ({
     } catch (error) {
       setLoading(false);
       console.error('[FyersPublisher] Error:', error);
+
+      if (handleFrozenPlanRecompute(error)) {
+        return;
+      }
 
       let errorMessage;
       if (error?.code === 'ERR_NETWORK' || error?.code === 'ECONNABORTED') {
@@ -727,6 +831,7 @@ const UserStrategySubscribeModal = ({
       advisor: strategyDetails?.advisor,
       model_id: latestRebalance.model_Id,
       unique_id: calculatedPortfolioData?.uniqueId,
+      ...frozenPlanFields,
       user_broker: broker,
       user_email: userEmail,
       trades: tradesWithVariant,
@@ -819,7 +924,7 @@ const UserStrategySubscribeModal = ({
       try {
         const sdkResult = await sdkClient.executeAdvice({
           kind: 'mpInitialAllocation',
-          clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          clientAdviceId: `mp-initial:${broker}:${latestRebalance?._id || calculatedPortfolioData?.uniqueId || latestRebalance?.model_Id}`,
           brokerName: broker,
           modelId: latestRebalance?.model_Id,
           modelName: strategyDetails?.model_name,
@@ -835,7 +940,8 @@ const UserStrategySubscribeModal = ({
         sdkResponse = { data: { results: mappedRows } };
         console.log('[UserStrategySubscribeModal] SDK executeAdvice (main) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
       } catch (sdkErr) {
-        console.error('[UserStrategySubscribeModal] SDK executeAdvice (main) failed, falling back to legacy:', sdkErr?.message);
+        console.error('[UserStrategySubscribeModal] SDK owns this attempt; legacy fallback blocked:', sdkErr?.message);
+        throw sdkErr;
       }
     }
 
@@ -912,6 +1018,7 @@ const UserStrategySubscribeModal = ({
       .catch(error => {
         console.error('Error in placeOrder:', error);
         setLoading(false);
+        handleFrozenPlanRecompute(error);
         // Consider adding error handling here, e.g., showing an error modal
       });
   };
@@ -921,14 +1028,131 @@ const UserStrategySubscribeModal = ({
     advisor: strategyDetails?.advisor,
     model_id: latestRebalance.model_Id,
     unique_id: calculatedPortfolioData?.uniqueId,
+    ...frozenPlanFields,
     broker: broker,
   });
 
   const additionalPayload = getBasePayload();
+  const publisherLaunchPendingRef = useRef(false);
+  const publisherIntentFiredRef = useRef(false);
+  const publisherFullLegsRef = useRef([]);
+  const publisherBatchDispatcherRef = useRef(createPublisherBatchDispatcher());
+  const publisherAttemptRef = useRef(null);
+
+  useEffect(() => {
+    publisherIntentFiredRef.current = false;
+    publisherAttemptRef.current = null;
+  }, [calculatedPortfolioData?.uniqueId, frozenPlanFields.plan_id]);
+
+  const recordPublisherIntent = async (publisherLegs, attempt, activationLegs, activationId) => {
+    if (
+      !calculatedPortfolioData?.uniqueId ||
+      !userEmail
+    ) {
+      throw new Error('Refresh the portfolio to restore the execution identity.');
+    }
+    publisherIntentFiredRef.current = true;
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Advisor-Subdomain': getTenantSubdomain(configData),
+      'aq-encrypted-key': generateToken(
+        Config.REACT_APP_AQ_KEYS,
+        Config.REACT_APP_AQ_SECRET,
+      ),
+      ...executionBundleHeaders(),
+    };
+    try {
+      const context = {
+        source: 'mobile-model-portfolio-initial-allocation',
+        attemptId: attempt.attemptId,
+        modelId: latestRebalance?.model_Id,
+        modelName: strategyDetails?.model_name,
+        advisor: strategyDetails?.advisor,
+        uniqueId: calculatedPortfolioData?.uniqueId,
+        planId: frozenPlanFields.plan_id || null,
+      };
+      const nodeIntentResponse = await axios.post(
+        `${server.server.baseUrl}api/process-trades/execution-intent`,
+        {
+          userEmail,
+          broker: 'Zerodha',
+          flow: 'initial_allocation',
+          lifecycle: 'popup_opened',
+          attemptId: attempt.attemptId,
+          context,
+          legs: publisherLegs,
+        },
+        {timeout: PUBLISHER_ACK_TIMEOUT_MS, headers},
+      );
+      if (
+        !nodeIntentResponse?.data?.intentId ||
+        nodeIntentResponse?.data?.attemptId !== attempt.attemptId ||
+        nodeIntentResponse?.data?.payloadMismatch
+      ) {
+        throw new Error('Execution session acknowledgement was incomplete');
+      }
+
+      const response = await axios.post(
+        `${server.ccxtServer.baseUrl}rebalance/publisher/intent`,
+        {
+          unique_id: calculatedPortfolioData.uniqueId,
+          user_email: userEmail,
+          user_broker: 'Zerodha',
+          modelName: strategyDetails?.model_name,
+          model_id: latestRebalance?.model_Id,
+          advisor: strategyDetails?.advisor,
+          legs: publisherLegs,
+          kind: 'initial_allocation',
+          attempt_id: attempt.attemptId,
+          plan_id: frozenPlanFields.plan_id || null,
+          plan_version: frozenPlanFields.plan_version ?? null,
+          prepare_only: false,
+          activation_legs: activationLegs,
+          activation_id: activationId,
+        },
+        {
+          timeout: PUBLISHER_ACK_TIMEOUT_MS,
+          headers,
+        },
+      );
+      if (!isPublisherActivationAcknowledged(response?.data) ||
+          response?.data?.dispatchReserved !== true || response?.data?.activationId !== activationId) {
+        throw new Error('Publisher reconciliation was not durably enrolled');
+      }
+      return true;
+    } catch (error) {
+      publisherIntentFiredRef.current = false;
+      // Refused before the dispatch boundary — nothing reached the broker, so
+      // the reco rows this attempt just wrote must not reach the Orders screen.
+      await voidUnsentPublisherRecos({
+        legs: activationLegs,
+        email: userEmail,
+        headers,
+        error,
+      });
+      await handleStaleExecutionBundle(error);
+      throw error;
+    }
+  };
   //////Zerodha Start
   const [isWebView, setWebView] = useState(false);
   const webViewRef = useRef(null);
+  const kiteHandoff = useKiteHandoffGuard({
+    visible: isWebView,
+    webViewRef,
+    configData,
+    flow: 'model_initial_allocation',
+    attemptId: publisherAttemptRef.current?.attemptId,
+  });
   const [htmlContentfinal, setHtmlContent] = useState('');
+  // Quotes and funding state keep updating behind this modal. Keep the HTML
+  // source stable so Android does not reload Kite and disconnect its focused
+  // login input whenever the React parent renders.
+  const publisherWebViewBaseUrl = getPublisherWebViewBaseUrl(configData);
+  const publisherWebViewSource = useMemo(
+    () => ({html: htmlContentfinal, baseUrl: publisherWebViewBaseUrl}),
+    [htmlContentfinal, publisherWebViewBaseUrl],
+  );
 
   const getAdditionalPayload = () => {
     if (matchingRepairTrade) {
@@ -967,6 +1191,9 @@ const UserStrategySubscribeModal = ({
   };
   const zerodhaApiKey = configData?.config?.REACT_APP_ZERODHA_API_KEY;
   const handleZerodhaRedirect = async () => {
+    if (publisherLaunchPendingRef.current) return;
+    publisherLaunchPendingRef.current = true;
+    try {
     // Tag `variant` once at the top of the function. Used for the
     // `update-reco-with-zerodha-model-pf` call below AND injected into the
     // `filteredStockDetails` shape written to AsyncStorage — without this
@@ -990,7 +1217,7 @@ const UserStrategySubscribeModal = ({
       console.error('Error handling Zerodha redirect:', error);
     }
     const apiKey = zerodhaApiKey;
-    const basket = stockDetails.map(stock => {
+    const buildBasket = (publisherLegs, freshProtectionPrices) => publisherLegs.map(stock => {
       // Scripmaster-resolved symbol/exchange.
       const resolved = resolveZerodhaSymbol(stock, symbolMap);
       let baseOrder = {
@@ -1001,16 +1228,23 @@ const UserStrategySubscribeModal = ({
         order_type: stock.orderType,
         quantity: stock.quantity,
         readonly: false,
+        tag: getKitePublisherTag(stock),
       };
 
       // LTP preference: live ws on resolved symbol → live on raw symbol →
       // server-cached LTP from /zerodha/convert-symbol. Last one covers
       // BE-series / BSE-primary symbols where NSE ws emits nothing.
       console.log('Baseee:', baseOrder);
+      const freshLtp = Number(
+        freshProtectionPrices?.[String(resolved.tradingsymbol || '').toUpperCase()],
+      );
+      const isMarket = String(stock.orderType || '').toUpperCase() === 'MARKET';
       const liveLtp = getLTPForSymbol(resolved.tradingsymbol) || getLTPForSymbol(stock.tradingSymbol);
-      const ltp = liveLtp && liveLtp !== '-' && parseFloat(liveLtp) > 0
-        ? liveLtp
-        : resolved.cachedLtp || 0;
+      const ltp = isMarket
+        ? freshLtp
+        : (liveLtp && liveLtp !== '-' && parseFloat(liveLtp) > 0
+          ? liveLtp
+          : resolved.cachedLtp || 0);
       console.log('ltp of sym:', ltp, resolved.tradingsymbol);
       if (ltp !== '-' && ltp !== 0) {
         baseOrder.price = parseFloat(ltp);
@@ -1035,80 +1269,110 @@ const UserStrategySubscribeModal = ({
       return protectedOrder;
     });
 
-    console.log('Basket:', basket);
-
     const currentISTDateTime = new Date();
 
     try {
       console.log('now here:');
-      // Update the database with the current IST date-time
-      await axios
-        .post(
-          `${server.server.baseUrl}api/zerodha/model-portfolio/update-reco-with-zerodha-model-pf`,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-              'aq-encrypted-key': generateToken(
-                Config.REACT_APP_AQ_KEYS,
-                Config.REACT_APP_AQ_SECRET,
-              ),
-            },
+      // Persist the recommendation first and wait for the tagged response.
+      // The previous call accidentally passed headers as the POST body and
+      // the real body as Axios config, then opened Kite before `.then()` had
+      // stored anything. That race is why initial allocations could fail to
+      // open or open without recoverable order identity.
+      const res = await axios.post(
+        `${server.server.baseUrl}api/zerodha/model-portfolio/update-reco-with-zerodha-model-pf`,
+        {
+          stockDetails: zerodhaTrades,
+          leaving_datetime: currentISTDateTime,
+          email: userEmail,
+          trade_given_by:
+            configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG ||
+            getPlatformDisplayName(),
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
           },
-          {
-            stockDetails: zerodhaTrades,
-            leaving_datetime: currentISTDateTime,
-            email: userEmail,
-            trade_given_by: configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG || 'AlphaQuark',
-          },
-        )
-        .then(res => {
-          const allStockDetails = res?.data?.data;
-          const filteredStockDetails = allStockDetails.map(detail => ({
-            user_email: detail.user_email,
-            trade_given_by: detail.trade_given_by,
-            tradingSymbol: detail.Symbol,
-            transactionType: detail.Type,
-            exchange: detail.Exchange,
-            segment: detail.Segment,
-            productType: detail.ProductType,
-            orderType: detail.OrderType,
-            price: detail.Price,
-            quantity: detail.Quantity,
-            priority: detail.Priority,
-            tradeId: detail.tradeId,
-            user_broker: 'Zerodha', // Manually adding this field
-            // Preserve variant through the field-by-field mapping. The
-            // backend may or may not echo it on the response (depending on
-            // whether `update-reco-with-zerodha-model-pf` persists it); if
-            // it doesn't, fall back to the submit-time computation.
-            variant: detail.variant || zerodhaVariant,
-          }));
+        },
+      );
+      const allStockDetails = res?.data?.data || [];
+      if (allStockDetails.length !== zerodhaTrades.length) {
+        throw new Error('Could not prepare every portfolio order safely');
+      }
+      const filteredStockDetails = allStockDetails.map(detail => ({
+        user_email: detail.user_email,
+        trade_given_by: detail.trade_given_by,
+        tradingSymbol: detail.Symbol,
+        transactionType: detail.Type,
+        exchange: detail.Exchange,
+        segment: detail.Segment,
+        productType: detail.ProductType,
+        orderType: detail.OrderType,
+        price: detail.Price,
+        quantity: detail.Quantity,
+        priority: detail.Priority,
+        tradeId: detail.tradeId,
+        zerodhaTradeId: detail.zerodhaTradeId,
+        publisherTag: detail.zerodhaTradeId,
+        modelId: latestRebalance?.model_Id,
+        modelName: strategyDetails?.model_name,
+        advisor: strategyDetails?.advisor,
+        uniqueId: calculatedPortfolioData?.uniqueId,
+        user_broker: 'Zerodha',
+        variant: detail.variant || zerodhaVariant,
+      }));
+      const publisherAttempt = createZerodhaPublisherAttempt({
+        stockDetails: filteredStockDetails,
+        userEmail,
+        flow: 'initial_allocation',
+      });
+      publisherAttemptRef.current = publisherAttempt;
+      publisherFullLegsRef.current = JSON.parse(JSON.stringify(filteredStockDetails));
+      await AsyncStorage.multiSet([
+        ['stockDetailsZerodhaOrder', JSON.stringify(filteredStockDetails)],
+        ['zerodhaAdditionalPayload', JSON.stringify({
+          ...additionalPayload,
+          attemptId: publisherAttempt.attemptId,
+        })],
+      ]);
 
-          setLoading(false);
-          AsyncStorage.setItem(
-            'stockDetailsZerodhaOrder',
-            JSON.stringify(filteredStockDetails),
-          );
-        })
-        .catch(err => {
-          console.log('error', err);
-          setLoading(false);
-        });
+      const freshProtectionPrices = await fetchFreshKiteProtectionPrices(
+        filteredStockDetails,
+        symbolMap,
+      );
 
       // Generate HTML form content
-      const htmlContent = generateHtmlForm(basket, apiKey);
-      // Inject the HTML form into WebView
-      setHtmlContent(htmlContent);
-      setWebView(true);
-      webViewRef.current.injectJavaScript(`
-       document.open();
-       document.write(\`${htmlContent}\`);
-       document.close();
-     `);
+      // Record the frozen plan immediately before the Kite basket opens. This
+      // preserves a recoverable pre-execution boundary if the WebView/app is
+      // closed before the normal process-trade callback can record results.
+      await publisherBatchDispatcherRef.current.run({
+        attemptId: publisherAttempt.attemptId, index: 0, legs: filteredStockDetails,
+        authorize: activationId => recordPublisherIntent(
+          publisherFullLegsRef.current, publisherAttempt, filteredStockDetails, activationId,
+        ),
+        open: async () => {
+          const basket = buildBasket(filteredStockDetails, freshProtectionPrices);
+          setHtmlContent(generateHtmlForm(basket, apiKey));
+          setWebView(true);
+          setLoading(false);
+        },
+      });
     } catch (error) {
       console.error('Failed to update trade recommendation:', error);
+      setLoading(false);
+      Toast.show({
+        type: 'error',
+        text1: 'Could not safely open Zerodha',
+        text2: error?.response?.data?.message || error?.message || 'Please try again.',
+        visibilityTime: 6000,
+      });
     }
+
+    } finally { publisherLaunchPendingRef.current = false; }
   };
 
   const appURL = 'test';
@@ -1197,6 +1461,18 @@ const UserStrategySubscribeModal = ({
           advisor: zerodhaAdditionalPayload.advisor,
           model_id: zerodhaAdditionalPayload.model_id,
           unique_id: zerodhaAdditionalPayload.unique_id,
+          attempt_id: zerodhaAdditionalPayload.attemptId,
+          // Carried through from the persisted `additionalPayload` (built by
+          // the top-level getBasePayload() above, which already applies the
+          // same frozenPlanFields gate) — present only when rebalanceFreezePlan
+          // is on and the calculate that ran before this WebView redirect
+          // minted a plan_id.
+          ...(zerodhaAdditionalPayload.plan_id
+            ? {
+                plan_id: zerodhaAdditionalPayload.plan_id,
+                plan_version: zerodhaAdditionalPayload.plan_version,
+              }
+            : {}),
           returnDateTime: istDatetime,
           trades: zerodhaStockDetails,
         });
@@ -1225,7 +1501,7 @@ const UserStrategySubscribeModal = ({
           try {
             const sdkResult = await sdkClient.executeAdvice({
               kind: 'mpInitialAllocation',
-              clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              clientAdviceId: `mp-initial:Zerodha:${latestRebalance?._id || zerodhaAdditionalPayload.unique_id || zerodhaAdditionalPayload.model_id}`,
               brokerName: zerodhaAdditionalPayload.broker || 'Zerodha',
               modelId: zerodhaAdditionalPayload.model_id,
               modelName: zerodhaAdditionalPayload.modelName,
@@ -1241,8 +1517,8 @@ const UserStrategySubscribeModal = ({
             response = { data: { results: mappedRows } };
             console.log('[UserStrategySubscribeModal] SDK executeAdvice (Zerodha) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
           } catch (sdkErr) {
-            console.error('[UserStrategySubscribeModal] SDK executeAdvice (Zerodha) failed, falling back to legacy:', sdkErr?.message);
-            response = null;
+            console.error('[UserStrategySubscribeModal] SDK owns this Zerodha attempt; legacy fallback blocked:', sdkErr?.message);
+            throw sdkErr;
           }
         }
         if (!response) {
@@ -1318,8 +1594,20 @@ const UserStrategySubscribeModal = ({
         setflag(false);
       } catch (error) {
         console.log('Something went wrong');
+        if (handleFrozenPlanRecompute(error)) {
+          // Clear the stale persisted plan-tied payload so a stray re-fire
+          // of the WebView-completion effect can't resubmit a dead plan_id.
+          AsyncStorage.removeItem('stockDetailsZerodhaOrder');
+          AsyncStorage.removeItem('zerodhaAdditionalPayload');
+        }
       }
     }
+
+    // Clear the post-submission state once the order-book check has run, so
+    // this modal stops offering a fresh Place Order while record-back is
+    // still settling (the same window the RebalanceModal gate covers).
+    setZerodhaStatus(null);
+    setZerodhaRequestType(null);
   };
 
   useEffect(() => {
@@ -1431,6 +1719,36 @@ const UserStrategySubscribeModal = ({
     </View>
   ));
 
+  // The Kite run returns before record-back and the order-book check finish.
+  // Re-showing a placeable review in that window reads as "nothing happened,
+  // place them again" while the orders are already with the broker
+  // (prod/arulthakur, 2026-09-17: a second launch minted the orphan rows).
+  const awaitingOrderStatus = zerodhaStatus === 'success' && !isWebView;
+
+  if (visible && isWebView) {
+    return (
+      <PublisherWebViewOverlay
+        source={publisherWebViewSource}
+        webViewRef={webViewRef}
+        onClose={handleClose}
+        onLoadStart={event => {
+          setIsLoading(true);
+          kiteHandoff.onLoadStart(event);
+        }}
+        onLoadEnd={event => {
+          setIsLoading(false);
+          kiteHandoff.onLoadEnd(event);
+        }}
+        onNavigationStateChange={state => {
+          kiteHandoff.onNavigationStateChange(state);
+          handleWebViewNavigationStateChange(state);
+        }}
+        onError={kiteHandoff.onError}
+        onHttpError={kiteHandoff.onHttpError}
+      />
+    );
+  }
+
   return (
     <Modal
       visible={visible}
@@ -1441,7 +1759,8 @@ const UserStrategySubscribeModal = ({
       animationOut="slideOutDown"
       swipeDirection={['down']}
       transparent
-      animationType="fade">
+      animationType="fade"
+      hardwareAccelerated={true}>
       <View style={styles.modalContainer}>
         {isWebView ? (
           <View
@@ -1463,16 +1782,28 @@ const UserStrategySubscribeModal = ({
                 borderTopRightRadius: 10,
                 borderTopLeftRadius: 10,
               }}
-              source={{
-                html: htmlContentfinal,
-                baseUrl: getPublisherWebViewBaseUrl(configData),
+              source={publisherWebViewSource}
+              onLoadStart={event => {
+                setIsLoading(true);
+                kiteHandoff.onLoadStart(event);
               }}
-              onLoadStart={() => setIsLoading(true)}
-              onLoadEnd={() => setIsLoading(false)}
-              onNavigationStateChange={handleWebViewNavigationStateChange}
+              onLoadEnd={event => {
+                setIsLoading(false);
+                kiteHandoff.onLoadEnd(event);
+              }}
+              onNavigationStateChange={state => {
+                kiteHandoff.onNavigationStateChange(state);
+                handleWebViewNavigationStateChange(state);
+              }}
               javaScriptEnabled={true}
               domStorageEnabled={true}
-              onError={e => console.error('WebView error:', e.nativeEvent)}
+              androidLayerType="hardware"
+              setSupportMultipleWindows={false}
+              thirdPartyCookiesEnabled={true}
+              sharedCookiesEnabled={true}
+              keyboardDisplayRequiresUserAction={false}
+              onError={kiteHandoff.onError}
+              onHttpError={kiteHandoff.onHttpError}
             />
           </View>
         ) : (
@@ -1542,11 +1873,23 @@ const UserStrategySubscribeModal = ({
 
               {confirmOrder ? (
                 // Show the SliderButton when 'confirmOrder' is true
-                <GestureHandlerRootView style={{flex: 1}}>
+                (<GestureHandlerRootView style={{flex: 1}}>
+                  {awaitingOrderStatus && (
+                    <View style={styles.notecontainer}>
+                      <Text style={styles.noteTitle}>
+                        Checking your order status
+                      </Text>
+                      <Text style={styles.noteText}>
+                        Your orders have been submitted to your broker. We are
+                        confirming them now — this screen updates on its own.
+                        Please do not place them again.
+                      </Text>
+                    </View>
+                  )}
                   <View
                     style={{
                       paddingHorizontal: 10,
-                      backgroundColor: '#fff',
+                      backgroundColor: designColor('fff'),
                     }}>
                     <SliderButton
                       loading={loading}
@@ -1554,13 +1897,13 @@ const UserStrategySubscribeModal = ({
                         totalAmount || '0.00'
                       }`}
                       onSlideComplete={onSlideComplete}
-                      disabled={calculatedPortfolioData}
+                      disabled={calculatedPortfolioData || awaitingOrderStatus}
                     />
                   </View>
-                </GestureHandlerRootView>
+                </GestureHandlerRootView>)
               ) : (
                 // Show the TouchableOpacity button for other cases
-                <TouchableOpacity
+                (<TouchableOpacity
                   style={[styles.actionButton, {backgroundColor: mainColor}]}
                   onPress={calculateRebalance}
                   disabled={loading || calculatedLoading}>
@@ -1569,7 +1912,7 @@ const UserStrategySubscribeModal = ({
                   ) : (
                     <Text style={styles.buttonText}>Confirm Details</Text>
                   )}
-                </TouchableOpacity>
+                </TouchableOpacity>)
               )}
             </View>
           </View>
@@ -1611,7 +1954,7 @@ const styles = StyleSheet.create({
     height: 48,
     paddingHorizontal: 12,
     paddingRight: 40,
-    borderColor: '#D1D5DB',
+    borderColor: designColor('d1d5db'),
     borderWidth: 1,
     borderRadius: 8,
     fontSize: 14,
@@ -1621,7 +1964,7 @@ const styles = StyleSheet.create({
     right: 10,
     top: '50%',
     transform: [{translateY: -12}],
-    color: '#9CA3AF',
+    color: designColor('9ca3af'),
   },
   modalContainer: {
     flex: 1,
@@ -1629,7 +1972,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     height: screenHeight / 2.1,
@@ -1642,11 +1985,11 @@ const styles = StyleSheet.create({
   modalHeader: {
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: designColor('e5e7eb'),
   },
   modalTitle: {
     fontSize: 18,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     marginLeft: 5,
     color: 'black',
   },
@@ -1658,29 +2001,29 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: designColor('f5f5f5'),
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: designColor('d1d5db'),
   },
   tableHeaderText: {
     flex: 1,
     textAlign: 'center',
     fontSize: 12,
     fontWeight: '500',
-    color: '#4B5563',
+    color: designColor('4b5563'),
   },
   tableRow: {
     flexDirection: 'row',
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: designColor('d1d5db'),
   },
   tableRowText: {
     flex: 1,
     textAlign: 'center',
     fontSize: 14,
-    color: '#4B5563',
+    color: designColor('4b5563'),
   },
   errorContainer: {
     paddingTop: 50,
@@ -1690,19 +2033,19 @@ const styles = StyleSheet.create({
   },
   errorText: {
     fontSize: 18,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'black',
     textAlign: 'center',
   },
   subErrorText: {
     fontSize: 14,
-    color: '#9CA3AF',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('9ca3af'),
+    fontFamily: designFont('Satoshi-Bold'),
     textAlign: 'center',
   },
   footer: {
     borderTopWidth: 1,
-    borderTopColor: '#e4e4e4',
+    borderTopColor: designColor('e4e4e4'),
     flexDirection: 'row',
     backgroundColor: 'white',
 
@@ -1711,12 +2054,12 @@ const styles = StyleSheet.create({
   },
   footerText: {
     fontSize: 12,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'grey',
   },
   footerText1: {
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'black',
   },
   actionButton: {
@@ -1729,22 +2072,46 @@ const styles = StyleSheet.create({
   buttonText: {
     color: 'white',
     fontSize: 16,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     marginBottom: 2,
     textAlign: 'center',
   },
+  buttonDisabled: {
+    backgroundColor: designColor('7f9cbf'),
+  },
+  notecontainer: {
+    borderWidth: 1,
+    borderColor: designColor('f9a825'),
+    borderRadius: 8,
+    padding: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: designColor('fff'),
+  },
+  noteTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: designColor('f9a825'),
+    marginBottom: 4,
+  },
+  noteText: {
+    fontSize: 11,
+    color: designColor('333'),
+    fontFamily: designFont('Satoshi-Regular'),
+    lineHeight: 20,
+  },
   header: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: designColor('f5f5f5'),
     borderTopWidth: 1,
     borderBottomWidth: 1,
 
-    borderColor: '#00000010',
+    borderColor: designColor('00000010'),
     zIndex: 20,
   },
   row: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderColor: '#00000010',
+    borderColor: designColor('00000010'),
     paddingVertical: 10,
     alignItems: 'center',
   },
@@ -1752,29 +2119,29 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 12,
 
-    fontFamily: 'Satoshi-Bold',
-    color: '#000',
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designColor('000'),
     textAlign: 'center',
   },
   cellText: {
     flex: 1,
     fontSize: 14,
-    color: '#000',
-    fontFamily: 'Satoshi-Regular',
+    color: designColor('000'),
+    fontFamily: designFont('Satoshi-Regular'),
     textAlign: 'center',
   },
   buyText: {
-    fontFamily: 'Satoshi-Bold',
-    color: '#338D72',
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designColor('338d72'),
     fontSize: 14,
   },
   sellText: {
-    fontFamily: 'Satoshi-Regular',
-    color: '#E43D3D',
+    fontFamily: designFont('Satoshi-Regular'),
+    color: designColor('e43d3d'),
   },
   defaultText: {
-    fontFamily: 'Satoshi-Regular',
-    color: '#16A085',
+    fontFamily: designFont('Satoshi-Regular'),
+    color: designColor('16a085'),
   },
 });
 export default UserStrategySubscribeModal;

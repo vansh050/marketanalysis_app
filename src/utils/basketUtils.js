@@ -2,6 +2,13 @@
  * basketUtils.js
  * Utilities for basket/derivatives trade construction and lot size management.
  * Ported from prod-alphaquark-github for feature parity.
+ *
+ * PERSISTED UNIT CONVENTION (legacy names; do not reinterpret them):
+ *   Quantity = number of lots requested/advised.
+ *   Lots     = contract lot size / exchange units per lot, NOT a lot count.
+ * Example: Quantity=1 and Lots=65 means one lot, or 65 units sent to Kite.
+ * Broker filledQty/tradedQty may be recorded in units (65) or lots (1), so
+ * conversion code must retain/read `Lots` and use the shared unit helpers.
  */
 
 /**
@@ -57,6 +64,21 @@ export function formatQuantityWithLots(quantity, lotSize) {
 }
 
 /**
+ * Convert the app's derivative basket quantity (lots) to the exchange quantity
+ * (shares/contracts) expected by Kite Publisher. Equity quantities are already
+ * exchange quantities and must not be expanded.
+ */
+export function getKiteBasketQuantity(quantity, exchange, lotSize) {
+  const lots = Math.max(0, parseInt(quantity, 10) || 0);
+  const normalizedExchange = String(exchange || '').toUpperCase();
+  if (normalizedExchange !== 'NFO' && normalizedExchange !== 'BFO') {
+    return lots;
+  }
+  const sharesPerLot = Math.max(1, parseInt(lotSize, 10) || 1);
+  return lots * sharesPerLot;
+}
+
+/**
  * Build a basket of orders from trade recommendations.
  * @param {Array} trades - Trade recommendations
  * @param {string} broker - Broker name
@@ -101,11 +123,14 @@ export function separateByTransactionType(basket) {
 export function calculateBasketValue(basket, getLTP) {
   let buyValue = 0;
   let sellValue = 0;
+  const missingSymbols = [];
 
   basket.forEach(item => {
-    const price = getLTP
-      ? getLTP(item.symbol) || item.price
-      : item.price;
+    const price = Number(getLTP ? getLTP(item.symbol) || item.price : item.price);
+    if (!(price > 0)) {
+      missingSymbols.push(item.symbol);
+      return;
+    }
     const value = price * item.quantity;
 
     if ((item.transactionType || '').toUpperCase() === 'BUY') {
@@ -115,7 +140,10 @@ export function calculateBasketValue(basket, getLTP) {
     }
   });
 
-  return {buyValue, sellValue, netValue: buyValue - sellValue};
+  if (missingSymbols.length) {
+    return {buyValue: null, sellValue: null, netValue: null, missingSymbols};
+  }
+  return {buyValue, sellValue, netValue: buyValue - sellValue, missingSymbols: []};
 }
 
 /**
@@ -183,6 +211,34 @@ export function isBasketExpired(trades) {
 }
 
 /**
+ * A manual reconciliation (Routes/Admin/BasketManualExit.js) retires the
+ * original advised leg (`manual_entry_completed_externally`) and records the
+ * customer's real size on a separate `manual_entry` leg. When the retired leg
+ * carries no explicit fill of its own (the apply handler writes none), the two
+ * rows are ONE logical fill — the retired advice must not render as an extra
+ * basket leg or enter the trade flow. A retired leg WITH an explicit fill is a
+ * real separate execution and stays visible (its fill and the manual fill are
+ * additive). Mirrors prod-alphaquark-github basketUtils (2026-08-21).
+ */
+export const isRetiredEntryLeg = (trade) =>
+  trade?.manual_entry_completed_externally === true &&
+  !(Number(trade?.tradedQty || trade?.filledQty || trade?.executedQty || 0) > 0);
+
+/**
+ * Real closure context (advisor exit advice / executed closure) — distinct
+ * from the feed's lifecycle POSITION_OPEN projection, which flags every leg
+ * `isClosure=true` with a toTradeQty but carries no closure instruction.
+ * Closure rows must gate on this, never on the projection flag alone.
+ */
+export const hasClosureContext = (trade) =>
+  Boolean(trade?.closurestatus && String(trade.closurestatus).trim() !== '') ||
+  String(trade?.purpose || '').toUpperCase() === 'EXIT';
+
+/** Drop retired manual-entry advice legs (their fill lives on the manual_entry leg). */
+export const collapseRetiredEntries = (trades) =>
+  (trades || []).filter((trade) => !isRetiredEntryLeg(trade));
+
+/**
  * Net basket trades - cancels out equal BUY and SELL quantities for each symbol.
  * Only nets trades with "recommend" status.
  * For closure positions, consolidates by symbol to show net toTradeQty per symbol.
@@ -192,6 +248,9 @@ export function isBasketExpired(trades) {
  */
 export function netBasketTrades(trades) {
   if (!trades || trades.length === 0) return [];
+
+  // Retired manual-entry advice legs are history, not additional fills.
+  trades = collapseRetiredEntries(trades);
 
   const recommendTrades = trades.filter(
     t =>
@@ -259,8 +318,17 @@ export function netBasketTrades(trades) {
   });
   const rejectedFailedTrades = Array.from(rejectedSymbolMap.values());
 
+  // Projection-only closure rows (lifecycle `openPositions` → to_trade_net):
+  // a customer-held position (POSITION_OPEN, e.g. entries recorded manually
+  // with no advisor exit advice) makes the feed carry toTradeQty≠0 +
+  // closure:true even though no closure instruction exists. Consolidating
+  // those into SELL rows reads as extra basket legs. Only consolidate when
+  // some leg carries REAL closure context (closurestatus / purpose EXIT);
+  // pure position projections stay out. Mirrors prod-alphaquark-github.
+  const hasClosureContextFlag = trades.some(hasClosureContext);
+
   const consolidatedClosures = [];
-  if (closurePositions.length > 0 && recommendTrades.length === 0) {
+  if (closurePositions.length > 0 && recommendTrades.length === 0 && hasClosureContextFlag) {
     const symbolMap = new Map();
 
     closurePositions.forEach(t => {

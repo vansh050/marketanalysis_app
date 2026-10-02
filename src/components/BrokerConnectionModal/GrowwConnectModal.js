@@ -20,8 +20,9 @@ import Config from 'react-native-config';
 
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 import { useTrade } from '../../screens/TradeContext';
+import {useConfig} from '../../context/ConfigContext';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
@@ -36,6 +37,15 @@ import {
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
 import {getAccountEmail} from '../../utils/accountEmail';
+import {
+  hasDeviceTotp,
+  normalizeDeviceTotpSeedInput,
+  removeDeviceTotp,
+  saveDeviceTotpSeed,
+  unlockDeviceTotpSeed,
+} from '../../services/DeviceTotpVault';
+
+import { designColor } from '../../design/literalTokens';
 
 const { height: screenHeight } = Dimensions.get('window');
 
@@ -54,6 +64,9 @@ const GrowwConnectModal = ({
   fetchBrokerStatusModal,
 }) => {
   const { configData } = useTrade();
+  // Read the live runtime flag the dispatcher routed on; TradeContext's cached
+  // config can lack deviceTotpEnabled and hide quick reconnect (2026-09-30).
+  const freshConfig = useConfig();
   const showAlert = useModalStore((state) => state.showAlert);
   const sdkBridge = useSdkBridge();
 
@@ -71,13 +84,46 @@ const GrowwConnectModal = ({
   // acknowledgment checkbox before the Connect button does anything.
   const [egressReady, setEgressReady] = useState(false);
   const [unmetAck, setUnmetAck] = useState(false);
+  const [hasSavedTotp, setHasSavedTotp] = useState(false);
+  const [saveTotpOnDevice, setSaveTotpOnDevice] = useState(false);
 
   const auth = getAuth();
   const user = auth.currentUser;
   const userEmail = getAccountEmail();
 
   const advisorSubdomain =
-    configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain();
+    getTenantSubdomain(configData);
+  const deviceTotpEnabled =
+    freshConfig?.deviceTotpEnabled === true ||
+    configData?.config?.deviceTotpEnabled === true ||
+    configData?.deviceTotpEnabled === true;
+  const totpIdentity = {
+    advisor: advisorSubdomain,
+    broker: 'Groww',
+    userEmail,
+  };
+
+  useEffect(() => {
+    if (!isVisible || !deviceTotpEnabled || !userEmail) return;
+    hasDeviceTotp(totpIdentity)
+      .then(setHasSavedTotp)
+      .catch(() => setHasSavedTotp(false));
+  }, [isVisible, deviceTotpEnabled, advisorSubdomain, userEmail]);
+
+  const unlockSavedTotp = async () => {
+    try {
+      const seed = await unlockDeviceTotpSeed(totpIdentity);
+      if (seed) setTotpToken(seed);
+    } catch (err) {
+      showAlert('error', 'Could not unlock key', err?.message || 'Device authentication failed.');
+    }
+  };
+
+  const forgetSavedTotp = async () => {
+    await removeDeviceTotp(totpIdentity);
+    setHasSavedTotp(false);
+    setSaveTotpOnDevice(false);
+  };
 
   const authHeaders = {
     'Content-Type': 'application/json',
@@ -118,7 +164,10 @@ const GrowwConnectModal = ({
       return;
     }
     const trimmedApiKey = apiKey.trim();
-    const trimmedToken = totpToken.trim();
+    let trimmedToken = normalizeDeviceTotpSeedInput(totpToken);
+    if (!trimmedToken && hasSavedTotp && deviceTotpEnabled) {
+      trimmedToken = (await unlockDeviceTotpSeed(totpIdentity)) || '';
+    }
     if (!trimmedApiKey || !trimmedToken) {
       showAlert(
         'error',
@@ -143,6 +192,11 @@ const GrowwConnectModal = ({
         { headers: authHeaders, timeout: 25000 },
       );
       if (res.data?.success) {
+        if (deviceTotpEnabled && saveTotpOnDevice && trimmedToken) {
+          await saveDeviceTotpSeed(totpIdentity, trimmedToken);
+          setHasSavedTotp(true);
+          setSaveTotpOnDevice(false);
+        }
         try {
           await saveBrokerSessionTime('Groww');
         } catch (_) {
@@ -286,8 +340,8 @@ const GrowwConnectModal = ({
       broker="Groww"
       config={{
         monogram: 'G',
-        brandFrom: '#00b386',
-        brandTo: '#0a7d63',
+        brandFrom: designColor('00b386'),
+        brandTo: designColor('0a7d63'),
         portalUrl: 'https://groww.in/trade-api/api-keys',
         portalLabel: 'Open Groww Trade API',
         walkthroughVideoId: 'Stba6JN-uMI',
@@ -322,9 +376,20 @@ const GrowwConnectModal = ({
           placeholder: '~32-char Base32 secret',
         },
       ]}
+      deviceTotp={{
+        enabled: deviceTotpEnabled,
+        // Offer quick reconnect before the credential fields, so the customer
+        // chooses it before typing a one-time 6-digit code (as Upstox does).
+        placeBeforeFields: true,
+        hasSaved: hasSavedTotp,
+        saveOnDevice: saveTotpOnDevice,
+        onToggleSave: () => setSaveTotpOnDevice(value => !value),
+        onUnlock: unlockSavedTotp,
+        onForget: forgetSavedTotp,
+      }}
       phase="creds"
       error={''}
-      canSubmit={Boolean(apiKey) && Boolean(totpToken)}
+      canSubmit={Boolean(apiKey) && (Boolean(totpToken) || hasSavedTotp)}
       submitLabel="Connect Groww"
       loading={loading}
       onSubmit={handleSubmit}

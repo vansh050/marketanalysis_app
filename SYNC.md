@@ -19,17 +19,23 @@ This repo is a thin fork overlay on top of `Alphab2bapp` upstream. It contains:
   display-name "Market Analysis Academy".
 - `.env` — `DESIGN_VARIANT=marketanalysis` + `APP_VARIANT=marketanalysis` +
   tenant Firebase credentials.
+- `whitelabel/content.js` — the Market Analysis display-name seam with neutral
+  defaults for every shared content flag.
+- `src/screens/Authentication/GoogleWebSignInModal.js` plus the narrow
+  `LoginScreen.js` adapter — the documented Android OAuth fallback retained
+  until every production signing fingerprint is registered in Firebase.
 
-**Everything else is upstream.** See `docs/WHITELABEL_RECIPE.md` (upstream-
-owned) for the full contract.
+The shared layer otherwise follows upstream. See `docs/WHITELABEL_RECIPE.md`
+(upstream-owned) for the full contract; the narrow fork differences retained
+below are intentional and tested.
 
 ## Upstream
 
 - Repo: `https://github.com/alpha112233/Alphab2bapp`
 - Local clone: `/Users/pratik/PycharmProjects/Alphab2bapp`
-- Tracked branch: `feature/sdk-plus-config_forkv2`
-- Last merged commit: `76b943d` (chore(cashfree): force PRODUCTION via
-  REACT_APP_CASHFREE_ENV override) — synced 2026-06-13.
+- Tracked branch: `release/deploy_5.1`
+- Last merged commit: `0e68359d` (`perf(rebalance): keep the ccxt connection
+  warm while model portfolios are on screen`) — synced 2026-10-02.
 - Cadence: at least monthly.
 
 ## Sync workflow
@@ -66,10 +72,10 @@ These intentionally diverge from upstream until a future migration:
 |---|---|---|---|
 | `react-native-reanimated` | `3.19.5` | `4.1.0` | Fork is on RN new arch + worklets 0.5.2. Migration to 3.19.5 hasn't been validated against the fork's animations yet. |
 | `babel.config.js` plugin | `react-native-reanimated/plugin` | `react-native-worklets/plugin` | Paired with the reanimated 4 hold above. |
-| `metro.config.js` SDK_PATH | `../../alphaquark-mobile-sdk/packages/rn` | `../alphaquark-mobile-sdk/packages/rn` | SDK lives one level up from this fork's repo; in upstream it's two levels up due to its repo nesting (`codes/github/`). |
+| `metro.config.js` SDK_PATH | probes `../../` then `../` | same | Shared machine-agnostic probe; `package.json` remains pinned to the standard `../../alphaquark-mobile-sdk/packages/rn` layout. |
 | `app.json` name + displayName | `AlphaProByAlphaQuark` / `AlphaQuark` | `MarketAnalysis` / `Market Analysis Academy` | Fork brand. |
 | `package.json` name | `AlphaQuark` | `MarketAnalysis` | Fork brand. |
-| `android/app/build.gradle` `applicationId` | upstream tenant ID | `com.arpint.alphaquark` (kept as-is on this fork until rebrand) | Per-fork native shell. |
+| `android/app/build.gradle` `applicationId` | upstream tenant ID | `com.aq.marketanalysis` | Per-fork native shell. |
 
 When upstream's value for any of these changes, document the new diff here and
 decide whether to migrate.
@@ -92,15 +98,39 @@ decide whether to migrate.
   (case-sensitive). App.js falls back to `'rgxapp'` if unset — DON'T let the
   env var go missing.
 - **SDK location**: `@alphaquark/mobile-sdk` is installed as a file: dep
-  pointing at `../alphaquark-mobile-sdk/packages/rn`. Metro's
+  pointing at `../../alphaquark-mobile-sdk/packages/rn`. Metro's
   `metro.config.js` `SDK_PATH` must match. If you ever move the SDK clone,
   bump both.
 
-## What this fork does NOT contain (must stay empty)
+## Expected shared-layer differences
 
-- Any patch to `src/`. If `src/` ever gets edited here, that's a bug.
-- Any patch to `docs/*`. Docs live upstream.
+- `src/screens/Authentication/GoogleWebSignInModal.js` and its narrow
+  `LoginScreen.js` adapter retain the Android browser fallback described
+  above.
+- Contract tests discover tenant-native Kotlin files dynamically and do not
+  require AlphaB2B-only design variants, hosted visual workflows, or OTA
+  release scripts.
+- `docs/CHANGELOG.md` and this file record fork syncs; other canonical docs
+  mirror upstream.
 - Any patch to backend code. Tenant-specific backend config lives in
   `appadvisors.<subdomain>` documents in MongoDB.
 - A duplicated `designs/default/` divergence. Default is upstream-owned and
   must stay byte-identical to upstream.
+
+## Sync history
+
+### 2026-10-02 — full shared-layer reconciliation to `0e68359d`
+
+- Replaced the stale shared `src/`, `designs/default/`, tests, scripts, and
+  architecture documents with AlphaB2B's committed `release/deploy_5.1`
+  snapshot. `src/` is byte-identical except for the documented MarketAnalysis
+  Google Web sign-in fallback.
+- Adopted the current design-boundary compiler/audits, navigation manifest,
+  SDK slot passthrough, durable order/rebalance recovery, broker reconnect and
+  device-vault flows, PhonePe lifecycle, crash reporting, trade alerts, and
+  exact-target OTA safety code.
+- Preserved the Market Analysis variant/assets, Firebase clients, package and
+  bundle IDs, signing configuration, native icons, release versions, and the
+  Reanimated 4 + Worklets hold.
+- OTA plumbing has no baked-in MarketAnalysis deployment key and no OTA was
+  published as part of this sync.

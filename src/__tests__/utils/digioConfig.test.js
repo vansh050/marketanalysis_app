@@ -1,4 +1,4 @@
-import {isDigioEnabledFromBackend} from '../../utils/digioConfig';
+import { isDigioEnabledFromBackend } from '../../utils/digioConfig';
 
 describe('isDigioEnabledFromBackend', () => {
   it('enables Digio only for an explicit backend true', () => {

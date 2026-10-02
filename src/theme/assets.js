@@ -48,6 +48,38 @@ export const DEFAULT_ASSETS = {
     // The faded watermark logo used as a card-background ornament in
     // RebalanceCard, BasketCard, and the auth screens.
     logoFadedPng: require('../assets/fadedlogo.png'),
+    // Phone-first login onboarding carousel (OnboardingScreen, gated by
+    // config.phoneFirstLoginEnabled — default OFF). Ported from arfs_app's
+    // original pre-sync flow (2026-07-17); these 4 clips are arfs's own
+    // assets and are NOT re-checked for baked-in ARFS branding (title cards
+    // are burned into the video, not overlaid by this component). They are
+    // a reasonable generic default (broker/portfolio/news/research themed,
+    // no visible ARFS wordmark in the slide titles below) but a new tenant
+    // enabling phoneFirstLoginEnabled for the first time should ship their
+    // own set via a variant `assets.js` override (`onboardingSlides`) rather
+    // than assume these are white-label-safe without a visual check.
+    onboardingSlides: [
+        {
+            id: '1',
+            video: require('../assets/onboarding/slide1_final.mp4'),
+            title: 'Powered by Top Brokers',
+        },
+        {
+            id: '2',
+            video: require('../assets/onboarding/slide2_final.mp4'),
+            title: 'Portfolio Health Checkup',
+        },
+        {
+            id: '3',
+            video: require('../assets/onboarding/slide3_final.mp4'),
+            title: 'AI-News Summary',
+        },
+        {
+            id: '4',
+            video: require('../assets/onboarding/slide4_final.mp4'),
+            title: 'Trade with Research',
+        },
+    ],
 };
 
 /**

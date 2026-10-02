@@ -44,6 +44,8 @@
 import notifee, { AndroidImportance } from '@notifee/react-native';
 import NatificationServiceNav from '../../components/NatificationServiceNav';
 
+import { designColor } from '../../design/literalTokens';
+
 const CHANNEL_ID = 'webinar_reminders';
 const CHANNEL_NAME = 'Webinar reminders';
 const PRESS_ACTION_ID = 'webinar_reminder_open';
@@ -136,7 +138,7 @@ async function display(remoteMessage) {
       channelId,
       importance: AndroidImportance.HIGH,
       smallIcon: 'ic_launcher',
-      color: '#d97706',
+      color: designColor('d97706'),
       pressAction: {
         id: PRESS_ACTION_ID,
         launchActivity: 'default',

@@ -58,11 +58,11 @@ import { RadioButton } from 'react-native-paper';
 import useTokens from '../../../src/theme/useTokens';
 import ModalShell from '../primitives/ModalShell';
 import Text from '../primitives/Text';
-import SurveillanceWarning from '../../../src/components/SurveillanceWarning';
 
 const { height: screenHeight } = Dimensions.get('window');
 
-const BasketTradeModal = ({ viewModel, actions }) => {
+const BasketTradeModal = ({ viewModel, actions, slots }) => {
+    const { SurveillanceWarning } = slots || {};
     const tokens = useTokens();
     const {
         visible = false,

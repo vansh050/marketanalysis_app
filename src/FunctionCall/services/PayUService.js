@@ -28,7 +28,10 @@ import axios from 'axios';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 import { logPayment } from '../../utils/Logging';
+
+import { designColor } from '../../design/literalTokens';
 
 /**
  * Get the standard headers for API requests
@@ -37,7 +40,7 @@ import { logPayment } from '../../utils/Logging';
  */
 const getHeaders = (configData) => ({
   'Content-Type': 'application/json',
-  'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || Config.REACT_APP_HEADER_NAME,
+  'X-Advisor-Subdomain': getTenantSubdomain(configData),
   'aq-encrypted-key': generateToken(
     Config.REACT_APP_AQ_KEYS,
     Config.REACT_APP_AQ_SECRET,
@@ -579,15 +582,15 @@ export function buildPayUFormHTML(formData, isSI = false) {
           align-items: center;
           height: 100vh;
           margin: 0;
-          background: #f5f5f5;
+          background: ${designColor('f5f5f5')};
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         }
         .loader {
           text-align: center;
         }
         .spinner {
-          border: 4px solid #f3f3f3;
-          border-top: 4px solid #3498db;
+          border: 4px solid ${designColor('f3f3f3')};
+          border-top: 4px solid ${designColor('3498db')};
           border-radius: 50%;
           width: 40px;
           height: 40px;
@@ -599,7 +602,7 @@ export function buildPayUFormHTML(formData, isSI = false) {
           100% { transform: rotate(360deg); }
         }
         p {
-          color: #666;
+          color: ${designColor('666')};
           font-size: 16px;
         }
       </style>
@@ -608,7 +611,7 @@ export function buildPayUFormHTML(formData, isSI = false) {
       <div class="loader">
         <div class="spinner"></div>
         <p>Redirecting to PayU...</p>
-        <p style="font-size: 12px; color: #999;">Please do not close this window</p>
+        <p style="font-size: 12px; color: ${designColor('999')};">Please do not close this window</p>
       </div>
       <form id="payuForm" action="${payuUrl}" method="POST" style="display: none;">
         ${inputsHTML}

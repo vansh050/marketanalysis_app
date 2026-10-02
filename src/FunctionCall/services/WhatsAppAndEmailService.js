@@ -1,6 +1,7 @@
 import axios from "axios";
 import server from "../utils/serverConfig";
 import { encryptApiKey } from "../utils/cryptoUtils";
+import {getTenantSubdomain} from "../../utils/variantHelper";
 
 function formatTimeTo12Hour(time24) {
   const [hours, minutes] = time24.split(":");
@@ -38,7 +39,7 @@ export function normalWhatsAppNotification(
     {
       headers: {
         "Content-Type": "application/json",
-        "X-Advisor-Subdomain": process.env.REACT_APP_URL,
+        "X-Advisor-Subdomain": getTenantSubdomain(),
         "aq-encrypted-key": encryptApiKey(
           process.env.REACT_APP_AQ_KEYS,
           process.env.REACT_APP_AQ_SECRET
@@ -68,7 +69,7 @@ export function getWhatsAppNotification(mobileNumber, name, countryCode) {
     {
       headers: {
         "Content-Type": "application/json",
-        "X-Advisor-Subdomain": process.env.REACT_APP_URL,
+        "X-Advisor-Subdomain": getTenantSubdomain(),
         "aq-encrypted-key": encryptApiKey(
           process.env.REACT_APP_AQ_KEYS,
           process.env.REACT_APP_AQ_SECRET
@@ -101,7 +102,7 @@ export function getWhatsAppRebalanceNotification(
     {
       headers: {
         "Content-Type": "application/json",
-        "X-Advisor-Subdomain": process.env.REACT_APP_URL,
+        "X-Advisor-Subdomain": getTenantSubdomain(),
         "aq-encrypted-key": encryptApiKey(
           process.env.REACT_APP_AQ_KEYS,
           process.env.REACT_APP_AQ_SECRET
@@ -140,7 +141,7 @@ export function getWhatsWebinarNotification(
     {
       headers: {
         "Content-Type": "application/json",
-        "X-Advisor-Subdomain": process.env.REACT_APP_URL,
+        "X-Advisor-Subdomain": getTenantSubdomain(),
         "aq-encrypted-key": encryptApiKey(
           process.env.REACT_APP_AQ_KEYS,
           process.env.REACT_APP_AQ_SECRET
@@ -174,7 +175,7 @@ export function normalEmailNotification(
     {
       headers: {
         "Content-Type": "application/json",
-        "X-Advisor-Subdomain": process.env.REACT_APP_URL,
+        "X-Advisor-Subdomain": getTenantSubdomain(),
         "aq-encrypted-key": encryptApiKey(
           process.env.REACT_APP_AQ_KEYS,
           process.env.REACT_APP_AQ_SECRET
@@ -202,7 +203,7 @@ export function getEmailNotification(name, email, pan, planName) {
     {
       headers: {
         "Content-Type": "application/json",
-        "X-Advisor-Subdomain": process.env.REACT_APP_URL,
+        "X-Advisor-Subdomain": getTenantSubdomain(),
         "aq-encrypted-key": encryptApiKey(
           process.env.REACT_APP_AQ_KEYS,
           process.env.REACT_APP_AQ_SECRET
@@ -241,7 +242,7 @@ export function getEmailWebinarNotification(specificPlan, name, email, data) {
     {
       headers: {
         "Content-Type": "application/json",
-        "X-Advisor-Subdomain": process.env.REACT_APP_URL,
+        "X-Advisor-Subdomain": getTenantSubdomain(),
         "aq-encrypted-key": encryptApiKey(
           process.env.REACT_APP_AQ_KEYS,
           process.env.REACT_APP_AQ_SECRET
@@ -292,7 +293,7 @@ export async function getTelegramNotification(userName, telegramId, data) {
       {
         headers: {
           "Content-Type": "application/json",
-          "X-Advisor-Subdomain": process.env.REACT_APP_URL,
+          "X-Advisor-Subdomain": getTenantSubdomain(),
           "aq-encrypted-key": encryptApiKey(
             process.env.REACT_APP_AQ_KEYS,
             process.env.REACT_APP_AQ_SECRET
@@ -348,7 +349,7 @@ export async function normalTelegramNotification(
       {
         headers: {
           "Content-Type": "application/json",
-          "X-Advisor-Subdomain": process.env.REACT_APP_URL,
+          "X-Advisor-Subdomain": getTenantSubdomain(),
           "aq-encrypted-key": encryptApiKey(
             process.env.REACT_APP_AQ_KEYS,
             process.env.REACT_APP_AQ_SECRET

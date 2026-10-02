@@ -9,13 +9,11 @@
  * component to its variant-aware implementation.
  *
  * Design rules (docs/DESIGN_SYSTEM_ARCHITECTURE.md):
- *   - Variant is fixed at mount time. The `variant` prop, if provided, takes
- *     precedence over env vars (mostly useful for tests / Storybook). Without
- *     a prop, the resolver reads `DESIGN_VARIANT` first, then `APP_VARIANT`,
- *     then falls back to "default".
- *   - The resolved registry is frozen at mount via useRef so memoization is
- *     correct even if a parent re-renders with a different `variant` prop
- *     (which is ignored — runtime variant switching is not supported in v1).
+ *   - An explicit `variant` prop or `DESIGN_VARIANT` remains fixed/build-owned.
+ *     The AlphaB2B master build may otherwise select a statically bundled
+ *     design from the authenticated runtime advisor config.
+ *   - Runtime advisor changes re-resolve the bundle atomically; no component
+ *     code is downloaded and unknown advisors fall back to the default.
  *   - The default variant is the contract floor. resolveDesign() throws at
  *     startup if `designs/default/` is missing from the registry.
  *
@@ -24,9 +22,16 @@
  * ============================================================================
  */
 
-import React, { createContext, useRef } from 'react';
+import React, { createContext, useEffect, useMemo, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import safeConfig from '../utils/safeConfig';
 import resolveDesign from './resolveDesign';
+import {
+    getRuntimeAdvisorConfig,
+    getRuntimeDesignVariant,
+    hydrateRuntimeAdvisorConfig,
+    subscribeRuntimeAdvisor,
+} from '../utils/runtimeAdvisor';
 
 export const DesignContext = createContext(null);
 
@@ -35,6 +40,10 @@ const pickSelection = (override) => {
     if (safeConfig?.DESIGN_VARIANT) {
         return { name: safeConfig.DESIGN_VARIANT, source: 'DESIGN_VARIANT' };
     }
+    const runtimeVariant = getRuntimeDesignVariant();
+    if (runtimeVariant) {
+        return { name: runtimeVariant, source: 'runtime-advisor' };
+    }
     if (safeConfig?.APP_VARIANT) {
         return { name: safeConfig.APP_VARIANT, source: 'APP_VARIANT' };
     }
@@ -42,14 +51,23 @@ const pickSelection = (override) => {
 };
 
 export function DesignProvider({ variant, children }) {
-    const resolvedRef = useRef(null);
-    if (resolvedRef.current === null) {
-        const selection = pickSelection(variant);
-        resolvedRef.current = resolveDesign(selection);
-    }
+    const [runtimeConfig, setRuntimeConfig] = useState(
+        getRuntimeAdvisorConfig(),
+    );
+
+    useEffect(() => {
+        const unsubscribe = subscribeRuntimeAdvisor(setRuntimeConfig);
+        hydrateRuntimeAdvisorConfig(AsyncStorage);
+        return unsubscribe;
+    }, []);
+
+    const resolved = useMemo(
+        () => resolveDesign(pickSelection(variant)),
+        [variant, runtimeConfig],
+    );
 
     return (
-        <DesignContext.Provider value={resolvedRef.current}>
+        <DesignContext.Provider value={resolved}>
             {children}
         </DesignContext.Provider>
     );

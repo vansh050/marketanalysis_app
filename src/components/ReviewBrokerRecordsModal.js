@@ -19,8 +19,10 @@ import axios from 'axios';
 import Config from 'react-native-config';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 import Toast from 'react-native-toast-message';
+
+import { designColor } from '../design/literalTokens';
 
 const ReviewBrokerRecordsModal = ({
   userEmail,
@@ -37,8 +39,7 @@ const ReviewBrokerRecordsModal = ({
 
   const requestHeaders = {
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain':
-      configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(configData),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,
@@ -136,7 +137,7 @@ const ReviewBrokerRecordsModal = ({
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerRow}>
-              <CheckCircle size={20} color="#16A34A" />
+              <CheckCircle size={20} color={designColor('16a34a')} />
               <Text style={styles.headerTitle}>Broker Connected!</Text>
             </View>
             <Text style={styles.headerSubtitle}>
@@ -145,7 +146,7 @@ const ReviewBrokerRecordsModal = ({
               like to apply existing portfolio records to this broker?
             </Text>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <X size={20} color="#6B7280" />
+              <X size={20} color={designColor('6b7280')} />
             </TouchableOpacity>
           </View>
 
@@ -153,12 +154,12 @@ const ReviewBrokerRecordsModal = ({
           <ScrollView style={styles.body}>
             {fetchingRecords ? (
               <View style={styles.centered}>
-                <ActivityIndicator size="large" color="#6366F1" />
+                <ActivityIndicator size="large" color={designColor('6366f1')} />
                 <Text style={styles.loadingText}>Loading portfolio records...</Text>
               </View>
             ) : brokerRecords.length === 0 ? (
               <View style={styles.centered}>
-                <AlertCircle size={40} color="#9CA3AF" />
+                <AlertCircle size={40} color={designColor('9ca3af')} />
                 <Text style={styles.emptyText}>No existing records found.</Text>
                 <Text style={styles.emptySubtext}>Start fresh with your new broker.</Text>
               </View>
@@ -178,14 +179,14 @@ const ReviewBrokerRecordsModal = ({
                           styles.dot,
                           {
                             backgroundColor:
-                              broker === 'DummyBroker' ? '#9CA3AF' : '#F97316',
+                              broker === 'DummyBroker' ? designColor('9ca3af') : designColor('f97316'),
                           },
                         ]}
                       />
                       <Text style={styles.brokerName}>
                         {broker === 'DummyBroker' ? 'Manual (No Broker)' : broker}
                       </Text>
-                      <ArrowRight size={14} color="#9CA3AF" />
+                      <ArrowRight size={14} color={designColor('9ca3af')} />
                       <Text style={styles.newBrokerName}>{newBroker}</Text>
                     </View>
 
@@ -218,7 +219,7 @@ const ReviewBrokerRecordsModal = ({
                 ))}
 
                 <View style={styles.infoBox}>
-                  <AlertCircle size={14} color="#B45309" />
+                  <AlertCircle size={14} color={designColor('b45309')} />
                   <Text style={styles.infoText}>
                     Selected portfolio records will be associated with{' '}
                     <Text style={{fontWeight: '600'}}>{newBroker}</Text>. Future
@@ -248,13 +249,13 @@ const ReviewBrokerRecordsModal = ({
                 onPress={handleMigrate}
                 disabled={migrating || selectedCount === 0}>
                 {migrating ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={designColor('fff')} />
                 ) : (
                   <>
                     <Text style={styles.migrateBtnText}>
                       Migrate {selectedCount} Record(s)
                     </Text>
-                    <ArrowRight size={16} color="#fff" />
+                    <ArrowRight size={16} color={designColor('fff')} />
                   </>
                 )}
               </TouchableOpacity>
@@ -268,53 +269,53 @@ const ReviewBrokerRecordsModal = ({
 
 const styles = StyleSheet.create({
   overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16},
-  modalContainer: {backgroundColor: '#fff', borderRadius: 12, maxHeight: '85%'},
-  header: {paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: '#E5E7EB', backgroundColor: '#EEF2FF'},
+  modalContainer: {backgroundColor: designColor('fff'), borderRadius: 12, maxHeight: '85%'},
+  header: {paddingHorizontal: 16, paddingVertical: 14, borderBottomWidth: 1, borderBottomColor: designColor('e5e7eb'), backgroundColor: designColor('eef2ff')},
   headerRow: {flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6},
-  headerTitle: {fontSize: 16, fontWeight: '600', color: '#111827'},
-  headerSubtitle: {fontSize: 13, color: '#6B7280', lineHeight: 18},
-  brokerHighlight: {fontWeight: '600', color: '#4F46E5'},
+  headerTitle: {fontSize: 16, fontWeight: '600', color: designColor('111827')},
+  headerSubtitle: {fontSize: 13, color: designColor('6b7280'), lineHeight: 18},
+  brokerHighlight: {fontWeight: '600', color: designColor('4f46e5')},
   closeBtn: {position: 'absolute', top: 14, right: 14},
   body: {paddingHorizontal: 16, paddingVertical: 12, maxHeight: 350},
   centered: {alignItems: 'center', paddingVertical: 30, gap: 8},
-  loadingText: {fontSize: 13, color: '#6B7280'},
-  emptyText: {fontSize: 14, color: '#6B7280', marginTop: 8},
-  emptySubtext: {fontSize: 12, color: '#9CA3AF'},
-  recordCount: {fontSize: 13, color: '#6B7280', marginBottom: 10},
-  brokerGroup: {borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, marginBottom: 12, overflow: 'hidden'},
+  loadingText: {fontSize: 13, color: designColor('6b7280')},
+  emptyText: {fontSize: 14, color: designColor('6b7280'), marginTop: 8},
+  emptySubtext: {fontSize: 12, color: designColor('9ca3af')},
+  recordCount: {fontSize: 13, color: designColor('6b7280'), marginBottom: 10},
+  brokerGroup: {borderWidth: 1, borderColor: designColor('e5e7eb'), borderRadius: 8, marginBottom: 12, overflow: 'hidden'},
   brokerGroupHeader: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#F9FAFB',
-    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+    paddingHorizontal: 12, paddingVertical: 8, backgroundColor: designColor('f9fafb'),
+    borderBottomWidth: 1, borderBottomColor: designColor('e5e7eb'),
   },
   dot: {width: 10, height: 10, borderRadius: 5},
-  brokerName: {fontSize: 13, fontWeight: '500', color: '#374151'},
-  newBrokerName: {fontSize: 13, fontWeight: '500', color: '#4F46E5'},
+  brokerName: {fontSize: 13, fontWeight: '500', color: designColor('374151')},
+  newBrokerName: {fontSize: 13, fontWeight: '500', color: designColor('4f46e5')},
   recordRow: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: '#F3F4F6',
+    paddingHorizontal: 12, paddingVertical: 10, borderBottomWidth: 0.5, borderBottomColor: designColor('f3f4f6'),
   },
-  checkbox: {width: 18, height: 18, borderWidth: 1.5, borderColor: '#D1D5DB', borderRadius: 4, alignItems: 'center', justifyContent: 'center'},
-  checkboxChecked: {backgroundColor: '#4F46E5', borderColor: '#4F46E5'},
-  checkmark: {color: '#fff', fontSize: 12, fontWeight: '700'},
-  modelName: {fontSize: 13, fontWeight: '500', color: '#111827'},
-  modelMeta: {fontSize: 11, color: '#9CA3AF', marginTop: 2},
+  checkbox: {width: 18, height: 18, borderWidth: 1.5, borderColor: designColor('d1d5db'), borderRadius: 4, alignItems: 'center', justifyContent: 'center'},
+  checkboxChecked: {backgroundColor: designColor('4f46e5'), borderColor: designColor('4f46e5')},
+  checkmark: {color: designColor('fff'), fontSize: 12, fontWeight: '700'},
+  modelName: {fontSize: 13, fontWeight: '500', color: designColor('111827')},
+  modelMeta: {fontSize: 11, color: designColor('9ca3af'), marginTop: 2},
   infoBox: {
     flexDirection: 'row', gap: 8, padding: 12, borderRadius: 8,
-    backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A', marginTop: 8,
+    backgroundColor: designColor('fffbeb'), borderWidth: 1, borderColor: designColor('fde68a'), marginTop: 8,
   },
-  infoText: {flex: 1, fontSize: 11, color: '#92400E', lineHeight: 16},
+  infoText: {flex: 1, fontSize: 11, color: designColor('92400e'), lineHeight: 16},
   footer: {
     flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 12,
-    borderTopWidth: 1, borderTopColor: '#E5E7EB', backgroundColor: '#F9FAFB',
+    borderTopWidth: 1, borderTopColor: designColor('e5e7eb'), backgroundColor: designColor('f9fafb'),
   },
-  skipBtn: {flex: 1, paddingVertical: 10, borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, alignItems: 'center'},
-  skipBtnText: {fontSize: 13, fontWeight: '500', color: '#374151'},
+  skipBtn: {flex: 1, paddingVertical: 10, borderWidth: 1, borderColor: designColor('d1d5db'), borderRadius: 8, alignItems: 'center'},
+  skipBtnText: {fontSize: 13, fontWeight: '500', color: designColor('374151')},
   migrateBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    paddingVertical: 10, backgroundColor: '#4F46E5', borderRadius: 8,
+    paddingVertical: 10, backgroundColor: designColor('4f46e5'), borderRadius: 8,
   },
-  migrateBtnText: {fontSize: 13, fontWeight: '600', color: '#fff'},
+  migrateBtnText: {fontSize: 13, fontWeight: '600', color: designColor('fff')},
 });
 
 export default ReviewBrokerRecordsModal;

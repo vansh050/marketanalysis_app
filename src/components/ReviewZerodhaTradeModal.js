@@ -1,4 +1,4 @@
-import React, { useState,useRef,useCallback,useEffect } from 'react';
+import React, { useState,useRef,useCallback,useEffect,useMemo } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, Dimensions,ActivityIndicator, TextInput,SafeAreaView, ScrollView, Pressable, FlatList } from 'react-native';
 import { useWindowDimensions } from 'react-native';
 import { XIcon, Trash2Icon,CandlestickChartIcon, ChevronRight,ShoppingBag,Minus,Plus } from 'lucide-react-native';
@@ -15,10 +15,9 @@ import IsMarketHours from '../utils/isMarketHours';
 import { RadioButton } from 'react-native-paper';
 
 import { WebView } from 'react-native-webview';
-import moment from 'moment';
-
 import SliderButton from './SliderButton';
 import Icon from 'react-native-vector-icons/FontAwesome';
+import { designColor, designFont } from '../design/literalTokens';
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 import { getLastKnownPrice } from './AdviceScreenComponents/DynamicText/websocketPrice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -27,10 +26,46 @@ import { generateToken } from '../utils/SecurityTokenManager';
 import { useTrade } from '../screens/TradeContext';
 import { useConfig } from '../context/ConfigContext';
 import Toast from 'react-native-toast-message';
-import { validateStockExchanges, getPublisherWebViewBaseUrl, resolveZerodhaSymbol } from '../utils/brokerPublisher';
+import { validateStockExchanges, fetchFreshKiteProtectionPrices, getPublisherWebViewBaseUrl, resolveZerodhaSymbol, convertToBasketItem } from '../utils/brokerPublisher';
 import { computeTradeVariant } from '../utils/tradeVariant';
 import useZerodhaSymbolMap from '../hooks/useZerodhaSymbolMap';
 import useKitePublisherPolling from '../hooks/useKitePublisherPolling';
+import useKiteHandoffGuard from '../hooks/useKiteHandoffGuard';
+import { getAccountEmailAsync } from '../utils/accountEmail';
+import { getCustomerAuthHeaders } from '../utils/customerAuthHeaders';
+import {
+  applyClosureClamps,
+  fetchClosureClamps,
+  isClosureLeg,
+  REMOVED_EXIT_MESSAGE,
+  CLAMPED_EXIT_MESSAGE,
+  CLAMP_UNAVAILABLE_MESSAGE,
+} from '../utils/closureClamp';
+import { logZerodhaDiagnostic } from '../utils/Logging';
+import {executionBundleHeaders, handleStaleExecutionBundle} from '../utils/executionBundleSafety';
+import {
+  authorizeBasketEntry,
+  basketEntryGateMessage,
+} from '../services/BasketEntryGateService';
+import {
+  ZERODHA_PUBLISHER_ATTEMPT_KEY,
+  ZERODHA_PUBLISHER_ORDER_KEY,
+  buildUnconfirmedPublisherResults,
+  classifyPublisherRecordResults,
+  createZerodhaPublisherAttempt,
+  getKitePublisherTag,
+  isZerodhaPublisherRetryGuarded,
+  parseKiteRedirectStatus,
+  parseZerodhaPublisherAttempt,
+  resolvePublisherSettlement,
+  sanitizePublisherRecordResults,
+  selectPublisherStockDetails,
+} from '../utils/publisherOutcome';
+import {getKiteBasketQuantity} from '../utils/basketUtils';
+import PublisherWebViewOverlay from './PublisherWebViewOverlay';
+import SellModelImpactNotice from './AdviceScreenComponents/SellModelImpactNotice';
+import useSellModelImpact, {reserveSellHoldsForPublisher} from '../hooks/useSellModelImpact';
+import {canonicalSymbol} from '../utils/sellModelImpact';
 
 const ReviewZerodhaTradeModal = ({
   visible,
@@ -69,13 +104,25 @@ const ReviewZerodhaTradeModal = ({
   skipToWebView = false,
 }) => {
   const {configData}=useTrade();
+  // SELL legs that would use model-owned shares get a warn-mode notice; the
+  // hold is written just before Kite opens and released by record-orders.
+  const sellImpact = useSellModelImpact({
+    visible: !!(visible || isVisible),
+    stockDetails,
+    setStockDetails,
+    broker: 'Zerodha',
+    configData,
+  });
+  const sellReservationRef = useRef(null);
   const config = useConfig();
   const { logo: LogoComponent, themeColor, mainColor, secondaryColor, toolbarlogo: Toolbarlogo1, allowAfterHoursOrders } = config || {};
   const marketGateOpen = IsMarketHours() || allowAfterHoursOrders;
+  const hasStockOrders = Array.isArray(stockDetails) && stockDetails.length > 0;
+  const hasBasketOrders = Array.isArray(basketData) && basketData.length > 0;
   // Scripmaster-corrected Kite symbol/exchange map (handles -EQ suffix,
   // BE→BSE diversion, BSE-primary symbols mislabeled as NSE). Published
   // baskets read `resolveZerodhaSymbol(stock, symbolMap)` for the outgoing
-  // `tradingsymbol`/`exchange`; `cachedLtp` covers applyKiteMarketProtection
+  // `tradingsymbol`/`exchange`; `cachedLtp` covers canonical market protection
   // when the websocket hasn't emitted a price (common for BE-series).
   const symbolMap = useZerodhaSymbolMap(stockDetails, isVisible);
   //console.log('trade id i am getting---',stockDetails);
@@ -235,40 +282,40 @@ const ReviewZerodhaTradeModal = ({
   const handleRemoveStock = async (symbol, tradeId) => {
     console.log("Removing stock:-----------------=====", symbol, tradeId);
     const startTime = Date.now(); // Capture the start time
-  
+
     const cartItemsKey = "cartItems";
-  
+
     try {
       // Load cart items from AsyncStorage
       const cartData = await AsyncStorage.getItem(cartItemsKey);
       let cartItems = cartData ? JSON.parse(cartData) : [];
-  
+
       // Filter out stock from state and AsyncStorage
       const updatedStockDetails = stockDetails.filter(
         (selectedStock) =>
           !(selectedStock.tradingSymbol === symbol && selectedStock.tradeId === tradeId)
       );
-  
+
       const updatedCartItems = cartItems.filter(
         (selectedStock) =>
           !(selectedStock.tradingSymbol === symbol && selectedStock.tradeId === tradeId)
       );
-  
+
       // Update state and AsyncStorage in parallel
       setStockDetails(updatedStockDetails);
-  
+
       await AsyncStorage.setItem(cartItemsKey, JSON.stringify(updatedCartItems));
       const storedCartItems = await AsyncStorage.getItem(cartItemsKey);
 console.log('Review Modal in AsyncStorage:', storedCartItems);
       console.log('Emitting stockRemoved event--------------------->>>>>>>>>>>>>>>>>>>>');
       eventEmitter.emit("stockRemoved", { symbol, tradeId });
-  
+
     } catch (error) {
       console.error("Error removing stock:", error);
     }
   };
-  
-  
+
+
 
   const [selectedOption, setSelectedOption] = useState("");
   const [inputFixSizeValue, setInputFixValue] = useState("");
@@ -299,13 +346,61 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
 
   const [isWebView,setWebView]=useState(false);
   const webViewRef = useRef(null);
+  const kiteHandoff = useKiteHandoffGuard({
+    visible: isWebView,
+    webViewRef,
+    configData,
+    flow: 'advice_or_basket',
+  });
   const [htmlContentfinal, setHtmlContent] = useState(htmlContent || "");
+  const publisherWebViewBaseUrl = getPublisherWebViewBaseUrl(configData);
+  const publisherWebViewSource = useMemo(
+    () => ({html: htmlContentfinal, baseUrl: publisherWebViewBaseUrl}),
+    [htmlContentfinal, publisherWebViewBaseUrl],
+  );
 
 
-  
+
   const [zerodhaStatus, setZerodhaStatus] = useState(null);
   const [zerodhaRequestToken, setZerodhaRequestToken] = useState(null);
   const [zerodhaRequestType, setZerodhaRequestType] = useState(null);
+  const zerodhaStatusCheckInFlightRef = useRef(false);
+
+  const updateStoredPublisherAttempt = useCallback(
+    async (status, publisherStatus) => {
+      try {
+        const stored = await AsyncStorage.getItem(
+          ZERODHA_PUBLISHER_ATTEMPT_KEY,
+        );
+        const attempt = parseZerodhaPublisherAttempt(stored);
+        if (!attempt) return;
+        const now = Date.now();
+        await AsyncStorage.setItem(
+          ZERODHA_PUBLISHER_ATTEMPT_KEY,
+          JSON.stringify({
+            ...attempt,
+            status,
+            publisherStatus:
+              publisherStatus || attempt.publisherStatus || 'unknown',
+            updatedAt: now,
+          }),
+        );
+      } catch (error) {
+        console.warn(
+          '[ZerodhaPublisher] Could not update local attempt:',
+          error?.message,
+        );
+      }
+    },
+    [],
+  );
+
+  const clearStoredPublisherAttempt = useCallback(async () => {
+    await AsyncStorage.multiRemove([
+      ZERODHA_PUBLISHER_ORDER_KEY,
+      ZERODHA_PUBLISHER_ATTEMPT_KEY,
+    ]);
+  }, []);
 
   // Publisher order-book polling fallback for Kite Publisher WebView
   // callback misses. Canonical implementation lives in
@@ -315,9 +410,8 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
   // during broker-app authentication, and AsyncStorage hydration races.
   // For Zerodha, jwtToken is the access_token used by fetchOrderBook;
   // other broker creds are passed through for shape parity. The hook
-  // drives the same state transition as `handleWebViewNavigationStateChange`
-  // below, so the `[zerodhaStatus, zerodhaRequestType]` useEffect that
-  // calls checkZerodhaStatus runs identically through both channels.
+  // preserves whether an order was detected or polling merely timed out;
+  // only detected orders are promoted to publisher success.
   const { start: startKitePolling, stop: stopKitePolling } = useKitePublisherPolling({
     broker,
     brokerCreds: {
@@ -329,21 +423,85 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
       serverId: userDetails?.serverId,
     },
     configData,
-    onPublisherSettled: () => {
-      setZerodhaStatus('success');
+    onPublisherSettled: settlement => {
+      const publisherStatus = resolvePublisherSettlement(settlement);
+      logZerodhaDiagnostic('zerodha_mobile_basket_settled', {
+        step: 'publisher_settled',
+        reason: settlement?.reason,
+        newOrders: Array.isArray(settlement?.newOrders) ? settlement.newOrders.length : 0,
+        publisherStatus,
+      }, configData);
+      updateStoredPublisherAttempt(
+        settlement?.reason === 'orders-detected'
+          ? 'orders_detected'
+          : settlement?.reason || 'publisher_settled',
+        publisherStatus,
+      );
+      // A polling timeout only means the user has not completed the hosted
+      // Kite flow yet. It is not an order submission signal. Keep the WebView
+      // open so login/TOTP/review can continue; only broker evidence may enter
+      // record-back and the order-result UI.
+      if (publisherStatus !== 'success') {
+        Toast.show({
+          type: 'info',
+          text1: 'Waiting for Zerodha confirmation',
+          text2: 'Complete login and review in Kite, or close to cancel.',
+          visibilityTime: 6000,
+        });
+        return;
+      }
+      setWebView(false);
+      setZerodhaStatus(publisherStatus);
       setZerodhaRequestType('basket');
     },
   });
+
+  const dismissPublisher = () => {
+    stopKitePolling();
+    clearStoredPublisherAttempt().catch(error =>
+      console.warn(
+        '[ZerodhaPublisher] Cancel cleanup failed:',
+        error?.message,
+      ),
+    );
+    setWebView(false);
+    setZerodhaStatus(null);
+    setZerodhaRequestType(null);
+    setflag(false);
+    // Cancellation leaves every leg in recommend; refresh immediately so the
+    // basket card returns without waiting for polling or EOD reconciliation.
+    try {
+      if (typeof getAllTrades === 'function') getAllTrades();
+    } catch (_) { /* best-effort refresh */ }
+    Toast.show({
+      type: 'info',
+      text1: 'Order placement cancelled',
+      text2: 'No order is marked placed until Zerodha confirms it.',
+      visibilityTime: 4000,
+    });
+  };
 
   const handleWebViewNavigationStateChange = (newNavState) => {
     // Handle navigation state changes, e.g., success/failure redirects
     const { url } = newNavState;
     console.log('url at Review Modal :',url);
-    if (url.includes('success') || url.includes('completed')) {
+    logZerodhaDiagnostic('zerodha_mobile_basket_nav', {
+      url,
+      baseUrl: getPublisherWebViewBaseUrl(configData),
+    }, configData);
+    const redirectStatus = parseKiteRedirectStatus(url);
+    if (redirectStatus === 'cancelled') {
+      console.log('cancelled url at Review Modal :',url);
+      dismissPublisher();
+      return;
+    }
+    if (redirectStatus === 'success') {
       console.log('success url at Review Modal :',url);
+      stopKitePolling();
+      updateStoredPublisherAttempt('callback_success', 'success');
+      setWebView(false);
       setZerodhaStatus('success');
       setZerodhaRequestType('basket');
-
     }
   };
 
@@ -351,7 +509,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
   const getUpdatedBasket = async (stockDetails) => {
     const apiUrl = `${server.ccxtWs.httpUrl}/zerodha/fno/symbol-lotsize`;
 
-  
+
     // Filter relevant symbols
     const symbolsToFetch = stockDetails
       .filter(stock => stock.exchange === 'NFO' || stock.exchange === 'BFO')
@@ -360,9 +518,9 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
         exchange: stock.exchange,
         transactionType: stock.transactionType
       }));
-  
+
     let fetchedData = {};
-  
+
     if (symbolsToFetch.length > 0) {
       try {
         const response = await axios.post(apiUrl,
@@ -381,7 +539,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
             },
           }
         );
-  
+
         const data = response.data;
         console.log('data i got yayyy------',data);
         if (data.status === 0) {
@@ -391,41 +549,29 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
             return acc;
           }, {});
         }
-  
+
       } catch (error) {
         console.error("Error fetchi........ng lotsize and new_symbol:", error);
       }
     }
-  
+
     console.log('Fetched new symbol:', fetchedData);
     return fetchedData;
-  };
-
-  // Helper function to map product type to Kite product type
-  const mapKiteProductType = (productType) => {
-    if (!productType) return "CNC";
-    const upper = productType.toUpperCase();
-    if (upper === "DELIVERY" || upper === "CNC") return "CNC";
-    if (upper === "INTRADAY" || upper === "MIS") return "MIS";
-    if (upper === "BO") return "BO";
-    if (upper === "CO") return "CO";
-    return "CNC";
-  };
-
-  // Helper function to map order type to Kite order type
-  const mapKiteOrderType = (orderType) => {
-    if (!orderType) return "MARKET";
-    const upper = orderType.toUpperCase();
-    if (upper === "MARKET") return "MARKET";
-    if (upper === "LIMIT") return "LIMIT";
-    if (upper === "SL" || upper === "SL_M" || upper === "STOP") return "SL";
-    return "MARKET";
   };
 
 
  // console.log('stock details i get zerodha--0',stockDetails);
 
   const handleZerodhaRedirect = async () => {
+    if (!hasStockOrders) {
+      Toast.show({
+        type: 'error',
+        text1: 'No Orders to Place',
+        text2: 'Add item to cart to place order.',
+      });
+      return;
+    }
+
     // Pre-flight: refuse to send orders with missing exchange. Kite Publisher
     // silently drops basket items whose symbol/exchange combo it can't resolve
     // (e.g. a BSE-only symbol sent with exchange=NSE).
@@ -442,7 +588,6 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
       return;
     }
 
-    const storageKey = "stockDetailsZerodhaOrder";
     // Belt-and-braces variant tagging — `StockAdvices.handleTrade` already tags
     // variant before passing stockDetails into this modal, but defensive
     // tagging here covers (a) any future caller that doesn't pre-tag,
@@ -453,25 +598,282 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
     // submit-time computation fills in. See docs/APP_ARCHITECTURE.md
     // § 4.5.2 Trade variant field.
     const fallbackVariant = computeTradeVariant(allowAfterHoursOrders);
-    const taggedStockDetails = (stockDetails || []).map(s => ({
+    let taggedStockDetails = (stockDetails || []).map(s => ({
       ...s,
       variant: s?.variant || fallbackVariant,
-    }));
-    try {
-      // Clear the existing value
-      await AsyncStorage.removeItem(storageKey);
+    })).sort(
+      (a, b) => Number(a.priority ?? a.Priority ?? 0) - Number(b.priority ?? b.Priority ?? 0),
+    );
 
-      // Set the new value (variant-tagged)
-      await AsyncStorage.setItem(storageKey, JSON.stringify(taggedStockDetails));
+    const resolvedUserEmail =
+      (await getAccountEmailAsync()) ||
+      userEmail ||
+      userDetails?.email;
+    if (!resolvedUserEmail) {
+      Toast.show({
+        type: 'error',
+        text1: 'Account is still loading',
+        text2: 'Please try again in a moment. No order was sent to Zerodha.',
+        visibilityTime: 6000,
+      });
+      return;
+    }
+
+    // B-38b (ported 2026-09-21): size closure legs to THIS customer's open
+    // position before the Kite window opens. The Publisher path never reaches
+    // /order-place, so this is the only clamp a Zerodha single-leg exit gets.
+    // Basket legs are excluded — basket.py already sizes those per customer.
+    // See utils/closureClamp.js for the contract and the fail-closed rule.
+    if (!hasBasketOrders) {
+      const clampTradeIds = taggedStockDetails
+        .map(stock => stock?.tradeId)
+        .filter(id => id != null && id !== '');
+      const cartHasExit = taggedStockDetails.some(isClosureLeg);
+      if (clampTradeIds.length > 0) {
+        try {
+          const customerAuthHeaders = await getCustomerAuthHeaders();
+          if (!customerAuthHeaders) {
+            throw new Error('signed-in customer session required');
+          }
+          const clamps = await fetchClosureClamps({
+            baseUrl: server.server.baseUrl,
+            userEmail: resolvedUserEmail,
+            tradeIds: clampTradeIds,
+            broker: 'Zerodha',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+              'aq-encrypted-key': generateToken(
+                Config.REACT_APP_AQ_KEYS,
+                Config.REACT_APP_AQ_SECRET,
+              ),
+              ...customerAuthHeaders,
+            },
+          });
+          const {next, removed, clamped} = applyClosureClamps(
+            taggedStockDetails,
+            clamps,
+          );
+          if (removed.length) {
+            Toast.show({
+              type: 'error',
+              text1: 'Exit skipped',
+              text2: REMOVED_EXIT_MESSAGE(removed),
+              visibilityTime: 8000,
+            });
+          }
+          if (clamped.length) {
+            Toast.show({
+              type: 'info',
+              text1: 'Exit quantity adjusted',
+              text2: CLAMPED_EXIT_MESSAGE(clamped),
+              visibilityTime: 6000,
+            });
+          }
+          if (next.length === 0) {
+            return;
+          }
+          taggedStockDetails = next;
+        } catch (clampError) {
+          console.warn(
+            '[ZerodhaPublisher] B-38b closure clamp unavailable:',
+            clampError?.message,
+          );
+          if (cartHasExit) {
+            Toast.show({
+              type: 'error',
+              text1: 'Exit is blocked',
+              text2: CLAMP_UNAVAILABLE_MESSAGE,
+              visibilityTime: 7000,
+            });
+            return;
+          }
+        }
+      }
+    }
+
+    if (hasBasketOrders) {
+      if (taggedStockDetails.length > 10) {
+        Toast.show({
+          type: 'error',
+          text1: 'Basket is too large for one Zerodha window',
+          text2: `${taggedStockDetails.length} legs found; Zerodha supports 10. No order was sent.`,
+          visibilityTime: 8000,
+        });
+        return;
+      }
+      try {
+        const gateTrades = taggedStockDetails.map(trade => ({
+          ...trade,
+          purpose:
+            trade.purpose ||
+            (trade.isClosure === true ||
+            ['fullclose', 'partialclose'].includes(
+              String(trade.closurestatus || '').toLowerCase(),
+            )
+              ? 'EXIT'
+              : 'ENTRY'),
+        }));
+        const gateDecision = await authorizeBasketEntry({
+          userEmail: resolvedUserEmail,
+          basketId: taggedStockDetails[0]?.basketId,
+          trades: gateTrades,
+          route: 'mobile_zerodha_review_publisher',
+          configData,
+        });
+        if (!gateDecision.allowed) {
+          Toast.show({
+            type: 'info',
+            text1: basketEntryGateMessage(gateDecision),
+            text2: 'No order was sent.',
+          });
+          return;
+        }
+      } catch (_) {
+        Toast.show({
+          type: 'error',
+          text1: 'Entry is temporarily unavailable',
+          text2: 'No order was sent. Please retry.',
+        });
+        return;
+      }
+    }
+
+    let freshProtectionPrices;
+    try {
+      freshProtectionPrices = await fetchFreshKiteProtectionPrices(
+        taggedStockDetails,
+        symbolMap,
+      );
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Live price is unavailable',
+        text2: error?.message || 'Please retry. No order was sent.',
+        visibilityTime: 7000,
+      });
+      return;
+    }
+
+    let existingAttempt = null;
+    try {
+      existingAttempt = parseZerodhaPublisherAttempt(
+        await AsyncStorage.getItem(ZERODHA_PUBLISHER_ATTEMPT_KEY),
+      );
+    } catch (storageError) {
+      console.error(
+        '[ZerodhaPublisher] Could not read the previous attempt:',
+        storageError?.message,
+      );
+      Toast.show({
+        type: 'error',
+        text1: 'Could not safely open Zerodha',
+        text2: 'Please try again. No order was sent to Zerodha.',
+        visibilityTime: 6000,
+      });
+      return;
+    }
+    if (isZerodhaPublisherRetryGuarded(existingAttempt)) {
+      Toast.show({
+        type: 'info',
+        text1: 'Previous Zerodha order is pending',
+        text2: 'Check Kite Orders before placing the same order again.',
+        visibilityTime: 8000,
+      });
+      return;
+    }
+
+    const attempt = createZerodhaPublisherAttempt({
+      stockDetails: taggedStockDetails,
+      userEmail: resolvedUserEmail,
+      flow: hasBasketOrders ? 'basket' : 'single',
+    });
+    try {
+      // The recovery payload and attempt guard must be durable before Kite is
+      // opened. Fail closed if persistence is unavailable.
+      await AsyncStorage.multiSet([
+        [
+          ZERODHA_PUBLISHER_ORDER_KEY,
+          JSON.stringify(taggedStockDetails),
+        ],
+        [
+          ZERODHA_PUBLISHER_ATTEMPT_KEY,
+          JSON.stringify(attempt),
+        ],
+      ]);
       console.log("Updated stockDetailsZerodhaOrder with:", taggedStockDetails);
     } catch (error) {
       console.error("Error updating stockDetailsZerodhaOrder:", error);
+      Toast.show({
+        type: 'error',
+        text1: 'Could not safely open Zerodha',
+        text2: 'Please try again. No order was sent to Zerodha.',
+        visibilityTime: 6000,
+      });
+      return;
     }
+
+    try {
+      const intentResponse = await axios.post(
+        `${server.server.baseUrl}api/process-trades/execution-intent`,
+        {
+          userEmail: resolvedUserEmail,
+          broker: 'Zerodha',
+          flow: attempt.flow,
+          lifecycle: 'popup_opened',
+          attemptId: attempt.attemptId,
+          context: {
+            source: 'mobile-review-zerodha',
+            attemptId: attempt.attemptId,
+          },
+          legs: taggedStockDetails.map(stock => ({
+            symbol: stock.tradingSymbol || stock.symbol,
+            type: stock.transactionType || stock.type,
+            quantity: stock.quantity,
+          })),
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Advisor-Subdomain':
+              configData?.config?.REACT_APP_HEADER_NAME,
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
+            ...executionBundleHeaders(),
+          },
+          timeout: 4000,
+        },
+      );
+      if (
+        !intentResponse?.data?.intentId ||
+        intentResponse?.data?.attemptId !== attempt.attemptId ||
+        intentResponse?.data?.payloadMismatch
+      ) {
+        throw new Error('Execution session acknowledgement was incomplete');
+      }
+    } catch (error) {
+      await AsyncStorage.multiRemove([
+        ZERODHA_PUBLISHER_ORDER_KEY,
+        ZERODHA_PUBLISHER_ATTEMPT_KEY,
+      ]).catch(() => {});
+      const staleBundleHandled = await handleStaleExecutionBundle(error);
+      if (staleBundleHandled) return;
+      Toast.show({
+        type: 'error',
+        text1: 'Could not safely open Zerodha',
+        text2: 'The server could not prepare order recovery. Please try again.',
+        visibilityTime: 6000,
+      });
+      return;
+    }
+
     const apiKey = zerodhaApiKey;
    // Fetch updated basket data
-  const fetchedData = await getUpdatedBasket(stockDetails);
+  const fetchedData = await getUpdatedBasket(taggedStockDetails);
 
-  const basket = stockDetails.map((stock) => {
+  const basket = taggedStockDetails.map((stock) => {
 
     console.log('stock detailskkkkkk  i get here-',stock);
 
@@ -481,44 +883,24 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
     // Use LTP for price calculation. Prefer live ws LTP on the resolved
     // symbol, fall back to live LTP on raw symbol, fall back to the
     // server-side Redis-cached LTP returned by /zerodha/convert-symbol.
+    const freshLtp = Number(
+      freshProtectionPrices?.[String(resolved.tradingsymbol || '').toUpperCase()],
+    );
+    const isMarket = String(stock.orderType || '').toUpperCase() === 'MARKET';
     const liveLtp =
       getLastKnownPrice(resolved.tradingsymbol) ||
       getLastKnownPrice(stock.tradingSymbol);
-    const ltp =
-      liveLtp && liveLtp !== '-' && parseFloat(liveLtp) > 0
+    const ltp = isMarket
+      ? freshLtp
+      : (liveLtp && liveLtp !== '-' && parseFloat(liveLtp) > 0
         ? liveLtp
-        : resolved.cachedLtp || 0;
+        : resolved.cachedLtp || 0);
     const ltpNumeric = ltp && ltp !== "-" ? parseFloat(ltp) : 0;
-    let orderPrice = 0;
-    let kiteOrderType = mapKiteOrderType(stock.orderType);
-    let kiteValidity = null;
-
-    // MARKET -> LIMIT with 1% market-protection buffer (IOC on NSE, DAY on BSE).
-    // Mirrors ICICI (48f1fb47) / AliceBlue (84a9bf94) / web fix to dodge Kite's
-    // "MARKET orders are blocked — enable market protection" rejection on
-    // GSM/T2T/BE-series stocks (e.g. VIKASECO). Falls through to plain MARKET
-    // when no LTP is available.
-    if (stock.orderType === "LIMIT") {
-      orderPrice = parseFloat(stock.price || 0);
-    } else if ((stock.orderType === "MARKET" || stock.orderType === "SL") && ltpNumeric > 0) {
-      const isBuy = (stock.transactionType || "BUY").toUpperCase() === "BUY";
-      const MARKET_PROTECTION_BUFFER_PCT = 0.01;
-      const bufferedPrice = isBuy
-        ? Math.round(ltpNumeric * (1 + MARKET_PROTECTION_BUFFER_PCT) * 100) / 100
-        : Math.round(ltpNumeric * (1 - MARKET_PROTECTION_BUFFER_PCT) * 100) / 100;
-      if (stock.orderType === "MARKET") {
-        kiteOrderType = "LIMIT";
-        kiteValidity = (resolved.exchange || "").toUpperCase() === "BSE" ? "DAY" : "IOC";
-        orderPrice = bufferedPrice;
-        console.log(`[ZerodhaPublisher] MARKET→LIMIT for ${resolved.tradingsymbol}: ltp=${ltpNumeric} ${isBuy ? "BUY" : "SELL"} limit=${bufferedPrice} validity=${kiteValidity}`);
-      } else {
-        // SL path — keep original (trigger-based, not MARKET-blocked)
-        orderPrice = ltpNumeric;
-      }
-    } else if (stock.orderType === "MARKET" || stock.orderType === "SL") {
-      orderPrice = 0;
-      console.warn(`[ZerodhaPublisher] MARKET order for ${stock.tradingSymbol} has no LTP — sending as plain MARKET`);
-    }
+    const orderPrice = stock.orderType === "LIMIT"
+      ? parseFloat(stock.price || 0)
+      : stock.orderType === "SL"
+        ? ltpNumeric
+        : 0;
 
     // If the stock is in 'NFO' or 'BFO', update with fetched data. The
     // NFO/BFO branch overrides the scripmaster result since derivatives
@@ -526,72 +908,95 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
     let finalQuantity = stock.quantity;
     let finalSymbol = resolved.tradingsymbol;
     let finalExchange = resolved.exchange;
-    if (fetchedData[stock.tradingSymbol]) {
-      const { lotsize, new_symbol } = fetchedData[stock.tradingSymbol];
+    const fetchedLeg = fetchedData[stock.tradingSymbol];
+    const adviceLeg = (fullbasketData || []).find(
+      leg =>
+        (stock.tradeId && leg.tradeId === stock.tradeId) ||
+        (leg.Symbol || leg.tradingSymbol) === stock.tradingSymbol,
+    );
+    if (fetchedLeg) {
+      const {new_symbol} = fetchedLeg;
       finalSymbol = new_symbol;
-      finalQuantity = parseInt(lotsize, 10);
       // Derivatives: preserve the advice-side exchange (NFO/BFO);
       // scripmaster's equity-side answer doesn't apply here.
       finalExchange = stock.exchange;
     }
-
-    let baseOrder = {
-      variety: "regular",
-      tradingsymbol: finalSymbol,
-      // exchange is guaranteed non-empty by validateStockExchanges() above
-      exchange: finalExchange,
-      transaction_type: (stock.transactionType || "BUY").toUpperCase(),
-      order_type: kiteOrderType,
-      quantity: finalQuantity,
-      product: mapKiteProductType(stock.productType),
-      readonly: false,
-      price: orderPrice,
-      tag: stock.zerodhaTradeId,
-    };
-    if (kiteValidity) baseOrder.validity = kiteValidity;
-
-    if (stock.quantity > 100) {
-      baseOrder.readonly = true;
+    // The review-row payload intentionally stores quantity in LOTS and may
+    // omit `Lots`. Use the scripmaster response first, then the original
+    // advice row displayed by this modal. Without the latter fallback a
+    // failed/mismatched symbol-lotsize lookup handed `1` to Kite for a
+    // 65-share NIFTY lot, which Kite rejected as "multiple of 65".
+    const adviceExchange = adviceLeg?.Exchange || adviceLeg?.exchange;
+    const publisherExchange =
+      ['NFO', 'BFO'].includes(String(adviceExchange || '').toUpperCase())
+        ? adviceExchange
+        : stock.exchange || finalExchange;
+    const lotSize =
+      fetchedLeg?.lotsize ||
+      stock.Lots ||
+      stock.lots ||
+      adviceLeg?.Lots ||
+      adviceLeg?.lots ||
+      1;
+    finalQuantity = getKiteBasketQuantity(
+      stock.quantity,
+      publisherExchange,
+      lotSize,
+    );
+    if (['NFO', 'BFO'].includes(String(publisherExchange).toUpperCase())) {
+      finalExchange = publisherExchange;
     }
-    console.log('[ZerodhaPublisher] final BaseOrder:', JSON.stringify(baseOrder));
-    return baseOrder;
+
+    const basketItem = convertToBasketItem('Zerodha', stock, symbolMap, {
+      tradingsymbol: finalSymbol,
+      exchange: finalExchange,
+      ltp: ltpNumeric,
+      price: orderPrice,
+      quantity: finalQuantity,
+      tag: getKitePublisherTag(stock),
+    });
+    console.log('[ZerodhaPublisher] final basket item:', JSON.stringify(basketItem));
+    return basketItem;
   });
 
-    const currentISTDateTime = new Date();
-
     try {
-      // Update the database with the current IST date-time
-      await axios.put( `${server.server.baseUrl}api/zerodha/update-trade-reco`, {
-        stockDetails: stockDetails,
-        leaving_datetime: currentISTDateTime,
-      },
-      {
-                              headers: {
-                                          "Content-Type": "application/json",
-                                          "X-Advisor-Subdomain": configData?.config?.REACT_APP_HEADER_NAME,
-                                          "aq-encrypted-key": generateToken(
-                                            Config.REACT_APP_AQ_KEYS,
-                                            Config.REACT_APP_AQ_SECRET
-                                          ),
-                                        },
-                          });
-
       // Generate HTML form content
       const htmlContent =await generateHtmlForm(basket, apiKey);
       if(htmlContent){
         console.log('html content we get--',htmlContent);
         setHtmlContent(htmlContent);
       }
-      // Inject the HTML form into WebView
+      // Show the WebView — its `source={{ html: htmlContentfinal }}` loads the
+      // form whose inline <script> auto-submits to kite.zerodha.com/connect/basket.
+      // The old `webViewRef.current.injectJavaScript(document.write(...))` here ran
+      // SYNCHRONOUSLY, before the WebView had mounted (ref still null), so it threw
+      // a TypeError that the catch below swallowed as "Could not open Zerodha" —
+      // the basket never reached Kite (no order, app shows "pending").
+      sellReservationRef.current = hasBasketOrders
+        ? null
+        : await reserveSellHoldsForPublisher({
+            rows: taggedStockDetails,
+            broker: 'Zerodha',
+            configData,
+            requestId: attempt?.attemptId,
+          });
       setWebView(true);
-      webViewRef.current.injectJavaScript(`
-        document.open();
-        document.write(\`${htmlContent}\`);
-        document.close();
-      `);
-    
+      logZerodhaDiagnostic('zerodha_mobile_basket_settled', {
+        step: 'redirect_started',
+        baseUrl: getPublisherWebViewBaseUrl(configData),
+        orders: basket.length,
+      }, configData);
+
     } catch (error) {
-      console.error("Failed to update trade recommendation:", error);
+      console.error("Failed to prepare Zerodha publisher:", error);
+      await clearStoredPublisherAttempt().catch(() => {});
+      setWebView(false);
+      Toast.show({
+        type: 'error',
+        text1: 'Could not open Zerodha',
+        text2: 'No order was sent. Please try again.',
+        visibilityTime: 6000,
+      });
     }
   };
 
@@ -602,7 +1007,11 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
         setWebView(true);
         // Start client-side order-book polling as the WebView-callback-missed
         // fallback. See docs/REBALANCING.md § Kite Publisher polling fallback.
-        startKitePolling();
+        // Pass the leg count so polling waits for the whole basket instead of
+        // closing the Kite page on the first order it sees.
+        startKitePolling({
+          expectedOrderCount: Array.isArray(stockDetails) ? stockDetails.length : 0,
+        });
       }
     }
   }, [htmlContent, skipToWebView, startKitePolling]);
@@ -623,192 +1032,204 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
     `;
   };
 
-
-  const [zerodhaStockDetails, setZerodhaStockDetails] = useState(null);
-  const [zerodhaAdditionalPayload, setZerodhaAdditionalPayload] =
-    useState(null);
-
- 
-
-    const fetchData = async () => { 
-      try {
-        const pendingOrderData = await AsyncStorage.getItem("stockDetailsZerodhaOrder");
-        const payloadData = await AsyncStorage.getItem("additionalPayload");
-    
-        const zerodhaStockDetails = pendingOrderData ? JSON.parse(pendingOrderData) : null;
-        const zerodhaAdditionalPayload = payloadData ? JSON.parse(payloadData) : null;
-    
-        return { zerodhaStockDetails, zerodhaAdditionalPayload };
-      } catch (error) {
-        console.error("Error fetching data from AsyncStorage:", error);
-        return { zerodhaStockDetails: null, zerodhaAdditionalPayload: null };
-      }
-    };
-    
-
-    const checkZerodhaStatus = async () => {
-      // Stop the publisher polling — either the WebView callback fired or
-      // polling already settled. Idempotent: if polling already stopped,
-      // this is a no-op. Prevents a late poll tick from re-firing
-      // onPublisherSettled while we're already processing.
-      stopKitePolling();
-
-      try {
-        const { zerodhaStockDetails, zerodhaAdditionalPayload } = await fetchData();
-        const currentISTDateTime = new Date();
-        const istDatetime = moment(currentISTDateTime).format();
-
-        console.log('hereeeee');
-        console.log('Zerodha Stock CheckzerodhaStatus:', zerodhaStockDetails, "and ", zerodhaAdditionalPayload, "jwtToken:", jwtToken);
-
-        if (zerodhaStatus === "success" && zerodhaRequestType === "basket") {
-          try {
-            // Use Publisher flow - call publisher/record-orders endpoint
-            // This fetches order book from Zerodha and matches with our trades
-            console.log('[ZerodhaPublisher] Recording publisher orders...');
-
-            const recordConfig = {
-              method: "post",
-              url: `${server.server.baseUrl}api/zerodha/publisher/record-orders`,
-              data: JSON.stringify({
-                stockDetails: zerodhaStockDetails,
-                publisherResults: [{ status: 'success', batchIndex: 0 }],
-                userEmail: userEmail,
-                broker: 'Zerodha',
-                // Include model portfolio info if available
-                advisor: Config.REACT_APP_ADVISOR_SPECIFIC_TAG,
-              }),
-              headers: {
-                "Content-Type": "application/json",
-                "X-Advisor-Subdomain": configData?.config?.REACT_APP_HEADER_NAME,
-                "aq-encrypted-key": generateToken(
-                  Config.REACT_APP_AQ_KEYS,
-                  Config.REACT_APP_AQ_SECRET
-                ),
-              },
-            };
-
-            // Make the publisher/record-orders API call
-            const response = await axios.request(recordConfig);
-            console.log('[ZerodhaPublisher] Record orders response:', response.data.response);
-
-            const orderResults = response.data.response || response.data.results || [];
-
-            // Update UI based on response
-            setOrderPlacementResponse(orderResults);
-            setOpenSucessModal(true);
-            setBasketData([]);
-            setOpenZerodhaModel(false);
-            updatePortfolioData(broker, userEmail);
-            await filterCartAfterOrder(),
-            eventEmitter.emit('cartUpdated'),
-            getCartAllStocks(),
-            eventEmitter.emit('OrderPlacedReferesh');
-            getAllTrades();
-            
-            // Make the second API call to update portfolio
-            try {
-              const portfolioConfig = {
-                method: "post",
-                url: `${server.ccxtServer.baseUrl}zerodha/user-portfolio`,
-                headers: {
-                  "Content-Type": "application/json",
-                  "X-Advisor-Subdomain": configData?.config?.REACT_APP_HEADER_NAME,
-                  "aq-encrypted-key": generateToken(
-                    Config.REACT_APP_AQ_KEYS,
-                    Config.REACT_APP_AQ_SECRET
-                  ),
-                },
-                data: JSON.stringify({ user_email: userEmail }),
-              };
-              
-              const portfolioResponse = await axios.request(portfolioConfig);
-              console.log("Portfolio updated successfully:", portfolioResponse.data);
-              
-              // Clean up storage
-              await AsyncStorage.removeItem("stockDetailsZerodhaOrder");
-              setflag(false);
-              
-              return portfolioResponse;
-            } catch (portfolioError) {
-              // Log detailed portfolio update error
-              console.error("Error updating portfolio:", portfolioError.response?.data || portfolioError.message);
-              // Continue execution even if portfolio update fails
-              await AsyncStorage.removeItem("stockDetailsZerodhaOrder");
-              setflag(false);
-              return response; // Return the original response
-            }
-          } catch (orderError) {
-            // Log detailed order placement error
-            console.error("Order placement error:", orderError.response?.data || orderError.message);
-            console.error("Status code:", orderError.response?.status || "No status");
-            console.error("Full error:", orderError.response);
-
-            // Build synthetic rejected response and show the modal
-            const errorMessage =
-              orderError.response?.data?.message ||
-              orderError.message ||
-              'Orders cannot be placed. Please try again later.';
-            const { zerodhaStockDetails: savedStockDetails } = await fetchData();
-            const syntheticResponse = (savedStockDetails || stockDetails || []).map(stock => ({
-              symbol: stock.tradingSymbol,
-              tradingSymbol: stock.tradingSymbol,
-              transactionType: stock.transactionType || 'BUY',
-              quantity: stock.quantity,
-              orderType: stock.orderType || 'MARKET',
-              exchange: stock.exchange || 'NSE',
-              orderStatus: 'rejected',
-              orderPlacement: 'failed',
-              orderStatusMessage: errorMessage,
-              message_aq: errorMessage,
-            }));
-            setOrderPlacementResponse(syntheticResponse);
-            setOpenSucessModal(true);
-            setOpenZerodhaModel(false);
-
-            setflag(false);
-          }
-        } else {
-          console.log("Zerodha status conditions not met");
-          return null;
+  const fetchData = async () => {
+    let persistedStockDetails = null;
+    let attempt = null;
+    try {
+      const [pendingOrderData, attemptData] = await Promise.all([
+        AsyncStorage.getItem(ZERODHA_PUBLISHER_ORDER_KEY),
+        AsyncStorage.getItem(ZERODHA_PUBLISHER_ATTEMPT_KEY),
+      ]);
+      if (pendingOrderData) {
+        try {
+          persistedStockDetails = JSON.parse(pendingOrderData);
+        } catch (parseError) {
+          console.warn(
+            '[ZerodhaPublisher] Ignoring malformed recovery payload:',
+            parseError?.message,
+          );
         }
-      } catch (error) {
-        console.error("Error in checkZerodhaStatus:", error);
-
-        // If the modal wasn't already opened by inner catch, show it now
-        const errorMessage =
-          error.response?.data?.message ||
-          error.message ||
-          'Orders cannot be placed. Please try again later.';
-        const syntheticResponse = (stockDetails || []).map(stock => ({
-          symbol: stock.tradingSymbol,
-          tradingSymbol: stock.tradingSymbol,
-          transactionType: stock.transactionType || 'BUY',
-          quantity: stock.quantity,
-          orderType: stock.orderType || 'MARKET',
-          exchange: stock.exchange || 'NSE',
-          orderStatus: 'rejected',
-          orderPlacement: 'failed',
-          orderStatusMessage: errorMessage,
-          message_aq: errorMessage,
-        }));
-        setOrderPlacementResponse(syntheticResponse);
-        setOpenSucessModal(true);
-        setOpenZerodhaModel(false);
-
-        setflag(false);
       }
+      attempt = parseZerodhaPublisherAttempt(attemptData);
+    } catch (error) {
+      // Storage is only one recovery source. The exact prop payload remains
+      // valid for the current mounted flow.
+      console.error('Error fetching Zerodha recovery data:', error);
+    }
+
+    return {
+      zerodhaStockDetails: selectPublisherStockDetails(
+        persistedStockDetails,
+        attempt?.stockDetails || stockDetails,
+      ),
+      attempt,
     };
+  };
+
+  const checkZerodhaStatus = async () => {
+    if (zerodhaStatusCheckInFlightRef.current) return;
+    zerodhaStatusCheckInFlightRef.current = true;
+
+    // Stop polling before record-back so a late tick cannot start a duplicate
+    // request while this one is fetching the broker order book.
+    stopKitePolling();
+
+    let submittedStockDetails = selectPublisherStockDetails([], stockDetails);
+    try {
+      if (
+        zerodhaStatus === null ||
+        zerodhaStatus === 'cancelled' ||
+        zerodhaRequestType !== 'basket'
+      ) {
+        return;
+      }
+
+      const {
+        zerodhaStockDetails: recoveredStockDetails,
+        attempt,
+      } = await fetchData();
+      submittedStockDetails = recoveredStockDetails;
+      const resolvedUserEmail =
+        (await getAccountEmailAsync()) ||
+        userEmail ||
+        userDetails?.email;
+
+      if (submittedStockDetails.length === 0) {
+        throw new Error(
+          'The submitted Zerodha basket could not be recovered.',
+        );
+      }
+      if (!resolvedUserEmail) {
+        throw new Error(
+          'Your account identity is still loading, so broker confirmation could not be recorded.',
+        );
+      }
+
+      const callbackStatus =
+        zerodhaStatus === 'success' ? 'success' : zerodhaStatus || 'unknown';
+      await updateStoredPublisherAttempt('recording', callbackStatus);
+
+      console.log(
+        '[ZerodhaPublisher] Recording',
+        submittedStockDetails.length,
+        'publisher order(s)',
+      );
+      const response = await axios.post(
+        `${server.server.baseUrl}api/zerodha/publisher/record-orders`,
+        {
+          stockDetails: submittedStockDetails,
+          publisherResults: [
+            {status: callbackStatus, batchIndex: 0},
+          ],
+          userEmail: resolvedUserEmail,
+          broker: 'Zerodha',
+          advisor: Config.REACT_APP_ADVISOR_SPECIFIC_TAG,
+          attemptId: attempt?.attemptId,
+          sellReservationRef: sellReservationRef.current,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Advisor-Subdomain':
+              configData?.config?.REACT_APP_HEADER_NAME,
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
+          },
+          timeout: 90000,
+        },
+      );
+
+      const orderResults =
+        response?.data?.response || response?.data?.results || [];
+      const outcome = classifyPublisherRecordResults(orderResults);
+      const confirmationMessage =
+        'Zerodha may have accepted this order, but its final status is not confirmed yet. Check Kite Orders and do not place the same order again.';
+      const shouldShowUnconfirmed =
+        outcome === 'empty';
+      const displayedResults = shouldShowUnconfirmed
+        ? buildUnconfirmedPublisherResults(
+            submittedStockDetails,
+            confirmationMessage,
+          )
+        : sanitizePublisherRecordResults(
+            orderResults,
+            confirmationMessage,
+          );
+
+      setOrderPlacementResponse(displayedResults);
+      setOpenSucessModal(true);
+      setOpenZerodhaModel(false);
+
+      if (outcome === 'recorded') {
+        await clearStoredPublisherAttempt();
+      } else if (outcome === 'pending') {
+        await updateStoredPublisherAttempt(
+          'reconciliation_pending',
+          callbackStatus,
+        );
+      } else {
+        await updateStoredPublisherAttempt(
+          'recording_unconfirmed',
+          callbackStatus,
+        );
+      }
+
+      // Once Zerodha or the backend has a concrete order/pending record, take
+      // it out of the cart so the user cannot submit a duplicate. A mere
+      // order_not_found/empty response is not concrete, so the local retry
+      // guard remains the protection instead.
+      if (outcome === 'recorded' || outcome === 'pending') {
+        setBasketData([]);
+        await Promise.allSettled([
+          filterCartAfterOrder(),
+          getCartAllStocks(),
+          getAllTrades(),
+          updatePortfolioData(broker, resolvedUserEmail),
+        ]);
+        eventEmitter.emit('cartUpdated');
+        eventEmitter.emit('OrderPlacedReferesh');
+      } else {
+        await getAllTrades();
+      }
+    } catch (error) {
+      console.error(
+        '[ZerodhaPublisher] Record-back failed; broker status is unknown:',
+        error.response?.data || error.message,
+      );
+      await updateStoredPublisherAttempt(
+        'recording_failed',
+        zerodhaStatus === 'success' ? 'success' : zerodhaStatus || 'unknown',
+      );
+
+      const confirmationMessage =
+        'Zerodha may have accepted this order, but our confirmation request failed. Check Kite Orders and do not place the same order again.';
+      setOrderPlacementResponse(
+        buildUnconfirmedPublisherResults(
+          submittedStockDetails,
+          confirmationMessage,
+        ),
+      );
+      setOpenSucessModal(true);
+      setOpenZerodhaModel(false);
+    } finally {
+      setflag(false);
+      setZerodhaStatus(null);
+      setZerodhaRequestType(null);
+      zerodhaStatusCheckInFlightRef.current = false;
+    }
+  };
 
   useEffect(() => {
     if (
-      zerodhaStatus === "success" &&
-      zerodhaRequestType === "basket" &&
-      jwtToken !== undefined
+      zerodhaStatus !== null &&
+      zerodhaStatus !== "cancelled" &&
+      zerodhaRequestType === "basket"
     ) {
       checkZerodhaStatus();
     }
-  }, [zerodhaStatus, zerodhaRequestType, userEmail, jwtToken]);
+  }, [zerodhaStatus, zerodhaRequestType, userEmail]);
 
   const totalAmount = useTotalAmount(stockDetails);
 
@@ -821,54 +1242,68 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
 
 
   const handleClose = () => {
+    stopKitePolling();
     setWebView(false);
+    setZerodhaStatus(null);
+    setZerodhaRequestType(null);
     onClose();
   };
 
 
 
   const [totalQuantity, setTotalQuantity] = useState(1);
+  // Per-leg base quantities (lots) captured on first load. The multiplier
+  // must scale each leg off its OWN advised size — the old handlers set
+  // every leg to the raw multiplier, collapsing a 2-lot CE + 1-lot PE
+  // basket to (2,2) and then (1,1) on the way back to "1".
+  const baseBasketQuantitiesRef = useRef({});
+
+  useEffect(() => {
+    if (Array.isArray(basketData) && basketData.length > 0) {
+      const base = {...baseBasketQuantitiesRef.current};
+      basketData.forEach(stock => {
+        const key = `${stock.tradeId || 'noTradeId'}__${stock.tradingSymbol || stock.Symbol || ''}`;
+        if (!(key in base)) {
+          base[key] = stock.quantity || stock.Quantity || 1;
+        }
+      });
+      baseBasketQuantitiesRef.current = base;
+    }
+  }, [basketData]);
+
+  const applyMultiplierToBasket = (multiplier) => {
+    const newData = basketData.map((stock) => {
+      const key = `${stock.tradeId || 'noTradeId'}__${stock.tradingSymbol || stock.Symbol || ''}`;
+      const baseQty =
+        baseBasketQuantitiesRef.current[key] || stock.quantity || stock.Quantity || 1;
+      return {...stock, quantity: baseQty * multiplier};
+    });
+    setBasketData(newData);
+  };
+
   const handleIncreaseAllStockQty = () => {
     const newQuantity = totalQuantity + 1;  // Increase total quantity by 1
     setTotalQuantity(newQuantity);  // Update total quantity state
-  
-    // Update stock quantities to match the total quantity
-    const newData = basketData.map((stock) => ({
-      ...stock,
-      quantity: newQuantity,
-    }));
-    setBasketData(newData);
+    applyMultiplierToBasket(newQuantity);
   };
-  
+
   const handleDecreaseAllStockQty = () => {
     if (totalQuantity > 0) {
       const newQuantity = totalQuantity - 1;  // Decrease total quantity by 1
       setTotalQuantity(newQuantity);  // Update total quantity state
-  
-      // Update stock quantities to match the total quantity
-      const newData = basketData.map((stock) => ({
-        ...stock,
-        quantity: newQuantity,
-      }));
-      setBasketData(newData);
+      applyMultiplierToBasket(newQuantity);
     }
   };
-  
+
   const handleQuantityInputChangeAll = (value) => {
     const newQuantity = parseInt(value) || 0; // If invalid, fallback to 0
     setTotalQuantity(newQuantity);  // Update total quantity state
-  
-    // Update stock quantities to match the total quantity
-    const newData = basketData.map((stock) => ({
-      ...stock,
-      quantity: newQuantity,
-    }));
-    setBasketData(newData);
+    applyMultiplierToBasket(newQuantity);
   };
 
 
 
-  
+
   const renderTradeRow = ({ item, index }) => {
    // console.log('the maine ITEM WE GET in Review Trade Modal:',item);
     const symbol = item.tradingSymbol;
@@ -890,10 +1325,10 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
           <View style={{flexDirection:'row'}}>
             <View style={[styles.tradeType, item.transactionType === 'SELL' ? styles.sell : styles.buy]}>
             <Text style={[styles.tradeType, item.transactionType === 'SELL' ? styles.sell : styles.buy]}>
-            {item.transactionType === 'SELL' ? 'SELL' : 'BUY'}{' \u2022'} 
+            {item.transactionType === 'SELL' ? 'SELL' : 'BUY'}{' \u2022'}
           </Text>
             </View>
-          <ReviewTradeText 
+          <ReviewTradeText
               symbol={symbol || ""}
               orderType={optionType}
               exchange={exe}
@@ -903,7 +1338,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
           </View>
         </View>
         <View style={styles.tableCell}>
-       
+
         </View>
         <View style={styles.tableCell}>
         <Text style={styles.tableHeaderText}>Qty/Lot</Text>
@@ -924,82 +1359,110 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
     const exe = item.exchange;
 
 
-    return (
+    return (console.log('current Price:', (getLTPForSymbol(item.tradingSymbol)),item.tradingSymbol), <View style={styles.rowContainer}>
+  {/* Left-aligned stock symbol and transaction type */}
+  <View style={styles.leftContainer}>
+    <Text style={styles.symbol}>
+      {item.tradingSymbol.length > 18 ? `${item.tradingSymbol.substring(0, 18)}...` : item.tradingSymbol}
+    </Text>
+    <View  style={[
+        styles.cellText,
+        item.transactionType === 'BUY' ? styles.buyOrder : styles.sellOrder,
+      ]}>
+    <Text
+      style={[
+        styles.cellText,
+        item.transactionType === 'BUY' ? styles.buyOrder : styles.sellOrder,
+      ]}
+    >
+      {item.transactionType}
+    </Text>
+    </View>
 
-    console.log('current Price:', (getLTPForSymbol(item.tradingSymbol)),item.tradingSymbol),
-        <View style={styles.rowContainer}>
-      {/* Left-aligned stock symbol and transaction type */}
-      <View style={styles.leftContainer}>
-        <Text style={styles.symbol}>
-          {item.tradingSymbol.length > 18 ? `${item.tradingSymbol.substring(0, 18)}...` : item.tradingSymbol}
-        </Text>
-        <View  style={[
-            styles.cellText,
-            item.transactionType === 'BUY' ? styles.buyOrder : styles.sellOrder,
-          ]}>
-        <Text
-          style={[
-            styles.cellText,
-            item.transactionType === 'BUY' ? styles.buyOrder : styles.sellOrder,
-          ]}
-        >
-          {item.transactionType}
-        </Text>
-        </View>
-       
-      </View>
-      
-      {/* Center-aligned quantity counter */}
-      <View style={styles.quantityContainer}>
-        <TouchableOpacity
-          style={{ justifyContent: 'center' }}
-          onPress={() => handleDecreaseStockQty(item.tradingSymbol, item.tradeId)}
-        >
-          <Minus size={12} color="#000" />
-        </TouchableOpacity>
-        <TextInput
-          value={item.quantity.toString()}
-          style={styles.quantityInput}
-          keyboardType="numeric"
-          onChangeText={(value) => handleQuantityInputChange(item.tradingSymbol, value, item.tradeId)}
-        />
-        <TouchableOpacity
-          style={{ justifyContent: 'center' }}
-          onPress={() => handleIncreaseStockQty(item.tradingSymbol, item.tradeId)}
-        >
-          <Plus size={12} color="#000" />
-        </TouchableOpacity>
-      </View>
-      
-      <View style={styles.rightContainer}>
-      <ReviewTradeText 
-            symbol={symbol || ""}
-            orderType={item.orderType}
-            exchange={exe}
-            advisedPrice={iniprice || 0}
-            stockDetails={stockDetails}
-          />
-      </View>
-      <TouchableOpacity style={{ marginRight: 10 }} onPress={() => handleRemoveStock(item.tradingSymbol, item.tradeId)}>
-  <Trash2Icon size={20} color={'black'} />
+  </View>
+
+  {/* Center-aligned quantity counter */}
+  <View style={styles.quantityContainer}>
+    <TouchableOpacity
+      style={{ justifyContent: 'center' }}
+      onPress={() => handleDecreaseStockQty(item.tradingSymbol, item.tradeId)}
+    >
+      <Minus size={12} color={designColor('000')} />
+    </TouchableOpacity>
+    <TextInput
+      value={item.quantity.toString()}
+      style={styles.quantityInput}
+      keyboardType="numeric"
+      onChangeText={(value) => handleQuantityInputChange(item.tradingSymbol, value, item.tradeId)}
+    />
+    <TouchableOpacity
+      style={{ justifyContent: 'center' }}
+      onPress={() => handleIncreaseStockQty(item.tradingSymbol, item.tradeId)}
+    >
+      <Plus size={12} color={designColor('000')} />
+    </TouchableOpacity>
+  </View>
+
+  <View style={styles.rightContainer}>
+  <ReviewTradeText
+        symbol={symbol || ""}
+        orderType={item.orderType}
+        exchange={exe}
+        advisedPrice={iniprice || 0}
+        stockDetails={stockDetails}
+      />
+  </View>
+  <TouchableOpacity style={{ marginRight: 10 }} onPress={() => handleRemoveStock(item.tradingSymbol, item.tradeId)}>
+<Trash2Icon size={20} color={'black'} />
 </TouchableOpacity>
 
-    </View>
-  );
+</View>);
 }
 
 
 
 
 
+if (visible && isWebView) {
+  return (
+    <PublisherWebViewOverlay
+      source={publisherWebViewSource}
+      webViewRef={webViewRef}
+      onClose={handleClose}
+      onLoadStart={event => {
+        setIsLoading(true);
+        kiteHandoff.onLoadStart(event);
+      }}
+      onLoadEnd={event => {
+        setIsLoading(false);
+        kiteHandoff.onLoadEnd(event);
+      }}
+      onNavigationStateChange={state => {
+        kiteHandoff.onNavigationStateChange(state);
+        handleWebViewNavigationStateChange(state);
+      }}
+      onError={event => {
+        kiteHandoff.onError(event);
+        console.error('WebView error:', event.nativeEvent);
+        logZerodhaDiagnostic('zerodha_mobile_basket_error', {
+          step: 'webview_onError_focus_safe_overlay',
+          error: JSON.stringify(event?.nativeEvent || {}),
+        }, configData);
+      }}
+      onHttpError={kiteHandoff.onHttpError}
+    />
+  );
+}
+
 if (basketData?.length > 0) {
   return (
     <Modal
       transparent={true}
       visible={visible}
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
       animationType="slide"
-      
+      hardwareAccelerated={true}
+
     >
       <SafeAreaView style={styles.modalOverlay} >
         <View style={[styles.modalContainer, { width: width * 1 }]}>
@@ -1025,26 +1488,43 @@ if (basketData?.length > 0) {
                   borderTopRightRadius: 10,
                   borderTopLeftRadius: 10,
                 }}
-                source={{
-                  html: htmlContentfinal,
-                  baseUrl: getPublisherWebViewBaseUrl(configData),
+                source={publisherWebViewSource}
+                onLoadStart={event => {
+                  setIsLoading(true);
+                  kiteHandoff.onLoadStart(event);
                 }}
-                onLoadStart={() => setIsLoading(true)}
-                onLoadEnd={() => setIsLoading(false)}
-                onNavigationStateChange={handleWebViewNavigationStateChange}
+                onLoadEnd={event => {
+                  setIsLoading(false);
+                  kiteHandoff.onLoadEnd(event);
+                }}
+                onNavigationStateChange={state => {
+                  kiteHandoff.onNavigationStateChange(state);
+                  handleWebViewNavigationStateChange(state);
+                }}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
-                onError={(e) =>
-                  console.error('WebView error:', e.nativeEvent)
-                }
+                androidLayerType="hardware"
+                setSupportMultipleWindows={false}
+                thirdPartyCookiesEnabled={true}
+                sharedCookiesEnabled={true}
+                keyboardDisplayRequiresUserAction={false}
+                onError={(e) => {
+                  kiteHandoff.onError(e);
+                  console.error('WebView error:', e.nativeEvent);
+                  logZerodhaDiagnostic('zerodha_mobile_basket_error', {
+                    step: 'webview_onError',
+                    error: JSON.stringify(e?.nativeEvent || {}),
+                  }, configData);
+                }}
+                onHttpError={kiteHandoff.onHttpError}
               />
             </View>
           ) : skipToWebView ? (
             <View style={{ height: 300, alignItems: 'center', justifyContent: 'center', backgroundColor: 'white', borderTopRightRadius: 10, borderTopLeftRadius: 10 }}>
-              <ActivityIndicator size="large" color="#0056B7" />
-              <Text style={{ marginTop: 12, fontFamily: 'Satoshi-Medium', color: '#666' }}>Preparing Kite Publisher...</Text>
+              <ActivityIndicator size="large" color={designColor('0056b7')} />
+              <Text style={{ marginTop: 12, fontFamily: designFont('Satoshi-Medium'), color: designColor('666') }}>Preparing Kite Publisher...</Text>
               <TouchableOpacity onPress={handleClose} style={{ marginTop: 20 }}>
-                <Text style={{ color: '#0056B7', fontFamily: 'Satoshi-Medium' }}>Cancel</Text>
+                <Text style={{ color: designColor('0056b7'), fontFamily: designFont('Satoshi-Medium') }}>Cancel</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -1059,26 +1539,26 @@ if (basketData?.length > 0) {
                         <Text style={styles.basketName}>{fullbasketData[0]?.basketName}{' \u2022'} BASKET</Text>
                       </View>
                       <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                  <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} size={24} color="#00000033" />
+                  <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} size={24} color={designColor('00000033')} />
               </TouchableOpacity>
-                      <View style={{ borderWidth: 1, borderColor: '#E8E8E8', marginTop: 5 }}></View>
-            
+                      <View style={{ borderWidth: 1, borderColor: designColor('e8e8e8'), marginTop: 5 }}></View>
+
                       <View style={styles.tableContainer}>
-                
-              
+
+
                         <FlatList
                         data={basketData}
                         renderItem={renderTradeRow}
                         keyExtractor={(item) => item.tradeId.toString()}
                         ListEmptyComponent={
                           <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 20 }}>
-                            <View style={{ borderRadius: 50, backgroundColor: '#EBECEF', padding: 20 }}>
+                            <View style={{ borderRadius: 50, backgroundColor: designColor('ebecef'), padding: 20 }}>
                               <CandlestickChartIcon size={40} color={"black"} />
                             </View>
-                            <Text style={{ fontFamily: 'Satoshi-SemiBold', color: 'black', fontSize: 18, marginVertical: 10 }}>
+                            <Text style={{ fontFamily: designFont('Satoshi-SemiBold'), color: 'black', fontSize: 18, marginVertical: 10 }}>
                               No Orders to Place
                             </Text>
-                            <Text style={{ fontFamily: 'Satoshi-Medium', color: 'grey' }}>
+                            <Text style={{ fontFamily: designFont('Satoshi-Medium'), color: 'grey' }}>
                               Add item to cart to place order.
                             </Text>
                           </View>
@@ -1096,8 +1576,8 @@ if (basketData?.length > 0) {
                           value={totalQuantity.toString()}
                           style={styles.quantityInput}
                             keyboardType="numeric"
-                            onChangeText={(value) => handleQuantityInputChangeAll()}
-                     
+                            onChangeText={(value) => handleQuantityInputChangeAll(value)}
+
                           />
                           <TouchableOpacity  onPress={() => handleIncreaseAllStockQty()}  style={styles.button}>
                             <Plus size={16} />
@@ -1114,10 +1594,10 @@ if (basketData?.length > 0) {
                     style={{
                       paddingVertical: 5,
                       paddingHorizontal: 10,
-                      borderTopColor: '#e4e4e4',
+                      borderTopColor: designColor('e4e4e4'),
                       borderTopWidth: 0.5,
                       elevation: 1,
-                      backgroundColor: '#fff',
+                      backgroundColor: designColor('fff'),
                     }}
                   >
                     <SliderButton
@@ -1149,8 +1629,9 @@ if (basketData?.length > 0) {
     <Modal
       transparent={true}
       visible={visible}
-      onRequestClose={onClose}
+      onRequestClose={handleClose}
       animationType="slide"
+      hardwareAccelerated={true}
     >
       <SafeAreaView style={styles.modalOverlay}  >
         <View style={[styles.modalContainer, { width: width * 1 }]}>
@@ -1159,53 +1640,92 @@ if (basketData?.length > 0) {
               <View style={{alignContent:'flex-end',alignItems:'flex-end' }}>
               <XIcon onPress={handleClose} size={16} color={'black'}/>
               </View>
-              
+
              <WebView
                ref={webViewRef}
                style={{ flex: 1,borderTopRightRadius:100,borderTopLeftRadius:100,}}
-               source={{
-                 html: htmlContentfinal,
-                 baseUrl: getPublisherWebViewBaseUrl(configData),
+               source={publisherWebViewSource}
+               onLoadStart={event => {
+                 setIsLoading(true);
+                 kiteHandoff.onLoadStart(event);
                }}
-               onLoadStart={() => setIsLoading(true)}
-               onLoadEnd={() => setIsLoading(false)}
-               onNavigationStateChange={handleWebViewNavigationStateChange}
+               onLoadEnd={event => {
+                 setIsLoading(false);
+                 kiteHandoff.onLoadEnd(event);
+               }}
+               onNavigationStateChange={state => {
+                 kiteHandoff.onNavigationStateChange(state);
+                 handleWebViewNavigationStateChange(state);
+               }}
                javaScriptEnabled={true}
-               domStorageEnabled={true}
-               onError={(e) => console.error('WebView error:', e.nativeEvent)}
-             />
+                domStorageEnabled={true}
+                androidLayerType="hardware"
+                setSupportMultipleWindows={false}
+                thirdPartyCookiesEnabled={true}
+                sharedCookiesEnabled={true}
+                keyboardDisplayRequiresUserAction={false}
+                onError={(e) => {
+                  kiteHandoff.onError(e);
+                  console.error('WebView error:', e.nativeEvent);
+                  logZerodhaDiagnostic('zerodha_mobile_basket_error', {
+                    step: 'webview_onError_single',
+                    error: JSON.stringify(e?.nativeEvent || {}),
+                  }, configData);
+                }}
+                onHttpError={kiteHandoff.onHttpError}
+              />
            </View>
           ) : (
             <View style={[styles.modalContainer, { width: width * 1 }]}>
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: 20,alignContent:'center',alignItems:'center',paddingVertical:10 }}>
                 <Text style={styles.modalHeader1}>Zerodha Review Trade Details</Text>
                 <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                  <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} size={24} color="#00000033" />
+                  <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} size={24} color={designColor('00000033')} />
                 </TouchableOpacity>
               </View>
-  
-         <View style={{ borderWidth: 0.4, borderColor: '#e4e4e4', marginTop: 5 }}/>
-  
+
+         <View style={{ borderWidth: 0.4, borderColor: designColor('e4e4e4'), marginTop: 5 }}/>
+
               <FlatList
                 data={stockDetails}
                 renderItem={renderItem}
                 keyExtractor={(item) => item.tradeId.toString()}
+                ListHeaderComponent={
+                  sellImpact.notices.length ? (
+                    <View>
+                      {sellImpact.notices.map(notice => {
+                        const key = canonicalSymbol(notice.symbol);
+                        return (
+                          <SellModelImpactNotice
+                            key={`sell-impact-${key}`}
+                            notice={notice}
+                            choice={sellImpact.choices[key]?.choice}
+                            chosenModel={sellImpact.choices[key]?.modelName}
+                            onChoose={(choice, modelName) =>
+                              sellImpact.choose(notice, choice, modelName)
+                            }
+                          />
+                        );
+                      })}
+                    </View>
+                  ) : null
+                }
                 ListEmptyComponent={
                   <View style={{ alignItems: 'center', justifyContent: 'center', marginTop: 20 }}>
-                    <View style={{ borderRadius: 50, backgroundColor: '#EBECEF', padding: 20 }}>
+                    <View style={{ borderRadius: 50, backgroundColor: designColor('ebecef'), padding: 20 }}>
                       <CandlestickChartIcon size={40} color={"black"} />
                     </View>
-                    <Text style={{ fontFamily: 'Poppins-SemiBold', color: 'black', fontSize: 18, marginVertical: 10 }}>
+                    <Text style={{ fontFamily: designFont('Poppins-SemiBold'), color: 'black', fontSize: 18, marginVertical: 10 }}>
                       No Orders to Place
                     </Text>
-                    <Text style={{ fontFamily: 'Poppins-Medium', color: 'grey' }}>
+                    <Text style={{ fontFamily: designFont('Poppins-Medium'), color: 'grey' }}>
                       Add item to cart to place order.
                     </Text>
                   </View>
                 }
                 contentContainerStyle={{ paddingHorizontal: 10, marginBottom: 10 }}
               />
-  
+
               {stockDetails.length > 0 && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: 20, marginBottom: 20 }}>
                   <View>
@@ -1220,7 +1740,7 @@ if (basketData?.length > 0) {
                       <Text style={{ color: 'grey', marginRight: 10 }}>Fix Size</Text>
                     </View>
                   </View>
-  
+
                   {selectedOption === "fix" && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, marginLeft: 10 }}>
                       <TextInput
@@ -1235,7 +1755,7 @@ if (basketData?.length > 0) {
                           paddingLeft: 5,
                           paddingVertical: 1,
                           borderWidth: 1,
-                          borderColor: '#ccc',
+                          borderColor: designColor('ccc'),
                           borderRadius: 5,
                           marginRight: 8,
                         }}
@@ -1263,10 +1783,10 @@ if (basketData?.length > 0) {
                   )}
                 </View>
               )}
-  
-              <View style={{ paddingVertical: 0, borderTopColor: '#e4e4e4', borderTopWidth: 0.5, elevation: 1, backgroundColor: '#fff' }}>
+
+              <View style={{ paddingVertical: 0, borderTopColor: designColor('e4e4e4'), borderTopWidth: 0.5, elevation: 1, backgroundColor: designColor('fff') }}>
               <GestureHandlerRootView style={{ flex: 0 }}>
-<View style={{paddingVertical:5,paddingHorizontal:10,borderTopColor:'#e4e4e4',borderTopWidth:0.5,elevation:1,backgroundColor:'#fff'}}>
+<View style={{paddingVertical:5,paddingHorizontal:10,borderTopColor:designColor('e4e4e4'),borderTopWidth:0.5,elevation:1,backgroundColor:designColor('fff')}}>
         <SliderButton
         loading={loading}
         disabled={hasZeroQuantity || !marketGateOpen}
@@ -1277,7 +1797,7 @@ if (basketData?.length > 0) {
                 {loading && (
                   <ActivityIndicator
                     size="small"
-                    color="#ffffff"
+                    color={designColor('ffffff')}
                     style={{
                       position: 'absolute',
                       top: 0,
@@ -1296,7 +1816,7 @@ if (basketData?.length > 0) {
       </SafeAreaView>
     </Modal>
   );
-};  
+};
 
 const styles = StyleSheet.create({
   fixSizeContainer: {
@@ -1309,11 +1829,11 @@ const styles = StyleSheet.create({
     height: 32,
     padding: 2,
     marginHorizontal: 4,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 12,
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 7,
   },
   updateButton: {
@@ -1353,7 +1873,7 @@ const styles = StyleSheet.create({
     alignSelf:'center',
     backgroundColor:'transparent',
     borderWidth:1,
-    borderColor:'#000',
+    borderColor:designColor('000'),
     borderRadius:20,
     paddingVertical:3,
   },
@@ -1363,28 +1883,28 @@ const styles = StyleSheet.create({
     marginHorizontal: 25,
   },
   closeButton: {
-  
+
   },
   buyOrder: {
-    color: '#fff',
-    fontFamily:'Satoshi-Regular',
+    color: designColor('fff'),
+    fontFamily:designFont('Satoshi-Regular'),
     paddingHorizontal:8,
     paddingVertical:1,
-    backgroundColor:'#12D06C',
+    backgroundColor:designColor('12d06c'),
     alignSelf: 'flex-start',
 
     borderRadius:15,
- 
+
   },
   sellOrder: {
-    color: '#fff',
-    fontFamily:'Satoshi-Regular',
+    color: designColor('fff'),
+    fontFamily:designFont('Satoshi-Regular'),
     paddingHorizontal:8,
     paddingVertical:1,    borderRadius:15,
     backgroundColor:'red',
   },
   cell: {
-    
+
     borderWidth:1,
     borderColor:'grey',
     justifyContent: 'flex-start',
@@ -1395,28 +1915,28 @@ const styles = StyleSheet.create({
     color: 'black',
     fontSize:12,
     flexDirection:'column',
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
   },
   cellText: {
     alignContent:'center',
     color: 'black',
     fontSize:10,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
   cellTextmktprice: {
     alignSelf: 'center',
     color: 'black',
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
   },
   quantityInput: {
     height:15,
     padding: 0,
     maxWidth:'30%',
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     marginHorizontal:5,
     fontSize: 12,
     paddingHorizontal:0,
-    fontFamily:'Satoshi-Bold',
+    fontFamily:designFont('Satoshi-Bold'),
     textAlign: 'center',
     alignContent:'center',
     alignItems:'center',
@@ -1429,22 +1949,22 @@ const styles = StyleSheet.create({
     padding: 2,
     alignSelf: 'center',
     marginHorizontal: 4,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 7,
   },
   modalContainer: {
-    backgroundColor:'#FFFEF7',
+    backgroundColor:designColor('fffef7'),
     borderTopRightRadius:20,borderTopLeftRadius:20,
     maxHeight:screenHeight,
  overflow:'hidden'
   },
   horizontal: {
- 
+
   },
   modalHeader: {
     fontSize: 18,
@@ -1455,20 +1975,20 @@ const styles = StyleSheet.create({
   },
   modalHeader1: {
     fontSize: 18,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     alignSelf: 'flex-start',
     color: 'black',
   },
   orderButton: {
-    backgroundColor: '#000',
+    backgroundColor: designColor('000'),
     paddingVertical: 15,
     marginHorizontal: 0,
     borderRadius: 10,
     alignItems: 'center',
   },
   orderButtonText: {
-    color: '#fff',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('fff'),
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 16,
   },
   leftContainer: {
@@ -1490,7 +2010,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderColor: '#E8E8E8',
+    borderColor: designColor('e8e8e8'),
   },
 
   /////
@@ -1500,7 +2020,7 @@ const styles = StyleSheet.create({
     top: 10,
     right: 10,
   },
-   
+
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1517,7 +2037,7 @@ const styles = StyleSheet.create({
   },
   basketName: {
     fontSize: 18,
-    fontFamily:'Satoshi-Bold',
+    fontFamily:designFont('Satoshi-Bold'),
     color: 'black',
   },
   tableContainer: {
@@ -1525,15 +2045,15 @@ const styles = StyleSheet.create({
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: designColor('f5f5f5'),
     paddingVertical: 5,
     paddingHorizontal: 5,
     marginBottom: 5,
   },
   tableHeaderText: {
     fontSize: 13,
-    color: '#000000',
-    fontFamily:'Satoshi-Bold',
+    color: designColor('000000'),
+    fontFamily:designFont('Satoshi-Bold'),
     flex: 1,
     textAlign: 'center',
   },
@@ -1542,35 +2062,35 @@ const styles = StyleSheet.create({
     justifyContent:'space-between',
     paddingVertical: 5,
     borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
+    borderBottomColor: designColor('ddd'),
   },
   tableCell: {
 
   },
   stockSymbol: {
     fontSize: 14,
-    color: '#000000',
-    fontFamily:'Satoshi-Medium',
+    color: designColor('000000'),
+    fontFamily:designFont('Satoshi-Medium'),
   },
   tradeType: {
     marginTop: 5,
     fontSize: 12,
   },
   sell: {
-    fontFamily:'Satoshi-Bold',
-    color: '#EA2D3F',
+    fontFamily:designFont('Satoshi-Bold'),
+    color: designColor('ea2d3f'),
   },
   buy: {
-    fontFamily:'Satoshi-Bold',
-    color: '#16A085',
+    fontFamily:designFont('Satoshi-Bold'),
+    color: designColor('16a085'),
   },
   price: {
     fontSize: 13,
-    color: '#000000',
+    color: designColor('000000'),
   },
   quantity: {
     fontSize: 15,
-    color: '#000000',
+    color: designColor('000000'),
   },
   loadingContainer: {
     alignItems: 'center',
@@ -1586,7 +2106,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: '#000000',
+    color: designColor('000000'),
   },
   multiplierControl: {
     flexDirection: 'row',
@@ -1596,7 +2116,7 @@ const styles = StyleSheet.create({
   button: {
     width: 30,
     height: 30,
-    backgroundColor: '#e9e9e9',
+    backgroundColor: designColor('e9e9e9'),
     borderRadius: 5,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1604,7 +2124,7 @@ const styles = StyleSheet.create({
   multiplierInput: {
     width: 60,
     height: 25,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     borderWidth: 1,
     borderRadius: 5,
     textAlign: 'center',
@@ -1612,7 +2132,7 @@ const styles = StyleSheet.create({
   },
   note: {
     fontSize: 12,
-    color: '#888',
+    color: designColor('888'),
     marginTop: 10,
   },
   fundInfo: {
@@ -1622,15 +2142,15 @@ const styles = StyleSheet.create({
   },
   fundLabel: {
     fontSize: 12,
-    color: '#000000',
+    color: designColor('000000'),
   },
   fundAmount: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#000000',
+    color: designColor('000000'),
   },
   placeOrderButton: {
-    backgroundColor: '#000',
+    backgroundColor: designColor('000'),
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 5,
@@ -1638,7 +2158,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   placeOrderText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 14,
     fontWeight: 'bold',
   },

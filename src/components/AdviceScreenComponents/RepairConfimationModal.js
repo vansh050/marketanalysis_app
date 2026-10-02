@@ -10,9 +10,13 @@ import {
 } from 'react-native';
 import { Info } from 'lucide-react-native'; // ✅ using lucide-react-native
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const { width } = Dimensions.get('window');
 
 const CommonInformationModal = ({ openModal, setCloseModal }) => {
+  // Do not leave an invisible native Modal window mounted over the app.
+  if (!openModal) return null;
   const mesmerizingText =
     'A trade has been executed in this model portfolio today. Kindly proceed with the necessary updates/repairs tomorrow.';
 
@@ -26,7 +30,7 @@ const CommonInformationModal = ({ openModal, setCloseModal }) => {
         <View style={styles.modalContainer}>
           {/* Centered Icon */}
           <View style={styles.iconContainer}>
-            <Info size={60} color="#4B5563" />
+            <Info size={60} color={designColor('4b5563')} />
           </View>
 
           {/* Title */}
@@ -58,12 +62,12 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: width * 0.85,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 20,
     paddingVertical: 30,
     paddingHorizontal: 20,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: {width: 0, height: 4},
     shadowOpacity: 0.25,
     shadowRadius: 6,
@@ -77,31 +81,31 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#111827',
+    color: designColor('111827'),
     textAlign: 'center',
     marginBottom: 12,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   message: {
     fontSize: 15,
-    color: '#374151',
+    color: designColor('374151'),
     textAlign: 'center',
     marginBottom: 28,
     lineHeight: 22,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   button: {
-    backgroundColor: '#2563EB', // blue-600
+    backgroundColor: designColor('2563eb'), // blue-600
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 30,
     alignItems: 'center',
   },
   buttonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontWeight: '600',
     fontSize: 16,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
   },
 });
 

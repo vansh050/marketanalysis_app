@@ -94,6 +94,10 @@ export const DEFAULT_TOKENS = {
         profitBg: '#DCFCE7',
         loss: '#DC2626',
         lossBg: '#FEE2E2',
+        // SELL / exit badges use teal, not red — an exit is an action, not a
+        // loss indicator (product 2026-08-21).
+        sell: '#0D9488',
+        sellBg: '#CCFBF1',
         neutral: '#6B7280',
     },
     nav: {

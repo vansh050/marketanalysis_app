@@ -1,5 +1,4 @@
-"use client"
-
+"use client";
 import { useState } from "react"
 import { View, Text, FlatList, Image, StyleSheet, TouchableOpacity, Modal, Dimensions } from "react-native"
 import { Clock, XIcon } from "lucide-react-native"
@@ -10,6 +9,8 @@ import moment from "moment"
 import { useTrade } from "../../screens/TradeContext"
 import LinkOpeningWeb from "../../screens/Home/NewsScreen/LinkOpeningWeb"
 import APP_VARIANTS from "../../utils/Config"
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 const { width, height } = Dimensions.get("window")
 
@@ -41,11 +42,11 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
       line-height: 1.8;
       margin: 0;
       padding: 20px;
-      background-color: #ffffff;
-      color: #333;
+      background-color: ${designColor('ffffff')};
+      color: ${designColor('333')};
     }
     h1 {
-      color: #1a1a1a;
+      color: ${designColor('1a1a1a')};
       font-size: 24px;
       margin-top: 0;
       margin-bottom: 16px;
@@ -53,7 +54,7 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
       line-height: 1.3;
     }
     h2, h3, h4, h5, h6 {
-      color: #2c3e50;
+      color: ${designColor('2c3e50')};
       margin-top: 28px;
       margin-bottom: 16px;
       font-weight: 600;
@@ -76,13 +77,13 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
       margin: 20px 0;
     }
     a {
-      color: #3498db;
+      color: ${designColor('3498db')};
       text-decoration: none;
       border-bottom: 1px solid rgba(52, 152, 219, 0.3);
       transition: border-color 0.2s;
     }
     a:hover {
-      border-color: #3498db;
+      border-color: ${designColor('3498db')};
     }
     strong {
       font-weight: 600;
@@ -98,20 +99,20 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
       margin-bottom: 10px;
     }
     blockquote {
-      border-left: 4px solid #e0e0e0;
+      border-left: 4px solid ${designColor('e0e0e0')};
       padding-left: 16px;
       margin-left: 0;
-      color: #555;
+      color: ${designColor('555')};
       font-style: italic;
     }
     code {
-      background-color: #f5f5f5;
+      background-color: ${designColor('f5f5f5')};
       padding: 2px 5px;
       border-radius: 3px;
       font-family: monospace;
     }
     pre {
-      background-color: #f5f5f5;
+      background-color: ${designColor('f5f5f5')};
       padding: 16px;
       border-radius: 8px;
       overflow-x: auto;
@@ -119,17 +120,17 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
     .blog-header {
       margin-bottom: 24px;
       padding-bottom: 16px;
-      border-bottom: 1px solid #eaeaea;
+      border-bottom: 1px solid ${designColor('eaeaea')};
     }
     .blog-description {
-      color: #555;
+      color: ${designColor('555')};
       font-size: 15px;
       line-height: 1.6;
       margin-bottom: 12px;
       font-style: italic;
     }
     .blog-meta {
-      color: #666;
+      color: ${designColor('666')};
       font-size: 14px;
       margin-bottom: 24px;
       display: flex;
@@ -179,8 +180,8 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       text-align: center;
       padding: 40px 20px;
-      background-color: #f8f9fa;
-      color: #666;
+      background-color: ${designColor('f8f9fa')};
+      color: ${designColor('666')};
       line-height: 1.6;
     }
     .message {
@@ -192,7 +193,7 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
       margin: 0 auto;
     }
     h2 {
-      color: #333;
+      color: ${designColor('333')};
       font-size: 22px;
       margin-bottom: 16px;
     }
@@ -202,7 +203,7 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
     }
     .timestamp {
       font-size: 14px;
-      color: #999;
+      color: ${designColor('999')};
       margin-top: 20px;
     }
     .icon {
@@ -263,7 +264,7 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
               alignItems: "center",
               paddingHorizontal: 20,
               borderBottomWidth: 1,
-              borderColor: "#ccc",
+              borderColor: designColor('ccc'),
               marginBottom: 10,
               paddingVertical: 15,
             }}
@@ -273,13 +274,13 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
                 <Text style={styles.headerTitle}>Educational Blogs</Text>
               </View>
             )}
-            <XIcon onPress={() => setOpenBlogs(false)} size={15} color={"#000"} />
+            <XIcon onPress={() => setOpenBlogs(false)} size={15} color={designColor('000')} />
           </View>
 
           <View style={{ alignContent: "center", alignItems: "center" }}>
             {type === "allblogs" ? (
               // console.log('type i am getting:',type),
-              <FlatList
+              (<FlatList
                 data={blogs}
                 renderItem={renderItem}
                 keyExtractor={(item, index) => index.toString()}
@@ -290,8 +291,8 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
                     <View style={{ flexDirection: "row" }}>
                       <FadeLoading
                         style={{ width: screenWidth * 0.8, height: 100, marginTop: 5, marginLeft: 10 }}
-                        primaryColor="#f0f0f0"
-                        secondaryColor="#e0e0e0"
+                        primaryColor={designColor('f0f0f0')}
+                        secondaryColor={designColor('e0e0e0')}
                         duration={500}
                       />
                     </View>
@@ -300,7 +301,7 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
                     // <View style={{ alignItems: 'center', marginTop: 10 }}>
                     //   <Text style={{ opacity: 0.5,color:'grey' }}>No Content Found</Text>
                     // </View>
-                    <View
+                    (<View
                       style={{
                         flex: 1,
                         alignItems: "center",
@@ -336,14 +337,13 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
                           backgroundColor: "rgba(173, 66, 38, 0.06)", // Lighter shade of #6B1400
                         }}
                       />
-
                       {/* Icon container */}
                       <View
                         style={{
                           width: 70,
                           height: 70,
                           borderRadius: 35,
-                          backgroundColor: "#fff",
+                          backgroundColor: designColor('fff'),
                           justifyContent: "center",
                           alignItems: "center",
                           marginBottom: 20,
@@ -356,10 +356,9 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
                       >
                         <Text style={{ fontSize: 30 }}>📚</Text>
                       </View>
-
                       <Text
                         style={{
-                          fontFamily: "Satoshi-Bold",
+                          fontFamily: designFont('Satoshi-Bold'),
                           fontSize: 18,
                           color: APP_VARIANTS.EmptyStateUi.darkerColor, // Darker shade of reference color
                           textAlign: "center",
@@ -368,10 +367,9 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
                       >
                         No Educational Content Yet
                       </Text>
-
                       <Text
                         style={{
-                          fontFamily: "Satoshi-Medium",
+                          fontFamily: designFont('Satoshi-Medium'),
                           fontSize: 14,
                           color: APP_VARIANTS.EmptyStateUi.mediumColor, // Medium shade of reference color
                           textAlign: "center",
@@ -381,7 +379,6 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
                       >
                         We're working on adding valuable educational resources for you. Check back soon!
                       </Text>
-
                       {/* Visual indicators */}
                       <View
                         style={{
@@ -430,11 +427,11 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
                           }}
                         />
                       </View>
-                    </View>
+                    </View>)
                   )
                 }
                 contentContainerStyle={{ paddingBottom: 50 }} // Add space at the bottom
-              />
+              />)
             ) : (
               <FlatList
                 data={blogs}
@@ -447,14 +444,14 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
                     <View style={{ flexDirection: "row" }}>
                       <FadeLoading
                         style={{ width: screenWidth * 0.5, height: 100, marginTop: 5, marginLeft: 10 }}
-                        primaryColor="#f0f0f0"
-                        secondaryColor="#e0e0e0"
+                        primaryColor={designColor('f0f0f0')}
+                        secondaryColor={designColor('e0e0e0')}
                         duration={500}
                       />
                       <FadeLoading
                         style={{ width: screenWidth * 0.5, height: 100, marginTop: 5, marginLeft: 10 }}
-                        primaryColor="#f0f0f0"
-                        secondaryColor="#e0e0e0"
+                        primaryColor={designColor('f0f0f0')}
+                        secondaryColor={designColor('e0e0e0')}
                         duration={500}
                       />
                     </View>
@@ -477,7 +474,7 @@ const EducationalBlogs = ({ type, visible, setOpenBlogs }) => {
         </View>
       </View>
     </Modal>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -487,19 +484,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     alignContent: "center",
     alignSelf: "center",
-    backgroundColor: "#fDfDfD",
+    backgroundColor: designColor('fdfdfd'),
   },
   title: {
     fontSize: 14,
-    fontFamily: "Satoshi-Medium",
-    color: "#666",
+    fontFamily: designFont('Satoshi-Medium'),
+    color: designColor('666'),
     marginBottom: 0,
     textAlign: "center",
   },
   subtitle: {
     fontSize: 14,
-    color: "#666",
-    fontFamily: "Satoshi-Medium",
+    color: designColor('666'),
+    fontFamily: designFont('Satoshi-Medium'),
     textAlign: "center",
     marginBottom: 20,
   },
@@ -510,7 +507,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontFamily: "Satoshi-Bold",
+    fontFamily: designFont('Satoshi-Bold'),
 
     color: "black",
   },
@@ -521,12 +518,12 @@ const styles = StyleSheet.create({
     alignSelf: "center",
   },
   blogCard: {
-    backgroundColor: "#fff",
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     overflow: "hidden",
     width: 260,
     marginRight: 15,
-    shadowColor: "#000",
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
@@ -541,7 +538,7 @@ const styles = StyleSheet.create({
   },
   blogTitle: {
     fontSize: 18,
-    fontFamily: "Satoshi-Bold",
+    fontFamily: designFont('Satoshi-Bold'),
     color: "white",
   },
   textOverlay: {
@@ -563,10 +560,10 @@ const styles = StyleSheet.create({
   timestampText: {
     fontSize: 12,
     color: "white",
-    fontFamily: "Satoshi-Regular",
+    fontFamily: designFont('Satoshi-Regular'),
   },
   modalContainer: {
-    backgroundColor: "#FFFEF7",
+    backgroundColor: designColor('fffef7'),
     borderTopRightRadius: 20,
     borderTopLeftRadius: 20,
     maxHeight: screenHeight - 100,
@@ -578,7 +575,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.3)",
   },
   webView: {
-    borderTopColor: "#e9e9e9",
+    borderTopColor: designColor('e9e9e9'),
     borderWidth: 1,
     flex: 1,
   },

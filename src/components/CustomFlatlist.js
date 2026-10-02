@@ -10,6 +10,8 @@ import LottieView from "lottie-react-native";
 import StockCardLoading from "./AdviceScreenComponents/StockCardLoading";
 import { useConfig } from "../context/ConfigContext";
 
+import { designFont } from '../design/literalTokens';
+
 const { width: screenWidth } = Dimensions.get("window");
 const BATCH_SIZE = 10; // Number of items to render in each batch
 
@@ -89,7 +91,7 @@ console.log('vdx');
             
             <Text
               style={{
-                fontFamily: "Satoshi-Medium",
+                fontFamily: designFont('Satoshi-Medium'),
                 color: "grey",
                 alignSelf: "center",
               }}

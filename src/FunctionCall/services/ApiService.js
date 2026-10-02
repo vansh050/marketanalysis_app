@@ -4,7 +4,7 @@ import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
 import {useTrade} from '../../screens/TradeContext';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 
 export const getUserDetails = async userEmail => {
   const {configData} = useTrade();
@@ -14,7 +14,7 @@ export const getUserDetails = async userEmail => {
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(),
           'aq-encrypted-key': encryptApiKey(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,

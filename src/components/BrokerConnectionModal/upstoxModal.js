@@ -13,7 +13,7 @@ import UpstoxConnectUI from '../../UIComponents/BrokerConnectionUI/UpstoxConnect
 import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import { useTrade } from '../../screens/TradeContext';
 import { useConfig } from '../../context/ConfigContext';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import {
@@ -22,6 +22,21 @@ import {
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
 import {getAccountEmail} from '../../utils/accountEmail';
+import {
+  generateDeviceTotpFromSeed,
+  hasDeviceTotp,
+  normalizeDeviceTotpSeedInput,
+  removeDeviceTotp,
+  saveDeviceTotpSeed,
+  unlockDeviceTotpLogin,
+} from '../../services/DeviceTotpVault';
+import {
+  isRetryableEnrollmentError,
+  isWrongPinError,
+  waitForNextTotpWindow,
+} from '../../utils/deviceTotpEnrollment';
+
+import { designColor } from '../../design/literalTokens';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
@@ -70,6 +85,32 @@ const UpstoxModal = ({
   const [upstoxCode, setUpstoxCode] = useState(null);
   const [upstoxSessionToken, setUpstoxSessionToken] = useState(null);
   const hasConnectedUpstox = useRef(false);
+  const quickReconnectStartedRef = useRef(false);
+  const reauthHydratedRef = useRef(false);
+  const pendingTotpEnrollmentRef = useRef(null);
+  const deviceTotpEnabled =
+    freshConfig?.deviceTotpEnabled === true ||
+    configData?.config?.deviceTotpEnabled === true;
+  const [hasSavedTotp, setHasSavedTotp] = useState(false);
+  const [saveTotpOnDevice, setSaveTotpOnDevice] = useState(false);
+  const [deviceTotpSeed, setDeviceTotpSeed] = useState('');
+  const [devicePin, setDevicePin] = useState('');
+  const [quickReconnectStatus, setQuickReconnectStatus] = useState('');
+  const totpIdentity = React.useMemo(
+    () => ({
+      advisor: getTenantSubdomain(configData),
+      broker: 'Upstox',
+      userEmail,
+    }),
+    [configData, userEmail],
+  );
+
+  useEffect(() => {
+    if (!isVisible || !deviceTotpEnabled || !userEmail) return;
+    hasDeviceTotp(totpIdentity)
+      .then(setHasSavedTotp)
+      .catch(() => setHasSavedTotp(false));
+  }, [isVisible, deviceTotpEnabled, userEmail, totpIdentity]);
 
   const checkValidApiAnSecret = details => {
     const bytesKey = CryptoJS.AES.encrypt(details, 'ApiKeySecret');
@@ -98,7 +139,7 @@ const UpstoxModal = ({
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -128,7 +169,67 @@ const UpstoxModal = ({
   const [egressReady, setEgressReady] = useState(false);
   const [unmetAck, setUnmetAck] = useState(false);
 
-  const updateSecretKey = () => {
+  const isRetryableUpstoxEnrollmentError = error => {
+    if (isRetryableEnrollmentError(error)) return true;
+    const code = String(error?.response?.data?.error_code || '');
+    return [
+      'UPSTOX_TOTP_LOGIN_FAILED',
+      'UDAPI100097',
+      'UDAPI1242',
+      'UDAPI100099',
+    ].includes(code);
+  };
+
+  const verifyAndSaveQuickReconnect = async () => {
+    const pending = pendingTotpEnrollmentRef.current;
+    if (!pending) return false;
+    const firebaseToken = await user?.getIdToken?.();
+    if (!firebaseToken) {
+      throw new Error('Please sign in again before enabling quick reconnect.');
+    }
+
+    const verifyFreshCode = () =>
+      axios.post(
+        `${server.server.baseUrl}api/upstox/device-totp-reconnect`,
+        {
+          totp: generateDeviceTotpFromSeed(pending.seed),
+          pin: pending.pin,
+        },
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${firebaseToken}`,
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
+          },
+        },
+      );
+
+    setQuickReconnectStatus('Connected. Waiting for a fresh TOTP code…');
+    await waitForNextTotpWindow();
+    try {
+      await verifyFreshCode();
+    } catch (error) {
+      if (!isRetryableUpstoxEnrollmentError(error)) throw error;
+      setQuickReconnectStatus('Retrying with the next fresh TOTP code…');
+      await waitForNextTotpWindow();
+      await verifyFreshCode();
+    }
+
+    setQuickReconnectStatus('Protecting quick reconnect on this phone…');
+    // Upstox has just accepted a code generated from this seed, which is the
+    // real proof the seed is correct. Pass no typed code: the vault generates
+    // its own from the seed for its format check.
+    await saveDeviceTotpSeed(totpIdentity, pending.seed, '', {pin: pending.pin});
+    pendingTotpEnrollmentRef.current = null;
+    setHasSavedTotp(true);
+    return true;
+  };
+
+  const updateSecretKey = (skipQuickReconnect = false) => {
     if (!egressReady) {
       setUnmetAck(true);
       return;
@@ -137,6 +238,31 @@ const UpstoxModal = ({
     if (!brokerConnectRedirectURL) {
       showAlert('error', 'Configuration Error', 'Broker redirect URL is not configured. Please contact support.');
       return;
+    }
+
+    if (
+      !skipQuickReconnect &&
+      deviceTotpEnabled &&
+      saveTotpOnDevice &&
+      !hasSavedTotp
+    ) {
+      const normalizedSeed = normalizeDeviceTotpSeedInput(deviceTotpSeed);
+      try {
+        generateDeviceTotpFromSeed(normalizedSeed);
+      } catch (_) {
+        showAlert(
+          'error',
+          'Check the Upstox TOTP secret',
+          'This is not a valid Base32 TOTP setup key. Uppercase and lowercase are both accepted. Use the secret encoded in the Upstox TOTP QR (or its manual setup key), not your Upstox API Secret; Base32 uses letters A–Z and digits 2–7.',
+        );
+        return;
+      }
+      pendingTotpEnrollmentRef.current = {
+        seed: normalizedSeed,
+        pin: devicePin,
+      };
+    } else {
+      pendingTotpEnrollmentRef.current = null;
     }
 
     setIsLoading(true);
@@ -153,7 +279,7 @@ const UpstoxModal = ({
 
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -258,7 +384,7 @@ const UpstoxModal = ({
         url: `${server.ccxtServer.baseUrl}upstox/gen-access-token`,
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -309,7 +435,7 @@ const UpstoxModal = ({
         url: `${server.server.baseUrl}api/user/connect-broker`,
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -320,8 +446,27 @@ const UpstoxModal = ({
 
       axios
         .request(config)
-        .then(response => {
+        .then(async response => {
           console.log('[Upstox] Broker connection saved successfully');
+          let quickReconnectSaved = false;
+          if (pendingTotpEnrollmentRef.current) {
+            try {
+              quickReconnectSaved = await verifyAndSaveQuickReconnect();
+            } catch (vaultError) {
+              console.warn('[Upstox] quick reconnect enrolment failed:', vaultError?.message);
+              pendingTotpEnrollmentRef.current = null;
+              showAlert(
+                'error',
+                isWrongPinError(vaultError)
+                  ? 'Upstox connected; PIN not accepted for quick reconnect'
+                  : 'Upstox connected; quick reconnect needs setup again',
+                vaultError?.response?.data?.message ||
+                  vaultError?.message ||
+                  'The normal Upstox connection is active, but Upstox did not accept the generated TOTP/PIN. Re-open the connection and enable quick reconnect again.',
+              );
+            }
+          }
+          setQuickReconnectStatus('');
           setIsLoading(false);
 
           // SDK pilot dual-write — see brokerSdkBridge.js.
@@ -344,7 +489,7 @@ const UpstoxModal = ({
               }),
               headers: {
                 'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+                'X-Advisor-Subdomain': getTenantSubdomain(configData),
                 'aq-encrypted-key': generateToken(
                   Config.REACT_APP_AQ_KEYS,
                   Config.REACT_APP_AQ_SECRET,
@@ -365,7 +510,7 @@ const UpstoxModal = ({
             try {
               const result = await fetchBrokerStatusModal();
               eventEmitter.emit('refreshEvent', { source: 'Upstox broker connection' });
-              if (!result?.migrationWillShow) {
+              if (!result?.migrationWillShow && !(saveTotpOnDevice && !quickReconnectSaved)) {
                 showAlert('success', 'Connected Successfully', 'Your Upstox broker has been connected successfully!');
               }
             } catch (postSuccessErr) {
@@ -410,28 +555,102 @@ const UpstoxModal = ({
   useEffect(() => {
     if (isVisible) {
       setShouldRenderContent(true);
+      quickReconnectStartedRef.current = false;
+      reauthHydratedRef.current = false;
+      setQuickReconnectStatus('');
       sheet.current?.present();
     } else {
+      pendingTotpEnrollmentRef.current = null;
+      setQuickReconnectStatus('');
       sheet.current?.dismiss();
     }
   }, [isVisible]);
 
-  // Smart-reauth hydration: when reauthConfig is supplied by the caller
-  // (ManageConnectionsModal → reauthHelpers.handleSmartReauth), skip the
-  // credential form and jump straight to the WebView step using the
-  // pre-signed authUrl + stored apiKey/secretKey.
-  const reauthHydratedRef = useRef(false);
-  useEffect(() => {
-    if (!isVisible || !reauthConfig || reauthHydratedRef.current) return;
-    if (!reauthConfig.authUrl || !reauthConfig.apiKey || !reauthConfig.secretKey) {
-      return;
-    }
-    reauthHydratedRef.current = true;
+  const continueWithBrokerLogin = () => {
+    if (!reauthConfig?.authUrl || !reauthConfig?.apiKey || !reauthConfig?.secretKey) return;
     setApiKey(reauthConfig.apiKey);
     setSecretKey(reauthConfig.secretKey);
     setAuthUrl(reauthConfig.authUrl);
     setShowWebView(true);
+  };
+
+  const reconnectWithDeviceTotp = async () => {
+    try {
+      setIsLoading(true);
+      const login = await unlockDeviceTotpLogin(totpIdentity);
+      if (!login?.totp || !login?.pin) {
+        throw new Error('The protected Upstox login is incomplete.');
+      }
+      const firebaseToken = await user?.getIdToken?.();
+      if (!firebaseToken) throw new Error('Please sign in again before reconnecting.');
+      await axios.post(
+        `${server.server.baseUrl}api/upstox/device-totp-reconnect`,
+        {totp: login.totp, pin: login.pin},
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${firebaseToken}`,
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
+            'aq-encrypted-key': generateToken(
+              Config.REACT_APP_AQ_KEYS,
+              Config.REACT_APP_AQ_SECRET,
+            ),
+          },
+        },
+      );
+      onClose?.();
+      setShowBrokerModal?.(false);
+      const result = await fetchBrokerStatusModal?.();
+      eventEmitter.emit('refreshEvent', {source: 'Upstox device TOTP reconnect'});
+      if (!result?.migrationWillShow) {
+        showAlert('success', 'Upstox reconnected', 'Your protected login was unlocked on this phone.');
+      }
+      return true;
+    } catch (error) {
+      showAlert(
+        'error',
+        'Quick reconnect unavailable',
+        error?.response?.data?.message || error?.message || 'Continue with Upstox login.',
+      );
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Smart re-auth prefers the protected TOTP route when this advisor enables
+  // it. Cancelling biometrics or any broker rejection falls back to the normal
+  // OAuth WebView; the feature never removes broker-controlled login.
+  useEffect(() => {
+    if (!isVisible || !reauthConfig || reauthHydratedRef.current) return;
+    reauthHydratedRef.current = true;
+    (async () => {
+      const saved = deviceTotpEnabled
+        ? await hasDeviceTotp(totpIdentity).catch(() => false)
+        : false;
+      setHasSavedTotp(saved);
+      if (saved && !quickReconnectStartedRef.current) {
+        quickReconnectStartedRef.current = true;
+        if (await reconnectWithDeviceTotp()) return;
+      }
+      if (
+        reauthConfig.authUrl &&
+        reauthConfig.apiKey &&
+        reauthConfig.secretKey
+      ) {
+        continueWithBrokerLogin();
+      }
+    })();
+    // Deliberately once per reauth payload. Broker/vault failures fall back
+    // to OAuth and must not trigger another biometric prompt in this open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible, reauthConfig]);
+
+  const forgetSavedTotp = async () => {
+    await removeDeviceTotp(totpIdentity);
+    setHasSavedTotp(false);
+    setSaveTotpOnDevice(false);
+  };
 
   const handleWebViewClose = () => {
     setShowWebView(false);
@@ -485,8 +704,8 @@ const UpstoxModal = ({
       broker="Upstox"
       config={{
         monogram: 'U',
-        brandFrom: '#8b54ff',
-        brandTo: '#5b21d6',
+        brandFrom: designColor('8b54ff'),
+        brandTo: designColor('5b21d6'),
         portalUrl: 'https://account.upstox.com/developer/apps',
         portalLabel: 'Open Upstox developer portal',
         redirectUrl: brokerConnectRedirectURL,
@@ -522,12 +741,85 @@ const UpstoxModal = ({
           password: true,
           placeholder: 'Paste your Upstox secret key',
         },
+        ...(deviceTotpEnabled && saveTotpOnDevice && !hasSavedTotp ? [
+          {
+            label: 'TOTP Secret Key (Base32)',
+            value: deviceTotpSeed,
+            // Preserve exactly what the customer typed/pasted. Base32 is
+            // case-insensitive; canonicalisation belongs at submit/storage,
+            // not in the visible input where it looks like data corruption.
+            onChange: t => setDeviceTotpSeed(String(t || '')),
+            password: true,
+            autoCapitalize: 'none',
+            placeholder: 'Secret shown below the authenticator QR',
+          },
+          {
+            label: 'Upstox PIN',
+            value: devicePin,
+            onChange: t => setDevicePin(t.replace(/\D/g, '').slice(0, 6)),
+            password: true,
+            keyboardType: 'number-pad',
+            maxLength: 6,
+            placeholder: 'Your 6-digit Upstox PIN',
+          },
+        ] : []),
       ]}
+      deviceTotp={{
+        enabled: deviceTotpEnabled,
+        placeBeforeFields: true,
+        hasSaved: hasSavedTotp,
+        saveOnDevice: saveTotpOnDevice,
+        onToggleSave: () => setSaveTotpOnDevice(value => !value),
+        onUnlock: reauthConfig ? reconnectWithDeviceTotp : undefined,
+        onForget: forgetSavedTotp,
+        protectLabel: 'Enable quick reconnect on this phone',
+        savedLabel:
+          'The TOTP key and PIN are protected on this phone. Normal Upstox login remains available.',
+        pendingLabel:
+          'Stores the TOTP key and PIN in this phone’s protected keychain. The TOTP key is never copied to AlphaQuark servers.',
+        setup: {
+          title: 'Enable Upstox TOTP and copy its setup key',
+          portalUrl:
+            'https://upstox.com/help-center/what-is-totp-and-how-to-enable-totp-for-my-upstox-account-260343/',
+          portalLabel: 'Open Upstox TOTP instructions',
+          steps: [
+            'In the Upstox app, open <b>Upstox icon → My account → Profile → Time-based OTP (TOTP) → Enable TOTP</b>.',
+            'Enter the six-digit OTP sent to your registered mobile number.',
+            'When the QR appears, use the <b>Base32 secret encoded in that TOTP QR</b> (or the manual setup key if Upstox shows one) below, and scan the same QR in your authenticator app. Do not paste the separate developer API Secret.',
+            'Enter the newest <b>six-digit authenticator code</b> in Upstox to finish enabling TOTP. AlphaQuark will generate its verification code from the setup key automatically.',
+          ],
+          note:
+            'The Base32 setup key is fixed. The six-digit TOTP changes every 30 seconds; the app generates and verifies a fresh code after OAuth before saving quick reconnect.',
+        },
+        unlockLabel: 'Reconnect with biometric unlock',
+        forgetLabel: 'Forget Upstox quick reconnect on this phone',
+      }}
       phase="creds"
-      canSubmit={Boolean(apiKey) && Boolean(secretKey)}
-      submitLabel="Connect Upstox"
+      canSubmit={
+        Boolean(apiKey) &&
+        Boolean(secretKey) &&
+        (!saveTotpOnDevice || hasSavedTotp ||
+          (Boolean(deviceTotpSeed) && devicePin.length === 6))
+      }
+      submitLabel={
+        quickReconnectStatus ||
+        (saveTotpOnDevice && !hasSavedTotp
+          ? 'Continue to Upstox login'
+          : 'Connect Upstox')
+      }
       loading={isLoading}
-      onSubmit={updateSecretKey}
+      onSubmit={() => updateSecretKey(false)}
+      alternateAction={
+        saveTotpOnDevice && !hasSavedTotp
+          ? {
+              label: 'Continue with normal Upstox login',
+              onPress: () => {
+                pendingTotpEnrollmentRef.current = null;
+                updateSecretKey(true);
+              },
+            }
+          : undefined
+      }
     />
   );
 };

@@ -19,6 +19,8 @@
 import React, {useEffect} from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 
+import { designColor, designFont } from '../../../design/literalTokens';
+
 const GrowwHelpContent = ({expanded, onExpandChange}) => {
   useEffect(() => {
     onExpandChange?.(expanded);
@@ -120,45 +122,45 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1F2937',
+    color: designColor('1f2937'),
     marginBottom: 8,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   intro: {
     fontSize: 14,
-    color: '#374151',
+    color: designColor('374151'),
     marginBottom: 12,
     lineHeight: 20,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   mono: {
-    fontFamily: 'monospace',
+    fontFamily: designFont('monospace'),
     fontSize: 12,
   },
   noteContainer: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: designColor('fef3c7'),
     padding: 12,
     borderRadius: 8,
     marginTop: 16,
     borderLeftWidth: 4,
-    borderLeftColor: '#F59E0B',
+    borderLeftColor: designColor('f59e0b'),
   },
   noteTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#92400E',
+    color: designColor('92400e'),
     marginBottom: 8,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   noteText: {
     fontSize: 13,
-    color: '#78350F',
+    color: designColor('78350f'),
     marginBottom: 6,
     lineHeight: 18,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   supportContainer: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: designColor('f3f4f6'),
     padding: 12,
     borderRadius: 8,
     marginTop: 12,
@@ -166,15 +168,15 @@ const styles = StyleSheet.create({
   supportTitle: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#1F2937',
+    color: designColor('1f2937'),
     marginBottom: 6,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   supportText: {
     fontSize: 13,
-    color: '#6B7280',
+    color: designColor('6b7280'),
     lineHeight: 18,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
 });
 

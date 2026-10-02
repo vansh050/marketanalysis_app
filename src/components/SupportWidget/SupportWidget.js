@@ -14,6 +14,8 @@ import Config from 'react-native-config';
 import {useConfig} from '../../context/ConfigContext';
 import VoiceCallWebView from './VoiceCallWebView';
 
+import { designColor } from '../../design/literalTokens';
+
 /**
  * In-app support widget for the mobile app (chat-first, voice optional).
  *
@@ -170,11 +172,11 @@ export default function SupportWidget({userEmail = '', visible = false}) {
           width: 56,
           height: 56,
           borderRadius: 28,
-          backgroundColor: '#2563eb',
+          backgroundColor: designColor('2563eb'),
           alignItems: 'center',
           justifyContent: 'center',
           elevation: 6,
-          shadowColor: '#000',
+          shadowColor: designColor('000'),
           shadowOpacity: 0.3,
           shadowRadius: 8,
           shadowOffset: {width: 0, height: 4},
@@ -195,10 +197,10 @@ export default function SupportWidget({userEmail = '', visible = false}) {
         bottom: 24,
         height: 460,
         borderRadius: 16,
-        backgroundColor: '#fff',
+        backgroundColor: designColor('fff'),
         overflow: 'hidden',
         elevation: 10,
-        shadowColor: '#000',
+        shadowColor: designColor('000'),
         shadowOpacity: 0.3,
         shadowRadius: 16,
         shadowOffset: {width: 0, height: 6},
@@ -212,9 +214,9 @@ export default function SupportWidget({userEmail = '', visible = false}) {
           justifyContent: 'space-between',
           paddingHorizontal: 14,
           paddingVertical: 12,
-          backgroundColor: '#2563eb',
+          backgroundColor: designColor('2563eb'),
         }}>
-        <Text style={{color: '#fff', fontWeight: '600', fontSize: 15}}>{brandName} Support</Text>
+        <Text style={{color: designColor('fff'), fontWeight: '600', fontSize: 15}}>{brandName} Support</Text>
         <View style={{flexDirection: 'row', alignItems: 'center'}}>
           {voiceAvailable && (
             <TouchableOpacity
@@ -223,7 +225,7 @@ export default function SupportWidget({userEmail = '', visible = false}) {
                 width: 32,
                 height: 32,
                 borderRadius: 16,
-                backgroundColor: live ? '#dc2626' : '#16a34a',
+                backgroundColor: live ? designColor('dc2626') : designColor('16a34a'),
                 alignItems: 'center',
                 justifyContent: 'center',
                 marginRight: 10,
@@ -232,19 +234,19 @@ export default function SupportWidget({userEmail = '', visible = false}) {
             </TouchableOpacity>
           )}
           <TouchableOpacity onPress={() => setOpen(false)}>
-            <Text style={{color: '#fff', fontSize: 22}}>×</Text>
+            <Text style={{color: designColor('fff'), fontSize: 22}}>×</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {live && (
-        <View style={{backgroundColor: '#dcfce7', paddingVertical: 6}}>
-          <Text style={{color: '#166534', fontSize: 12, textAlign: 'center'}}>🎙️ Voice call live — speak now</Text>
+        <View style={{backgroundColor: designColor('dcfce7'), paddingVertical: 6}}>
+          <Text style={{color: designColor('166534'), fontSize: 12, textAlign: 'center'}}>🎙️ Voice call live — speak now</Text>
         </View>
       )}
 
       {/* messages */}
-      <ScrollView ref={scrollRef} style={{flex: 1, backgroundColor: '#f8fafc'}} contentContainerStyle={{padding: 12}}>
+      <ScrollView ref={scrollRef} style={{flex: 1, backgroundColor: designColor('f8fafc')}} contentContainerStyle={{padding: 12}}>
         {messages.map((m, i) => (
           <View
             key={i}
@@ -255,23 +257,23 @@ export default function SupportWidget({userEmail = '', visible = false}) {
               paddingHorizontal: 12,
               paddingVertical: 9,
               borderRadius: 12,
-              backgroundColor: m.from === 'user' ? '#2563eb' : '#fff',
+              backgroundColor: m.from === 'user' ? designColor('2563eb') : designColor('fff'),
               borderWidth: m.from === 'user' ? 0 : 1,
-              borderColor: '#e2e8f0',
+              borderColor: designColor('e2e8f0'),
             }}>
-            <Text style={{color: m.from === 'user' ? '#fff' : '#0f172a', fontSize: 13.5, lineHeight: 19}}>{m.text}</Text>
+            <Text style={{color: m.from === 'user' ? designColor('fff') : designColor('0f172a'), fontSize: 13.5, lineHeight: 19}}>{m.text}</Text>
           </View>
         ))}
-        {sending && <ActivityIndicator style={{marginTop: 8}} color="#2563eb" />}
+        {sending && <ActivityIndicator style={{marginTop: 8}} color={designColor('2563eb')} />}
       </ScrollView>
 
       {/* input */}
-      <View style={{flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1, borderTopColor: '#e2e8f0'}}>
+      <View style={{flexDirection: 'row', alignItems: 'center', padding: 10, borderTopWidth: 1, borderTopColor: designColor('e2e8f0')}}>
         <TextInput
           value={input}
           onChangeText={setInput}
           placeholder="Type your question…"
-          placeholderTextColor="#94a3b8"
+          placeholderTextColor={designColor('94a3b8')}
           editable={!sending}
           onSubmitEditing={send}
           style={{
@@ -280,9 +282,9 @@ export default function SupportWidget({userEmail = '', visible = false}) {
             paddingVertical: 9,
             borderRadius: 999,
             borderWidth: 1,
-            borderColor: '#cbd5e1',
+            borderColor: designColor('cbd5e1'),
             fontSize: 13.5,
-            color: '#0f172a',
+            color: designColor('0f172a'),
           }}
         />
         <TouchableOpacity
@@ -293,11 +295,11 @@ export default function SupportWidget({userEmail = '', visible = false}) {
             width: 40,
             height: 40,
             borderRadius: 20,
-            backgroundColor: '#2563eb',
+            backgroundColor: designColor('2563eb'),
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-          <Text style={{color: '#fff', fontSize: 16}}>➤</Text>
+          <Text style={{color: designColor('fff'), fontSize: 16}}>➤</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>

@@ -26,13 +26,14 @@ import LinearGradient from 'react-native-linear-gradient';
 import Svg, {SvgUri} from 'react-native-svg';
 import LinePattern from '../../assets/Vector.svg';
 import Icon from 'react-native-vector-icons/AntDesign';
+import { designColor, designFont } from '../../design/literalTokens';
 const Alpha100 = require('../../assets/alpha-100.png');
 import Icon1 from 'react-native-vector-icons/Feather';
 const { width: ScreenWidth } = Dimensions.get('window');
 import moment from 'moment';
 import { useConfig } from '../../context/ConfigContext';
 import { useGstConfig } from '../../context/GstConfigContext';
-import { withGst, gstLabel } from '../../utils/gstHelpers';
+import { withGst, gstLabel, recBase } from '../../utils/gstHelpers';
 import useTokens from '../../theme/useTokens';
 
 const ACCEPTABLE_DATE_FORMATS = [
@@ -79,7 +80,7 @@ const MPCardBespoke = ({
   const mainColor = tokens.colors.brand.primary;
   const gradient1 = tokens.colors.brand.gradientStart;
   const gradient2 = tokens.colors.brand.gradientEnd;
-  const stepCompletedColor = config?.paymentModal?.stepCompletedColor || '#29A400';
+  const stepCompletedColor = config?.paymentModal?.stepCompletedColor || designColor('29a400');
   const { gstConfigure: configGst, gstWithTextConfigure: configGstWithText } = useGstConfig();
 
   const animatedHeight = useRef(new Animated.Value(0)).current; // Initialize with height 0
@@ -169,27 +170,16 @@ const MPCardBespoke = ({
       return !isNaN(normalizedPrice) && normalizedPrice > 0;
     };
 
-    // Recurring options
-    if (isValidPrice(data?.pricingWithoutGst?.monthly)) {
-      options.push({ period: "monthly", label: "Monthly", value: data.pricingWithoutGst.monthly });
-    }
-    if (isValidPrice(data?.pricingWithoutGst?.quarterly)) {
-      options.push({ period: "quarterly", label: "Quarterly", value: data.pricingWithoutGst.quarterly });
-    }
-    if (isValidPrice(data?.pricingWithoutGst?.["half-yearly"])) {
-      options.push({ period: "half-yearly", label: "6 Months", value: data.pricingWithoutGst["half-yearly"] });
-    }
-    // Use the pre-GST base like the other frequencies above — data.pricing.yearly
-    // is GST-INCLUSIVE, so reading it here + appending the "+ GST" label
-    // double-counted GST (showed 23600 for a 20000 plan). Fall back to
-    // pricing.yearly only for legacy plans that lack pricingWithoutGst.
-    if (isValidPrice(data?.pricingWithoutGst?.yearly ?? data?.pricing?.yearly)) {
-      options.push({
-        period: "yearly",
-        label: "Yearly",
-        value: data?.pricingWithoutGst?.yearly ?? data.pricing.yearly,
-      });
-    }
+    // All recurring surfaces resolve through the same GST-aware base helper.
+    [
+      ["monthly", "Monthly"],
+      ["quarterly", "Quarterly"],
+      ["half-yearly", "6 Months"],
+      ["yearly", "Yearly"],
+    ].forEach(([period, label]) => {
+      const basePrice = recBase(data, period, configGst);
+      if (isValidPrice(basePrice)) options.push({period, label, value: basePrice});
+    });
 
     return options;
   };
@@ -346,7 +336,7 @@ const MPCardBespoke = ({
         borderBottomRightRadius:12,
         zIndex: 10,
         elevation: 4,
-        shadowColor: '#000',
+        shadowColor: designColor('000'),
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.2,
         shadowRadius: 2,
@@ -355,8 +345,8 @@ const MPCardBespoke = ({
       <Text
         style={{
           fontSize: 10,
-          color: '#fff',
-          fontFamily: 'Poppins-Medium',
+          color: designColor('fff'),
+          fontFamily: designFont('Poppins-Medium'),
         }}
       >
         Save {discount}%
@@ -396,7 +386,7 @@ const MPCardBespoke = ({
                     style={{
                       fontSize: 12,
                       color: 'rgba(255,255,255,0.7)',
-                      fontFamily: 'Poppins-Regular',
+                      fontFamily: designFont('Poppins-Regular'),
                       textDecorationLine: 'line-through',
                     }}
                   >
@@ -406,8 +396,8 @@ const MPCardBespoke = ({
                 <Text
                   style={{
                     fontSize: 14,
-                    color: '#fff',
-                    fontFamily: 'Poppins-SemiBold',
+                    color: designColor('fff'),
+                    fontFamily: designFont('Poppins-SemiBold'),
                   }}
                 >
                   ₹ {currentPrice ? (configGst && configGstWithText ? withGst(currentPrice)?.toFixed(2) : currentPrice?.toFixed(2)) : displayPrice || '-'}
@@ -417,7 +407,7 @@ const MPCardBespoke = ({
                     style={{
                       fontSize: 10,
                       color: 'rgba(255,255,255,0.8)',
-                      fontFamily: 'Poppins-Regular',
+                      fontFamily: designFont('Poppins-Regular'),
                       marginTop: -2,
                     }}
                   >
@@ -437,7 +427,7 @@ const MPCardBespoke = ({
   style={{
     fontSize: 10,
     color: 'rgba(255,255,255,0.8)',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     marginTop: 2,
   }}
 >
@@ -486,10 +476,10 @@ const MPCardBespoke = ({
               >
                 <Text
                   style={{
-                    color: '#fff',
+                    color: designColor('fff'),
                     fontSize: 10,
                     marginTop: 2,
-                    fontFamily: 'Poppins-Medium',
+                    fontFamily: designFont('Poppins-Medium'),
                   }}
                 >
                   {option.label}
@@ -506,9 +496,9 @@ const MPCardBespoke = ({
             <Text style={styles.buttonText}>View More</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={InvestNow} style={[styles.investButton, { backgroundColor: status === 'renew' ? '#E8976B' : '#fff' }]}>
+          <TouchableOpacity onPress={InvestNow} style={[styles.investButton, { backgroundColor: status === 'renew' ? designColor('e8976b') : designColor('fff') }]}>
             {(status === 'renew' || status === 'expired') && <ArrowRight size={10} color={status === 'renew' ? 'white' : mainColor} />}
-            <Text style={[styles.investButtonText, { color: status === 'renew' ? '#fff' : mainColor }]}>
+            <Text style={[styles.investButtonText, { color: status === 'renew' ? designColor('fff') : mainColor }]}>
               {status === 'active'
                 ? 'Subscribed'
                 : status === 'renew'
@@ -520,7 +510,6 @@ const MPCardBespoke = ({
           </TouchableOpacity>
         </View>
       </LinearGradient>
-
       {/* {isExpanded && (
                 <Animated.View style={[styles.animatedSection, { height: animatedHeight }]}>
                     <View style={{ alignContent: 'center', justifyContent: 'center', alignSelf: 'center' }}>
@@ -540,10 +529,10 @@ const MPCardBespoke = ({
 
 const styles = StyleSheet.create({
 cardContainer: {
-  backgroundColor: '#FFFFFF',
+  backgroundColor: designColor('ffffff'),
   marginTop: 10,
   borderWidth: 1,
-  borderColor: '#ECF3FE',
+  borderColor: designColor('ecf3fe'),
   marginRight: 10,
   width: ScreenWidth - 35,
   marginBottom: 10,
@@ -559,7 +548,7 @@ cardContainer: {
     position: 'absolute',
     top: -10,
     right: 8,
-    backgroundColor: '#FACC15', // nice yellow
+    backgroundColor: designColor('facc15'), // nice yellow
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -567,19 +556,19 @@ cardContainer: {
   },
   subscribedText: {
     fontSize: 10,
-    fontFamily:'Satoshi-Bold',
-    color: '#78350f', // dark text
+    fontFamily:designFont('Satoshi-Bold'),
+    color: designColor('78350f'), // dark text
   },
   retentionRate: {
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     fontSize: 12,
-    color: '#6B7280',
+    color: designColor('6b7280'),
     alignContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
   },
   animatedSection: {
-    backgroundColor: '#ECF3FE',
+    backgroundColor: designColor('ecf3fe'),
     elevation: 4,
     paddingHorizontal: 20,
     paddingVertical: 20,
@@ -588,13 +577,13 @@ cardContainer: {
     marginHorizontal: 10,
     borderWidth: 1,
     borderTopWidth: 0,
-    borderColor: '#ECF3FE',
+    borderColor: designColor('ecf3fe'),
   },
   topSection: {
     flexDirection: 'row',
     alignItems: 'center',
 
-    borderColor: '#E5E7EB',
+    borderColor: designColor('e5e7eb'),
     paddingHorizontal: 20,
     paddingVertical: 15,
   },
@@ -608,8 +597,8 @@ cardContainer: {
   },
   title: {
     fontSize: 16,
-    color: '#fff',
-    fontFamily: 'Poppins-SemiBold',
+    color: designColor('fff'),
+    fontFamily: designFont('Poppins-SemiBold'),
     flex: 1,
   },
   statsSection: {
@@ -617,21 +606,21 @@ cardContainer: {
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 15,
-    backgroundColor: '#ECF3FE',
+    backgroundColor: designColor('ecf3fe'),
     marginHorizontal: 15,
     marginVertical: 10,
     borderRadius: 10,
   },
   statText: {
-    color: '#6B7280',
-    fontFamily: 'Poppins-Medium',
+    color: designColor('6b7280'),
+    fontFamily: designFont('Poppins-Medium'),
     fontSize: 11,
     marginLeft: 5,
   },
   statValue: {
-    color: '#1F2937',
+    color: designColor('1f2937'),
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
   },
 buttonContainer: {
   flexDirection: 'row',
@@ -674,27 +663,27 @@ buttonContainer: {
   },
   buttonText: {
     fontSize: 11,
-    color: '#fff',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('fff'),
+    fontFamily: designFont('Satoshi-Bold'),
   },
   investButtonText: {
     fontSize: 11,
-    color: '#FFFFFF',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('ffffff'),
+    fontFamily: designFont('Satoshi-Medium'),
   },
   expandedSection: {
     overflow: 'hidden',
     marginTop: 10,
   },
   descriptionText: {
-    color: '#1F2937',
-    fontFamily: 'Poppins-SemiBold',
+    color: designColor('1f2937'),
+    fontFamily: designFont('Poppins-SemiBold'),
     fontSize: 13,
     lineHeight: 18,
   },
   descriptionTextmain: {
-    color: '#6B7280',
-    fontFamily: 'Poppins-Regular',
+    color: designColor('6b7280'),
+    fontFamily: designFont('Poppins-Regular'),
     fontSize: 13,
   },
 });

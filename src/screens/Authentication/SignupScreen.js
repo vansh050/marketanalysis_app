@@ -18,7 +18,9 @@ import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getBuildTenantSubdomain} from '../../utils/variantHelper';
+import { getStoredCampaign } from '../../utils/smartLink';
+import { validateEmail } from '../../utils/emailValidation';
 import { useComponent } from '../../design/useDesign';
 import {
     checkAndFetchAdvisorConfig,
@@ -150,11 +152,28 @@ const SignupScreen = () => {
             setLoading(false);
             return;
         }
+        // Gate malformed emails at the joining UI so they never reach
+        // clientlistdatas. Firebase accepts "x@gmailcom" / "x@gmail" (no TLD
+        // dot); those bad addresses later break ClientModel validation in the
+        // Telegram removal cron, making the customer un-removable on expiry.
+        // Mirrors web SignUpEmail.js (365f7501) + CUSTOMER_MASTER_ARCHITECTURE §8.
+        const { ok: emailOk, error: emailError, normalized: normalizedEmail } = validateEmail(email);
+        if (!emailOk) {
+            setError(emailError);
+            setErrorShow(true);
+            setLoading(false);
+            return;
+        }
 
         try {
-            const response = await auth().createUserWithEmailAndPassword(email, password);
+            const response = await auth().createUserWithEmailAndPassword(normalizedEmail, password);
             if (response) {
                 const user = response.user;
+
+                // Attach campaign attribution captured from the smart-link
+                // deep link / Play Install Referrer, so this signup is tied to
+                // the campaign that brought them in. See utils/smartLink.js.
+                const campaign = await getStoredCampaign();
 
                 await axios.post(
                     `${server.server.baseUrl}api/user/`,
@@ -166,11 +185,12 @@ const SignupScreen = () => {
                         telegramId: '',
                         profileCompletion: 50,
                         user_onBoard_from: Config?.REACT_APP_WHITE_LABEL_TEXT,
+                        campaign: campaign || undefined,
                     },
                     {
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                            'X-Advisor-Subdomain': getBuildTenantSubdomain(),
                             'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
                         },
                     },
@@ -181,7 +201,7 @@ const SignupScreen = () => {
                     {
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                            'X-Advisor-Subdomain': getBuildTenantSubdomain(),
                             'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
                         },
                     },
@@ -193,7 +213,10 @@ const SignupScreen = () => {
                 await handlePostSignupNavigation(userDetails, email);
             }
         } catch (e) {
-            console.error('❌ Signup error:', e);
+            // Expected form validation is shown inline below, not as a runtime error.
+            if (!['auth/weak-password', 'auth/invalid-email', 'auth/email-already-in-use'].includes(e.code) && e.response?.status !== 409) {
+                console.error('Signup failed:', e.code || e.response?.status || e.message);
+            }
             logLoginAttempt({
                 email: email || 'unknown',
                 status: 'failed',

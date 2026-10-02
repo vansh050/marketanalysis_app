@@ -29,13 +29,15 @@ import { brokerRegistry, BROKER_AUTH_TYPE, getApiBrokerName } from '../../config
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import {getAccountEmail} from '../../utils/accountEmail';
 
+import { designColor } from '../../design/literalTokens';
+
 const getHeaders = () => ({
   'Content-Type': 'application/json',
-  'X-Advisor-Subdomain': getAdvisorSubdomain(),
+  'X-Advisor-Subdomain': getTenantSubdomain(),
   'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
 });
 
@@ -154,7 +156,7 @@ const BrokerSelectionScreen = () => {
   if (loading) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#1A237E" />
+        <ActivityIndicator size="large" color={designColor('1a237e')} />
         <Text style={styles.loadingText}>Loading brokers...</Text>
       </View>
     );
@@ -185,6 +187,8 @@ const BrokerSelectionScreen = () => {
           return (
             <TouchableOpacity
               key={config.key}
+              testID={`broker-card-${config.apiBrokerName || config.name}`}
+              accessibilityLabel={`${config.name} broker ${status}`}
               style={[
                 styles.brokerCard,
                 status === 'connected' && styles.brokerCardConnected,
@@ -202,6 +206,7 @@ const BrokerSelectionScreen = () => {
                 {config.name}
               </Text>
               <Text
+                testID={`broker-status-${config.apiBrokerName || config.name}`}
                 style={[
                   styles.statusBadge,
                   status === 'connected' && styles.statusConnected,
@@ -242,24 +247,24 @@ const BrokerSelectionScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FC' },
+  container: { flex: 1, backgroundColor: designColor('f8f9fc') },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 12, color: '#666', fontSize: 14 },
+  loadingText: { marginTop: 12, color: designColor('666'), fontSize: 14 },
 
   header: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 16, paddingTop: 50, paddingBottom: 16,
-    backgroundColor: '#1A237E',
+    backgroundColor: designColor('1a237e'),
   },
   backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  backBtnText: { color: '#fff', fontSize: 22, fontWeight: '600' },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  backBtnText: { color: designColor('fff'), fontSize: 22, fontWeight: '600' },
+  headerTitle: { color: designColor('fff'), fontSize: 18, fontWeight: '700' },
 
   disclaimer: {
-    margin: 16, padding: 12, backgroundColor: '#FFF8E1',
-    borderRadius: 10, borderWidth: 1, borderColor: '#FFE082',
+    margin: 16, padding: 12, backgroundColor: designColor('fff8e1'),
+    borderRadius: 10, borderWidth: 1, borderColor: designColor('ffe082'),
   },
-  disclaimerText: { fontSize: 12, color: '#795548', lineHeight: 18 },
+  disclaimerText: { fontSize: 12, color: designColor('795548'), lineHeight: 18 },
 
   grid: {
     flexDirection: 'row', flexWrap: 'wrap',
@@ -267,35 +272,35 @@ const styles = StyleSheet.create({
   },
   brokerCard: {
     width: '30%', margin: '1.66%', padding: 14,
-    backgroundColor: '#fff', borderRadius: 14,
-    alignItems: 'center', borderWidth: 1, borderColor: '#E0E0E0',
-    shadowColor: '#000', shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
+    backgroundColor: designColor('fff'), borderRadius: 14,
+    alignItems: 'center', borderWidth: 1, borderColor: designColor('e0e0e0'),
+    shadowColor: designColor('000'), shadowOpacity: 0.04, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
-  brokerCardConnected: { borderColor: '#4CAF50', borderWidth: 1.5 },
-  brokerCardExpired: { borderColor: '#FF9800', borderWidth: 1.5 },
+  brokerCardConnected: { borderColor: designColor('4caf50'), borderWidth: 1.5 },
+  brokerCardExpired: { borderColor: designColor('ff9800'), borderWidth: 1.5 },
 
   logoContainer: {
     width: 42, height: 42, borderRadius: 21,
-    backgroundColor: '#E8EAF6', justifyContent: 'center', alignItems: 'center',
+    backgroundColor: designColor('e8eaf6'), justifyContent: 'center', alignItems: 'center',
     marginBottom: 8,
   },
-  logoFallback: { fontSize: 18, fontWeight: '700', color: '#3F51B5' },
-  brokerName: { fontSize: 11, fontWeight: '600', color: '#333', textAlign: 'center', marginBottom: 4 },
-  statusBadge: { fontSize: 9, fontWeight: '600', color: '#999' },
-  statusConnected: { color: '#4CAF50' },
-  statusExpired: { color: '#FF9800' },
+  logoFallback: { fontSize: 18, fontWeight: '700', color: designColor('3f51b5') },
+  brokerName: { fontSize: 11, fontWeight: '600', color: designColor('333'), textAlign: 'center', marginBottom: 4 },
+  statusBadge: { fontSize: 9, fontWeight: '600', color: designColor('999') },
+  statusConnected: { color: designColor('4caf50') },
+  statusExpired: { color: designColor('ff9800') },
 
   bottomSection: {
     position: 'absolute', bottom: 0, left: 0, right: 0,
-    padding: 16, backgroundColor: '#F8F9FC',
-    borderTopWidth: 1, borderTopColor: '#E0E0E0',
+    padding: 16, backgroundColor: designColor('f8f9fc'),
+    borderTopWidth: 1, borderTopColor: designColor('e0e0e0'),
   },
   skipBtn: {
     paddingVertical: 14, borderRadius: 12,
-    borderWidth: 1, borderColor: '#1A237E', alignItems: 'center',
+    borderWidth: 1, borderColor: designColor('1a237e'), alignItems: 'center',
   },
-  skipBtnText: { fontSize: 14, fontWeight: '600', color: '#1A237E' },
+  skipBtnText: { fontSize: 14, fontWeight: '600', color: designColor('1a237e') },
 });
 
 export default BrokerSelectionScreen;

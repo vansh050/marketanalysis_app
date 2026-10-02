@@ -1,19 +1,4 @@
 import React, {useState, useEffect, useCallback} from 'react';
-import {
-  SafeAreaView,
-  View,
-  Text,
-  StyleSheet,
-  FlatList,
-  TouchableOpacity,
-  Image,
-  Dimensions,
-  ActivityIndicator,
-  RefreshControl,
-} from 'react-native';
-import LinearGradient from 'react-native-linear-gradient';
-import {ChevronLeft, ChevronRight, Crown} from 'lucide-react-native';
-import {getAuth} from '@react-native-firebase/auth';
 import {useNavigation} from '@react-navigation/native';
 import axios from 'axios';
 import moment from 'moment';
@@ -30,9 +15,13 @@ import {
   ACCEPTABLE_DATE_FORMATS,
 } from '../../utils/subscriptionStatus';
 import {getAccountEmail} from '../../utils/accountEmail';
+import {
+  getSubscribedPlanDestination,
+  isBespokePlan,
+} from '../../utils/subscribedPlanNavigation';
+import {useComponent} from '../../design/useDesign';
 
-const {width: screenWidth} = Dimensions.get('window');
-const Alpha100 = require('../../assets/alpha-100.png');
+import {designColor} from '../../design/literalTokens';
 
 // getSubscriptionStatus + ACCEPTABLE_DATE_FORMATS now come from
 // src/utils/subscriptionStatus.js — single source of truth shared with
@@ -41,20 +30,17 @@ const Alpha100 = require('../../assets/alpha-100.png');
 const MySubscriptionsScreen = () => {
   const {configData} = useTrade();
   const config = useConfig();
-  const gradient1 = config?.gradient1 || '#002651';
-  const gradient2 = config?.gradient2 || '#0076fb';
-  const mainColor = config?.mainColor || '#0056B7';
-  const secondaryColor = config?.secondaryColor || '#E8F0FE';
+  const gradient1 = config?.gradient1 || designColor('002651');
+  const gradient2 = config?.gradient2 || designColor('0076fb');
+  const mainColor = config?.mainColor || designColor('0056b7');
   const cardElevation = config?.cardElevation ?? 3;
   const cardBorderWidth = config?.CardborderWidth ?? 0;
   const cardVerticalMargin = config?.cardverticalmargin ?? 12;
   const paymentModalConfig = config?.paymentModal;
-  const activeColor = paymentModalConfig?.stepCompletedColor || '#29A400';
-  const themeColor = config?.themeColor || mainColor;
+  const activeColor = paymentModalConfig?.stepCompletedColor || designColor('29a400');
 
   const navigation = useNavigation();
-  const auth = getAuth();
-  const user = auth.currentUser;
+  const Presentation = useComponent('screens.MySubscriptionsScreen');
   const userEmail = getAccountEmail();
 
   const [loading, setLoading] = useState(true);
@@ -146,315 +132,63 @@ const MySubscriptionsScreen = () => {
 
   // Bifurcate subscriptions by type
   const [activeSubTab, setActiveSubTab] = useState('mp');
-  const mpSubscribed = subscribedPlans.filter(p => p.type !== 'bespoke');
-  const bespokeSubscribed = subscribedPlans.filter(p => p.type === 'bespoke');
+  const mpSubscribed = subscribedPlans.filter(p => !isBespokePlan(p));
+  const bespokeSubscribed = subscribedPlans.filter(isBespokePlan);
   const displayedPlans = activeSubTab === 'mp' ? mpSubscribed : bespokeSubscribed;
 
   const handlePlanPress = plan => {
-    navigation.navigate('AfterSubscriptionScreen', {
-      fileName: plan?.name,
-    });
+    const {screen, params} = getSubscribedPlanDestination(plan);
+    navigation.navigate(screen, params);
   };
 
-  const renderSubscriptionCard = ({item: plan}) => {
+  const planCards = displayedPlans.map(plan => {
     const subStatus = getSubscriptionStatus(plan?.name, subscriptionData);
-    const expiryFormatted = subStatus.expiry
-      ? moment(subStatus.expiry, ACCEPTABLE_DATE_FORMATS).format('DD MMM YYYY')
-      : 'Never';
-
-    const isRenew = subStatus.status === 'renew';
-
-    return (
-      <TouchableOpacity
-        onPress={() => handlePlanPress(plan)}
-        activeOpacity={0.7}
-        style={{marginBottom: cardVerticalMargin}}>
-        <LinearGradient
-          colors={[gradient1, gradient2]}
-          start={{x: 0, y: 0}}
-          end={{x: 1, y: 0}}
-          style={[
-            styles.card,
-            {
-              elevation: cardElevation,
-              borderWidth: cardBorderWidth,
-              borderColor: 'rgba(255,255,255,0.15)',
-            },
-          ]}>
-          <View style={styles.cardContent}>
-            <View style={styles.cardImageContainer}>
-              <Image
-                source={
-                  plan?.image
-                    ? {uri: resolveImageUrl(plan.image, server.server.baseUrl)}
-                    : Alpha100
-                }
-                style={styles.cardImage}
-              />
-            </View>
-            <View style={styles.cardInfo}>
-              <Text style={styles.cardTitle} numberOfLines={1}>
-                {plan?.name}
-              </Text>
-              <Text style={styles.cardExpiry}>
-                Expires: {expiryFormatted}
-              </Text>
-              {isRenew && (
-                <Text style={styles.renewText}>
-                  Expires in {subStatus.daysLeft} day{subStatus.daysLeft !== 1 ? 's' : ''}
-                </Text>
-              )}
-            </View>
-            <View style={styles.cardRight}>
-              <View
-                style={[
-                  styles.statusBadge,
-                  {
-                    backgroundColor: isRenew
-                      ? 'rgba(255, 193, 7, 0.25)'
-                      : `${activeColor}30`,
-                  },
-                ]}>
-                <Text
-                  style={[
-                    styles.statusText,
-                    {
-                      color: isRenew ? '#FFD54F' : activeColor,
-                    },
-                  ]}>
-                  {isRenew ? 'Expiring Soon' : 'Active'}
-                </Text>
-              </View>
-              <ChevronRight size={18} color="rgba(255,255,255,0.6)" />
-            </View>
-          </View>
-        </LinearGradient>
-      </TouchableOpacity>
-    );
-  };
+    const startRaw = subStatus.subscription?.startDate || subStatus.subscription?.start_date;
+    return {
+      id: plan?._id,
+      plan,
+      name: plan?.name,
+      imageSource: plan?.image
+        ? {uri: resolveImageUrl(plan.image, server.server.baseUrl)}
+        : null,
+      expiry: subStatus.expiry
+        ? moment(subStatus.expiry, ACCEPTABLE_DATE_FORMATS).format('DD MMM YYYY')
+        : 'Never',
+      started: startRaw
+        ? moment(startRaw, ACCEPTABLE_DATE_FORMATS).format('DD MMM YYYY')
+        : null,
+      isRenew: subStatus.status === 'renew',
+      daysLeft: subStatus.daysLeft,
+    };
+  });
 
   return (
-    <SafeAreaView style={styles.container}>
-      {/* Header */}
-      <LinearGradient
-        colors={[gradient1, gradient2]}
-        start={{x: 0, y: 0}}
-        end={{x: 1, y: 0}}
-        style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}>
-          <ChevronLeft size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Subscriptions</Text>
-      </LinearGradient>
-
-      {/* Subscription Type Tabs */}
-      {!loading && (
-        <View style={styles.tabRow}>
-          <TouchableOpacity
-            style={[styles.subTab, activeSubTab === 'mp' && [styles.subTabActive, {backgroundColor: mainColor}]]}
-            onPress={() => setActiveSubTab('mp')}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.subTabText, activeSubTab === 'mp' && styles.subTabTextActive]}>
-              Model Portfolios ({mpSubscribed.length})
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.subTab, activeSubTab === 'bespoke' && [styles.subTabActive, {backgroundColor: mainColor}]]}
-            onPress={() => setActiveSubTab('bespoke')}
-            activeOpacity={0.7}
-          >
-            <Text style={[styles.subTabText, activeSubTab === 'bespoke' && styles.subTabTextActive]}>
-              {config?.bespokePlanLabel || 'Bespoke Plans'} ({bespokeSubscribed.length})
-            </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {loading ? (
-        <View style={styles.loaderContainer}>
-          <ActivityIndicator size="large" color={mainColor} />
-        </View>
-      ) : displayedPlans.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Crown size={48} color={mainColor} />
-          <Text style={styles.emptyTitle}>
-            {activeSubTab === 'mp' ? 'No Model Portfolio Subscriptions' : `No ${config?.bespokePlanLabel || 'Bespoke'} Subscriptions`}
-          </Text>
-          <Text style={styles.emptySubtitle}>
-            {activeSubTab === 'mp'
-              ? "You haven't subscribed to any model portfolios yet."
-              : `You haven't subscribed to any ${(config?.bespokePlanLabel || 'bespoke plans').toLowerCase()} yet.`}
-          </Text>
-          <TouchableOpacity
-            style={[styles.browsePlansButton, {backgroundColor: mainColor}]}
-            onPress={() => navigation.navigate('Model Portfolio')}>
-            <Text style={styles.browsePlansText}>Browse Plans</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={displayedPlans}
-          keyExtractor={(item, index) => item?._id || index.toString()}
-          renderItem={renderSubscriptionCard}
-          contentContainerStyle={styles.listContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={mainColor}
-            />
-          }
-        />
-      )}
-    </SafeAreaView>
+    <Presentation
+      viewModel={{
+        gradient1,
+        gradient2,
+        mainColor,
+        activeColor,
+        cardElevation,
+        cardBorderWidth,
+        cardVerticalMargin,
+        bespokePlanLabel: config?.bespokePlanLabel || 'Bespoke Plans',
+        activeSubTab,
+        mpCount: mpSubscribed.length,
+        bespokeCount: bespokeSubscribed.length,
+        loading,
+        refreshing,
+        planCards,
+      }}
+      actions={{
+        onBack: () => navigation.goBack(),
+        onOpenPlan: handlePlanPress,
+        onTabChange: setActiveSubTab,
+        onBrowsePlans: () => navigation.navigate('Model Portfolio'),
+        onRefresh,
+      }}
+    />
   );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F5F5F5',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  backButton: {
-    padding: 4,
-    borderRadius: 5,
-    backgroundColor: '#fff',
-    marginRight: 12,
-  },
-  headerTitle: {
-    fontSize: 18,
-    fontFamily: 'Poppins-Medium',
-    color: '#fff',
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#333',
-    marginTop: 16,
-  },
-  emptySubtitle: {
-    fontSize: 13,
-    fontFamily: 'Poppins-Regular',
-    color: '#888',
-    textAlign: 'center',
-    marginTop: 8,
-  },
-  browsePlansButton: {
-    marginTop: 24,
-    paddingVertical: 10,
-    paddingHorizontal: 24,
-    borderRadius: 6,
-  },
-  browsePlansText: {
-    color: '#fff',
-    fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-  },
-  listContent: {
-    padding: 16,
-  },
-  card: {
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-  },
-  cardContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 14,
-  },
-  cardImageContainer: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderRadius: 8,
-    padding: 0,
-    marginRight: 12,
-  },
-  cardImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-  },
-  cardInfo: {
-    flex: 1,
-  },
-  cardTitle: {
-    fontSize: 14,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#fff',
-  },
-  cardExpiry: {
-    fontSize: 11,
-    fontFamily: 'Poppins-Regular',
-    color: 'rgba(255,255,255,0.7)',
-    marginTop: 2,
-  },
-  renewText: {
-    fontSize: 11,
-    fontFamily: 'Poppins-Medium',
-    color: '#FFD54F',
-    marginTop: 2,
-  },
-  cardRight: {
-    alignItems: 'center',
-    gap: 6,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  statusText: {
-    fontSize: 10,
-    fontFamily: 'Poppins-Medium',
-  },
-  tabRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 6,
-    gap: 10,
-  },
-  subTab: {
-    flex: 1,
-    height: 36,
-    borderRadius: 6,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E8E8E8',
-  },
-  subTabActive: {
-    backgroundColor: '#0056B7',
-  },
-  subTabText: {
-    fontSize: 12,
-    fontFamily: 'Poppins-Medium',
-    color: '#555',
-  },
-  subTabTextActive: {
-    color: '#fff',
-  },
-});
 
 export default MySubscriptionsScreen;

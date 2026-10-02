@@ -3,6 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, FlatList, useWindowDimensions
 import { FadeLoading } from 'react-native-fade-loading';
 import { Download } from "lucide-react-native";
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const pdfcicon = require('../../assets/pdf.png');
 
 const AllEducationalPDF = () => {
@@ -123,7 +125,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 20,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     marginBottom: 10,
     color: 'black',
   },
@@ -134,18 +136,18 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     padding: 10,
     borderRadius: 10,
     marginVertical: 5,
     marginHorizontal: 10,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
     borderBottomWidth: 1,
-    borderBottomColor: '#E6E6E6',
+    borderBottomColor: designColor('e6e6e6'),
   },
   pdfContent: {
     flexDirection: 'row',
@@ -163,14 +165,14 @@ const styles = StyleSheet.create({
   },
   pdfCardTitle: {
     fontSize: 16,
-    fontFamily: 'Poppins-Medium',
-    color: '#333',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('333'),
     flexShrink: 1, // Ensures it doesn't overflow
   },
   pdfCardDescription: {
     fontSize: 12,
-    fontFamily: 'Poppins-Light',
-    color: '#858585',
+    fontFamily: designFont('Poppins-Light'),
+    color: designColor('858585'),
     marginTop: 5,
   },
   downloadButton: {

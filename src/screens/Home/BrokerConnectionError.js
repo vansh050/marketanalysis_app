@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity } from 'react-native';
 
+import { designColor } from '../../design/literalTokens';
+
 const BrokerConnectionError = () => {
   const [brokerName, setBrokerName] = useState('');
 
@@ -37,7 +39,7 @@ const BrokerConnectionError = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     padding: 20,
   },
   errorContainer: {
@@ -51,7 +53,7 @@ const styles = StyleSheet.create({
   },
   infoContainer: {
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: designColor('ddd'),
     padding: 10,
     borderRadius: 5,
   },
@@ -70,18 +72,18 @@ const styles = StyleSheet.create({
   infoInput: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#ddd',
+    borderColor: designColor('ddd'),
     padding: 5,
     borderRadius: 5,
   },
   button: {
-    backgroundColor: '#007bff',
+    backgroundColor: designColor('007bff'),
     padding: 10,
     borderRadius: 5,
     marginTop: 20,
   },
   buttonText: {
-    color: '#fff',
+    color: designColor('fff'),
     textAlign: 'center',
     fontSize: 16,
   },

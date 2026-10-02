@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'r
 import Config from 'react-native-config';
 import YoutubePlayer from "react-native-youtube-iframe";
 import LinkifiedUrl from './LinkifiedUrl';
+import { designColor, designFont } from '../../../design/literalTokens';
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 const KotakHelpContent = ({ expanded, onExpandChange }) => {
@@ -138,7 +139,7 @@ const KotakHelpContent = ({ expanded, onExpandChange }) => {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: "#fff",
+    backgroundColor: designColor('fff'),
     paddingHorizontal: 12,
   },
   videoBox: {
@@ -147,29 +148,29 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 13,
-    fontFamily: 'Poppins-Medium',
-    color: "#222",
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('222'),
     marginBottom: 9,
   },
   overview: {
     fontSize: 12,
-    color: "#374151",
+    color: designColor('374151'),
     lineHeight: 18,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: designColor('f3f4f6'),
     borderRadius: 8,
     padding: 10,
     marginBottom: 12,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   instruction1: {
     fontSize: 12,
     color: "black",
     marginVertical: 3,
-    fontFamily: 'Poppins-Regular'
+    fontFamily: designFont('Poppins-Regular')
   },
   instruction: {
     fontSize: 14,
-    color: "#222",
+    color: designColor('222'),
     marginBottom: 8,
   },
   // Distinct, scannable step header — bug-80: the old `instruction` style
@@ -177,26 +178,26 @@ const styles = StyleSheet.create({
   // sub-steps, so the long Kotak guide read as an undifferentiated wall.
   stepHeader: {
     fontSize: 15,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     fontWeight: '700',
-    color: "#0F3D8C",
+    color: designColor('0f3d8c'),
     marginTop: 16,
     marginBottom: 6,
   },
   checkpoint: {
     fontSize: 12,
-    color: "#92400E",
+    color: designColor('92400e'),
     lineHeight: 18,
-    backgroundColor: "#FFFBEB",
-    borderColor: "#FDE68A",
+    backgroundColor: designColor('fffbeb'),
+    borderColor: designColor('fde68a'),
     borderWidth: 1,
     borderRadius: 8,
     padding: 10,
     marginVertical: 6,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   link: {
-    color: "#1890FF",
+    color: designColor('1890ff'),
     textDecorationLine: 'underline',
   },
   toggleContainer: {
@@ -206,7 +207,7 @@ const styles = StyleSheet.create({
   toggleText: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#1890FF',
+    color: designColor('1890ff'),
   },
 });
 

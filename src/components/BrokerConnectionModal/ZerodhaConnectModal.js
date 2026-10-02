@@ -8,6 +8,9 @@ const ZerodhaConnectModal = ({
   onClose,
   fetchBrokerStatusModal,
   setShowBrokerModal,
+  // Set by DeviceTotpReconnectGate when the customer chose quick reconnect
+  // (TOTP) and Zerodha first needs one normal login to create the session.
+  onBackToQuickReconnect,
 }) => {
   const handleConnectionSuccess = () => {
     // Refresh broker status after successful connection
@@ -27,6 +30,8 @@ const ZerodhaConnectModal = ({
       isVisible={isVisible}
       onClose={onClose}
       onConnectionSuccess={handleConnectionSuccess}
+      quickReconnectPending={typeof onBackToQuickReconnect === 'function'}
+      onBackToQuickReconnect={onBackToQuickReconnect}
     />
   );
 };

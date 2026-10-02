@@ -1,7 +1,7 @@
 import {useQuery, useQueryClient} from 'react-query';
 import axios from 'axios';
 import server from './serverConfig';
-import {getAdvisorSubdomain} from './variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from './variantHelper';
 // Fetch user data
 const fetchUser = async ({queryKey}) => {
   const heroId = queryKey[1];
@@ -10,7 +10,7 @@ const fetchUser = async ({queryKey}) => {
     {
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -45,7 +45,7 @@ const fetchAllCsvFile = async ({queryKey}) => {
     {
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': Config.REACT_APP_HEADER_NAME,
+        'X-Advisor-Subdomain': getTenantSubdomain(),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,

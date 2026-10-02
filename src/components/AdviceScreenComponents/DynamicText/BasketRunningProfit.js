@@ -6,6 +6,8 @@ import Config from 'react-native-config';
 import useLTPStore from './useLtpStore';
 import {symbolName} from 'typescript';
 
+import { designColor, designFont } from '../../../design/literalTokens';
+
 const PERCENTAGE_THRESHOLD = -1;
 // console.log('perfthh--', PERCENTAGE_THRESHOLD);
 // Custom hook to subscribe to individual symbols
@@ -117,19 +119,18 @@ const BasketRunningProfit = React.memo(({basket}) => {
           onProfitChange={handleProfitChange}
         />
       ))}
-
       {/* Actual UI component */}
       {profitData.profitPercent > 0 && (
         <View style={styles.container}>
           <View style={styles.profitRow}>
             <View style={styles.profitRow1}>
               <View style={styles.rupeeIcon}>
-                <IndianRupee size={5} color={'#33D37C'} />
+                <IndianRupee size={5} color={designColor('33d37c')} />
               </View>
               <Icon1
                 name="angle-double-up"
                 size={12}
-                color={'#33D37C'}
+                color={designColor('33d37c')}
                 style={{paddingHorizontal: 4}}
               />
               <Text style={styles.profitText}>Running Profit</Text>
@@ -164,19 +165,19 @@ const styles = StyleSheet.create({
   },
   rupeeIcon: {
     borderWidth: 1,
-    borderColor: '#33D37C',
+    borderColor: designColor('33d37c'),
     padding: 2,
     borderRadius: 20,
   },
   profitText: {
     fontSize: 9,
-    color: '#33D37C',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('33d37c'),
+    fontFamily: designFont('Satoshi-Medium'),
   },
   profitValue: {
-    color: '#33D37C',
+    color: designColor('33d37c'),
     marginLeft: 2,
     fontSize: 9,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
 });

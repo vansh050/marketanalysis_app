@@ -120,15 +120,34 @@ describe('BrokerOrderBookAPI', () => {
       await fetchOrderBook('Motilal Oswal', credentials);
       expect(axios.post.mock.calls[0][0]).toBe(`${server.ccxtServer.baseUrl}motilal-oswal/order-book`);
     });
+
+    test('Groww routes to /groww/order-book', async () => {
+      await fetchOrderBook('Groww', credentials);
+      expect(axios.post.mock.calls[0][0]).toBe(`${server.ccxtServer.baseUrl}groww/order-book`);
+    });
+
+    test('DefinEdge routes to /definedge/order-book', async () => {
+      await fetchOrderBook('DefinEdge Securities', credentials);
+      expect(axios.post.mock.calls[0][0]).toBe(`${server.ccxtServer.baseUrl}definedge/order-book`);
+    });
+
+    test('IIFL routes to /iifl/order-book with the direct session', async () => {
+      await fetchOrderBook('IIFL Securities', credentials);
+      expect(axios.post.mock.calls[0][0]).toBe(`${server.ccxtServer.baseUrl}iifl/order-book`);
+      expect(JSON.parse(axios.post.mock.calls[0][1])).toMatchObject({
+        accessToken: 'token-123',
+        clientCode: 'CC001',
+      });
+    });
   });
 
   // ─── fetchOrderBook - Error Cases ───
 
   describe('fetchOrderBook - error cases', () => {
-    test('IIFL Securities throws unavailable error', async () => {
+    test('IIFL Securities requires a live session token', async () => {
       await expect(
         fetchOrderBook('IIFL Securities', {clientCode: 'CC'}),
-      ).rejects.toThrow('temporarily unavailable');
+      ).rejects.toThrow('Missing jwtToken');
     });
 
     test('unsupported broker throws error', async () => {
@@ -195,6 +214,27 @@ describe('BrokerOrderBookAPI', () => {
       expect(orders).toHaveLength(1);
     });
 
+    test('uses canonical filledShares and unfilledShares quantities', async () => {
+      axios.post.mockResolvedValueOnce({
+        data: {
+          orderBook: [{
+            orderId: 'ORD-5',
+            symbol: 'SBIN',
+            quantity: 10,
+            filledShares: 4,
+            unfilledShares: 6,
+            orderStatus: 'OPEN',
+          }],
+        },
+      });
+
+      const orders = await fetchOrderBook('Groww', {jwtToken: 'token'});
+      expect(orders[0]).toMatchObject({
+        filledQuantity: 4,
+        pendingQuantity: 6,
+      });
+    });
+
     test('detects token expiry in response', async () => {
       axios.post.mockResolvedValueOnce({
         data: {warning: {type: 'TOKEN_EXPIRED'}},
@@ -242,6 +282,29 @@ describe('BrokerOrderBookAPI', () => {
       expect(axios.post.mock.calls[0][0]).toBe(`${server.ccxtServer.baseUrl}zerodha/cancel-order`);
     });
 
+    test('calls Groww cancel endpoint with uniqueOrderId', async () => {
+      axios.post.mockResolvedValueOnce({data: {status: 0}});
+
+      await cancelOrder('Groww', {jwtToken: 'token'}, 'GROWW-1');
+
+      expect(axios.post.mock.calls[0][0]).toBe(`${server.ccxtServer.baseUrl}groww/order-cancel`);
+      expect(JSON.parse(axios.post.mock.calls[0][1])).toMatchObject({
+        uniqueOrderId: 'GROWW-1',
+      });
+    });
+
+    test('calls DefinEdge cancel endpoint', async () => {
+      axios.post.mockResolvedValueOnce({data: {status: 0}});
+
+      await cancelOrder(
+        'DefinEdge Securities',
+        {jwtToken: 'token', clientCode: 'DE-1'},
+        'DE-ORDER-1',
+      );
+
+      expect(axios.post.mock.calls[0][0]).toBe(`${server.ccxtServer.baseUrl}definedge/cancel-order`);
+    });
+
     test('handles cancel failure gracefully', async () => {
       axios.post.mockRejectedValueOnce(new Error('Cancel failed'));
 
@@ -250,9 +313,24 @@ describe('BrokerOrderBookAPI', () => {
       expect(result.error).toBe('Cancel failed');
     });
 
-    test('IIFL cancel throws unavailable', async () => {
-      const result = await cancelOrder('IIFL Securities', {}, 'ORD-1');
-      expect(result.success).toBe(false);
+    test('IIFL cancel uses the mounted direct endpoint', async () => {
+      axios.post.mockResolvedValueOnce({data: {status: 0}});
+
+      const result = await cancelOrder(
+        'IIFL Securities',
+        {jwtToken: 'token', clientCode: 'CC'},
+        'ORD-1',
+      );
+
+      expect(result.success).toBe(true);
+      expect(axios.post.mock.calls[0][0]).toBe(
+        `${server.ccxtServer.baseUrl}iifl/cancel-order`,
+      );
+      expect(JSON.parse(axios.post.mock.calls[0][1])).toMatchObject({
+        uniqueOrderId: 'ORD-1',
+        accessToken: 'token',
+        clientCode: 'CC',
+      });
     });
   });
 

@@ -4,6 +4,8 @@ import { Check, Shield } from "lucide-react-native";
 import { useConfig } from "../../context/ConfigContext";
 import useTokens from "../../theme/useTokens";
 
+import { designColor } from '../../design/literalTokens';
+
 const otpBasedMethod = process.env.REACT_APP_OTP_BASED_AUTHENTICATION;
 const aadharBasedMethod = process.env.REACT_APP_AADHAR_BASED_AUTHENTICATION;
 
@@ -57,7 +59,7 @@ const VerificationMethodCheck = ({ authMethod, setAuthMethod }) => {
               <View style={styles.optionContent}>
                 <View style={styles.optionHeader}>
                   <Text style={styles.optionTitle}>Aadhaar Based Authentication</Text>
-                  <Text style={[styles.optionBadge, { backgroundColor: "#DBEAFE", color: "#1E40AF" }]}>
+                  <Text style={[styles.optionBadge, { backgroundColor: designColor('dbeafe'), color: designColor('1e40af') }]}>
                     Digital Signature
                   </Text>
                 </View>
@@ -71,7 +73,7 @@ const VerificationMethodCheck = ({ authMethod, setAuthMethod }) => {
 
         {authMethod && (
           <View style={styles.selectedContainer}>
-            <Check size={16} color="#16A34A" style={{ marginRight: 6 }} />
+            <Check size={16} color={designColor('16a34a')} style={{ marginRight: 6 }} />
             <Text style={styles.selectedText}>
               Selected:{" "}
               <Text style={{ fontWeight: "700" }}>
@@ -91,8 +93,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: "#BFDBFE",
-    backgroundColor: "#EFF6FF",
+    borderColor: designColor('bfdbfe'),
+    backgroundColor: designColor('eff6ff'),
   },
   header: {
     flexDirection: "row",
@@ -102,7 +104,7 @@ const styles = StyleSheet.create({
   headerText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#1F2937",
+    color: designColor('1f2937'),
   },
   optionsContainer: {
     marginTop: 4,
@@ -114,19 +116,19 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 8,
     borderWidth: 2,
-    borderColor: "#E5E7EB",
+    borderColor: designColor('e5e7eb'),
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: designColor('ffffff'),
   },
   optionSelected: {
-    borderColor: "#2563EB",
+    borderColor: designColor('2563eb'),
   },
   radioCircle: {
     height: 20,
     width: 20,
     borderRadius: 10,
     borderWidth: 2,
-    borderColor: "#2563EB",
+    borderColor: designColor('2563eb'),
     alignItems: "center",
     justifyContent: "center",
     marginTop: 2,
@@ -135,7 +137,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: "#2563EB",
+    backgroundColor: designColor('2563eb'),
   },
   optionContent: {
     marginLeft: 12,
@@ -149,20 +151,20 @@ const styles = StyleSheet.create({
   optionTitle: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#111827",
+    color: designColor('111827'),
   },
   optionBadge: {
     fontSize: 10,
     fontWeight: "500",
-    color: "#047857",
-    backgroundColor: "#D1FAE5",
+    color: designColor('047857'),
+    backgroundColor: designColor('d1fae5'),
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 12,
   },
   optionDescription: {
     fontSize: 12,
-    color: "#6B7280",
+    color: designColor('6b7280'),
     marginTop: 4,
   },
   selectedContainer: {
@@ -171,13 +173,13 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 12,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: designColor('e5e7eb'),
     borderRadius: 12,
-    backgroundColor: "#FFFFFF",
+    backgroundColor: designColor('ffffff'),
   },
   selectedText: {
     fontSize: 13,
-    color: "#374151",
+    color: designColor('374151'),
   },
 });
 

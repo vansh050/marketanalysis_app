@@ -88,6 +88,26 @@ export function classifyFundsResponse(funds, brokerStatus, broker) {
   };
 }
 
+/**
+ * Should a trade be BLOCKED for the given funds-preflight reason?
+ *
+ * Zerodha places orders through the Kite Publisher basket — the user
+ * completes the order inside Kite, and the app's broker API session is
+ * never used at placement time (Kite enforces funds/margin itself). A
+ * TOKEN_EXPIRED preflight must therefore NOT stop the publisher from
+ * opening; blocking on it dead-ends the user at the token-expire modal
+ * even though a fresh Kite basket would succeed (2026-08-18, Markup).
+ * Only NOT_CONNECTED (no broker at all) still blocks.
+ *
+ * REST/GTT paths (non-Zerodha brokers, Zerodha GTT baskets) keep the
+ * TOKEN_EXPIRED block — those flows do need a live API session.
+ */
+export const shouldBlockTradeOnFundsPreflight = (reason, broker) => {
+  if (reason === 'OK' || reason === 'TRANSIENT') return false;
+  if (broker === 'Zerodha' && reason === 'TOKEN_EXPIRED') return false;
+  return true;
+}
+
 export async function validateBrokerSession({
   broker,
   brokerStatus,

@@ -31,26 +31,13 @@ import LinearGradient from 'react-native-linear-gradient';
 // Web-parity (P3/P2): NBA action banner + status strip, and the Portfolio Health
 // launcher. Both self-gated (nbaHomeEnabled / portfolioHealthEnabled) → render null
 // by default, so this header is inert until an advisor opts in.
-import NbaBanner from '../composites/NbaBanner';
-import PortfolioHealthSheet from '../composites/PortfolioHealthSheet';
 import ProvisionalBanner from '../composites/ProvisionalBanner';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import { ArrowLeft, XIcon } from 'lucide-react-native';
 import Icon1 from 'react-native-vector-icons/Fontisto';
-import Config from '../../../src/utils/safeConfig';
-
-import EducationalBlogs from '../../../src/components/HomeScreenComponents/EducationalBlogs';
-import EducationalVideos from '../../../src/components/HomeScreenComponents/EducationalVideos';
-import EducationalPDF from '../../../src/components/HomeScreenComponents/EducationalPDF';
-import StockAdvices from '../../../src/components/AdviceScreenComponents/StockAdvices';
-import RebalanceAdvices from '../../../src/components/AdviceScreenComponents/RebalanceAdvices';
-import ModelPortfolioScreen from '../../../src/screens/Drawer/ModelPortfolioScreen';
-import LinkOpeningWeb from '../../../src/screens/Home/NewsScreen/LinkOpeningWeb';
-import UpdateAppModal from '../../../src/UpdateAppModal';
+import { useComponent } from '../../../src/design/useDesign';
 
 import styles from '../../../src/screens/Home/HomeScreen.styles';
-
-const selectedVariant = Config?.APP_VARIANT || 'rgxresearch';
 
 // Mirror of ETHICAL_CONFIG from container — used in the ethical-list modal
 // JSX. Kept in sync with src/screens/Home/HomeScreen.js.
@@ -68,6 +55,10 @@ const ETHICAL_CONFIG = {
 };
 
 const HomeScreenPresentation = ({ home }) => {
+    // Home-footer slot — resolved from the active design variant. Default is
+    // a no-op; forks override `composites.HomeFooter` (e.g. a brand +
+    // regulatory footer). Rendered at the bottom of the Home feed list.
+    const HomeFooter = useComponent('composites.HomeFooter');
     const {
         // Tabs / overlays
         seeAllBespoke,
@@ -90,6 +81,8 @@ const HomeScreenPresentation = ({ home }) => {
         // User + config
         userEmail,
         config,
+        selectedVariant = 'rgxresearch',
+        slots = {},
         // Refresh + search
         isRefreshing,
         onRefresh,
@@ -131,7 +124,36 @@ const HomeScreenPresentation = ({ home }) => {
         // Helpers
         onStateChange,
         convertToTimeAgo,
+        provisionalBanner,
     } = home;
+
+    const {
+        EducationalBlogs,
+        EducationalVideos,
+        EducationalPDF,
+        StockAdvices,
+        RebalanceAdvices,
+        ModelPortfolioScreen,
+        LinkOpeningWeb,
+        UpdateAppModal,
+        NbaBanner,
+        PortfolioHealthSheet,
+    } = slots;
+
+    const homeListRef = React.useRef(null);
+    const scrollToReviewSection = React.useCallback(() => {
+        const preferredKeys = [
+            'RebalanceAdvicesTop',
+            'RebalanceAdvices',
+            'StockAdvicesTop',
+            'StockAdvices',
+        ];
+        const index = preferredKeys
+            .map(key => allTabData.findIndex(item => item.key === key))
+            .find(itemIndex => itemIndex >= 0);
+        if (index === undefined) return;
+        homeListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0 });
+    }, [allTabData]);
 
     return (
         <SafeAreaView style={styles.container}>
@@ -329,6 +351,20 @@ const HomeScreenPresentation = ({ home }) => {
                         flex: 1,
                     }}>
                     <Animated.FlatList
+                        ref={homeListRef}
+                        onScrollToIndexFailed={({ index, averageItemLength }) => {
+                            homeListRef.current?.scrollToOffset({
+                                offset: averageItemLength * index,
+                                animated: true,
+                            });
+                            setTimeout(() => {
+                                homeListRef.current?.scrollToIndex({
+                                    index,
+                                    animated: true,
+                                    viewPosition: 0,
+                                });
+                            }, 250);
+                        }}
                         data={
                             seeAllBespoke ||
                                 seeAllMPplan ||
@@ -342,12 +378,27 @@ const HomeScreenPresentation = ({ home }) => {
                         }
                         nestedScrollEnabled={true}
                         keyExtractor={item => item.key}
+                        initialNumToRender={2}
+                        maxToRenderPerBatch={1}
+                        updateCellsBatchingPeriod={80}
+                        windowSize={5}
                         ListHeaderComponent={
                             <>
-                                <ProvisionalBanner />
-                                <NbaBanner />
+                                <ProvisionalBanner
+                                    viewModel={provisionalBanner?.viewModel}
+                                    actions={provisionalBanner?.actions}
+                                />
+                                <NbaBanner onReviewTrades={scrollToReviewSection} />
                                 <PortfolioHealthSheet />
                             </>
+                        }
+                        ListFooterComponent={
+                            HomeFooter ? (
+                                <HomeFooter
+                                    actions={home.homeFooterActions}
+                                    slots={home.homeFooterSlots}
+                                />
+                            ) : null
                         }
                         style={{ zIndex: 11, paddingLeft: 0 }}
                         refreshControl={

@@ -35,14 +35,27 @@ export const optPayment = (opt, configGst) => {
  * Get the base (pre-GST) amount for a recurring plan from pricing source.
  * Prefers pricingWithoutGst, falls back to pricing.
  */
-export const recBase = (source, freq) =>
-  Number(source?.pricingWithoutGst?.[freq] || source?.pricing?.[freq] || 0);
+export const recBase = (source, freq, configGst = false) => {
+  const explicitBase = Number(source?.pricingWithoutGst?.[freq]);
+  if (Number.isFinite(explicitBase) && explicitBase > 0) return explicitBase;
+
+  const storedPrice = Number(source?.pricing?.[freq]);
+  if (!Number.isFinite(storedPrice) || storedPrice <= 0) return 0;
+
+  // Legacy plan records may only carry `pricing`, which is the gateway total
+  // (GST-inclusive when GST is enabled). Convert it back to the display base
+  // before a caller appends "+ GST"; otherwise ₹11,800 becomes ₹11,800 + GST.
+  if (configGst) {
+    return Math.round((storedPrice / GST_RATE) * 100) / 100;
+  }
+  return storedPrice;
+};
 
 /**
  * Get the display amount for a recurring plan based on GST config.
  */
 export const recDisplay = (source, freq, configGst, configGstWithText) => {
-  const base = recBase(source, freq);
+  const base = recBase(source, freq, configGst);
   if (configGst && configGstWithText) return withGst(base);
   return base;
 };
@@ -51,7 +64,7 @@ export const recDisplay = (source, freq, configGst, configGstWithText) => {
  * Get the payment amount for a recurring plan (sent to payment gateway).
  */
 export const recPayment = (source, freq, configGst) => {
-  const base = recBase(source, freq);
+  const base = recBase(source, freq, configGst);
   return configGst ? withGst(base) : base;
 };
 

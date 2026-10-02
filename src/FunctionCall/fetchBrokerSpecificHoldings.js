@@ -35,6 +35,7 @@ export const fetchBrokerSpecificHoldings = async (
   viewToken,
   serverId,
   configData,
+  userEmail,
 ) => {
   // Early return if broker is missing
   if (!broker) {
@@ -46,9 +47,14 @@ export const fetchBrokerSpecificHoldings = async (
 
   switch (broker) {
     case 'IIFL Securities':
-      // IIFL backend endpoints are currently unavailable (404)
-      console.warn('[fetchSpecificHoldings] IIFL Securities integration is temporarily unavailable');
-      return null;
+      if (!jwtToken) return null;
+      data = JSON.stringify({
+        accessToken: jwtToken,
+        clientCode,
+        userEmail,
+      });
+      url = `${server.ccxtServer.baseUrl}iifl/holdings`;
+      break;
 
     case 'ICICI Direct':
       if (!apiKey || !jwtToken || !secretKey) return null;
@@ -156,12 +162,24 @@ export const fetchBrokerSpecificHoldings = async (
       url = `${server.ccxtServer.baseUrl}motilal-oswal/holdings`;
       break;
 
+    case 'Axis Securities':
+      if (!jwtToken) return null;
+      data = JSON.stringify({
+        accessToken: jwtToken,
+        clientCode,
+        userEmail,
+      });
+      url = `${server.ccxtServer.baseUrl}axis/holdings`;
+      break;
+
     case 'Arihant Capital':
       // Parity with web AllHoldings.js § 134.
       if (!jwtToken) return null;
       data = JSON.stringify({
+        apiKey: checkValidApiAnSecret(apiKey),
         accessToken: jwtToken,
         userId: clientCode,
+        userEmail,
       });
       url = `${server.ccxtServer.baseUrl}arihant/holdings`;
       break;
@@ -174,6 +192,7 @@ export const fetchBrokerSpecificHoldings = async (
         apiSessionKey: jwtToken,
         accessToken: jwtToken,
         actid: clientCode,
+        userEmail,
       });
       url = `${server.ccxtServer.baseUrl}definedge/holdings`;
       break;
@@ -187,7 +206,10 @@ export const fetchBrokerSpecificHoldings = async (
     const response = await axios.post(url, data, {
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+        'X-Advisor-Subdomain':
+          configData?.config?.REACT_APP_HEADER_NAME ||
+          Config.REACT_APP_HEADER_NAME ||
+          '',
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,

@@ -14,6 +14,7 @@
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:allowBackup="false"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/AppTheme"
         android:supportsRtl="true">
 
@@ -89,6 +90,38 @@
                 <data android:scheme="https" />
                 <data android:host="app-links.alphaquark.in" />
                 <data android:pathPrefix="/broker-callback" />
+                <!--
+                    Campaign smart links (WhatsApp/SMS/email).
+                    https://app-links.alphaquark.in/l/<tenant>?utm_*&dl=
+                    opens directly in the app when installed (verified App
+                    Link, no chooser). The backend SmartLinkRouter only
+                    renders its interstitial / Play-Store fallback when the
+                    app is NOT installed. Parsed in App.js → src/utils/smartLink.js.
+                -->
+                <data android:pathPrefix="/l" />
+                <!-- PhonePe API checkout returns here. Every white-label app
+                     presents its own runtime applicationId to the backend;
+                     assetlinks.json already maps approved package/signing pairs. -->
+                <data android:pathPrefix="/phonepe-return" />
+            </intent-filter>
+        </activity>
+
+        <!-- Override the Razorpay SDK's DeeplinkActivity intent-filters. The SDK
+             ships an https://pg-router.dev.razorpay.in (dev-only) host that Play
+             Console tries and fails to verify as an App Link ("Failed domain
+             checks", 2026-07-16), plus the package id declared as a host. Keep
+             ONLY the razorpay:// custom-scheme callback the checkout flow needs. -->
+        <activity
+            android:name="com.razorpay.DeeplinkActivity"
+            android:exported="true"
+            android:theme="@style/CheckoutTheme"
+            tools:node="merge">
+            <intent-filter tools:node="removeAll" />
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:host="${applicationId}" android:scheme="razorpay" />
             </intent-filter>
         </activity>
     </application>

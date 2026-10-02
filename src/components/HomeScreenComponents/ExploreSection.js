@@ -5,6 +5,7 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import { useNavigation } from "@react-navigation/native";
 import Config from "../../utils/safeConfig";
 import { useConfig } from "../../context/ConfigContext";
+import { designColor, designFont } from '../../design/literalTokens';
 // Note: APP_VARIANTS removed - using dynamic config from useConfig()
 
 const screenWidth = Dimensions.get('window').width;
@@ -20,32 +21,32 @@ const ExploreSection = ({
 
   // Get dynamic config from API
   const config = useConfig();
-  const themeColor = config?.themeColor || '#0056B7';
+  const themeColor = config?.themeColor || designColor('0056b7');
 
   const exploreItems = [
-    { 
-      name: "Blogs", 
-      icon: "rss-feed", 
-      gradientColors: ["#8A2BE2", "#9370DB"],
-      description: "Articles" 
+    {
+      name: "Blogs",
+      icon: "rss-feed",
+      gradientColors: [designColor('8a2be2'), designColor('9370db')],
+      description: "Articles"
     },
-    { 
-      name: "Videos", 
-      icon: "play-circle-fill", 
-      gradientColors: ["#FF4500", "#FF7F50"],
-      description: "Watch" 
+    {
+      name: "Videos",
+      icon: "play-circle-fill",
+      gradientColors: [designColor('ff4500'), designColor('ff7f50')],
+      description: "Watch"
     },
-    { 
-      name: "PDFs", 
-      icon: "picture-as-pdf", 
-      gradientColors: ["#32CD32", "#90EE90"],
-      description: "Docs" 
+    {
+      name: "PDFs",
+      icon: "picture-as-pdf",
+      gradientColors: [designColor('32cd32'), designColor('90ee90')],
+      description: "Docs"
     },
-    { 
-      name: "News", 
-      icon: "newspaper", 
-      gradientColors: ["#1E90FF", "#87CEFA"],
-      description: "Updates" 
+    {
+      name: "News",
+      icon: "newspaper",
+      gradientColors: [designColor('1e90ff'), designColor('87cefa')],
+      description: "Updates"
     },
   ];
 
@@ -76,32 +77,29 @@ const ExploreSection = ({
         <Text style={styles.headerText}>Explore</Text>
         <View style={styles.headerLine} />
       </View>
-
-    <View style={{flexDirection:'row',alignContent:'center',alignItems:'center',alignSelf:'center',}}>
-    {filteredItems.map((item, index) => (
-          <TouchableOpacity
-            key={index}
-            style={styles.cardWrapper}
-            onPress={() => handleItemPress(item)}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={item.gradientColors}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.card}
+      <View style={{flexDirection:'row',alignContent:'center',alignItems:'center',alignSelf:'center',}}>
+      {filteredItems.map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              style={styles.cardWrapper}
+              onPress={() => handleItemPress(item)}
+              activeOpacity={0.8}
             >
-              <View style={styles.iconContainer}>
-                <Icon name={item.icon} size={20} color="#FFFFFF" />
-              </View>
-              <Text style={styles.cardTitle}>{item.name}</Text>
-          
-            </LinearGradient>
-          </TouchableOpacity>
-        ))}
-    </View>
-    
+              <LinearGradient
+                colors={item.gradientColors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.card}
+              >
+                <View style={styles.iconContainer}>
+                  <Icon name={item.icon} size={20} color={designColor('ffffff')} />
+                </View>
+                <Text style={styles.cardTitle}>{item.name}</Text>
 
+              </LinearGradient>
+            </TouchableOpacity>
+          ))}
+      </View>
     </View>
   );
 };
@@ -120,12 +118,12 @@ const styles = StyleSheet.create({
   headerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: designColor('e0e0e0'),
   },
   headerText: {
     fontSize: 16,
-    fontFamily: 'Satoshi-Medium',
-    color: '#333333',
+    fontFamily: designFont('Satoshi-Medium'),
+    color: designColor('333333'),
     paddingHorizontal: 12,
     letterSpacing: 1,
   },
@@ -138,7 +136,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     overflow: 'hidden',
     elevation: 2,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -160,14 +158,14 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   cardTitle: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 14,
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
     marginBottom: 2,
     textAlign: 'center',
   },
   cardDescription: {
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 10,
     color: 'rgba(255, 255, 255, 0.9)',
     textAlign: 'center',

@@ -7,7 +7,14 @@ import axios from 'axios';
 import Config from 'react-native-config';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
+import {prepareExecutionPayload} from '../utils/executionSafety';
+import {getCustomerAuthHeaders} from '../utils/customerAuthHeaders';
+import {
+  durableOrderExecutionEnabled,
+  isDurableDirectOrderEligible,
+  submitDurableOrder,
+} from './DurableOrderService';
 
 const BROKER_URL_MAP = {
   Zerodha: 'zerodha/api',
@@ -21,15 +28,43 @@ const BROKER_URL_MAP = {
   AliceBlue: 'aliceblue',
   'Hdfc Securities': 'hdfc',
   Groww: 'groww',
+  'DefinEdge Securities': 'definedge',
   'Motilal Oswal': 'motilal',
   'Axis Securities': 'axis',
 };
 
+const BROKER_ORDER_STATUS_SLUG_MAP = {
+  'Axis Securities': 'axis',
+  'Angel One': 'angelone',
+  Zerodha: 'zerodha',
+  Upstox: 'upstox',
+  Dhan: 'dhan',
+  Fyers: 'fyers',
+  'ICICI Direct': 'icici',
+  Kotak: 'kotak',
+  AliceBlue: 'aliceblue',
+  'Motilal Oswal': 'motilal-oswal',
+  'HDFC Securities': 'hdfc',
+  'Hdfc Securities': 'hdfc',
+  'IIFL Securities': 'iifl',
+  Groww: 'groww',
+  'DefinEdge Securities': 'definedge',
+};
+
+/**
+ * Resolve the ccxt route used by the read-only v2 single-order-status API.
+ * Keep this in the shared service so result modals cannot drift from the
+ * broker execution/portfolio maps (DefinEdge was missing from the modal's
+ * private copy and its Refresh button silently returned).
+ */
+export function getBrokerOrderStatusSlug(broker) {
+  return BROKER_ORDER_STATUS_SLUG_MAP[broker] || null;
+}
+
 function getHeaders(configData) {
   return {
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain':
-      configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(configData),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,
@@ -37,96 +72,123 @@ function getHeaders(configData) {
   };
 }
 
-const isSdkExecuteAdviceEnabled = () => {
-  const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
-  return v === 'true' || v === '1';
-};
+/**
+ * Fetch the broker-authoritative status for one placed order.
+ * The tenant header is mandatory: ccxt uses it to select the advisor DB from
+ * which stored broker credentials are loaded.
+ */
+export async function refreshSingleOrderStatus(
+  broker,
+  userEmail,
+  orderId,
+  configData = null,
+) {
+  const slug = getBrokerOrderStatusSlug(broker);
+  if (!slug) {
+    throw new Error(`Broker ${broker || 'unknown'} does not support order-status refresh`);
+  }
+
+  const response = await axios.post(
+    `${server.ccxtServer.baseUrl}${slug}/v2/single-order-status`,
+    {user_email: userEmail, orderId},
+    {headers: getHeaders(configData), timeout: 30000},
+  );
+  return response.data;
+}
+
+/**
+ * Request cancellation of one recorded basket order through the durable
+ * mutation boundary. A successful HTTP response is not necessarily terminal:
+ * callers must keep retry blocked unless `terminal === true`.
+ */
+export async function cancelPendingBasketOrder({
+  broker,
+  userEmail,
+  order,
+  basketId,
+  tradeId,
+  mutationId,
+  configData = null,
+}) {
+  const orderId = order?.orderId || order?.uniqueorderid;
+  const resolvedTradeId = tradeId || order?.tradeId;
+  if (!broker || !userEmail || !orderId || !mutationId || !basketId || !resolvedTradeId) {
+    throw new Error('Broker, customer, basket ID, trade ID, order ID and mutation ID are required');
+  }
+
+  const response = await axios.post(
+    `${server.ccxtServer.baseUrl}orders/mutate`,
+    {
+      mutationId,
+      action: 'cancel',
+      broker,
+      user_email: userEmail,
+      orderId,
+      basketId,
+      tradeId: resolvedTradeId,
+      brokerPayload: {
+        variety: 'NORMAL',
+        basketId,
+        symbol: order?.Symbol || order?.symbol || order?.tradingSymbol,
+        tradingSymbol: order?.tradingSymbol || order?.Symbol || order?.symbol,
+        exchange: order?.Exchange || order?.exchange || 'NSE',
+      },
+    },
+    {headers: getHeaders(configData), timeout: 30000},
+  );
+  return response.data;
+}
 
 /**
  * Place regular orders via unified endpoint.
  *
- * Phase A trade-exec alignment (2026-05-01): now POSTs direct to ccxt-india
- * /orders/process-trade. Falls back to legacy Node /api/process-trades/order-place
- * on 5xx / network error. Fallback gated by REACT_APP_BESPOKE_DIRECT_CCXT_FALLBACK
- * (default 'true'). Spec: docs/SDK_TRADE_EXECUTION_MIGRATION.md § Phase A.
- *
- * Phase C SDK path: when sdkClient is passed and REACT_APP_USE_SDK_EXECUTE_ADVICE
- * is enabled, routes through sdkClient.executeAdvice({ kind: 'bespokeSingle' }).
- * Falls back to legacy on SDK failure. Callers that are React components should
- * pass useSdkClient() result as the third argument.
+ * Standalone orders always cross the authenticated Node boundary. Node
+ * re-reads recommendation semantics, owns dedup and records broker outcomes.
  *
  * Caller-facing return shape preserved: response.data has either
- * `{results: [...]}` (direct-ccxt path) or `{response: [...]}` (fallback).
- * Callers should read `response.results || response.response || []`.
+ * `{results: [...]}`.
  */
-export async function placeOrders(payload, configData, sdkClient) {
-  const directCcxtUrl = `${server.ccxtServer.baseUrl}orders/process-trade`;
-  const legacyNodeUrl = `${server.server.baseUrl}api/process-trades/order-place`;
-  const fallbackEnabled = (Config.REACT_APP_BESPOKE_DIRECT_CCXT_FALLBACK || 'true') === 'true';
-  // Add per-trade clientTradeId for SDK Phase B-1 correlation precursor.
-  const enrichedPayload = {
-    ...payload,
-    trades: ((payload && payload.trades) || []).map(t => ({
-      ...t,
-      clientTradeId: t.clientTradeId || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    })),
-  };
-
-  // SDK executeAdvice dual-path (Phase C). Service file — can't use hooks,
-  // so sdkClient must be passed by the caller. When the flag is on and the
-  // client is provided, route through the SDK orchestrator.
-  if (isSdkExecuteAdviceEnabled() && sdkClient) {
-    try {
-      const sdkResult = await sdkClient.executeAdvice({
-        kind: 'bespokeSingle',
-        clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        brokerName: payload.user_broker,
-        trade: enrichedPayload.trades[0],
-        adviceId: '',
-      });
-      const placementResults = (sdkResult?.rows || []).map(row => ({
-        ...row,
-        orderStatus: row.status,
-        tradingSymbol: row.symbol,
-      }));
-      console.log('[OrderService] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
-      return { results: placementResults };
-    } catch (sdkErr) {
-      console.error('[OrderService] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
-      // Fall through to legacy path below
-    }
+export async function placeOrders(payload, configData) {
+  const authoritativeUrl = `${server.server.baseUrl}api/process-trades/order-place`;
+  const enrichedPayload = prepareExecutionPayload(payload);
+  if (
+    durableOrderExecutionEnabled(configData) &&
+    isDurableDirectOrderEligible(enrichedPayload)
+  ) {
+    return submitDurableOrder(enrichedPayload, configData);
   }
-
-  try {
-    const response = await axios.post(directCcxtUrl, enrichedPayload, {
-      headers: getHeaders(configData),
-      timeout: 120000,
-    });
-    return response.data;
-  } catch (directErr) {
-    const status = directErr?.response?.status;
-    const isNetworkOr5xx = !status || status >= 500;
-    if (fallbackEnabled && isNetworkOr5xx) {
-      console.warn('[OrderService.placeOrders] direct-ccxt failed, falling back to legacy Node:', directErr?.message);
-      const response = await axios.post(legacyNodeUrl, enrichedPayload, {
-        headers: getHeaders(configData),
-        timeout: 120000,
-      });
-      return response.data;
-    }
-    throw directErr;
+  const customerAuthHeaders = await getCustomerAuthHeaders();
+  if (!customerAuthHeaders) {
+    throw new Error('Please sign in again before placing this trade.');
   }
+  const response = await axios.post(authoritativeUrl, enrichedPayload, {
+    headers: {
+      ...getHeaders(configData),
+      ...customerAuthHeaders,
+      'x-request-id': enrichedPayload.requestId,
+    },
+    timeout: 120000,
+  });
+  return response.data;
 }
 
 /**
  * Place GTT orders via broker-specific endpoint.
  */
 export async function placeGTTOrders(broker, payload, configData) {
-  const brokerUrl = BROKER_URL_MAP[broker] || broker.toLowerCase();
+  const enrichedPayload = prepareExecutionPayload(payload);
+  const customerAuthHeaders = await getCustomerAuthHeaders();
+  if (!customerAuthHeaders) {
+    throw new Error('Please sign in again before placing this trade.');
+  }
   const response = await axios.post(
-    `${server.ccxtServer.baseUrl}${brokerUrl}/process-trades`,
-    payload,
-    {headers: getHeaders(configData), timeout: 120000},
+    `${server.server.baseUrl}api/process-trades/gtt/process-trades`,
+    enrichedPayload,
+    {headers: {
+      ...getHeaders(configData),
+      ...customerAuthHeaders,
+      'x-request-id': enrichedPayload.requestId,
+    }, timeout: 120000},
   );
   return response.data;
 }
@@ -135,15 +197,9 @@ export async function placeGTTOrders(broker, payload, configData) {
  * Update trade recommendation status.
  */
 export async function updateTradeReco(stockDetails, configData) {
-  const response = await axios.put(
-    `${server.server.baseUrl}api/zerodha/update-trade-reco`,
-    {
-      stockDetails,
-      leaving_datetime: new Date().toISOString(),
-    },
-    {headers: getHeaders(configData)},
+  throw new Error(
+    'Client-side execution updates are disabled; the backend records broker-confirmed outcomes.',
   );
-  return response.data;
 }
 
 /**
@@ -154,10 +210,14 @@ export async function recordPublisherOrders(broker, payload, configData) {
     broker === 'Zerodha'
       ? 'api/zerodha/publisher/record-orders'
       : 'api/fyers/publisher/record-orders';
+  const customerAuthHeaders = await getCustomerAuthHeaders();
+  if (!customerAuthHeaders) {
+    throw new Error('Please sign in again before confirming this trade.');
+  }
   const response = await axios.post(
     `${server.server.baseUrl}${endpoint}`,
     payload,
-    {headers: getHeaders(configData), timeout: 30000},
+    {headers: {...getHeaders(configData), ...customerAuthHeaders}, timeout: 30000},
   );
   return response.data;
 }
@@ -178,6 +238,7 @@ export async function updatePortfolioData(broker, userEmail, configData) {
     Dhan: 'dhan',
     'Motilal Oswal': 'motilal',
     Groww: 'groww',
+    'DefinEdge Securities': 'definedge',
     'Hdfc Securities': 'hdfc',
   };
 

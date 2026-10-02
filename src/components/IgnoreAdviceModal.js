@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Modal, View, Text, TextInput, TouchableOpacity, StyleSheet, Dimensions, TouchableWithoutFeedback } from 'react-native';
 
+import { designColor, designFont } from '../design/literalTokens';
+
 const { width: screenWidth, } = Dimensions.get('window');
 const IgnoreAdviceModal = ({ isVisible, onClose, handleIgnore, stockIgnoreId }) => {
   const [reason, setReason] = useState('');
@@ -26,17 +28,17 @@ const IgnoreAdviceModal = ({ isVisible, onClose, handleIgnore, stockIgnoreId }) 
           <TouchableWithoutFeedback>
             <View style={styles.modalContainer}>
               <View style={styles.indicator}></View>
-              <Text style={styles.modalTitle}>Are you sure you want to ignore this investment advice?</Text>
+              <Text style={styles.modalTitle}>Are you sure you want to ignore this investment recommendation?</Text>
               <TextInput
                 style={styles.input}
                 placeholder="Reason for Ignoring (Optional)"
-                placeholderTextColor="#B0B0B0"
+                placeholderTextColor={designColor('b0b0b0')}
               
                 value={reason}
                 onChangeText={setReason}
               />
               <TouchableOpacity style={styles.ignoreButton} onPress={handleIgnorePress}>
-                <Text style={styles.ignoreButtonText}>Ignore Advice</Text>
+                <Text style={styles.ignoreButtonText}>Ignore Recommendation</Text>
               </TouchableOpacity>
             </View>
           </TouchableWithoutFeedback>
@@ -64,23 +66,23 @@ const styles = StyleSheet.create({
   indicator: {
     width: screenWidth * 0.1, // Responsive width
     height: 5,
-    backgroundColor: '#E0E0E0',
+    backgroundColor: designColor('e0e0e0'),
     borderRadius: 2.5,
     marginBottom: 15,
   },
   modalTitle: {
     fontSize: screenWidth * 0.045, // Responsive font size
     fontWeight: '600',
-    fontFamily:'Poppins-Medium',
+    fontFamily:designFont('Poppins-Medium'),
     textAlign: 'center',
     marginBottom: 20,
-    color: '#000',
+    color: designColor('000'),
   },
   input: {
     width: '100%',
 
     height: 40, // Fixed height for the input
-    borderColor: '#E0E0E0',
+    borderColor: designColor('e0e0e0'),
     borderWidth: 1,
     
     borderRadius: screenWidth * 0.02, // Responsive border radius
@@ -88,8 +90,8 @@ const styles = StyleSheet.create({
     marginBottom: 20, // Space below input
   },
   ignoreButton: {
-    backgroundColor: '#FF3B30',
-    fontFamily:'Poppins-Regular',
+    backgroundColor: designColor('ff3b30'),
+    fontFamily:designFont('Poppins-Regular'),
     borderRadius: screenWidth * 0.02, // Responsive button radius
     paddingVertical: 12, // Padding inside button
     paddingHorizontal: 20, // Padding inside button
@@ -98,7 +100,7 @@ const styles = StyleSheet.create({
   },
   ignoreButtonText: {
     color: 'white',
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
     fontSize: 16, // Responsive font size
     fontWeight: '600',
   },

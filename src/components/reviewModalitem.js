@@ -2,6 +2,8 @@ import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Trash2Icon } from 'lucide-react-native'; // Assuming you are using lucide icons
 
+import { designColor } from '../design/literalTokens';
+
 const ReviewItemCard = ({ stock, price, order, quantity, orderType, onDelete }) => {
   return (
     <View style={styles.cardContainer}>
@@ -11,7 +13,7 @@ const ReviewItemCard = ({ stock, price, order, quantity, orderType, onDelete }) 
       <Text style={styles.text}>{quantity}</Text>
       <Text style={styles.text}>{orderType}</Text>
       <TouchableOpacity onPress={onDelete} style={styles.deleteButton}>
-        <Trash2Icon size={20} color="#ff0000" />
+        <Trash2Icon size={20} color={designColor('ff0000')} />
       </TouchableOpacity>
     </View>
   );
@@ -23,7 +25,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 10,
-    backgroundColor: '#f1f1f1',
+    backgroundColor: designColor('f1f1f1'),
     marginVertical: 5,
     borderRadius: 5,
   },

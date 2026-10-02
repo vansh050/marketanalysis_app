@@ -5,7 +5,11 @@ import server from './serverConfig';
 import Config from 'react-native-config';
 import { generateToken } from './SecurityTokenManager';
 
-import { getAdvisorSubdomain } from './variantHelper';
+import {getAdvisorSubdomain, getBuildTenantSubdomain, getTenantSubdomain} from './variantHelper';
+import {
+  clearRuntimeAdvisorConfig,
+  setRuntimeAdvisorConfig,
+} from './runtimeAdvisor';
 
 // Constants for storage keys (best practice)
 const STORAGE_KEYS = {
@@ -67,6 +71,7 @@ export const storeLoginData = async ({raCode, userData, advisorConfig}) => {
     ];
 
     await AsyncStorage.multiSet(batchData);
+    setRuntimeAdvisorConfig(advisorConfig);
 
     // Fire-and-forget: clean up legacy keys
     AsyncStorage.multiRemove(LEGACY_KEYS).catch(() => {});
@@ -159,10 +164,12 @@ export const checkAndFetchAdvisorConfig = async advisorRaCode => {
       },
     );
 
-    console.log(
-      '📦 Config API Response:',
-      JSON.stringify(response.data, null, 2),
-    );
+    // The response may include tenant credentials. Log only non-sensitive
+    // shape metadata so debug builds cannot expose the payload via Logcat.
+    console.log('📦 Config API response received:', {
+      hasConfig: !!response.data?.config,
+      advisorFound: response.data?.msg !== 'Advisor not found',
+    });
 
     // Check if advisor exists
     if (response.data?.msg === 'Advisor not found' || !response.data?.config) {
@@ -237,6 +244,12 @@ export const checkAndFetchAdvisorConfig = async advisorRaCode => {
 };
 
 // ENHANCED: Get config data with retry mechanism
+// Self-heal flag — we only run the cross-advisor repair check ONCE per
+// app session. Without this every getConfigData() call would re-validate
+// (and re-network) on apps where getConfigData is hit dozens of times
+// per screen.
+let _crossAdvisorRepairChecked = false;
+
 export const getConfigData = async (retryCount = 3) => {
   try {
     // console.log('📱 Retrieving config data... (Retry:', 4 - retryCount, ')');
@@ -246,6 +259,49 @@ export const getConfigData = async (retryCount = 3) => {
 
     if (configJson) {
       const parsedConfig = JSON.parse(configJson);
+
+      // Cross-advisor leak self-heal (2026-06-16, ported from markup_app): the
+      // AsyncStorage blob may have been poisoned by a previous build that wrote
+      // the wrong tenant's advisorConfig (inline blob from
+      // getUser?includeAdvisorConfig=true returned ALPHAQUARK's config for a
+      // user whose mongo User.advisor_ra_code is ALPHAQUARK even though the
+      // fork is pinned to a different ADVISOR_RA_CODE). The
+      // SplashScreen/LoginScreen write-path now guards against this, but
+      // existing affected installs still carry the bad blob. Validate once per
+      // session and re-fetch if the cached header disagrees with the
+      // env-pinned header.
+      if (!_crossAdvisorRepairChecked) {
+        _crossAdvisorRepairChecked = true;
+        const envHeader = Config.REACT_APP_HEADER_NAME;
+        const cachedHeader = parsedConfig?.config?.REACT_APP_HEADER_NAME;
+        if (
+          envHeader &&
+          cachedHeader &&
+          cachedHeader.toLowerCase() !== envHeader.toLowerCase()
+        ) {
+          console.warn(
+            '⚠️ Cross-advisor config leak detected — cached header=' +
+              cachedHeader + ' env header=' + envHeader +
+              '. Re-fetching correct config…',
+          );
+          const targetRaCode =
+            Config.ADVISOR_RA_CODE || (await AsyncStorage.getItem(STORAGE_KEYS.RA_ID));
+          if (targetRaCode) {
+            const repair = await checkAndFetchAdvisorConfig(targetRaCode);
+            if (repair?.success && repair?.configData) {
+              // Recursive call — the bad blob has been overwritten with
+              // the correct one, so the next read returns the good blob.
+              // Reset retryCount to avoid loops.
+              return await getConfigData(0);
+            }
+            console.warn(
+              '⚠️ Cross-advisor repair fetch failed — falling back to ' +
+                'cached blob to avoid blanking the UI. User-visible ' +
+                'incorrect tenant data may persist until next launch.',
+            );
+          }
+        }
+      }
 
       // Ensure Digio config is available at top level for easier access
       const digioCheck = await AsyncStorage.getItem(STORAGE_KEYS.DIGIO_CHECK);
@@ -284,6 +340,7 @@ export const getConfigData = async (retryCount = 3) => {
       };
 
       console.log('✅ Complete config retrieved successfully');
+      setRuntimeAdvisorConfig(enhancedConfig);
       return enhancedConfig;
     }
 
@@ -426,6 +483,7 @@ export const setConfigData = async configData => {
 
     // Use multiSet for better performance and wait for completion
     await AsyncStorage.multiSet(batchData);
+    setRuntimeAdvisorConfig(configData);
 
     // ENHANCED: Wait for AsyncStorage to complete the operation
     await waitForAsyncStorage(200);
@@ -555,7 +613,11 @@ export const updateRACodeAndConfig = async (newRACode, userEmail) => {
       {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': getAdvisorSubdomain(),
+          // This write belongs to the AlphaB2B bootstrap identity. The
+          // selected advisor config has already been published by step 1, so
+          // the generic runtime resolver would otherwise update only the
+          // destination tenant and lose the master account's RA selection.
+          'X-Advisor-Subdomain': getBuildTenantSubdomain(),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -680,6 +742,7 @@ export const clearAllAppData = async () => {
   try {
     const keys = [...Object.values(STORAGE_KEYS), ...LEGACY_KEYS];
     await AsyncStorage.multiRemove(keys);
+    clearRuntimeAdvisorConfig();
     await waitForAsyncStorage(200); // Wait for operation to complete
     console.log('✅ Cleared all app data successfully');
     return true;
@@ -733,8 +796,7 @@ export const tryResolveAdvisor = async email => {
           // advisorSpecificTag empty → no Plans). Previously this sent
           // REACT_APP_WHITE_LABEL_TEXT ("Alphanomy" / "Zamzam Capital"),
           // which never matched the subdomain ("alphanomy"/"zamzamcapital").
-          'X-Advisor-Subdomain':
-            Config.REACT_APP_HEADER_NAME || 'alphaquark',
+          'X-Advisor-Subdomain': getBuildTenantSubdomain(),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,

@@ -15,6 +15,8 @@ import DeviceInfo from 'react-native-device-info';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import semver from 'semver';
 
+import { designColor } from './design/literalTokens';
+
 const STORAGE_KEY = '@app_update_dismissed';
 const DISMISS_DURATION_HOURS = 48;
 
@@ -134,8 +136,8 @@ const UpdateAppModal = ({visible, onClose, serverVersion}) => {
   const [mandatory, setMandatory] = useState(false);
 
   const config = useConfig();
-  const gradientStart = config?.gradient2 || '#0076FB';
-  const gradientEnd = config?.gradient1 || '#002651';
+  const gradientStart = config?.gradient2 || designColor('0076fb');
+  const gradientEnd = config?.gradient1 || designColor('002651');
 
   const checkUpdate = useCallback(async () => {
     // Backend-supplied version is authoritative; fall back to config so a bare
@@ -181,13 +183,48 @@ const UpdateAppModal = ({visible, onClose, serverVersion}) => {
     setShowModal(true);
   }, [serverVersion, config]);
 
+  // Resolve whether this update is MANDATORY, independently of who decides the
+  // modal is visible.
+  //
+  // The bug this fixes: a controlled mount (HomeScreen passes
+  // `visible={showUpdateModal}` after running its own checkForAppUpdate) took
+  // the `setShowModal(visible)` branch and NEVER ran checkUpdate() — so
+  // `mandatory` stayed at its initial useState(false) and the modal rendered a
+  // dismissible "Maybe Later" even with forceUpdate: true and the customer
+  // below latestAppVersion. The force-update gate was configured correctly in
+  // supportAQ and simply never consulted on this path.
+  const resolveMandatory = useCallback(async () => {
+    const sv = serverVersion ?? pickPlatformVersion(config, 'latestAppVersion');
+    const result = await checkForAppUpdate(sv);
+    if (!result.updateAvailable) return;
+
+    // Sideloaded/APK installs can't update through the store — never hard-gate.
+    const fromStore = await isStoreInstall();
+    if (!fromStore) {
+      setMandatory(false);
+      return;
+    }
+
+    let isMandatory = config?.forceUpdate !== false;
+    const minV = pickPlatformVersion(config, 'minAppVersion');
+    if (minV && semver.valid(minV) && semver.valid(result.currentVersion)) {
+      isMandatory = semver.lt(result.currentVersion, minV);
+    }
+    setMandatory(isMandatory);
+    if (result.latestVersion) setLatestVersion(result.latestVersion);
+  }, [serverVersion, config]);
+
   useEffect(() => {
     if (visible !== undefined) {
       setShowModal(visible);
+      // Controlled mount: the PARENT decided visibility, but mandatory-ness is
+      // still ours to determine. Without this the gate silently defaults to
+      // dismissible.
+      if (visible) resolveMandatory();
     } else {
       checkUpdate();
     }
-  }, [visible, checkUpdate]);
+  }, [visible, checkUpdate, resolveMandatory]);
 
   const handleUpdate = () => {
     const storeUrl =
@@ -272,7 +309,7 @@ const styles = StyleSheet.create({
     paddingVertical: 30,
     paddingHorizontal: 25,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: {width: 0, height: 5},
     shadowOpacity: 0.34,
     shadowRadius: 6.27,
@@ -293,7 +330,7 @@ const styles = StyleSheet.create({
     lineHeight: 22,
   },
   updateButton: {
-    backgroundColor: '#29A400',
+    backgroundColor: designColor('29a400'),
     borderRadius: 25,
     paddingVertical: 14,
     paddingHorizontal: 60,
@@ -301,7 +338,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   updateButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
     fontWeight: 'bold',
     textAlign: 'center',

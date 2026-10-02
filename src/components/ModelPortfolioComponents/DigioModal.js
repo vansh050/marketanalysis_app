@@ -15,6 +15,8 @@ import { X } from "lucide-react-native";
 import { useConfig } from "../../context/ConfigContext";
 import useTokens from "../../theme/useTokens";
 
+import { designColor } from '../../design/literalTokens';
+
 /**
  * @param {Function} [verifyDocumentStatus] - async () => 'completed' |
  *   'pending' | 'failed'. When supplied, tapping X asks Digio whether the
@@ -169,7 +171,7 @@ const DigioModal = ({
             onPress={handleClosePress}
             disabled={isVerifying}
             style={styles.closeBtn}>
-            <X size={24} color={isVerifying ? "rgba(255,255,255,0.4)" : "#fff"} />
+            <X size={24} color={isVerifying ? "rgba(255,255,255,0.4)" : designColor('fff')} />
           </TouchableOpacity>
         </View>
 
@@ -331,20 +333,20 @@ const DigioModal = ({
 const styles = StyleSheet.create({
   fullScreen: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: designColor('fff'),
   },
   header: {
     height: 56,
-    backgroundColor: "#002651",
+    backgroundColor: designColor('002651'),
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
     borderBottomWidth: 0.4,
-    borderBottomColor: "#003A99",
+    borderBottomColor: designColor('003a99'),
   },
   headerTitle: {
-    color: "#fff",
+    color: designColor('fff'),
     fontSize: 16,
     fontWeight: "600",
     flex: 1,
@@ -362,11 +364,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: designColor('fff'),
   },
   loaderText: {
     marginTop: 12,
-    color: "#6B7280",
+    color: designColor('6b7280'),
     fontSize: 14,
   },
   verifyingOverlay: {
@@ -377,13 +379,13 @@ const styles = StyleSheet.create({
   },
   verifyingText: {
     marginTop: 16,
-    color: "#374151",
+    color: designColor('374151'),
     fontSize: 16,
     fontWeight: "600",
   },
   verifyingSubtext: {
     marginTop: 6,
-    color: "#9CA3AF",
+    color: designColor('9ca3af'),
     fontSize: 13,
   },
 });

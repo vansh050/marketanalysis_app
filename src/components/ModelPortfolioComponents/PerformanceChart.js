@@ -14,6 +14,8 @@ import server from '../../utils/serverConfig';
 import { BarChart2, TrendingUp, TrendingDown } from 'lucide-react-native';
 import { useTrade } from '../../screens/TradeContext';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const screenWidth = Dimensions.get('window').width;
 
 const TIME_PERIODS = [
@@ -23,6 +25,61 @@ const TIME_PERIODS = [
   { key: '1Y', label: '1Y', days: 365 },
   { key: 'ALL', label: 'All', days: null },
 ];
+
+// Tab scenes can be detached and re-attached by React Navigation/TabView. The
+// underlying daily series changes at most once per day, so do not turn those
+// harmless UI remounts into duplicate CCXT + market-data requests. Cache the
+// promise (not only the resolved value) to collapse concurrent mounts too.
+const REQUEST_CACHE_TTL_MS = 30 * 60 * 1000;
+const REQUEST_ERROR_TTL_MS = 60 * 1000;
+const REQUEST_CACHE_MAX_ENTRIES = 64;
+const REQUEST_TIMEOUT_MS = 12 * 1000;
+const requestCache = new Map();
+
+const cachedRequest = (key, operation) => {
+  const now = Date.now();
+  const cached = requestCache.get(key);
+  const cachedTtl = cached?.failed
+    ? REQUEST_ERROR_TTL_MS
+    : REQUEST_CACHE_TTL_MS;
+  if (cached && now - cached.createdAt < cachedTtl) {
+    return cached.promise;
+  }
+
+  const entry = {
+    createdAt: now,
+    failed: false,
+    promise: Promise.resolve().then(operation),
+  };
+  requestCache.set(key, entry);
+
+  if (requestCache.size > REQUEST_CACHE_MAX_ENTRIES) {
+    requestCache.delete(requestCache.keys().next().value);
+  }
+
+  entry.promise.catch(() => {
+    // Keep failures briefly as a circuit breaker. A remount storm during an
+    // outage must not immediately create another request for every scene.
+    entry.failed = true;
+    entry.createdAt = Date.now();
+  });
+  return entry.promise;
+};
+
+const fetchWithTimeout = async (url, options = {}) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, {...options, signal: controller.signal});
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error('PERFORMANCE_REQUEST_TIMEOUT');
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
 
 const PerformanceChart = ({ modelName, advisor }) => {
   const { configData } = useTrade();
@@ -59,23 +116,29 @@ const PerformanceChart = ({ modelName, advisor }) => {
         .toISOString()
         .split('T')[0];
 
-      const response = await fetch(
-        `${server.ccxtServer.baseUrl}misc/data-fetcher?symbol=${selectedIndex}&start_date=${startDate}&end_date=${endDate}`,
-        {
-          headers: {
-            'X-Advisor-Subdomain': headerName,
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
-          },
+      return cachedRequest(
+        `index:${selectedIndex}:${startDate}:${endDate}`,
+        async () => {
+          const response = await fetchWithTimeout(
+            `${server.ccxtServer.baseUrl}misc/data-fetcher?symbol=${selectedIndex}&start_date=${startDate}&end_date=${endDate}`,
+            {
+              headers: {
+                'X-Advisor-Subdomain': headerName,
+                'aq-encrypted-key': generateToken(
+                  Config.REACT_APP_AQ_KEYS,
+                  Config.REACT_APP_AQ_SECRET,
+                ),
+              },
+            },
+          );
+          if (!response.ok) throw new Error(`Index service returned ${response.status}`);
+          const data = await response.json();
+          return data.data || [];
         },
       );
-      const data = await response.json();
-      return data.data || [];
     } catch (err) {
       console.error('Error fetching index data:', err);
-      return [];
+      throw err;
     }
   };
 
@@ -83,46 +146,52 @@ const PerformanceChart = ({ modelName, advisor }) => {
     try {
       console.log('📊 PerformanceChart: Fetching with advisor:', advisorTag, 'modelName:', normalizedModelName);
 
-      const response = await fetch(
-        `${server.ccxtServer.baseUrl}rebalance/v2/get-portfolio-performance`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            advisor: advisorTag,
-            modelName: normalizedModelName,
-          }),
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': headerName,
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
-          },
+      return cachedRequest(
+        `portfolio:${headerName}:${advisorTag}:${normalizedModelName}`,
+        async () => {
+          const response = await fetchWithTimeout(
+            `${server.ccxtServer.baseUrl}rebalance/v2/get-portfolio-performance`,
+            {
+              method: 'POST',
+              body: JSON.stringify({
+                advisor: advisorTag,
+                modelName: normalizedModelName,
+              }),
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Advisor-Subdomain': headerName,
+                'aq-encrypted-key': generateToken(
+                  Config.REACT_APP_AQ_KEYS,
+                  Config.REACT_APP_AQ_SECRET,
+                ),
+              },
+            },
+          );
+
+          if (!response.ok) {
+            if (response.status === 404) return [];
+            const errorText = await response.text().catch(() => '');
+            console.error(`📊 PerformanceChart API error: ${response.status}`, errorText);
+            throw new Error(`Performance service returned ${response.status}`);
+          }
+
+          const data = await response.json();
+          console.log('📊 PerformanceChart: API response status:', data.status, 'data length:', data.data?.length || 0);
+
+          if (data.status === 0 && data.message === 'No performance data found.') {
+            return [];
+          }
+
+          return data.data || [];
         },
       );
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => '');
-        console.error(`📊 PerformanceChart API error: ${response.status}`, errorText);
-        return [];
-      }
-
-      const data = await response.json();
-      console.log('📊 PerformanceChart: API response status:', data.status, 'data length:', data.data?.length || 0);
-
-      if (data.status === 0 && data.message === 'No performance data found.') {
-        return [];
-      }
-
-      return data.data || [];
     } catch (err) {
       console.error('Error fetching portfolio data:', err);
-      return [];
+      throw err;
     }
   };
 
-  const fetchData = async () => {
+  const fetchData = async ({force = false} = {}) => {
     // Don't fetch if we don't have the advisor tag yet
     if (!advisorTag) {
       console.log('📊 PerformanceChart: Waiting for advisor config...');
@@ -143,16 +212,37 @@ const PerformanceChart = ({ modelName, advisor }) => {
     setSelectedPoint(null);
 
     try {
-      const [portfolio, indexData] = await Promise.all([
-        fetchPortfolioData(),
-        fetchIndexData(),
-      ]);
+      if (force) {
+        requestCache.delete(
+          `portfolio:${headerName}:${advisorTag}:${normalizedModelName}`,
+        );
+      }
 
-      if (!portfolio?.length || !indexData?.length) {
+      // Portfolio history is the primary content and is a cheap Mongo read.
+      // Do not launch the external benchmark request unless there is actually
+      // portfolio data to chart.
+      const portfolio = await fetchPortfolioData();
+
+      if (!portfolio?.length) {
         setAllAlignedData([]);
-        setLoading(false);
         return;
       }
+
+      if (force) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const endDate = tomorrow.toISOString().split('T')[0];
+        const startDate = new Date(Date.now() - 366 * 24 * 60 * 60 * 1000)
+          .toISOString()
+          .split('T')[0];
+        requestCache.delete(`index:${selectedIndex}:${startDate}:${endDate}`);
+      }
+
+      // Benchmark failure must not hide valid portfolio performance.
+      const indexData = await fetchIndexData().catch(indexError => {
+        console.warn('Benchmark data unavailable:', indexError);
+        return [];
+      });
 
       // Build a map of index data by date for faster lookup
       const indexMap = {};
@@ -190,7 +280,7 @@ const PerformanceChart = ({ modelName, advisor }) => {
           }
         }
       }
-      if (!firstIndexValue) firstIndexValue = 100;
+      if (!firstIndexValue && indexData.length) firstIndexValue = 100;
 
       // Align data - use nearest date matching for index
       const alignedData = portfolio
@@ -211,23 +301,20 @@ const PerformanceChart = ({ modelName, advisor }) => {
             }
           }
 
-          if (!indexClose) return null;
-
           return {
             date: pDate,
             portfolioValue: (p.value / firstPortfolioValue) * 100,
-            indexValue: (indexClose / firstIndexValue) * 100,
-            actualIndexValue: indexClose,
+            indexValue: indexClose && firstIndexValue ? (indexClose / firstIndexValue) * 100 : null,
+            actualIndexValue: indexClose || null,
             actualPortfolioValue: p.value,
           };
         })
-        .filter(d => d !== null)
         .sort((a, b) => new Date(a.date) - new Date(b.date));
 
       setAllAlignedData(alignedData);
     } catch (err) {
       console.error('Error in fetchData:', err);
-      setError(err?.message || 'Something went wrong');
+      setError('Performance is temporarily unavailable. Please try again shortly.');
     } finally {
       setLoading(false);
     }
@@ -251,11 +338,11 @@ const PerformanceChart = ({ modelName, advisor }) => {
 
     // Re-normalize to base 100 for the filtered period
     const firstP = filtered[0].portfolioValue;
-    const firstI = filtered[0].indexValue;
+    const firstI = filtered.find(d => d.indexValue != null)?.indexValue;
     return filtered.map(d => ({
       ...d,
       portfolioValue: (d.portfolioValue / firstP) * 100,
-      indexValue: (d.indexValue / firstI) * 100,
+      indexValue: d.indexValue != null && firstI ? (d.indexValue / firstI) * 100 : null,
     }));
   }, [allAlignedData, selectedPeriod]);
 
@@ -264,19 +351,19 @@ const PerformanceChart = ({ modelName, advisor }) => {
     if (!portfolioData.length) return null;
     const last = portfolioData[portfolioData.length - 1];
     const portfolioReturn = last.portfolioValue - 100;
-    const indexReturn = last.indexValue - 100;
-    const alpha = portfolioReturn - indexReturn;
+    const indexReturn = last.indexValue == null ? null : last.indexValue - 100;
+    const alpha = indexReturn == null ? null : portfolioReturn - indexReturn;
     return { portfolioReturn, indexReturn, alpha };
   }, [portfolioData]);
 
   if (loading) {
     return (
       <View style={{ padding: 40, alignItems: 'center' }}>
-        <ActivityIndicator size="large" color="#0070D0" />
+        <ActivityIndicator size="large" color={designColor('0070d0')} />
         <Text
           style={{
-            color: '#888',
-            fontFamily: 'Poppins-Regular',
+            color: designColor('888'),
+            fontFamily: designFont('Poppins-Regular'),
             fontSize: 12,
             marginTop: 12,
           }}>
@@ -289,9 +376,24 @@ const PerformanceChart = ({ modelName, advisor }) => {
   if (error) {
     return (
       <View style={{ padding: 16, alignItems: 'center' }}>
-        <Text style={{ color: '#D00', fontFamily: 'Poppins-Medium' }}>
+        <Text style={{ color: designColor('d00'), fontFamily: designFont('Poppins-Medium') }}>
           {error}
         </Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          onPress={() => fetchData({force: true})}
+          style={{
+            marginTop: 12,
+            borderWidth: 1,
+            borderColor: designColor('0070d0'),
+            borderRadius: 8,
+            paddingHorizontal: 18,
+            paddingVertical: 8,
+          }}>
+          <Text style={{color: designColor('0070d0'), fontFamily: designFont('Poppins-Medium')}}>
+            Try again
+          </Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -305,11 +407,11 @@ const PerformanceChart = ({ modelName, advisor }) => {
           paddingHorizontal: 20,
           paddingVertical: 40,
         }}>
-        <BarChart2 size={48} color="#888" style={{ marginBottom: 16 }} />
+        <BarChart2 size={48} color={designColor('888')} style={{ marginBottom: 16 }} />
         <Text
           style={{
-            color: '#000',
-            fontFamily: 'Poppins-SemiBold',
+            color: designColor('000'),
+            fontFamily: designFont('Poppins-SemiBold'),
             fontSize: 16,
             marginBottom: 8,
           }}>
@@ -317,8 +419,8 @@ const PerformanceChart = ({ modelName, advisor }) => {
         </Text>
         <Text
           style={{
-            color: '#666',
-            fontFamily: 'Poppins-Regular',
+            color: designColor('666'),
+            fontFamily: designFont('Poppins-Regular'),
             fontSize: 14,
             textAlign: 'center',
             lineHeight: 20,
@@ -339,7 +441,8 @@ const PerformanceChart = ({ modelName, advisor }) => {
   );
 
   const portfolioValues = sampledData.map(d => d.portfolioValue);
-  const indexValues = sampledData.map(d => d.indexValue);
+  const indexValues = sampledData.map(d => d.indexValue).filter(Number.isFinite);
+  const hasBenchmark = indexValues.length >= 2;
 
   // Generate labels - show ~5 evenly spaced dates
   const labelCount = 5;
@@ -365,7 +468,9 @@ const PerformanceChart = ({ modelName, advisor }) => {
     label: labels[i] || undefined,
     date: d.date,
   }));
-  const giftedIndex = sampledData.map(d => ({ value: d.indexValue }));
+  const giftedIndex = hasBenchmark
+    ? sampledData.map(d => ({ value: Number.isFinite(d.indexValue) ? d.indexValue : undefined }))
+    : undefined;
   // Non-zero baseline: chart-kit used fromZero={false}; gifted-charts achieves
   // it with yAxisOffset (baseline) + maxValue (range above the offset).
   const allVals = [...portfolioValues, ...indexValues];
@@ -380,25 +485,23 @@ const PerformanceChart = ({ modelName, advisor }) => {
       {/* Header */}
       <Text
         style={{
-          fontFamily: 'Poppins-SemiBold',
+          fontFamily: designFont('Poppins-SemiBold'),
           fontSize: 15,
-          color: '#1a1a1a',
+          color: designColor('1a1a1a'),
           marginBottom: 4,
         }}>
         Performance
       </Text>
       <Text
         style={{
-          fontFamily: 'Poppins-Regular',
+          fontFamily: designFont('Poppins-Regular'),
           fontSize: 11,
-          color: '#888',
+          color: designColor('888'),
           marginBottom: 12,
           lineHeight: 16,
         }}>
-        Simulated portfolio performance vs{' '}
-        {selectedIndex === '^NSEI' ? 'Nifty 50' : selectedIndex} (base 100)
+        Simulated portfolio performance{hasBenchmark ? ` vs ${selectedIndex === '^NSEI' ? 'Nifty 50' : selectedIndex}` : ''} (base 100)
       </Text>
-
       {/* Summary Stats Cards */}
       {stats && (
         <View
@@ -407,103 +510,103 @@ const PerformanceChart = ({ modelName, advisor }) => {
             marginBottom: 16,
             gap: 10,
           }}>
-          <View
+          {stats.indexReturn != null && <View
             style={{
               flex: 1,
-              backgroundColor: stats.portfolioReturn >= 0 ? '#f0fdf4' : '#fef2f2',
+              backgroundColor: stats.portfolioReturn >= 0 ? designColor('f0fdf4') : designColor('fef2f2'),
               borderRadius: 10,
               padding: 12,
               borderWidth: 1,
-              borderColor: stats.portfolioReturn >= 0 ? '#dcfce7' : '#fecaca',
+              borderColor: stats.portfolioReturn >= 0 ? designColor('dcfce7') : designColor('fecaca'),
             }}>
             <Text
               style={{
-                fontFamily: 'Poppins-Regular',
+                fontFamily: designFont('Poppins-Regular'),
                 fontSize: 10,
-                color: '#666',
+                color: designColor('666'),
                 marginBottom: 4,
               }}>
               Portfolio
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {stats.portfolioReturn >= 0 ? (
-                <TrendingUp size={14} color="#16a34a" />
+                <TrendingUp size={14} color={designColor('16a34a')} />
               ) : (
-                <TrendingDown size={14} color="#dc2626" />
+                <TrendingDown size={14} color={designColor('dc2626')} />
               )}
               <Text
                 style={{
-                  fontFamily: 'Poppins-SemiBold',
+                  fontFamily: designFont('Poppins-SemiBold'),
                   fontSize: 16,
-                  color: stats.portfolioReturn >= 0 ? '#16a34a' : '#dc2626',
+                  color: stats.portfolioReturn >= 0 ? designColor('16a34a') : designColor('dc2626'),
                   marginLeft: 4,
                 }}>
                 {stats.portfolioReturn >= 0 ? '+' : ''}
                 {stats.portfolioReturn.toFixed(2)}%
               </Text>
             </View>
-          </View>
+          </View>}
 
-          <View
+          {stats.alpha != null && <View
             style={{
               flex: 1,
-              backgroundColor: stats.indexReturn >= 0 ? '#f0fdf4' : '#fef2f2',
+              backgroundColor: stats.indexReturn >= 0 ? designColor('f0fdf4') : designColor('fef2f2'),
               borderRadius: 10,
               padding: 12,
               borderWidth: 1,
-              borderColor: stats.indexReturn >= 0 ? '#dcfce7' : '#fecaca',
+              borderColor: stats.indexReturn >= 0 ? designColor('dcfce7') : designColor('fecaca'),
             }}>
             <Text
               style={{
-                fontFamily: 'Poppins-Regular',
+                fontFamily: designFont('Poppins-Regular'),
                 fontSize: 10,
-                color: '#666',
+                color: designColor('666'),
                 marginBottom: 4,
               }}>
               {selectedIndex === '^NSEI' ? 'Nifty 50' : selectedIndex}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {stats.indexReturn >= 0 ? (
-                <TrendingUp size={14} color="#16a34a" />
+                <TrendingUp size={14} color={designColor('16a34a')} />
               ) : (
-                <TrendingDown size={14} color="#dc2626" />
+                <TrendingDown size={14} color={designColor('dc2626')} />
               )}
               <Text
                 style={{
-                  fontFamily: 'Poppins-SemiBold',
+                  fontFamily: designFont('Poppins-SemiBold'),
                   fontSize: 16,
-                  color: stats.indexReturn >= 0 ? '#16a34a' : '#dc2626',
+                  color: stats.indexReturn >= 0 ? designColor('16a34a') : designColor('dc2626'),
                   marginLeft: 4,
                 }}>
                 {stats.indexReturn >= 0 ? '+' : ''}
                 {stats.indexReturn.toFixed(2)}%
               </Text>
             </View>
-          </View>
+          </View>}
 
           <View
             style={{
               flex: 1,
-              backgroundColor: stats.alpha >= 0 ? '#eff6ff' : '#fef2f2',
+              backgroundColor: stats.alpha >= 0 ? designColor('eff6ff') : designColor('fef2f2'),
               borderRadius: 10,
               padding: 12,
               borderWidth: 1,
-              borderColor: stats.alpha >= 0 ? '#dbeafe' : '#fecaca',
+              borderColor: stats.alpha >= 0 ? designColor('dbeafe') : designColor('fecaca'),
             }}>
             <Text
               style={{
-                fontFamily: 'Poppins-Regular',
+                fontFamily: designFont('Poppins-Regular'),
                 fontSize: 10,
-                color: '#666',
+                color: designColor('666'),
                 marginBottom: 4,
               }}>
               Alpha
             </Text>
             <Text
               style={{
-                fontFamily: 'Poppins-SemiBold',
+                fontFamily: designFont('Poppins-SemiBold'),
                 fontSize: 16,
-                color: stats.alpha >= 0 ? '#2563eb' : '#dc2626',
+                color: stats.alpha >= 0 ? designColor('2563eb') : designColor('dc2626'),
               }}>
               {stats.alpha >= 0 ? '+' : ''}
               {stats.alpha.toFixed(2)}%
@@ -511,7 +614,6 @@ const PerformanceChart = ({ modelName, advisor }) => {
           </View>
         </View>
       )}
-
       {/* Time Period Selector */}
       <View
         style={{
@@ -533,13 +635,13 @@ const PerformanceChart = ({ modelName, advisor }) => {
                 paddingVertical: 6,
                 paddingHorizontal: 14,
                 borderRadius: 20,
-                backgroundColor: isActive ? '#1a1a1a' : '#f5f5f5',
+                backgroundColor: isActive ? designColor('1a1a1a') : designColor('f5f5f5'),
               }}>
               <Text
                 style={{
-                  fontFamily: 'Poppins-Medium',
+                  fontFamily: designFont('Poppins-Medium'),
                   fontSize: 12,
-                  color: isActive ? '#fff' : '#666',
+                  color: isActive ? designColor('fff') : designColor('666'),
                 }}>
                 {period.label}
               </Text>
@@ -547,16 +649,15 @@ const PerformanceChart = ({ modelName, advisor }) => {
           );
         })}
       </View>
-
       {/* Chart Card */}
       <View
         style={{
-          backgroundColor: '#fff',
+          backgroundColor: designColor('fff'),
           borderRadius: 14,
           elevation: 3,
           paddingTop: 12,
           paddingBottom: 6,
-          shadowColor: '#000',
+          shadowColor: designColor('000'),
           shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.08,
           shadowRadius: 8,
@@ -564,19 +665,19 @@ const PerformanceChart = ({ modelName, advisor }) => {
         <View style={{ position: 'relative', paddingLeft: 4 }}>
           <LineChart
             data={giftedPortfolio}
-            data2={giftedIndex}
+            {...(giftedIndex ? {data2: giftedIndex} : {})}
             height={chartHeight}
             width={chartWidth - 44}
             adjustToWidth
             curved
             thickness={2.5}
             thickness2={2}
-            color1="#07BAD1"
-            color2="#FF6347"
+            color1={designColor('07bad1')}
+            color2={designColor('ff6347')}
             hideDataPoints
             areaChart
-            startFillColor="#07BAD1"
-            endFillColor="#07BAD1"
+            startFillColor={designColor('07bad1')}
+            endFillColor={designColor('07bad1')}
             startOpacity={0.18}
             endOpacity={0.012}
             yAxisOffset={yMin}
@@ -590,20 +691,20 @@ const PerformanceChart = ({ modelName, advisor }) => {
             endSpacing={6}
             yAxisLabelWidth={34}
             yAxisTextStyle={{
-              color: '#9aa0a6',
+              color: designColor('9aa0a6'),
               fontSize: 9,
-              fontFamily: 'Poppins-Regular',
+              fontFamily: designFont('Poppins-Regular'),
             }}
             xAxisLabelTextStyle={{
-              color: '#9aa0a6',
+              color: designColor('9aa0a6'),
               fontSize: 9,
-              fontFamily: 'Poppins-Regular',
+              fontFamily: designFont('Poppins-Regular'),
             }}
             pointerConfig={{
               pointerStripHeight: chartHeight,
               pointerStripColor: 'rgba(0,0,0,0.12)',
               pointerStripWidth: 1,
-              pointerColor: '#07BAD1',
+              pointerColor: designColor('07bad1'),
               radius: 4,
               pointerLabelWidth: 150,
               pointerLabelHeight: 80,
@@ -621,11 +722,11 @@ const PerformanceChart = ({ modelName, advisor }) => {
                       borderRadius: 10,
                       minWidth: 140,
                     }}>
-                    <Text
+                    {hasBenchmark && <Text
                       style={{
                         color: 'rgba(255,255,255,0.7)',
                         fontSize: 10,
-                        fontFamily: 'Poppins-Regular',
+                        fontFamily: designFont('Poppins-Regular'),
                         marginBottom: 3,
                       }}>
                       {pt?.date
@@ -635,20 +736,20 @@ const PerformanceChart = ({ modelName, advisor }) => {
                             year: 'numeric',
                           })
                         : ''}
-                    </Text>
+                    </Text>}
                     <Text
                       style={{
-                        color: '#07BAD1',
+                        color: designColor('07bad1'),
                         fontSize: 12,
-                        fontFamily: 'Poppins-SemiBold',
+                        fontFamily: designFont('Poppins-SemiBold'),
                       }}>
                       Portfolio: {Number(pt?.value || 0).toFixed(2)}
                     </Text>
                     <Text
                       style={{
-                        color: '#FF6347',
+                        color: designColor('ff6347'),
                         fontSize: 12,
-                        fontFamily: 'Poppins-SemiBold',
+                        fontFamily: designFont('Poppins-SemiBold'),
                       }}>
                       {selectedIndex === '^NSEI' ? 'Nifty 50' : selectedIndex}:{' '}
                       {Number(ix?.value || 0).toFixed(2)}
@@ -668,40 +769,40 @@ const PerformanceChart = ({ modelName, advisor }) => {
             paddingVertical: 8,
             gap: 20,
           }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {hasBenchmark && <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <View
               style={{
                 width: 16,
                 height: 3,
-                backgroundColor: '#07BAD1',
+                backgroundColor: designColor('07bad1'),
                 marginRight: 6,
                 borderRadius: 2,
               }}
             />
             <Text
               style={{
-                color: '#555',
-                fontFamily: 'Poppins-Medium',
+                color: designColor('555'),
+                fontFamily: designFont('Poppins-Medium'),
                 fontSize: 11,
               }}>
               Portfolio
             </Text>
-          </View>
+          </View>}
 
           <View style={{ flexDirection: 'row', alignItems: 'center' }}>
             <View
               style={{
                 width: 16,
                 height: 3,
-                backgroundColor: '#FF6347',
+                backgroundColor: designColor('ff6347'),
                 marginRight: 6,
                 borderRadius: 2,
               }}
             />
             <Text
               style={{
-                color: '#555',
-                fontFamily: 'Poppins-Medium',
+                color: designColor('555'),
+                fontFamily: designFont('Poppins-Medium'),
                 fontSize: 11,
               }}>
               {selectedIndex === '^NSEI' ? 'Nifty 50' : selectedIndex}

@@ -5,13 +5,16 @@ import Svg, {Circle} from 'react-native-svg';
 import {useConfig} from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const PortfolioCard = ({
   allHoldingsData,
   formatCurrency,
   profitAndLoss,
   pnlPercentage,
   broker,
-  selectedPlan,
+  isPositions,
+  availableCash,
 }) => {
   const config = useConfig();
   const tokens = useTokens();
@@ -21,6 +24,7 @@ const PortfolioCard = ({
   const invested = Number(allHoldingsData?.totalinvvalue) || 0;
   const pnl = Number(profitAndLoss) || 0;
   const returns = Number(pnlPercentage) || 0;
+  const hasAvailableCash = Number.isFinite(Number(availableCash));
 
   // Broker APIs can return IEEE floating-point artefacts such as
   // 16575.190000000002. Keep the raw numbers for calculations, but never
@@ -43,8 +47,13 @@ const PortfolioCard = ({
   };
 
   const holdingSource = getHoldingSource(broker);
-  const summaryTitle = selectedPlan
-    ? 'Selected plan holdings'
+  const hasSummaryValues =
+    allHoldingsData &&
+    ['totalinvvalue', 'totalprofitandloss', 'totalpnlpercentage'].some(key =>
+      Object.prototype.hasOwnProperty.call(allHoldingsData, key),
+    );
+  const summaryTitle = isPositions
+    ? 'Broker Positions P&L'
     : 'Broker Holdings P&L';
 
   const formatPnL = value => {
@@ -59,8 +68,8 @@ const PortfolioCard = ({
 
   const isPositive = returns >= 0;
   const arrow = isPositive ? '▲' : '▼';
-  const arrowColor = isPositive ? '#23C36A' : '#FF6B6B';
-  const percentColor = isPositive ? '#5EEA99' : '#FF6B6B';
+  const arrowColor = isPositive ? designColor('23c36a') : designColor('ff6b6b');
+  const percentColor = isPositive ? designColor('5eea99') : designColor('ff6b6b');
 
   return (
     <View style={portfolioCardStyles.pcWrapper}>
@@ -91,7 +100,13 @@ const PortfolioCard = ({
           <>
             <Text style={portfolioCardStyles.pcAmount}>—</Text>
             <Text style={portfolioCardStyles.pcSubLabel}>
-              Source: {holdingSource}
+              Source: {holdingSource}{'\n'}
+              Available cash:{' '}
+              <Text style={portfolioCardStyles.pcSubAmount}>
+                {hasAvailableCash
+                  ? `₹ ${formatDisplayedMoney(availableCash)}`
+                  : 'Unavailable'}
+              </Text>
             </Text>
           </>
         ) : (
@@ -101,9 +116,16 @@ const PortfolioCard = ({
 
             {/* Invested */}
             <Text style={portfolioCardStyles.pcSubLabel}>
-              Source: {holdingSource}{'\n'}Invested&nbsp;{' '}
+              Source: {holdingSource}{'\n'}
+              {isPositions ? 'Capital basis' : 'Invested'}&nbsp;{' '}
               <Text style={portfolioCardStyles.pcSubAmount}>
                 ₹ {formatDisplayedRupees(invested)}
+              </Text>
+              {'\n'}Available cash:{' '}
+              <Text style={portfolioCardStyles.pcSubAmount}>
+                {hasAvailableCash
+                  ? `₹ ${formatDisplayedMoney(availableCash)}`
+                  : 'Unavailable'}
               </Text>
             </Text>
           </>
@@ -119,18 +141,22 @@ const PortfolioCard = ({
               Total Returns
             </Text>
             {/* ✅ Dynamic arrow and color with NaN handling */}
-            <Text
-              style={[
-                portfolioCardStyles.pcReturnsPercent,
-                {color: percentColor},
-              ]}>
+            {hasSummaryValues ? (
               <Text
-                style={[portfolioCardStyles.pcUpArrow, {color: arrowColor}]}>
-                {arrow}
+                style={[
+                  portfolioCardStyles.pcReturnsPercent,
+                  {color: percentColor},
+                ]}>
+                <Text
+                  style={[portfolioCardStyles.pcUpArrow, {color: arrowColor}]}>
+                  {arrow}
+                </Text>
+                &nbsp;
+                {Math.abs(returns).toFixed(2)}%
               </Text>
-              &nbsp;
-              {Math.abs(returns).toFixed(2)}%
-            </Text>
+            ) : (
+              <Text style={portfolioCardStyles.pcReturnsPercent}>—</Text>
+            )}
           </View>
         </View>
       </LinearGradient>
@@ -149,7 +175,7 @@ const portfolioCardStyles = StyleSheet.create({
     borderRadius: 15,
     overflow: 'hidden',
     minHeight: 138,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
     shadowRadius: 5,
@@ -168,9 +194,9 @@ const portfolioCardStyles = StyleSheet.create({
     position: 'absolute',
     top: 18,
     left: 22,
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 15,
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     opacity: 0.82,
     letterSpacing: 0.1,
   },
@@ -178,9 +204,9 @@ const portfolioCardStyles = StyleSheet.create({
     position: 'absolute',
     top: 40,
     left: 22,
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 32,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -188,17 +214,17 @@ const portfolioCardStyles = StyleSheet.create({
     position: 'absolute',
     top: 88,
     left: 22,
-    color: '#fff',
+    color: designColor('fff'),
     opacity: 0.81,
     fontSize: 12,
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     letterSpacing: 0.2,
     width: '55%',
     lineHeight: 16,
   },
   pcSubAmount: {
-    fontFamily: 'Satoshi-Regular',
-    color: '#fff',
+    fontFamily: designFont('Satoshi-Regular'),
+    color: designColor('fff'),
     opacity: 0.94,
     fontSize: 12,
     marginLeft: 2,
@@ -211,21 +237,21 @@ const portfolioCardStyles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   pcPLHolder: {
-    backgroundColor: '#ffffff44',
+    backgroundColor: designColor('ffffff44'),
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 0,
     marginBottom: 8,
   },
   pcPLText: {
-    color: '#fff',
-    fontFamily: 'Poppins-Medium',
+    color: designColor('fff'),
+    fontFamily: designFont('Poppins-Medium'),
     fontSize: 13,
     marginTop: 5,
   },
   pcReturnsLabel: {
-    color: '#fff',
-    fontFamily: 'Satoshi-Regular',
+    color: designColor('fff'),
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 12,
     opacity: 0.8,
     textAlign: 'right',
@@ -233,14 +259,14 @@ const portfolioCardStyles = StyleSheet.create({
     letterSpacing: 0.1,
   },
   pcReturnsPercent: {
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 12,
     letterSpacing: 0.12,
     textAlign: 'right',
   },
   pcUpArrow: {
     fontSize: 9,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
 });
 

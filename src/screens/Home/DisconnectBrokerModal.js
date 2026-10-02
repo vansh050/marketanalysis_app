@@ -9,6 +9,8 @@ import {
 } from "react-native";
 import { useTrade } from "../TradeContext";
 
+import { designColor } from '../../design/literalTokens';
+
 const DisconnectBrokerModal = ({
   showDisconnectBroker,
   setShowDisconnectBroker,
@@ -45,7 +47,7 @@ const DisconnectBrokerModal = ({
               activeOpacity={0.8}
             >
               {withoutBrokerLoader ? (
-                <ActivityIndicator color="#fff" size="small" />
+                <ActivityIndicator color={designColor('fff')} size="small" />
               ) : (
                 <Text style={styles.disconnectText}>Disconnect</Text>
               )}
@@ -70,12 +72,12 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: "100%",
     maxWidth: 360,
-    backgroundColor: "#fff",
+    backgroundColor: designColor('fff'),
     borderRadius: 12,
     paddingVertical: 24,
     paddingHorizontal: 20,
     alignItems: "center",
-    shadowColor: "#000",
+    shadowColor: designColor('000'),
     shadowOpacity: 0.15,
     shadowOffset: { width: 0, height: 2 },
     shadowRadius: 6,
@@ -84,13 +86,13 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: "#111827",
+    color: designColor('111827'),
     textAlign: "center",
     marginBottom: 8,
   },
   modalMessage: {
     fontSize: 14,
-    color: "#4B5563",
+    color: designColor('4b5563'),
     textAlign: "center",
     marginBottom: 20,
   },
@@ -108,20 +110,20 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     borderWidth: 1,
-    borderColor: "#D1D5DB",
-    backgroundColor: "#fff",
+    borderColor: designColor('d1d5db'),
+    backgroundColor: designColor('fff'),
   },
   cancelText: {
     fontSize: 14,
     fontWeight: "500",
-    color: "#374151",
+    color: designColor('374151'),
   },
   disconnectButton: {
-    backgroundColor: "#dc2626",
+    backgroundColor: designColor('dc2626'),
   },
   disconnectText: {
     fontSize: 14,
     fontWeight: "600",
-    color: "#fff",
+    color: designColor('fff'),
   },
 });

@@ -6,7 +6,8 @@ import Config from 'react-native-config';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import AliceBlueConnectUI from '../../UIComponents/BrokerConnectionUI/AliceBlueConnectUI';
 import {useTrade} from '../../screens/TradeContext';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {useConfig} from '../../context/ConfigContext';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import {
@@ -15,6 +16,18 @@ import {
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
 import {getAccountEmail} from '../../utils/accountEmail';
+import {authenticator} from '../../utils/totp';
+import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
+import {
+  hasAliceBlueDeviceLogin,
+  removeAliceBlueDeviceLogin,
+  saveAliceBlueDeviceLogin,
+  unlockAliceBlueDeviceLogin,
+} from '../../services/DeviceBrokerLoginVault';
+import {classifyFundsResponse} from '../../utils/brokerSessionValidator';
+import {normalizeDeviceTotpSeedInput} from '../../services/DeviceTotpVault';
+
+import { designColor } from '../../design/literalTokens';
 
 // Route through CCXT backend (matching web's handleAliceBlueConnect) so origin
 // is stored in MongoDB for multi-site callback routing. The CCXT server
@@ -52,47 +65,144 @@ const AliceBlueConnect = ({
   setShowBrokerModal,
   fetchBrokerStatusModal,
 }) => {
-  const {configData} = useTrade();
+  const {configData, userDetails, getUserDeatils} = useTrade();
+  // The live runtime config is what the dispatcher routed on. TradeContext's
+  // cached configData can lack deviceTotpEnabled, which opened the AliceBlue
+  // login page directly with no quick-reconnect option (2026-09-30).
+  const freshConfig = useConfig();
   const showAlert = useModalStore(state => state.showAlert);
   const hasProcessedCallback = useRef(false);
   const sdkBridge = useSdkBridge();
 
   const [loading, setLoading] = useState(false);
+  const [vaultBusy, setVaultBusy] = useState(false);
+  const [hasSavedLogin, setHasSavedLogin] = useState(false);
+  const [showBrokerLogin, setShowBrokerLogin] = useState(false);
+  const [vaultError, setVaultError] = useState('');
+  const [aliceUserId, setAliceUserId] = useState('');
+  const [alicePassword, setAlicePassword] = useState('');
+  const [aliceTotpSeed, setAliceTotpSeed] = useState('');
+  // Normal AliceBlue login is the default (2026-10-01 owner decision);
+  // quick reconnect is opt-in via the "Enable quick reconnect" switch.
+  const [quickReconnectOptIn, setQuickReconnectOptIn] = useState(false);
+  const assistedCredentialsRef = useRef(null);
 
   const auth = getAuth();
   const user = auth.currentUser;
   const userEmail = getAccountEmail();
-
-  const [userDetails, setUserDetails] = useState();
-  const getUserDeatils = () => {
-    axios
-      .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Advisor-Subdomain':
-            configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
-          'aq-encrypted-key': generateToken(
-            Config.REACT_APP_AQ_KEYS,
-            Config.REACT_APP_AQ_SECRET,
-          ),
-        },
-      })
-      .then(res => {
-        setUserDetails(res.data.User);
-      })
-      .catch(err => console.log(err));
+  const advisorSubdomain =
+    getTenantSubdomain(configData);
+  // AliceBlue uses one partner OAuth product in both cases. The shared
+  // deviceTotpEnabled switch only adds the optional phone-vault-assisted
+  // experience; it does not move the customer to an Individual Trader API.
+  // Retain the historical AliceBlue-only flag as a compatibility alias.
+  const assistedLoginEnabled =
+    freshConfig?.deviceTotpEnabled === true ||
+    freshConfig?.aliceBlueDeviceLoginEnabled === true ||
+    configData?.config?.deviceTotpEnabled === true ||
+    configData?.deviceTotpEnabled === true ||
+    configData?.config?.aliceBlueDeviceLoginEnabled === true ||
+    configData?.aliceBlueDeviceLoginEnabled === true;
+  const vaultIdentity = {
+    advisor: advisorSubdomain,
+    broker: 'AliceBlue',
+    userEmail,
   };
-  useEffect(() => {
-    getUserDeatils();
-  }, [userEmail, server.server.baseUrl]);
 
-  const userId = userDetails && userDetails._id;
+  useEffect(() => {
+    let cancelled = false;
+    assistedCredentialsRef.current = null;
+    if (!isVisible || !assistedLoginEnabled || !userEmail) return undefined;
+    setShowBrokerLogin(false);
+    setVaultError('');
+    hasAliceBlueDeviceLogin(vaultIdentity)
+      .then(saved => {
+        if (!cancelled) setHasSavedLogin(saved);
+      })
+      .catch(() => {
+        if (!cancelled) setHasSavedLogin(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Exact primitive dependencies keep the device-vault scope stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, assistedLoginEnabled, advisorSubdomain, userEmail]);
+
+  const useNormalBrokerLogin = () => {
+    assistedCredentialsRef.current = null;
+    setVaultError('');
+    setShowBrokerLogin(true);
+  };
+
+  const unlockAssistedLogin = async () => {
+    setVaultBusy(true);
+    setVaultError('');
+    try {
+      const credentials = await unlockAliceBlueDeviceLogin(vaultIdentity);
+      if (!credentials) return;
+      assistedCredentialsRef.current = credentials;
+      setShowBrokerLogin(true);
+    } catch (error) {
+      setVaultError(error?.message || 'Device authentication failed.');
+    } finally {
+      setVaultBusy(false);
+    }
+  };
+
+  const enrolAssistedLogin = async () => {
+    setVaultBusy(true);
+    setVaultError('');
+    try {
+      const normalizedSeed = normalizeDeviceTotpSeedInput(aliceTotpSeed);
+      if (!aliceUserId.trim() || !alicePassword) {
+        throw new Error('Enter your AliceBlue user ID and password.');
+      }
+      // Syntax-check the seed and stage it only in memory. The keychain write
+      // happens after AliceBlue returns a successful OAuth callback.
+      authenticator.generate(normalizedSeed);
+      assistedCredentialsRef.current = {
+        broker: 'AliceBlue',
+        userId: aliceUserId.trim(),
+        password: alicePassword,
+        totpSeed: normalizedSeed,
+      };
+      setShowBrokerLogin(true);
+    } catch (error) {
+      setVaultError(error?.message || 'Could not protect AliceBlue login.');
+    } finally {
+      setVaultBusy(false);
+    }
+  };
+
+  const forgetAssistedLogin = async () => {
+    setVaultBusy(true);
+    try {
+      await removeAliceBlueDeviceLogin(vaultIdentity);
+      assistedCredentialsRef.current = null;
+      setHasSavedLogin(false);
+      setVaultError('');
+    } catch (error) {
+      setVaultError(error?.message || 'Could not remove the protected login.');
+    } finally {
+      setVaultBusy(false);
+    }
+  };
+
+  const generateAssistedTotp = async () => {
+    const seed = assistedCredentialsRef.current?.totpSeed;
+    if (!seed) return null;
+    try {
+      return authenticator.generate(seed);
+    } catch (_) {
+      return null;
+    }
+  };
 
   // Get common headers for API calls
   const getHeaders = () => ({
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain':
-      configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(configData),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,
@@ -160,6 +270,8 @@ const AliceBlueConnect = ({
 
   // Save broker connection (same as prod connectBroker.js AliceBlue callback)
   const saveBrokerConnection = async (accessToken, clientId) => {
+    const userId =
+      userDetails?._id || (await getUserDeatils?.())?._id;
     if (!userId) {
       showAlert('error', 'Error', 'User not found. Please try again.');
       return;
@@ -181,6 +293,29 @@ const AliceBlueConnect = ({
         data: JSON.stringify(brokerData),
       });
 
+      const pendingDeviceLogin = assistedCredentialsRef.current;
+      if (pendingDeviceLogin && !hasSavedLogin) {
+        try {
+          await saveAliceBlueDeviceLogin(
+            vaultIdentity,
+            pendingDeviceLogin,
+            '',
+          );
+          setHasSavedLogin(true);
+          setAlicePassword('');
+          setAliceTotpSeed('');
+        } catch (vaultSaveError) {
+          setVaultError(
+            vaultSaveError?.message ||
+              'AliceBlue connected, but quick reconnect was not saved.',
+          );
+          console.warn(
+            '[AliceBlue] connected but device login save failed:',
+            vaultSaveError?.message,
+          );
+        }
+      }
+
       console.log(
         '[AliceBlue] Broker connected successfully, updating model portfolio...',
       );
@@ -191,7 +326,11 @@ const AliceBlueConnect = ({
       // shape (backend dispatches to the same persistence path used by
       // /api/user/connect-broker).
       if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
-        sdkDualWriteSafely(
+        // Await the data-plane write before declaring success. It was
+        // previously fire-and-forget, so the refreshed account could still
+        // expose the pre-login expired AliceBlue slot and immediately ask the
+        // customer to log in again.
+        await sdkDualWriteSafely(
           sdkExchangeBrokerToken(sdkBridge.client, 'AliceBlue', {
             access_token: accessToken,
             client_id: clientId,
@@ -230,9 +369,6 @@ const AliceBlueConnect = ({
       // KotakModal.js (commit 172767d) and BROKER_CONNECTION.md
       // § Broker-connect post-success hygiene.
       try {
-        eventEmitter.emit('refreshEvent', {
-          source: 'AliceBlue broker connection',
-        });
         // Await the migration check so we don't fire the redundant
         // "Connected Successfully" alert when the migration sheet
         // (which itself says "Reconnected to AliceBlue — your holdings
@@ -241,7 +377,43 @@ const AliceBlueConnect = ({
         // sheet both visible at the same time, with the migration sheet
         // not blocking navigation, letting the user tap "Rebalance" while
         // both were open.
-        const result = await fetchBrokerStatusModal();
+        const result = await fetchBrokerStatusModal?.();
+        const refreshedUser = result?.verifiedUser || result?.userDetails;
+        const sessionCheck = refreshedUser
+          ? classifyFundsResponse(
+              result?.funds,
+              refreshedUser.connect_broker_status,
+              refreshedUser.user_broker || 'AliceBlue',
+            )
+          : {reason: 'PROBE_FAILED'};
+        // Publish only after the canonical refresh/verification has settled.
+        // Emitting first used to start several overlapping user/funds reads,
+        // one of which could repaint the just-connected session as expired.
+        eventEmitter.emit('refreshEvent', {
+          source: 'AliceBlue broker connection',
+          freshUser: refreshedUser || null,
+          fundsAlreadyRefreshed: true,
+        });
+        if (
+          sessionCheck.reason === 'TOKEN_EXPIRED' ||
+          sessionCheck.reason === 'NOT_CONNECTED'
+        ) {
+          showAlert(
+            'error',
+            'AliceBlue session not active',
+            sessionCheck.message ||
+              'AliceBlue did not accept the new session. Please reconnect once more.',
+          );
+          return;
+        }
+        // Dismiss every mounted token-expire prompt, not only the instance
+        // that launched this WebView. Home can have multiple recommendation
+        // cards mounted; leaving one stale prompt open produced the observed
+        // success alert stacked above "Authentication Required".
+        eventEmitter.emit('brokerConnectionVerified', {
+          broker: 'AliceBlue',
+          freshUser: refreshedUser || null,
+        });
         if (!result?.migrationWillShow) {
           showAlert(
             'success',
@@ -281,8 +453,119 @@ const AliceBlueConnect = ({
   useEffect(() => {
     if (isVisible) {
       hasProcessedCallback.current = false;
+      if (!assistedLoginEnabled) setShowBrokerLogin(true);
     }
-  }, [isVisible]);
+  }, [isVisible, assistedLoginEnabled]);
+
+  if (assistedLoginEnabled && !showBrokerLogin) {
+    const normalLoginDefault = !hasSavedLogin && !quickReconnectOptIn;
+    return (
+      <BrokerConnectStepperSheet
+        isVisible={isVisible}
+        onClose={onClose}
+        broker="AliceBlue"
+        config={{
+          monogram: 'A',
+          brandFrom: designColor('2563eb'),
+          brandTo: designColor('1d4ed8'),
+          portalUrl: 'https://ant.aliceblueonline.com/',
+          portalLabel: 'Open AliceBlue ANT',
+          guideSteps: normalLoginDefault
+            ? [
+                '<b>AliceBlue login:</b> sign in on AliceBlue’s own page with your user ID, password and TOTP, then approve the consent.',
+                'Want faster reconnects? Switch on <b>quick reconnect</b> below to save your login on this phone.',
+              ]
+            : hasSavedLogin
+            ? [
+                '<b>Quick Reconnect on this phone:</b> unlock the AliceBlue login protected by biometrics or your device PIN.',
+                'The app fills the same AliceBlue partner-login page and generates a fresh TOTP locally.',
+                'Review and approve any consent AliceBlue displays.',
+              ]
+            : [
+                '<b>Quick Reconnect on this phone:</b> enter your AliceBlue user ID and password once.',
+                'Enable TOTP in AliceBlue ANT and copy the <b>manual Base32 setup key</b> shown with the authenticator QR. If ANT does not expose a setup key, use Normal AliceBlue Login.',
+                'Paste the setup key below. AlphaQuark generates the current six-digit TOTP automatically.',
+              ],
+          note:
+            'Both choices use AlphaQuark’s existing AliceBlue partner login. Quick Reconnect keeps the password and TOTP secret only in this phone’s protected keychain; Normal AliceBlue Login asks you to enter them manually at the broker.',
+        }}
+        fields={hasSavedLogin || normalLoginDefault ? [] : [
+          {
+            label: 'AliceBlue User ID',
+            value: aliceUserId,
+            onChange: setAliceUserId,
+            placeholder: 'User ID / registered login',
+          },
+          {
+            label: 'AliceBlue Password',
+            value: alicePassword,
+            onChange: setAlicePassword,
+            password: true,
+            placeholder: 'Entered only into the broker login',
+          },
+          {
+            label: 'TOTP Secret Key (Base32)',
+            value: aliceTotpSeed,
+            onChange: value => setAliceTotpSeed(String(value || '')),
+            password: true,
+            autoCapitalize: 'none',
+            placeholder: 'Secret shown during AliceBlue TOTP setup',
+          },
+        ]}
+        error={vaultError}
+        canSubmit={
+          hasSavedLogin ||
+          normalLoginDefault ||
+          (Boolean(aliceUserId.trim()) &&
+            Boolean(alicePassword) &&
+            Boolean(aliceTotpSeed))
+        }
+        submitLabel={
+          hasSavedLogin
+            ? 'Quick Reconnect on this phone'
+            : normalLoginDefault
+            ? 'Continue with AliceBlue login'
+            : 'Set up Quick Reconnect on this phone'
+        }
+        onSubmit={
+          hasSavedLogin
+            ? unlockAssistedLogin
+            : normalLoginDefault
+            ? useNormalBrokerLogin
+            : enrolAssistedLogin
+        }
+        loading={vaultBusy}
+        deviceTotp={hasSavedLogin ? {
+          enabled: true,
+          hasSaved: true,
+          saveOnDevice: true,
+          onToggleSave: () => {},
+          onForget: forgetAssistedLogin,
+          protectLabel: 'Protected AliceBlue login saved on this phone',
+          savedLabel:
+            'Biometrics or the device PIN is required. The password and TOTP seed are never copied to AlphaQuark servers.',
+          forgetLabel: 'Forget AliceBlue login on this phone',
+        } : {
+          enabled: true,
+          placeBeforeFields: true,
+          hasSaved: false,
+          saveOnDevice: quickReconnectOptIn,
+          onToggleSave: () => setQuickReconnectOptIn(value => !value),
+          protectLabel: 'Enable AliceBlue quick reconnect on this phone',
+          pendingLabel:
+            'Saved only after AliceBlue accepts these details. It will not migrate to another phone.',
+        }}
+        alternateAction={
+          normalLoginDefault
+            ? null
+            : {
+                label: 'Use Normal AliceBlue Login',
+                onPress: useNormalBrokerLogin,
+              }
+        }
+      />
+    );
+  }
 
   return (
     <AliceBlueConnectUI
@@ -291,6 +574,8 @@ const AliceBlueConnect = ({
       authUrl={buildAliceBlueAuthUrl()}
       handleWebViewNavigationStateChange={handleWebViewNavigationStateChange}
       loading={loading}
+      assistedCredentials={assistedCredentialsRef.current}
+      onAssistedTotpRequired={generateAssistedTotp}
     />
   );
 };

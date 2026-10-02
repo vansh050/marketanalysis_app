@@ -34,7 +34,9 @@ import {
   saveOAuthState,
   validateOAuthState,
   clearOAuthState,
+  parseBrokerCallbackUrl,
   parseOAuthCallback,
+  validateZerodhaOAuthCallback,
   BROKER_OAUTH_CONFIG,
 } from '../../utils/brokerAuth';
 
@@ -254,6 +256,14 @@ describe('brokerAuth', () => {
       expect(result.errorMessage).toBe('User denied');
     });
 
+    test('extracts callback parameters from a URL fragment', () => {
+      const result = parseOAuthCallback(
+        'https://alphaquark.in/callback#request_token=fragment-token&status=success',
+      );
+      expect(result.requestToken).toBe('fragment-token');
+      expect(result.status).toBe('success');
+    });
+
     test('returns null for invalid URL', () => {
       const result = parseOAuthCallback('not-a-url');
       expect(result).toBeNull();
@@ -265,6 +275,141 @@ describe('brokerAuth', () => {
       expect(result.requestToken).toBeNull();
       expect(result.code).toBeNull();
       expect(result.state).toBeNull();
+    });
+  });
+
+  describe('parseBrokerCallbackUrl', () => {
+    test('parses origin, path and parameter keys without exposing values', () => {
+      expect(
+        parseBrokerCallbackUrl(
+          'https://Research.Markup.Club/stock-recommendation?request_token=secret&status=success',
+        ),
+      ).toMatchObject({
+        origin: 'https://research.markup.club',
+        pathname: '/stock-recommendation',
+        paramKeys: ['request_token', 'status'],
+      });
+    });
+  });
+
+  describe('validateZerodhaOAuthCallback', () => {
+    const redirect =
+      'https://research.markup.club/stock-recommendation';
+
+    test('accepts an explicit successful login on the configured callback', () => {
+      expect(
+        validateZerodhaOAuthCallback(
+          `${redirect}?request_token=fresh-token&status=success&action=login`,
+          redirect,
+        ),
+      ).toMatchObject({
+        isCallback: true,
+        valid: true,
+        requestToken: 'fresh-token',
+      });
+    });
+
+    test('accepts the real callback shape with case and trailing-slash normalization', () => {
+      expect(
+        validateZerodhaOAuthCallback(
+          'https://RESEARCH.MARKUP.CLUB/Stock-Recommendation/?request_token=fresh-token&type=login&status=success',
+          redirect,
+        ),
+      ).toMatchObject({
+        isCallback: true,
+        valid: true,
+        requestToken: 'fresh-token',
+      });
+    });
+
+    test('works when browser URL APIs are unavailable like production Hermes', () => {
+      const browserUrl = global.URL;
+      global.URL = class UnsupportedHermesUrl {
+        constructor() {
+          throw new Error('URL.search is not implemented');
+        }
+      };
+      try {
+        expect(
+          validateZerodhaOAuthCallback(
+            `${redirect}?request_token=hermes-token&type=login&status=success`,
+            redirect,
+          ),
+        ).toMatchObject({
+          isCallback: true,
+          valid: true,
+          requestToken: 'hermes-token',
+        });
+      } finally {
+        global.URL = browserUrl;
+      }
+    });
+
+    test('accepts callback parameters delivered in the URL fragment', () => {
+      expect(
+        validateZerodhaOAuthCallback(
+          `${redirect}#request_token=fragment-token&type=login&status=success`,
+          redirect,
+        ),
+      ).toMatchObject({
+        isCallback: true,
+        valid: true,
+        requestToken: 'fragment-token',
+      });
+    });
+
+    test('rejects a failed OTP callback even if a token parameter is present', () => {
+      expect(
+        validateZerodhaOAuthCallback(
+          `${redirect}?request_token=stale-token&status=error&action=login`,
+          redirect,
+        ),
+      ).toMatchObject({
+        isCallback: true,
+        valid: false,
+      });
+    });
+
+    test('ignores a stale token from any other origin or path', () => {
+      expect(
+        validateZerodhaOAuthCallback(
+          'https://kite.zerodha.com/connect/login?request_token=stale-token&status=success',
+          redirect,
+        ),
+      ).toMatchObject({
+        isCallback: false,
+        valid: false,
+      });
+      expect(
+        validateZerodhaOAuthCallback(
+          'https://research.markup.club/other?request_token=stale-token&status=success',
+          redirect,
+        ),
+      ).toMatchObject({
+        isCallback: false,
+        valid: false,
+      });
+    });
+
+    test('requires an explicit success status and a request token', () => {
+      expect(
+        validateZerodhaOAuthCallback(
+          `${redirect}?request_token=token-without-status`,
+          redirect,
+        ),
+      ).toMatchObject({
+        isCallback: true,
+        valid: false,
+      });
+      expect(
+        validateZerodhaOAuthCallback(
+          `${redirect}?status=success&action=login`,
+          redirect,
+        ),
+      ).toMatchObject({
+        isCallback: true,
+        valid: false,
+      });
     });
   });
 
@@ -313,8 +458,15 @@ describe('brokerAuth', () => {
       expect(BROKER_OAUTH_CONFIG.Kotak.requiresMpin).toBe(true);
     });
 
-    test('Groww has maxConnections limit', () => {
-      expect(BROKER_OAUTH_CONFIG.Groww.maxConnections).toBe(5);
+    test('Groww is credential-mode with TOTP seed + daily refresh', () => {
+      // maxConnections was OAuth-specific and dropped in the 2026-04-20
+      // Groww partner-OAuth → credential migration (9f32937).
+      expect(BROKER_OAUTH_CONFIG.Groww.authType).toBe('credential');
+      expect(BROKER_OAUTH_CONFIG.Groww.requiresApiKey).toBe(true);
+      expect(BROKER_OAUTH_CONFIG.Groww.requiresTotpSeed).toBe(true);
+      expect(BROKER_OAUTH_CONFIG.Groww.tokenGenEndpoint).toBe('/api/groww/update-key');
+      expect(BROKER_OAUTH_CONFIG.Groww.tokenExpiry).toBe('daily_6am_ist');
+      expect(BROKER_OAUTH_CONFIG.Groww.maxConnections).toBeUndefined();
     });
   });
 });

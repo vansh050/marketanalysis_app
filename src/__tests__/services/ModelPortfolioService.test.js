@@ -8,6 +8,7 @@ jest.mock('axios');
 jest.mock('react-native-config', () => ({
   REACT_APP_AQ_KEYS: 'test-key',
   REACT_APP_AQ_SECRET: 'test-secret',
+  REACT_APP_USE_SDK_EXECUTE_ADVICE: 'true',
 }));
 jest.mock('../../utils/SecurityTokenManager', () => ({
   generateToken: jest.fn(() => 'mock-encrypted-key'),
@@ -20,6 +21,11 @@ jest.mock('../../utils/serverConfig', () => ({
   },
 }));
 jest.mock('../../utils/variantHelper', () => ({
+  getTenantSubdomain: configData =>
+    configData?.config?.REACT_APP_HEADER_NAME ||
+    configData?.REACT_APP_HEADER_NAME ||
+    configData?.subdomain ||
+    'test-subdomain',
   getAdvisorSubdomain: jest.fn(() => 'test-subdomain'),
 }));
 
@@ -120,6 +126,33 @@ describe('ModelPortfolioService', () => {
         payload,
         expect.objectContaining({timeout: 120000}),
       );
+    });
+
+    test('never falls back to legacy after an SDK placement error', async () => {
+      const sdkClient = {executeAdvice: jest.fn().mockRejectedValue(new Error('timeout after send'))};
+      const payload = {trades: [{symbol: 'INFY'}], plan_id: 'plan-1'};
+      await expect(processRebalanceTrade(payload, mockConfigData, sdkClient))
+        .rejects.toThrow('timeout after send');
+      expect(axios.post).not.toHaveBeenCalled();
+      expect(sdkClient.executeAdvice).toHaveBeenCalledWith(
+        expect.objectContaining({clientAdviceId: 'plan-1', planId: 'plan-1'}),
+      );
+    });
+
+    test('preserves the SDK paused reconciliation state', async () => {
+      const sdkClient = {executeAdvice: jest.fn().mockResolvedValue({
+        status: 'partial', rows: [], executionState: 'paused',
+        recovery: {reason: 'checking_broker', safeToRetryPlacement: false},
+      })};
+      const result = await processRebalanceTrade(
+        {trades: [{symbol: 'INFY'}], attempt_id: 'attempt-1'},
+        mockConfigData,
+        sdkClient,
+      );
+      expect(result).toMatchObject({
+        executionState: 'paused', reconciliationRequired: true, retryAllowed: false,
+      });
+      expect(axios.post).not.toHaveBeenCalled();
     });
 
     test('updateSubscriberExecution calls PUT', async () => {
@@ -237,7 +270,7 @@ describe('ModelPortfolioService', () => {
       expect(headers['aq-encrypted-key']).toBe('mock-encrypted-key');
     });
 
-    test('falls back to getAdvisorSubdomain when config missing', async () => {
+    test('falls back to the resolved tenant when config is missing', async () => {
       await getSubscribedStrategies('user@test.com', {config: {}});
 
       const headers = axios.get.mock.calls[0][1].headers;

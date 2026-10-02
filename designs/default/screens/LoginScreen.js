@@ -37,6 +37,7 @@ import LinearGradient from 'react-native-linear-gradient';
 import Toast from 'react-native-toast-message';
 import { Mail, Lock, Eye } from 'lucide-react-native';
 import { SvgUri } from 'react-native-svg';
+import { AppleButton } from '@invertase/react-native-apple-authentication';
 import Config from 'react-native-config';
 import useTokens from '../../../src/theme/useTokens';
 import Text from '../primitives/Text';
@@ -140,7 +141,14 @@ const LoginScreen = ({ viewModel, actions }) => {
                         <View style={styles.content}>
                             <View style={styles.logoContainer}>
                                 {renderLogo(logoComponent, configLoading, tokens.assets.logoPng)}
-                                <Text variant="title" style={styles.logoText}>
+                                <Text
+                                    variant="title"
+                                    style={styles.logoText}
+                                    numberOfLines={1}
+                                    adjustsFontSizeToFit
+                                    minimumFontScale={0.8}
+                                    allowFontScaling={false}
+                                >
                                     {whiteLabelText || Config?.REACT_APP_WHITE_LABEL_TEXT}
                                 </Text>
                             </View>
@@ -216,10 +224,15 @@ const LoginScreen = ({ viewModel, actions }) => {
                             </TouchableOpacity>
 
                             {showAppleButton && (
-                                <TouchableOpacity style={styles.appleButton} onPress={onAppleLogin} disabled={isLoading}>
-                                    <Text style={{ fontSize: 18, color: '#FFFFFF', marginRight: 10 }}></Text>
-                                    <Text variant="button" style={{ color: '#FFFFFF', fontSize: 14 }}>Continue With Apple</Text>
-                                </TouchableOpacity>
+                                <AppleButton
+                                    buttonStyle={AppleButton.Style.BLACK}
+                                    buttonType={AppleButton.Type.CONTINUE}
+                                    style={styles.appleButton}
+                                    cornerRadius={3}
+                                    onPress={() => {
+                                        if (!isLoading) onAppleLogin();
+                                    }}
+                                />
                             )}
                         </View>
 
@@ -251,10 +264,12 @@ const styles = StyleSheet.create({
     logoContainer: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 30 },
     logo: { width: 40, height: 40, marginRight: 8 },
     logoText: {
+        flexShrink: 1,
         fontSize: 22,
-        fontWeight: '700',
+        fontWeight: '400',
         color: '#fff',
         letterSpacing: 1.5,
+        paddingRight: 4,
         fontFamily: Platform.select({ ios: 'Azonix', android: 'Azonix', default: 'System' }),
     },
     underline: { height: 2, width: '100%', backgroundColor: '#0D47A1', marginTop: 4 },
@@ -297,12 +312,7 @@ const styles = StyleSheet.create({
     },
     googleIcon: { width: 22, height: 22, marginRight: 15 },
     appleButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: '#000000',
-        paddingVertical: 14,
-        borderRadius: 3,
+        width: '100%',
         height: 45,
         marginTop: 12,
     },

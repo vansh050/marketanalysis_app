@@ -14,6 +14,8 @@ import Config from 'react-native-config';
 import { useColors } from '../../theme/useColors';
 import LinkifiedUrl from '../../UIComponents/BrokerConnectionUI/HelpUI/LinkifiedUrl';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 /**
@@ -40,12 +42,12 @@ const BrokerHelpStepper = ({ data, onClose }) => {
   const appName = Config?.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark';
   const redirectUrl = Config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL || '';
 
-  const accent = colors?.brand?.primary || '#1e9f40';
-  const onAccent = colors?.text?.onBrand || '#ffffff';
-  const textPrimary = colors?.text?.primary || '#111827';
-  const textMuted = colors?.text?.secondary || '#6B7280';
-  const border = colors?.border?.default || '#E5E7EB';
-  const cardFill = colors?.surface?.card || colors?.surface?.base || '#F9FAFB';
+  const accent = colors?.brand?.primary || designColor('1e9f40');
+  const onAccent = colors?.text?.onBrand || designColor('ffffff');
+  const textPrimary = colors?.text?.primary || designColor('111827');
+  const textMuted = colors?.text?.secondary || designColor('6b7280');
+  const border = colors?.border?.default || designColor('e5e7eb');
+  const cardFill = colors?.surface?.card || colors?.surface?.base || designColor('f9fafb');
 
   if (!data) {
     return null;
@@ -149,7 +151,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 16,
     fontWeight: '700',
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     marginHorizontal: 10,
   },
   scrollBody: {
@@ -188,7 +190,7 @@ const styles = StyleSheet.create({
   circleText: {
     fontSize: 12,
     fontWeight: '700',
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   connector: {
     width: 2,
@@ -203,7 +205,7 @@ const styles = StyleSheet.create({
   stepText: {
     fontSize: 14,
     lineHeight: 21,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
 });
 

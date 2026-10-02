@@ -2,6 +2,8 @@ import React, {useState} from 'react';
 import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import DatePicker from 'react-native-date-picker';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const DatePickerSection = ({birthDate, setBirthDate}) => {
   const [isOpen, setIsOpen] = useState(false);
 
@@ -82,14 +84,14 @@ const styles = StyleSheet.create({
   },
   inputLabel: {
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
-    color: '#374151',
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designColor('374151'),
     marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   required: {
-    color: '#ef4444',
+    color: designColor('ef4444'),
   },
   datePickerTouchable: {
     marginBottom: 15,
@@ -97,12 +99,12 @@ const styles = StyleSheet.create({
   enhancedInput: {
     height: 48,
     borderWidth: 2,
-    borderColor: '#e5e7eb',
+    borderColor: designColor('e5e7eb'),
     borderRadius: 12,
     paddingHorizontal: 16,
     fontSize: 14,
-    fontFamily: 'Satoshi-Regular',
-    color: '#1f2937',
+    fontFamily: designFont('Satoshi-Regular'),
+    color: designColor('1f2937'),
     backgroundColor: 'rgba(255, 255, 255, 0.8)',
     textAlignVertical: 'center',
     textAlign: 'left',
@@ -110,7 +112,7 @@ const styles = StyleSheet.create({
   },
   dateInput: {},
   placeholderText: {
-    color: '#9ca3af',
+    color: designColor('9ca3af'),
   },
 });
 

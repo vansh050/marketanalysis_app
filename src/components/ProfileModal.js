@@ -1,5 +1,5 @@
 // ProfileModal.js
-import React, {useState, useCallback, useEffect} from 'react';
+import React, {useState, useCallback, useEffect, useRef} from 'react';
 import {
   View,
   Text,
@@ -12,10 +12,12 @@ import {
   TextInput,
   Platform,
   KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 
 import Modal from 'react-native-modal';
 import {CountryCode} from '../utils/CountryCode';
+import {profilePhoneFields, validateProfilePhone} from '../utils/profilePhone';
 import {XIcon, ChevronDown, X, Pencil} from 'lucide-react-native';
 import {useNavigation} from '@react-navigation/native';
 import axios from 'axios';
@@ -25,7 +27,8 @@ import Toast from 'react-native-toast-message';
 import Config from 'react-native-config';
 import {generateToken} from '../utils/SecurityTokenManager';
 import {useTrade} from '../screens/TradeContext';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
+import { designColor } from '../design/literalTokens';
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 const commonHeight = screenHeight * 0.06;
 
@@ -45,13 +48,27 @@ const ProfileModal = ({
   const [userPhoneNumber, setUserPhoneNumber] = useState('');
   const [userTelegram, setUserTelegram] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showSuccessMsg, setShowSuccessMsg] = useState(false);
   const [userDetails, setuserDetails] = useState(null);
+  const refreshAfterCloseRef = useRef(false);
 
   const advisorName = configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG || configData?.appName || getAdvisorSubdomain();
   const showTelegram = '0';
   const radius = 35;
   const circumference = 2 * Math.PI * radius;
+
+  const closeProfileModal = useCallback(() => {
+    Keyboard.dismiss();
+    setShowCountryCode(false);
+    setShowModal?.(false);
+  }, [setShowModal]);
+
+  const handleModalHidden = useCallback(() => {
+    if (!refreshAfterCloseRef.current) return;
+    refreshAfterCloseRef.current = false;
+    Promise.resolve(getUserDeatils?.()).catch(error => {
+      console.error('Profile refresh after close failed:', error);
+    });
+  }, [getUserDeatils]);
 
   useEffect(() => {
     if (showModal && userEmail) {
@@ -67,7 +84,7 @@ const ProfileModal = ({
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -79,10 +96,9 @@ const ProfileModal = ({
       if (!profile) return;
       setuserDetails(profile);
       setUserName(profile.name || '');
-      const phoneNumber = String(profile.phone_number || '')
-        .replace(/^(91)+/, '')
-        .replace(/^\+?91/, '');
-      setUserPhoneNumber(phoneNumber);
+      const phone = profilePhoneFields(profile.phone_number, profile.country_code);
+      setCountryCode(phone.countryCode);
+      setUserPhoneNumber(phone.nationalNumber);
       setUserTelegram(profile.telegram_id || '');
     } catch (error) {
       console.error(
@@ -108,26 +124,19 @@ const ProfileModal = ({
   };
 
   const handleUserProfile = useCallback(async () => {
-    if (!userPhoneNumber.trim()) {
+    const phone = validateProfilePhone(userPhoneNumber, countryCode);
+    if (!phone.ok) {
       Toast.show({
         type: 'error',
         text1: '',
-        text2: 'Please enter a phone number.',
-      });
-      return;
-    }
-    if (![9, 10, 11].includes(userPhoneNumber.length)) {
-      Toast.show({
-        type: 'error',
-        text1: '',
-        text2: 'Phone number must be between 9 and 11 digits.',
+        text2: phone.error,
       });
       return;
     }
 
     setLoading(true);
     try {
-      const phoneNumber = userPhoneNumber;
+      const phoneNumber = phone.nationalNumber;
       const profileCompletion = calculateProfileCompletion(
         userEmail,
         userName,
@@ -141,7 +150,7 @@ const ProfileModal = ({
           email: userEmail,
           advisorName,
           phoneNumber,
-          countryCode,
+          countryCode: phone.countryCode,
           telegramId: showTelegram ? userTelegram : '',
           userName,
           profileCompletion,
@@ -149,7 +158,7 @@ const ProfileModal = ({
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -159,13 +168,17 @@ const ProfileModal = ({
       );
 
       if (response.data?.success) {
-        getUserDeatils?.();
         Toast.show({
           type: 'success',
           text1: 'Success',
           text2: 'Profile updated.',
         });
-        setShowSuccessMsg(true);
+        // Close and let Android finish tearing down the keyboard/native modal
+        // before refreshing TradeContext. Refreshing the parent while the
+        // modal window still owns input focus can terminate the app on the
+        // New Architecture path.
+        refreshAfterCloseRef.current = true;
+        closeProfileModal();
       } else {
         Toast.show({
           type: 'error',
@@ -191,18 +204,9 @@ const ProfileModal = ({
     showTelegram,
     countryCode,
     advisorName,
-    getUserDeatils,
+    configData,
+    closeProfileModal,
   ]);
-
-  useEffect(() => {
-    if (showSuccessMsg) {
-      const id = setTimeout(() => {
-        setShowSuccessMsg(false);
-        setShowModal(false);
-      }, 1800);
-      return () => clearTimeout(id);
-    }
-  }, [showSuccessMsg, setShowModal]);
 
   const filteredCountryCodes = CountryCode.filter(ele =>
     `${ele.value} ${ele.label}`
@@ -220,12 +224,11 @@ const ProfileModal = ({
   const strokeDashoffset =
     circumference - (profileCompletion / 100) * circumference;
 
-  if (!showModal) return null;
-
   return (
     <Modal
       isVisible={showModal}
-      onBackdropPress={() => setShowModal(false)}
+      onBackdropPress={closeProfileModal}
+      onModalHide={handleModalHidden}
       style={styles.modal}
       backdropOpacity={0.45}
       useNativeDriver={false}
@@ -233,7 +236,7 @@ const ProfileModal = ({
       animationIn="slideInUp"
       animationOut="slideOutDown"
       swipeDirection={['down']}
-      onSwipeComplete={() => setShowModal(false)}
+      onSwipeComplete={closeProfileModal}
       statusBarTranslucent
       propagateSwipe>
       <KeyboardAvoidingView
@@ -262,8 +265,8 @@ const ProfileModal = ({
               accessible
               accessibilityLabel="Close"
               style={styles.closeButton}
-              onPress={() => setShowModal(false)}>
-              <XIcon size={22} color="#222" />
+              onPress={closeProfileModal}>
+              <XIcon size={22} color={designColor('222')} />
             </TouchableOpacity>
           </View>
 
@@ -283,7 +286,7 @@ const ProfileModal = ({
                       cx="43"
                       cy="43"
                       r={radius}
-                      stroke="#eef2f6"
+                      stroke={designColor('eef2f6')}
                       strokeWidth="8"
                       fill="transparent"
                     />
@@ -328,11 +331,11 @@ const ProfileModal = ({
                     <Text style={styles.label}>Email ID</Text>
                     <TouchableOpacity
                       onPress={() => {
-                        setShowModal(false);
+                        closeProfileModal();
                         navigation.navigate('UpdateEmailScreen');
                       }}
                       style={styles.updateEmailButton}>
-                      <Pencil size={14} color="#0056B7" />
+                      <Pencil size={14} color={designColor('0056b7')} />
                       <Text style={styles.updateEmailText}>Update</Text>
                     </TouchableOpacity>
                   </View>
@@ -350,7 +353,7 @@ const ProfileModal = ({
                     value={userName}
                     onChangeText={setUserName}
                     placeholder="Enter your name"
-                    placeholderTextColor="#9ca3af"
+                    placeholderTextColor={designColor('9ca3af')}
                   />
                 </View>
 
@@ -375,12 +378,10 @@ const ProfileModal = ({
                     <TextInput
                       style={styles.inputBox}
                       value={userPhoneNumber}
-                      onChangeText={v =>
-                        setUserPhoneNumber(v.replace(/\D/g, ''))
-                      }
+                      onChangeText={setUserPhoneNumber}
                       keyboardType="phone-pad"
                       placeholder="Enter phone"
-                      placeholderTextColor="#9ca3af"
+                      placeholderTextColor={designColor('9ca3af')}
                     />
                   </View>
                 </View>
@@ -392,7 +393,7 @@ const ProfileModal = ({
                     value={userTelegram}
                     onChangeText={setUserTelegram}
                     placeholder="Enter Telegram username"
-                    placeholderTextColor="#9ca3af"
+                    placeholderTextColor={designColor('9ca3af')}
                   />
                 </View>
 
@@ -405,7 +406,7 @@ const ProfileModal = ({
                         value={searchQuery}
                         onChangeText={setSearchQuery}
                         style={styles.countrySearchInput}
-                        placeholderTextColor="#9aa0a6"
+                        placeholderTextColor={designColor('9aa0a6')}
                       />
                       <TouchableOpacity
                         style={styles.countryClose}
@@ -453,7 +454,7 @@ const ProfileModal = ({
               accessibilityRole="button"
               accessibilityLabel="Save profile">
               {loading ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <ActivityIndicator size="small" color={designColor('fff')} />
               ) : (
                 <>
                   {/* <Icon
@@ -483,7 +484,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   container: {
-    backgroundColor: '#f8fafc',
+    backgroundColor: designColor('f8fafc'),
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     paddingTop: 12,
@@ -505,13 +506,13 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#0056B7',
+    backgroundColor: designColor('0056b7'),
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   avatarInitial: {
-    color: '#fff',
+    color: designColor('fff'),
     fontWeight: '700',
     fontSize: 18,
   },
@@ -521,11 +522,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0f172a',
+    color: designColor('0f172a'),
   },
   subtitle: {
     fontSize: 12,
-    color: '#6b7280',
+    color: designColor('6b7280'),
     marginTop: 4,
   },
   closeButton: {
@@ -539,7 +540,7 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
   },
   card: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 12,
     padding: 14,
     marginTop: 8,
@@ -561,18 +562,18 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#f8fafc',
+    backgroundColor: designColor('f8fafc'),
     justifyContent: 'center',
     alignItems: 'center',
   },
   progressInnerNumber: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0056B7',
+    color: designColor('0056b7'),
   },
   progressInnerLabel: {
     fontSize: 10,
-    color: '#6b7280',
+    color: designColor('6b7280'),
   },
   form: {
     marginTop: 6,
@@ -582,18 +583,18 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    color: '#6b7280',
+    color: designColor('6b7280'),
     marginBottom: 4,
   },
   inputBox: {
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: designColor('e5e7eb'),
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === 'ios' ? 12 : 8,
     fontSize: 15,
-    color: '#111827',
-    backgroundColor: '#fff',
+    color: designColor('111827'),
+    backgroundColor: designColor('fff'),
   },
   row: {
     flexDirection: 'row',
@@ -608,23 +609,23 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginRight: 10,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: designColor('e5e7eb'),
     borderRadius: 10,
-    backgroundColor: '#ffffff',
+    backgroundColor: designColor('ffffff'),
     minWidth: 88,
     justifyContent: 'space-between',
   },
   countryText: {
     fontSize: 15,
-    color: '#111827',
+    color: designColor('111827'),
     marginRight: 6,
   },
   countryListWrap: {
     marginTop: 12,
     borderWidth: 1,
-    borderColor: '#e6e9ef',
+    borderColor: designColor('e6e9ef'),
     borderRadius: 10,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     maxHeight: 210,
     overflow: 'hidden',
   },
@@ -634,7 +635,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: designColor('f1f5f9'),
   },
   countrySearchInput: {
     flex: 1,
@@ -642,7 +643,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     paddingHorizontal: 8,
     borderRadius: 6,
-    backgroundColor: '#f8fafc',
+    backgroundColor: designColor('f8fafc'),
   },
   countryClose: {
     padding: 6,
@@ -654,30 +655,30 @@ const styles = StyleSheet.create({
   countryItem: {
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderBottomColor: '#f1f5f9',
+    borderBottomColor: designColor('f1f5f9'),
     borderBottomWidth: 1,
   },
   countryItemText: {
     fontSize: 14,
-    color: '#111827',
+    color: designColor('111827'),
   },
   footer: {
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: '#eef2f6',
-    backgroundColor: '#f8fafc',
+    borderTopColor: designColor('eef2f6'),
+    backgroundColor: designColor('f8fafc'),
   },
   saveButton: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0056B7',
+    backgroundColor: designColor('0056b7'),
     paddingVertical: 12,
     borderRadius: 10,
   },
   saveButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
     fontWeight: '700',
   },
@@ -696,10 +697,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
-    backgroundColor: '#EBF5FF',
+    backgroundColor: designColor('ebf5ff'),
   },
   updateEmailText: {
-    color: '#0056B7',
+    color: designColor('0056b7'),
     fontSize: 12,
     fontWeight: '600',
     marginLeft: 4,

@@ -19,6 +19,7 @@ import Coin from '../../assets/coin.svg';
 import Config from "react-native-config";
 import { useTrade } from '../TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import { designColor, designFont } from '../../design/literalTokens';
 const { width } = Dimensions.get('window');
 const COIN_SIZE = (width - 80) / 2;
 
@@ -85,7 +86,6 @@ const CoinAnimation = ({ isSelected, children }) => {
       >
         {children}
       </Animated.View>
-
       {/* Star Effects */}
       {stars.map((star, index) => {
         const translateY = star.animation.interpolate({
@@ -108,13 +108,12 @@ const CoinAnimation = ({ isSelected, children }) => {
               top: 10,
               left: 10 + Math.random() * 20,
               fontSize: 12,
-              color: "#FFD700",
+              color: designColor('ffd700'),
               opacity,
               transform: [{ translateY }, { translateX }],
             }}
-          >
-            ★
-          </Animated.Text>
+          >★
+                      </Animated.Text>
         );
       })}
     </View>
@@ -159,7 +158,7 @@ const TokenPurchaseModal = ({setShowFailAlert,setselectedCoin,setModalVisible,se
         contact: "9999999999",
         name: "Ritik Yadav",
       },
-      theme: { color: "#F2BC1A" },
+      theme: { color: designColor('f2bc1a') },
     };
 
     RazorpayCheckout.open(options)
@@ -234,7 +233,7 @@ const TokenPurchaseModal = ({setShowFailAlert,setselectedCoin,setModalVisible,se
               style={styles.closeButton}
               onPress={() => setModalVisible(false)}
             >
-              <X size={20} color="#666666" />
+              <X size={20} color={designColor('666666')} />
             </TouchableOpacity>
           </View>
 
@@ -275,7 +274,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    backgroundColor: '#ffffff',
+    backgroundColor: designColor('ffffff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 16,
@@ -293,7 +292,7 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#1a1a1a',
+    color: designColor('1a1a1a'),
   },
   closeButton: {
     padding: 4,
@@ -306,24 +305,24 @@ const styles = StyleSheet.create({
     padding: 8,
     margin: 4,
     borderRadius: 12,
-    backgroundColor: '#ffffff',
+    backgroundColor: designColor('ffffff'),
   },
   selectedCoin: {
-    backgroundColor: '#e9e9e9',
+    backgroundColor: designColor('e9e9e9'),
   },
   coinCircle: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#e9e9e9',
+    backgroundColor: designColor('e9e9e9'),
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 4,
     borderWidth: 1,
-    borderColor: '#FFD700',
+    borderColor: designColor('ffd700'),
     ...Platform.select({
       ios: {
-        shadowColor: '#FFD700',
+        shadowColor: designColor('ffd700'),
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.3,
         shadowRadius: 3,
@@ -334,8 +333,8 @@ const styles = StyleSheet.create({
     }),
   },
   selectedCoinCircle: {
-    backgroundColor: '#e9e9e9',
-    borderColor: '#F4B400',
+    backgroundColor: designColor('e9e9e9'),
+    borderColor: designColor('f4b400'),
   },
   coinContainer: {
     width: 40,  // Same as Coin width
@@ -348,35 +347,35 @@ const styles = StyleSheet.create({
     position: "absolute",
     fontSize: 14,
     fontWeight: "bold",
-    color: "#fff",  // Adjust color based on the Coin background
+    color: designColor('fff'),  // Adjust color based on the Coin background
     textAlign: "center",
   },
   price: {
     fontSize: 12,
-    color: '#666666',
-    fontFamily:'Satoshi-Bold',
+    color: designColor('666666'),
+    fontFamily:designFont('Satoshi-Bold'),
   },
   selectedText: {
-    color: '#fff',
-    fontFamily:'Satoshi-Bold',
+    color: designColor('fff'),
+    fontFamily:designFont('Satoshi-Bold'),
   },
   selectedTextprice: {
-    color: '#000',
-    fontFamily:'Satoshi-Bold',
+    color: designColor('000'),
+    fontFamily:designFont('Satoshi-Bold'),
     fontSize:14,
     
   },
   payButton: {
-    backgroundColor: '#000',
+    backgroundColor: designColor('000'),
     paddingVertical: 14,
     borderRadius: 10,
     marginTop: 16,
   },
   payButtonDisabled: {
-    backgroundColor: '#E0E0E0',
+    backgroundColor: designColor('e0e0e0'),
   },
   payButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 15,
     fontWeight: '600',
     textAlign: 'center',

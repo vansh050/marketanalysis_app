@@ -143,6 +143,11 @@ export default function useMultiBrokerHoldings(
             brokerInfo.apiKey,
             brokerInfo.jwtToken,
             brokerInfo.secretKey,
+            brokerInfo.sid,
+            brokerInfo.viewToken,
+            brokerInfo.serverId,
+            undefined,
+            userEmail,
           );
           if (holdings) {
             holdingsMap[brokerName] = holdings;
@@ -179,7 +184,7 @@ export default function useMultiBrokerHoldings(
     setAggregatedHoldings(aggregateHoldings(holdingsMap));
     setLastFetched(new Date());
     setIsLoading(false);
-  }, [connectedBrokers]);
+  }, [connectedBrokers, userEmail]);
 
   const refreshBrokerHoldings = useCallback(
     async brokerName => {
@@ -195,6 +200,11 @@ export default function useMultiBrokerHoldings(
           brokerInfo.apiKey,
           brokerInfo.jwtToken,
           brokerInfo.secretKey,
+          brokerInfo.sid,
+          brokerInfo.viewToken,
+          brokerInfo.serverId,
+          undefined,
+          userEmail,
         );
 
         if (isMountedRef.current && holdings) {
@@ -210,7 +220,7 @@ export default function useMultiBrokerHoldings(
         }
       }
     },
-    [connectedBrokers],
+    [connectedBrokers, userEmail],
   );
 
   // Auto-fetch on connectedBrokers change
@@ -218,7 +228,7 @@ export default function useMultiBrokerHoldings(
     if (connectedBrokers.length > 0) {
       fetchAllBrokerData();
     }
-  }, [connectedBrokers.length]);
+  }, [connectedBrokers.length, fetchAllBrokerData]);
 
   // Computed helpers
   const getHoldingsCount = broker =>

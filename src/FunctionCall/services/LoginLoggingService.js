@@ -4,7 +4,7 @@ import DeviceInfo from "react-native-device-info";
 import Config from "react-native-config";
 import server from "../../utils/serverConfig";
 import { generateToken } from "../../utils/SecurityTokenManager";
-import { getAdvisorSubdomain } from "../../utils/variantHelper";
+import { getTenantSubdomain } from "../../utils/variantHelper";
 
 /**
  * Get device information for logging
@@ -46,7 +46,7 @@ const getDeviceInfo = async () => {
  */
 const getHeaders = (subdomain = null) => ({
   "Content-Type": "application/json",
-  "X-Advisor-Subdomain": subdomain || getAdvisorSubdomain(),
+  "X-Advisor-Subdomain": subdomain || getTenantSubdomain(),
   "aq-encrypted-key": generateToken(
     Config.REACT_APP_AQ_KEYS,
     Config.REACT_APP_AQ_SECRET
@@ -101,7 +101,7 @@ export const logLoginAttempt = async (data) => {
       }
     );
 
-    console.log("Login attempt logged successfully:", data.status, "to subdomain:", data.advisor_subdomain || getAdvisorSubdomain());
+    console.log("Login attempt logged successfully:", data.status, "to subdomain:", data.advisor_subdomain || getTenantSubdomain());
   } catch (error) {
     // Silent failure - don't block login flow
     console.error("Failed to log login attempt:", error.message);
@@ -150,7 +150,7 @@ export const trackAppUser = async (data) => {
       }
     );
 
-    console.log("App user tracked successfully:", data.email, "to subdomain:", data.advisor_subdomain || getAdvisorSubdomain());
+    console.log("App user tracked successfully:", data.email, "to subdomain:", data.advisor_subdomain || getTenantSubdomain());
   } catch (error) {
     // Silent failure - don't block login flow
     console.error("Failed to track app user:", error.message);

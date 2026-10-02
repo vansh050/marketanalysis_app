@@ -6,6 +6,8 @@ import { View, Text, TouchableOpacity, Modal, ActivityIndicator, StyleSheet } fr
 import { WebView } from 'react-native-webview';
 import { XIcon } from 'lucide-react-native';
 
+import { designColor } from '../../design/literalTokens';
+
 const KITE_PUBLISHER_HTML = `
 <!DOCTYPE html>
 <html>
@@ -200,7 +202,7 @@ const KitePublisherModal = ({
         <View style={styles.header}>
           <Text style={styles.title}>Kite Publisher</Text>
           <TouchableOpacity onPress={onClose}>
-            <XIcon size={24} color="#000" />
+            <XIcon size={24} color={designColor('000')} />
           </TouchableOpacity>
         </View>
 
@@ -221,7 +223,7 @@ const KitePublisherModal = ({
 
         {!isReady && !error && (
           <View style={styles.loadingOverlay}>
-            <ActivityIndicator size="large" color="#000" />
+            <ActivityIndicator size="large" color={designColor('000')} />
             <Text style={styles.loadingText}>Loading Kite Publisher...</Text>
           </View>
         )}
@@ -233,7 +235,7 @@ const KitePublisherModal = ({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   header: {
     flexDirection: 'row',
@@ -241,12 +243,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#eee',
+    borderBottomColor: designColor('eee'),
   },
   title: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#000',
+    color: designColor('000'),
   },
   webview: {
     flex: 1,
@@ -264,11 +266,11 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: 10,
     fontSize: 16,
-    color: '#666',
+    color: designColor('666'),
   },
   errorContainer: {
     padding: 15,
-    backgroundColor: '#fee',
+    backgroundColor: designColor('fee'),
   },
   errorText: {
     color: 'red',

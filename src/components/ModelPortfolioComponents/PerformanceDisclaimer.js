@@ -2,28 +2,28 @@ import React, {useState} from 'react';
 import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import {ShieldAlert, ChevronRight, SquareCheck, Square} from 'lucide-react-native';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const DISCLAIMER_POINTS = [
   'Past performance is not indicative of future returns; figures shown may be simulated/backtested, not actual investor returns.',
-  'Market investments carry risk including loss of principal. This is not investment advice — consult your manager.',
+  'Market investments carry risk, including loss of principal. This is not a personalized investment recommendation—consult your manager.',
   'SEBI registration does not guarantee performance or assure any returns.',
 ];
 
-const PerformanceDisclaimer = ({onAccept, accentColor = '#1a1a1a'}) => {
+const PerformanceDisclaimer = ({onAccept, accentColor = designColor('1a1a1a')}) => {
   const [checked, setChecked] = useState(false);
 
   return (
     <View style={styles.container}>
       {/* Icon */}
       <View style={styles.iconContainer}>
-        <ShieldAlert size={36} color="#f59e0b" />
+        <ShieldAlert size={36} color={designColor('f59e0b')} />
       </View>
-
       {/* Title */}
       <Text style={styles.title}>Before you view performance</Text>
       <Text style={styles.subtitle}>
         Please read and acknowledge the following
       </Text>
-
       {/* Disclaimer Points */}
       <View style={styles.pointsContainer}>
         {DISCLAIMER_POINTS.map((point, index) => (
@@ -33,7 +33,6 @@ const PerformanceDisclaimer = ({onAccept, accentColor = '#1a1a1a'}) => {
           </View>
         ))}
       </View>
-
       {/* Checkbox */}
       <TouchableOpacity
         style={styles.checkboxRow}
@@ -42,14 +41,13 @@ const PerformanceDisclaimer = ({onAccept, accentColor = '#1a1a1a'}) => {
         {checked ? (
           <SquareCheck size={22} color={accentColor} />
         ) : (
-          <Square size={22} color="#9ca3af" />
+          <Square size={22} color={designColor('9ca3af')} />
         )}
         <Text style={styles.checkboxText}>
           I have read and understood that past performance does not guarantee
           future results
         </Text>
       </TouchableOpacity>
-
       {/* Accept Button */}
       <TouchableOpacity
         style={[
@@ -72,11 +70,10 @@ const PerformanceDisclaimer = ({onAccept, accentColor = '#1a1a1a'}) => {
         </Text>
         <ChevronRight
           size={18}
-          color={checked ? '#fff' : '#9ca3af'}
+          color={checked ? designColor('fff') : designColor('9ca3af')}
           style={{marginLeft: 4}}
         />
       </TouchableOpacity>
-
       {/* Footer note */}
       <Text style={styles.footerText}>
         Investment in securities market is subject to market risks. Read all the
@@ -88,14 +85,14 @@ const PerformanceDisclaimer = ({onAccept, accentColor = '#1a1a1a'}) => {
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 16,
     padding: 24,
     marginVertical: 16,
     borderWidth: 1,
-    borderColor: '#f3f4f6',
+    borderColor: designColor('f3f4f6'),
     elevation: 2,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: {width: 0, height: 1},
     shadowOpacity: 0.06,
     shadowRadius: 6,
@@ -105,28 +102,28 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: '#fffbeb',
+    backgroundColor: designColor('fffbeb'),
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
   },
   title: {
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     fontSize: 17,
-    color: '#1a1a1a',
+    color: designColor('1a1a1a'),
     textAlign: 'center',
     marginBottom: 4,
   },
   subtitle: {
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     fontSize: 12,
-    color: '#6b7280',
+    color: designColor('6b7280'),
     textAlign: 'center',
     marginBottom: 20,
   },
   pointsContainer: {
     width: '100%',
-    backgroundColor: '#f9fafb',
+    backgroundColor: designColor('f9fafb'),
     borderRadius: 12,
     padding: 16,
     marginBottom: 20,
@@ -140,15 +137,15 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#f59e0b',
+    backgroundColor: designColor('f59e0b'),
     marginTop: 6,
     marginRight: 10,
   },
   pointText: {
     flex: 1,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     fontSize: 12,
-    color: '#374151',
+    color: designColor('374151'),
     lineHeight: 18,
   },
   checkboxRow: {
@@ -160,9 +157,9 @@ const styles = StyleSheet.create({
   },
   checkboxText: {
     flex: 1,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     fontSize: 12,
-    color: '#374151',
+    color: designColor('374151'),
     marginLeft: 10,
     lineHeight: 18,
   },
@@ -177,20 +174,20 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   acceptButtonDisabled: {
-    backgroundColor: '#e5e7eb',
+    backgroundColor: designColor('e5e7eb'),
   },
   acceptButtonText: {
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     fontSize: 14,
-    color: '#fff',
+    color: designColor('fff'),
   },
   acceptButtonTextDisabled: {
-    color: '#9ca3af',
+    color: designColor('9ca3af'),
   },
   footerText: {
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     fontSize: 10,
-    color: '#9ca3af',
+    color: designColor('9ca3af'),
     textAlign: 'center',
     lineHeight: 15,
     paddingHorizontal: 8,

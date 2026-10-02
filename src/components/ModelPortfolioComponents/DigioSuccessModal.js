@@ -12,6 +12,8 @@ import Toast from 'react-native-toast-message';
 import { useConfig } from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 /**
  * @param {boolean} afterPayment - true for advisors on `digioCheck:
  *   'afterPayment'`, where the customer has ALREADY paid before signing.
@@ -62,7 +64,7 @@ const DigioSuccessModal = ({ visible, onClose, onProceedToPayment, afterPayment 
 
                         {/* Success Icon */}
                         <View style={styles.iconContainer}>
-                            <CheckCircle size={48} color="#10B981" />
+                            <CheckCircle size={48} color={designColor('10b981')} />
                         </View>
 
                         {/* Title */}
@@ -79,7 +81,7 @@ const DigioSuccessModal = ({ visible, onClose, onProceedToPayment, afterPayment 
                         {afterPayment ? (
                             <View style={styles.successBox}>
                                 <View style={styles.warningHeader}>
-                                    <CheckCircle size={20} color="#10B981" />
+                                    <CheckCircle size={20} color={designColor('10b981')} />
                                     <Text style={styles.successTitle}>All done:</Text>
                                 </View>
                                 <Text style={[styles.warningText, styles.successBodyText]}>
@@ -94,7 +96,7 @@ const DigioSuccessModal = ({ visible, onClose, onProceedToPayment, afterPayment 
                         ) : (
                             <View style={styles.warningBox}>
                                 <View style={styles.warningHeader}>
-                                    <AlertTriangle size={20} color="#F59E0B" />
+                                    <AlertTriangle size={20} color={designColor('f59e0b')} />
                                     <Text style={styles.warningTitle}>Important:</Text>
                                 </View>
                                 <Text style={styles.warningText}>
@@ -191,7 +193,7 @@ const DigioSuccessModal = ({ visible, onClose, onProceedToPayment, afterPayment 
                             <TouchableOpacity
                                 onPress={onProceedToPayment}
                                 style={[styles.button, styles.paymentButton, { backgroundColor: mainColor, shadowColor: mainColor }]}>
-                                {!afterPayment && <CreditCard size={20} color="#fff" />}
+                                {!afterPayment && <CreditCard size={20} color={designColor('fff')} />}
                                 <Text style={styles.paymentButtonText}>
                                     {afterPayment ? 'Continue' : 'Proceed to Payment →'}
                                 </Text>
@@ -222,13 +224,13 @@ const styles = StyleSheet.create({
         padding: 16,
     },
     modalContainer: {
-        backgroundColor: '#fff',
+        backgroundColor: designColor('fff'),
         borderRadius: 16,
         padding: 24,
         maxWidth: 600,
         alignSelf: 'center',
         width: '100%',
-        shadowColor: '#000',
+        shadowColor: designColor('000'),
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
@@ -243,8 +245,8 @@ const styles = StyleSheet.create({
     },
     closeButtonText: {
         fontSize: 24,
-        color: '#9CA3AF',
-        fontFamily: 'Satoshi-Regular',
+        color: designColor('9ca3af'),
+        fontFamily: designFont('Satoshi-Regular'),
     },
     iconContainer: {
         alignItems: 'center',
@@ -253,15 +255,15 @@ const styles = StyleSheet.create({
     },
     title: {
         fontSize: 24,
-        fontFamily: 'Satoshi-Bold',
-        color: '#111827',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('111827'),
         textAlign: 'center',
         marginBottom: 20,
     },
     warningBox: {
-        backgroundColor: '#FEF3C7',
+        backgroundColor: designColor('fef3c7'),
         borderLeftWidth: 4,
-        borderLeftColor: '#F59E0B',
+        borderLeftColor: designColor('f59e0b'),
         padding: 16,
         borderRadius: 8,
         marginBottom: 24,
@@ -269,22 +271,22 @@ const styles = StyleSheet.create({
     // afterPayment counterpart of warningBox — green/confirmatory rather than
     // amber/urgent, since nothing is outstanding.
     successBox: {
-        backgroundColor: '#D1FAE5',
+        backgroundColor: designColor('d1fae5'),
         borderLeftWidth: 4,
-        borderLeftColor: '#10B981',
+        borderLeftColor: designColor('10b981'),
         padding: 16,
         borderRadius: 8,
         marginBottom: 24,
     },
     successTitle: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#065F46',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('065f46'),
         marginLeft: 8,
     },
     // Overrides the amber body colour inherited from warningText/warningSubtext.
     successBodyText: {
-        color: '#065F46',
+        color: designColor('065f46'),
     },
     warningHeader: {
         flexDirection: 'row',
@@ -293,33 +295,33 @@ const styles = StyleSheet.create({
     },
     warningTitle: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#92400E',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('92400e'),
         marginLeft: 8,
     },
     warningText: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Regular',
-        color: '#92400E',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('92400e'),
         marginBottom: 8,
         lineHeight: 20,
     },
     warningSubtext: {
         fontSize: 13,
-        fontFamily: 'Satoshi-Regular',
-        color: '#78350F',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('78350f'),
         lineHeight: 18,
     },
     boldText: {
-        fontFamily: 'Satoshi-Bold',
+        fontFamily: designFont('Satoshi-Bold'),
     },
     progressSection: {
         marginBottom: 24,
     },
     progressTitle: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#374151',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('374151'),
         textAlign: 'center',
         marginBottom: 16,
     },
@@ -341,50 +343,50 @@ const styles = StyleSheet.create({
         marginBottom: 8,
     },
     stepCompleted: {
-        backgroundColor: '#10B981',
+        backgroundColor: designColor('10b981'),
     },
     stepCurrent: {
-        backgroundColor: '#2563EB',
+        backgroundColor: designColor('2563eb'),
     },
     stepPending: {
-        backgroundColor: '#D1D5DB',
+        backgroundColor: designColor('d1d5db'),
     },
     stepCompletedText: {
-        color: '#fff',
+        color: designColor('fff'),
         fontSize: 18,
-        fontFamily: 'Satoshi-Bold',
+        fontFamily: designFont('Satoshi-Bold'),
     },
     stepCurrentText: {
-        color: '#fff',
+        color: designColor('fff'),
         fontSize: 16,
-        fontFamily: 'Satoshi-Bold',
+        fontFamily: designFont('Satoshi-Bold'),
     },
     stepPendingText: {
-        color: '#fff',
+        color: designColor('fff'),
         fontSize: 16,
-        fontFamily: 'Satoshi-Bold',
+        fontFamily: designFont('Satoshi-Bold'),
     },
     stepLabel: {
         fontSize: 10,
-        fontFamily: 'Satoshi-Regular',
-        color: '#6B7280',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('6b7280'),
         textAlign: 'center',
         lineHeight: 14,
     },
     stepCurrentLabel: {
-        color: '#2563EB',
-        fontFamily: 'Satoshi-Bold',
+        color: designColor('2563eb'),
+        fontFamily: designFont('Satoshi-Bold'),
     },
     stepPendingLabel: {
-        color: '#9CA3AF',
+        color: designColor('9ca3af'),
     },
     arrow: {
         fontSize: 20,
-        color: '#9CA3AF',
+        color: designColor('9ca3af'),
         marginHorizontal: 4,
     },
     arrowInactive: {
-        color: '#D1D5DB',
+        color: designColor('d1d5db'),
     },
     buttonContainer: {
         flexDirection: 'row',
@@ -400,20 +402,20 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     cancelButton: {
-        backgroundColor: '#F3F4F6',
+        backgroundColor: designColor('f3f4f6'),
         borderWidth: 1,
-        borderColor: '#D1D5DB',
+        borderColor: designColor('d1d5db'),
     },
     cancelButtonText: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#374151',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('374151'),
     },
     paymentButton: {
-        backgroundColor: '#2563EB',
+        backgroundColor: designColor('2563eb'),
         flexDirection: 'row',
         gap: 8,
-        shadowColor: '#2563EB',
+        shadowColor: designColor('2563eb'),
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.3,
         shadowRadius: 4,
@@ -421,13 +423,13 @@ const styles = StyleSheet.create({
     },
     paymentButtonText: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#fff',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('fff'),
     },
     footerNote: {
         fontSize: 12,
-        fontFamily: 'Satoshi-Regular',
-        color: '#6B7280',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('6b7280'),
         textAlign: 'center',
     },
 });

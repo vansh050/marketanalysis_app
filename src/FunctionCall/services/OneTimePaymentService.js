@@ -5,6 +5,7 @@ import { calculateNewExpiryDate } from "../utils/calculateExpiryDate";
 import { logPayment } from "../utils/logger";
 import { sendNotifications } from "./SendNotificationService";
 import { addClientToGroupSubscription } from "./AddClientToGroupService";
+import {getTenantSubdomain} from "../../utils/variantHelper";
 
 export async function completeOneTimePayment({
   paymentDetails,
@@ -24,7 +25,7 @@ export async function completeOneTimePayment({
 }) {
   const headers = {
     "Content-Type": "application/json",
-    "X-Advisor-Subdomain": process.envREACT_APP_URL,
+    "X-Advisor-Subdomain": getTenantSubdomain(),
     "aq-encrypted-key": encryptApiKey(
       process.envREACT_APP_AQ_KEYS,
       process.envREACT_APP_AQ_SECRET

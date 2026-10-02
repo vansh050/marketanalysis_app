@@ -22,14 +22,16 @@ import dayjs from 'dayjs';
 
 import {Dropdown} from 'react-native-element-dropdown';
 import moment from 'moment';
+import {resolveTradeExitPrice} from '../../utils/orderDisplayPrice';
 import {useNavigation} from '@react-navigation/native';
 import CalendarPicker from 'react-native-calendar-picker';
 import Accordion from 'react-native-collapsible/Accordion';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import Config from 'react-native-config';
 import {useTrade} from '../TradeContext';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import {getAccountEmail} from '../../utils/accountEmail';
+import { designColor, designFont } from '../../design/literalTokens';
 const {width: screenWidth} = Dimensions.get('window');
 const HistoryScreen = () => {
   const {configData} = useTrade();
@@ -63,7 +65,7 @@ const HistoryScreen = () => {
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -238,7 +240,7 @@ const HistoryScreen = () => {
     tradedPrice: item.buy[0]?.tradedPrice || '-',
     entryPrice: item.buy[0]?.tradedPrice ? `${item.buy[0]?.tradedPrice}` : '-',
     sellQuantity: item.sell[0]?.Quantity || '-',
-    exitPrice: item.sell[0]?.exitPrice || '-',
+    exitPrice: resolveTradeExitPrice(item.sell[0]),
     pnl: item?.pnl,
     purchaseDate: item.buy[0]?.purchaseDate
       ? new Date(item.buy[0]?.purchaseDate)
@@ -340,7 +342,7 @@ const HistoryScreen = () => {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Trade History</Text>
       </View>
-      <View style={{backgroundColor: '#f8f8f8', paddingHorizontal: 0}}>
+      <View style={{backgroundColor: designColor('f8f8f8'), paddingHorizontal: 0}}>
         {/* Date Range and Filter Section */}
         <View style={styles.filterSection}>
           <TouchableOpacity
@@ -365,12 +367,12 @@ const HistoryScreen = () => {
             style={[styles.dropdown, isFocus && {borderColor: 'blue'}]}
             placeholderStyle={{
               fontSize: 11,
-              fontFamily: 'Poppins-Regular',
+              fontFamily: designFont('Poppins-Regular'),
               color: 'black',
             }}
             selectedTextStyle={{
               fontSize: 11,
-              fontFamily: 'Poppins-Regular',
+              fontFamily: designFont('Poppins-Regular'),
               color: 'black',
             }}
             inputSearchStyle={{color: 'black', fontSize: 11}}
@@ -394,7 +396,7 @@ const HistoryScreen = () => {
             <Text
               style={{
                 color: 'white',
-                fontFamily: 'Poppins-Regular',
+                fontFamily: designFont('Poppins-Regular'),
                 fontSize: 11,
               }}>
               Clear
@@ -402,7 +404,6 @@ const HistoryScreen = () => {
           </TouchableOpacity>
         </View>
       </View>
-
       <View>
         {filteredTradeHistory.length === 0 ? (
           //   <View style={{justifyContent:'center',alignContent:'center',alignItems:'center',marginTop:50,}}>
@@ -414,14 +415,14 @@ const HistoryScreen = () => {
           //     listed here.
           //   </Text>
           // </View>
-          <View
+          (<View
             style={{
               alignItems: 'center',
               justifyContent: 'center',
               padding: 24,
               marginVertical: 20,
               marginHorizontal: 20,
-              backgroundColor: '#FFF5F2',
+              backgroundColor: designColor('fff5f2'),
               borderRadius: 16,
               overflow: 'hidden',
               width: '90%',
@@ -437,7 +438,7 @@ const HistoryScreen = () => {
                 right: 0,
                 bottom: 0,
                 opacity: 0.7,
-                backgroundColor: '#fff',
+                backgroundColor: designColor('fff'),
                 borderRadius: 16,
               }}>
               <View
@@ -463,7 +464,6 @@ const HistoryScreen = () => {
                 }}
               />
             </View>
-
             {/* Icon container with nested circles for depth */}
             <View
               style={{
@@ -474,7 +474,7 @@ const HistoryScreen = () => {
                 justifyContent: 'center',
                 alignItems: 'center',
                 marginBottom: 20,
-                shadowColor: '#6B1400',
+                shadowColor: designColor('6b1400'),
                 shadowOffset: {width: 0, height: 4},
                 shadowOpacity: 0.15,
                 shadowRadius: 10,
@@ -490,23 +490,21 @@ const HistoryScreen = () => {
                   alignItems: 'center',
                 }}></View>
             </View>
-
             <Text
               style={{
-                fontFamily: 'Satoshi-SemiBold',
+                fontFamily: designFont('Satoshi-SemiBold'),
                 fontSize: 18,
-                color: '#3A0B00',
+                color: designColor('3a0b00'),
                 textAlign: 'center',
                 marginBottom: 12,
               }}>
               No Trade History
             </Text>
-
             <Text
               style={{
-                fontFamily: 'Satoshi-Medium',
+                fontFamily: designFont('Satoshi-Medium'),
                 fontSize: 14,
-                color: '#4D2418',
+                color: designColor('4d2418'),
                 textAlign: 'center',
                 maxWidth: '85%',
                 lineHeight: 20,
@@ -515,7 +513,7 @@ const HistoryScreen = () => {
               No trades have been recorded yet. When you complete a trade, it
               will be
             </Text>
-          </View>
+          </View>)
         ) : (
           <View style={{marginBottom: 130}}>
             <Accordion
@@ -530,7 +528,6 @@ const HistoryScreen = () => {
           </View>
         )}
       </View>
-
       <Modal
         animationType="slide"
         transparent={true}
@@ -547,9 +544,9 @@ const HistoryScreen = () => {
               monthTitleStyle={{color: 'black'}}
               previousTitleStyle={{color: 'black'}}
               nextTitleStyle={{color: 'black'}}
-              todayBackgroundColor="#9EAEC1"
-              selectedDayColor="#002a5c"
-              selectedDayTextColor="#FFFFFF"
+              todayBackgroundColor={designColor('9eaec1')}
+              selectedDayColor={designColor('002a5c')}
+              selectedDayTextColor={designColor('ffffff')}
               onDateChange={onDateChange}
             />
 
@@ -573,7 +570,7 @@ const HistoryScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   header: {
     flexDirection: 'row',
@@ -585,7 +582,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   headerTitle: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 20,
     color: 'black',
     alignContent: 'center',
@@ -597,7 +594,7 @@ const styles = StyleSheet.create({
     minWidth: 110,
     fontSize: 15,
     paddingHorizontal: 25,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     color: 'grey',
   },
   filterSection: {
@@ -608,7 +605,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   headerCell: {
-    backgroundColor: '#e8e8e8',
+    backgroundColor: designColor('e8e8e8'),
     paddingHorizontal: 10,
     minWidth: 110, // Keep the same width for both header and data cells
     justifyContent: 'center',
@@ -650,8 +647,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     minWidth: 110,
     justifyContent: 'center',
-    color: '#727272',
-    fontFamily: 'Poppins-Regular',
+    color: designColor('727272'),
+    fontFamily: designFont('Poppins-Regular'),
     textAlign: 'center',
   },
   headerview: {
@@ -665,7 +662,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   datePicker: {
-    borderColor: '#E4E4E4',
+    borderColor: designColor('e4e4e4'),
     backgroundColor: 'white',
     paddingVertical: 4,
     paddingHorizontal: 10,
@@ -673,7 +670,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     borderRadius: 4,
     marginHorizontal: 10,
     color: 'black',
@@ -681,7 +678,7 @@ const styles = StyleSheet.create({
   datepickerText: {
     fontSize: 11,
     color: 'black',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   arrow: {
     color: 'grey',
@@ -690,7 +687,7 @@ const styles = StyleSheet.create({
   filterButton: {
     paddingHorizontal: 10,
     paddingVertical: 4,
-    backgroundColor: '#000',
+    backgroundColor: designColor('000'),
     borderRadius: 4,
   },
   buyOrder: {
@@ -705,7 +702,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     minWidth: 110,
     textAlign: 'center',
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     color: 'grey',
   },
 
@@ -718,38 +715,38 @@ const styles = StyleSheet.create({
   },
   cellText: {
     fontSize: 12,
-    color: '#555',
-    fontFamily: 'Poppins-Regular',
+    color: designColor('555'),
+    fontFamily: designFont('Poppins-Regular'),
     textAlign: 'center',
   },
   cellTextName: {
     fontSize: 12,
     color: 'black',
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     textAlign: 'center',
   },
   cellTextGreen: {
     fontSize: 13,
-    color: '#338D72',
+    color: designColor('338d72'),
     alignContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   cellTextRed: {
     fontSize: 13,
     alignContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
-    color: '#EF344A',
-    fontFamily: 'Poppins-SemiBold',
+    color: designColor('ef344a'),
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   horizontal: {
     height: 6,
     marginBottom: 20,
     borderRadius: 250,
     alignSelf: 'center',
-    backgroundColor: '#f1f4f8',
+    backgroundColor: designColor('f1f4f8'),
   },
   dataTable: {
     width: '100%',
@@ -763,7 +760,7 @@ const styles = StyleSheet.create({
   dropdownMenu: {
     padding: 5,
     color: 'black',
-    backgroundColor: '#002a5c',
+    backgroundColor: designColor('002a5c'),
     borderRadius: 4,
     marginLeft: 8,
   },
@@ -772,7 +769,7 @@ const styles = StyleSheet.create({
   dropdown: {
     width: screenWidth * 0.275,
     color: 'black',
-    borderColor: '#E4E4E4',
+    borderColor: designColor('e4e4e4'),
     backgroundColor: 'white',
     borderRadius: 4,
     paddingVertical: 4,
@@ -794,7 +791,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 20,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.25,
     shadowRadius: 4,
@@ -802,13 +799,13 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     marginTop: 20,
-    backgroundColor: '#002a5c',
+    backgroundColor: designColor('002a5c'),
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 20,
   },
   closeButtonText: {
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
     fontSize: 16,
   },
 
@@ -816,11 +813,11 @@ const styles = StyleSheet.create({
   itemContainer: {
     borderBottomWidth: 1,
     borderTopWidth: 1,
-    borderBottomColor: '#ddd',
-    borderTopColor: '#ddd',
+    borderBottomColor: designColor('ddd'),
+    borderTopColor: designColor('ddd'),
     paddingVertical: 10,
     paddingHorizontal: 15,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   row: {
     flexDirection: 'row',
@@ -838,21 +835,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dateRangeText: {
-    color: '#555',
+    color: designColor('555'),
     fontSize: 11,
     alignContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   stockName: {
     fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-    color: '#000',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('000'),
   },
   profitLossText: {
     fontSize: 15,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     marginRight: 10,
   },
 });

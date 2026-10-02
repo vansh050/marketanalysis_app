@@ -62,7 +62,7 @@ import axios from 'axios';
 import Config from 'react-native-config';
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import LinkifiedUrl from '../../UIComponents/BrokerConnectionUI/HelpUI/LinkifiedUrl';
 import {useColors} from '../../theme/useColors';
 import Clipboard from '@react-native-clipboard/clipboard';
@@ -77,6 +77,8 @@ import {
   friendlyPaymentError,
 } from '../../utils/cashfreeEnv';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 // Brokers requiring per-customer IP whitelisting. Partners short-
 // circuit to null without hitting /egress/me. Keep keys in sync with
 // web's WHITELIST_BROKERS set (EgressIpCallout.js:72-81).
@@ -88,12 +90,17 @@ const WHITELIST_BROKERS = new Set([
   'kotak',
   'hdfcsec',
   'icicidirect',
+  'iifl',
   'groww',
   // Arihant TradeBridge — per-customer IP whitelisting on the customer's
   // TradeBridge account. IPv4-only broker (dedicated-IP flow like Angel One).
   'arihant',
   // DefinEdge INTEGRATE — per-customer IP whitelist in MyAccount → API Config.
   'definedge',
+  // Virtual mode over Dhan's partner API host. Direct API is customer-owned
+  // and uses the customer's unique free Route64 IPv6; normal Dhan remains
+  // partner-routed.
+  'dhan_direct',
 ]);
 
 const BROKER_DISPLAY_NAMES = {
@@ -104,9 +111,11 @@ const BROKER_DISPLAY_NAMES = {
   kotak: 'Kotak Neo',
   hdfcsec: 'HDFC Securities',
   icicidirect: 'ICICI Direct',
+  iifl: 'IIFL Securities',
   groww: 'Groww',
   arihant: 'Arihant Capital',
   definedge: 'DefinEdge Securities',
+  dhan_direct: 'Dhan Direct API',
 };
 
 const BROKER_DEV_PORTAL_URLS = {
@@ -116,10 +125,12 @@ const BROKER_DEV_PORTAL_URLS = {
   motilaloswal: 'https://openapi.motilaloswal.com/',
   kotak: 'https://napi.kotaksecurities.com/',
   icicidirect: 'https://api.icicidirect.com/apiuser/home',
+  iifl: 'https://developers.iiflcapital.com/',
   hdfcsec: 'https://developer.hdfcsky.com/',
   groww: 'https://groww.in/trade-api/api-keys',
   arihant: 'https://tradebridge.arihantplus.com/',
   definedge: 'https://myaccount.definedgesecurities.com/',
+  dhan_direct: 'https://web.dhan.co/',
 };
 
 const BROKER_WHITELIST_HINT = {
@@ -129,17 +140,18 @@ const BROKER_WHITELIST_HINT = {
   motilaloswal: 'App settings → Allowed IPs',
   kotak: 'Consumer Key settings → IP Whitelist',
   icicidirect: 'Breeze API app → IP Whitelist',
+  iifl: 'IIFL Capital developer app → Whitelisted IPs',
   hdfcsec: 'InvestRight API app → Allowed IPs',
   groww: 'Trade API → Generate TOTP token → Whitelisted IPs',
   arihant: 'TradeBridge portal → API Keys → Whitelisted IPs',
   definedge: 'MyAccount → API Config → Whitelisted IPs',
+  dhan_direct: 'My Profile → DhanHQ APIs → Static IP',
 };
 
 function buildHeaders(configData) {
   return {
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain':
-      configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(configData),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,
@@ -166,7 +178,7 @@ const EgressIpCallout = ({
   // running white-label tenant. The semantic state panels (info/warning/
   // error) intentionally keep their conventional blue/amber/red.
   const colors = useColors();
-  const brand = colors?.brand?.primary || '#2563EB';
+  const brand = colors?.brand?.primary || designColor('2563eb');
 
   // Keep the compliance flow visually part of the app rather than a generic
   // warning block. The content and acknowledgement rules stay identical to
@@ -654,7 +666,7 @@ const EgressIpCallout = ({
             ]}
             activeOpacity={0.8}>
             {subscribing ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={designColor('fff')} />
             ) : (
               <Text style={styles.primaryButtonText}>
                 {paymentStarted
@@ -752,7 +764,7 @@ const EgressIpCallout = ({
         {PaymentStatusPanel}
         <View style={[styles.card, styles.cardNeutral]}>
           <View style={styles.row}>
-            <ActivityIndicator size="small" color="#6B7280" />
+            <ActivityIndicator size="small" color={designColor('6b7280')} />
             <Text style={styles.bodyText}>
               {'  '}Loading your dedicated IP status for {brokerDisplay}...
             </Text>
@@ -834,9 +846,9 @@ const EgressIpCallout = ({
               flashAck && {
                 backgroundColor: flashAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: ['#FEF3C7', '#FEE2E2'],
+                  outputRange: [designColor('fef3c7'), designColor('fee2e2')],
                 }),
-                borderColor: '#EF4444',
+                borderColor: designColor('ef4444'),
               },
             ]}>
             <TouchableOpacity
@@ -856,7 +868,7 @@ const EgressIpCallout = ({
               </View>
               <Text style={styles.ackText}>
                 {flashAck && !acknowledged && (
-                  <Text style={[styles.bold, {color: '#B91C1C'}]}>
+                  <Text style={[styles.bold, {color: designColor('b91c1c')}]}>
                     ⚠ Please tick this box to confirm you've whitelisted the
                     IP.{'\n'}
                   </Text>
@@ -939,7 +951,7 @@ const EgressIpCallout = ({
             ]}
             activeOpacity={0.8}>
             {claiming ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <ActivityIndicator size="small" color={designColor('fff')} />
             ) : (
               <Text style={styles.primaryButtonText}>
                 Assign me a dedicated static IP
@@ -954,7 +966,7 @@ const EgressIpCallout = ({
   if (brokerState === 'claimed' && brokerEntry?.address) {
     const flashBg = flashAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: ['#FEF3C7', '#FEE2E2'],
+      outputRange: [designColor('fef3c7'), designColor('fee2e2')],
     });
     return (
       <View style={styles.container}>
@@ -996,7 +1008,7 @@ const EgressIpCallout = ({
           <Animated.View
             style={[
               styles.ackRow,
-              flashAck && {backgroundColor: flashBg, borderColor: '#EF4444'},
+              flashAck && {backgroundColor: flashBg, borderColor: designColor('ef4444')},
             ]}>
             <TouchableOpacity
               onPress={() => setAcknowledged(!acknowledged)}
@@ -1015,7 +1027,7 @@ const EgressIpCallout = ({
               </View>
               <Text style={styles.ackText}>
                 {flashAck && !acknowledged && (
-                  <Text style={[styles.bold, {color: '#B91C1C'}]}>
+                  <Text style={[styles.bold, {color: designColor('b91c1c')}]}>
                     ⚠ Please tick this box to confirm you've whitelisted the
                     IP.{'\n'}
                   </Text>
@@ -1081,66 +1093,66 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   setupGuide: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     borderWidth: 1,
-    borderColor: '#E2E8F0',
+    borderColor: designColor('e2e8f0'),
     borderRadius: 16,
     padding: 14,
     marginBottom: 10,
   },
   setupEyebrow: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 10,
     letterSpacing: 0.8,
   },
   setupTitle: {
-    color: '#1E293B',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('1e293b'),
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 15,
     marginTop: 3,
     marginBottom: 8,
   },
   setupStep: {
-    color: '#475569',
-    fontFamily: 'Satoshi-Regular',
+    color: designColor('475569'),
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 12,
     lineHeight: 18,
     marginTop: 2,
   },
   setupFamily: {
-    color: '#0F766E',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('0f766e'),
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 11,
     marginTop: 8,
   },
   paymentStatus: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: designColor('eff6ff'),
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: designColor('bfdbfe'),
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
   },
   paymentStatusPending: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
+    backgroundColor: designColor('fffbeb'),
+    borderColor: designColor('fde68a'),
   },
   paymentStatusConfirmed: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#A7F3D0',
+    backgroundColor: designColor('ecfdf5'),
+    borderColor: designColor('a7f3d0'),
   },
   paymentStatusFailed: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+    backgroundColor: designColor('fef2f2'),
+    borderColor: designColor('fecaca'),
   },
   paymentStatusTitle: {
-    color: '#1E293B',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('1e293b'),
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 13,
   },
   paymentStatusDetail: {
-    color: '#475569',
-    fontFamily: 'Satoshi-Regular',
+    color: designColor('475569'),
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 12,
     lineHeight: 18,
     marginTop: 3,
@@ -1149,7 +1161,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 2,
     padding: 14,
-    shadowColor: '#0F172A',
+    shadowColor: designColor('0f172a'),
     shadowOpacity: 0.06,
     shadowRadius: 10,
     shadowOffset: {width: 0, height: 3},
@@ -1160,7 +1172,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     padding: 10,
     marginBottom: 12,
   },
@@ -1173,101 +1185,101 @@ const styles = StyleSheet.create({
     marginRight: 9,
   },
   progressBadgeText: {
-    color: '#FFFFFF',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('ffffff'),
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 13,
   },
   progressCopy: {flex: 1},
   progressEyebrow: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 10,
     letterSpacing: 0.6,
   },
   progressTitle: {
-    color: '#1F2937',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('1f2937'),
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 13,
     marginTop: 2,
   },
   cardNeutral: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
+    backgroundColor: designColor('ffffff'),
+    borderColor: designColor('e5e7eb'),
   },
   cardBlue: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#BFDBFE',
+    backgroundColor: designColor('eff6ff'),
+    borderColor: designColor('bfdbfe'),
   },
   cardAmber: {
-    backgroundColor: '#FFFBEB',
-    borderColor: '#FDE68A',
+    backgroundColor: designColor('fffbeb'),
+    borderColor: designColor('fde68a'),
   },
   cardRed: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+    backgroundColor: designColor('fef2f2'),
+    borderColor: designColor('fecaca'),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   bodyText: {
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 13,
-    color: '#374151',
+    color: designColor('374151'),
   },
   titleBlue: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 15,
-    color: '#1E3A8A',
+    color: designColor('1e3a8a'),
     marginBottom: 6,
   },
   bodyBlue: {
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 12,
-    color: '#1E40AF',
+    color: designColor('1e40af'),
     lineHeight: 18,
   },
   titleAmber: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 15,
-    color: '#78350F',
+    color: designColor('78350f'),
     marginBottom: 4,
   },
   bodyAmber: {
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 12,
-    color: '#92400E',
+    color: designColor('92400e'),
     lineHeight: 18,
   },
   titleRed: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 14,
-    color: '#991B1B',
+    color: designColor('991b1b'),
     marginBottom: 4,
   },
   bodyRed: {
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 12,
-    color: '#B91C1C',
+    color: designColor('b91c1c'),
   },
   bannerTitle: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 13,
-    color: '#991B1B',
+    color: designColor('991b1b'),
   },
   bannerBody: {
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 12,
-    color: '#B91C1C',
+    color: designColor('b91c1c'),
     marginTop: 2,
   },
   bannerSmall: {
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 11,
-    color: '#B91C1C',
+    color: designColor('b91c1c'),
     marginTop: 2,
   },
   primaryButton: {
-    backgroundColor: '#2563EB',
+    backgroundColor: designColor('2563eb'),
     paddingVertical: 11,
     paddingHorizontal: 16,
     borderRadius: 8,
@@ -1275,8 +1287,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('ffffff'),
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 13,
   },
   secondaryButton: {
@@ -1289,11 +1301,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   secondaryButtonText: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 13,
   },
   retryButton: {
-    backgroundColor: '#DC2626',
+    backgroundColor: designColor('dc2626'),
     paddingVertical: 7,
     paddingHorizontal: 14,
     borderRadius: 6,
@@ -1301,28 +1313,28 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   retryButtonText: {
-    color: '#FFFFFF',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('ffffff'),
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 12,
   },
   stepHeader: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 13,
-    color: '#78350F',
+    color: designColor('78350f'),
   },
   ipBox: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: designColor('fde68a'),
     borderRadius: 8,
     padding: 10,
     paddingHorizontal: 12,
     marginTop: 6,
   },
   ipText: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 14,
-    color: '#111827',
+    color: designColor('111827'),
   },
   copyButton: {
     alignSelf: 'flex-start',
@@ -1331,25 +1343,25 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: designColor('f8fafc'),
   },
   copyButtonText: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 12,
   },
   stepText: {
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 12,
-    color: '#78350F',
+    color: designColor('78350f'),
     lineHeight: 18,
     marginTop: 2,
   },
   link: {
-    color: '#2563EB',
+    color: designColor('2563eb'),
     textDecorationLine: 'underline',
   },
   bold: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
   },
   italic: {
     fontStyle: 'italic',
@@ -1359,8 +1371,8 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#FDE68A',
-    backgroundColor: '#FEF3C7',
+    borderColor: designColor('fde68a'),
+    backgroundColor: designColor('fef3c7'),
   },
   checkboxRow: {
     flexDirection: 'row',
@@ -1371,37 +1383,37 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: '#F59E0B',
-    backgroundColor: '#FFFFFF',
+    borderColor: designColor('f59e0b'),
+    backgroundColor: designColor('ffffff'),
     marginRight: 10,
     marginTop: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxChecked: {
-    backgroundColor: '#D97706',
-    borderColor: '#D97706',
+    backgroundColor: designColor('d97706'),
+    borderColor: designColor('d97706'),
   },
   checkboxFlash: {
-    borderColor: '#EF4444',
+    borderColor: designColor('ef4444'),
     borderWidth: 3,
   },
   checkboxMark: {
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
   },
   ackText: {
     flex: 1,
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 12,
-    color: '#78350F',
+    color: designColor('78350f'),
     lineHeight: 18,
   },
   ipInline: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 12,
-    color: '#111827',
+    color: designColor('111827'),
   },
 });
 

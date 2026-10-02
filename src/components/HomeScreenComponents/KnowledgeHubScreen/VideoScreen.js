@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { useComponent } from '../../../design/useDesign';
+import KnowledgeHub from '../KnowledgeHub';
 
 const VideoScreen = ({ navigation, route }) => {
     const Presentation = useComponent('screens.VideoScreen');
@@ -14,6 +15,7 @@ const VideoScreen = ({ navigation, route }) => {
         <Presentation
             viewModel={{ navigation }}
             actions={{}}
+            slots={{ KnowledgeHub }}
         />
     );
 };

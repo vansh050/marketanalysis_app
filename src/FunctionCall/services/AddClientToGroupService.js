@@ -10,6 +10,7 @@ export const addClientToGroupSubscription = async ({
   email,
   name,
   panNumber,
+  gstNumber,
   mobileNumber,
   countryCode,
   specificPlan,
@@ -95,6 +96,7 @@ export const addClientToGroupSubscription = async ({
     location: data.location || '',
     telegram: telegramId || '',
     pan: panNumber || '', // Changed from data.panNumber to use the parameter directly
+    gstNumber: gstNumber || '',
     comments: data.comments || '',
     advisorName: advisorTag,
     subscriptions: [newSubscription],

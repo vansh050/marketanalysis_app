@@ -10,8 +10,18 @@
  */
 
 import server from './serverConfig';
+import axios from 'axios';
 import {generateToken} from './SecurityTokenManager';
 import RNConfig from 'react-native-config';
+import {getAccountEmailAsync} from './accountEmail';
+import {getAdvisorSubdomain, getTenantSubdomain} from './variantHelper';
+import {Alert} from 'react-native';
+
+const warnBeforeKiteReview = warnings => {
+  const details = warnings.slice(0, 3).join('\n');
+  const remaining = warnings.length > 3 ? `\nAnd ${warnings.length - 3} more instruments.` : '';
+  Alert.alert('Review prices and liquidity in Kite', `${details}${remaining}\nThe basket will open for your review.`);
+};
 
 // Fyers is intentionally NOT here. Fyers ships a Publisher SDK
 // (api-connect-docs.fyers.in/fyers-lib.js), but on mobile we never
@@ -99,17 +109,48 @@ export function getPublisherApiKey(broker, userBrokerClientCode) {
  * breaking Zerodha orders. Derive from `customDomain` / subdomain instead.
  *
  * Priority:
- *   1. `configData.customDomain` (custom advisor domain, if set)
- *   2. `https://{subdomain}.alphaquark.in` (canonical advisor web origin)
- *   3. `https://prod.alphaquark.in` (last-resort fallback)
+ *   1. runtime `customDomain` (top-level or nested advisor config)
+ *   2. the first production origin in the build's `REACT_APP_DOMAIN`
+ *   3. `https://{subdomain}.alphaquark.in` (canonical advisor web origin)
+ *   4. `https://prod.alphaquark.in` (last-resort fallback)
+ *
+ * `REACT_APP_DOMAIN` is the advisor web-origin allow-list, not the shared
+ * broker redirect variable. This distinction matters for Markup: Kite is
+ * registered against `research.markup.club`, while the advisor subdomain is
+ * `markup`; falling straight through to `markup.alphaquark.in` makes Kite
+ * reject the publisher form before an order is created.
  */
 export function getPublisherWebViewBaseUrl(configData) {
-  const custom = configData?.customDomain;
+  const custom =
+    configData?.customDomain ||
+    configData?.config?.customDomain;
   if (typeof custom === 'string' && custom) {
     const withScheme = /^https?:\/\//i.test(custom) ? custom : `https://${custom}`;
     const match = withScheme.match(/^https?:\/\/[^/]+/);
     if (match) return match[0];
   }
+
+  const buildDomains = String(RNConfig.REACT_APP_DOMAIN || '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean);
+  for (const domain of buildDomains) {
+    try {
+      const parsed = new URL(
+        /^https?:\/\//i.test(domain) ? domain : `https://${domain}`,
+      );
+      if (
+        parsed.protocol === 'https:' &&
+        parsed.hostname &&
+        parsed.hostname !== 'localhost'
+      ) {
+        return parsed.origin;
+      }
+    } catch {
+      // Ignore malformed entries and continue to the canonical subdomain.
+    }
+  }
+
   const subdomain =
     configData?.subdomain ||
     configData?.config?.REACT_APP_HEADER_NAME;
@@ -213,7 +254,21 @@ export function resolveZerodhaSymbol(stock, symbolMap) {
     // convertToBasketItem() which also strips -EQ below.
     tradingsymbol = tradingsymbol.replace(/-EQ$/, '');
   }
-  const exchange = info?.exchange || stock?.exchange || '';
+  // A SELL must go to the exchange the demat holding is tagged with, which
+  // the calculator already resolved from the broker snapshot onto the leg.
+  // Kite validates a CNC sell against that exchange's holding: on
+  // 2026-09-18 the scripmaster mapped VIKASECO-EQ to NSE (its -EQ series),
+  // the customer's 82 shares were held as BSE, and Kite rejected the NSE sell
+  // with "Holding quantity: 0". BUYs keep the scripmaster's preferred
+  // listing — that mapping is what makes Kite accept BE / BSE-only scrips.
+  const side = String(
+    stock?.transactionType || stock?.type || stock?.side || '',
+  ).toUpperCase();
+  const heldExchange = String(stock?.exchange || '').trim();
+  const exchange =
+    side === 'SELL' && heldExchange
+      ? heldExchange
+      : info?.exchange || stock?.exchange || '';
   return {
     tradingsymbol,
     exchange,
@@ -222,16 +277,123 @@ export function resolveZerodhaSymbol(stock, symbolMap) {
 }
 
 /**
- * Create order batches based on broker's max basket size.
+ * Attach the price snapshot used by the Kite basket to Publisher intent legs.
+ *
+ * MARKET orders intentionally remain MARKET here; `price` is only the
+ * valuation/reference price used by the post-sell affordability refit and by
+ * durable continuation recovery. The final Kite item is still converted to a
+ * protected LIMIT by `convertToBasketItem`.
  */
-export function createBatches(stockDetails, broker) {
+export function enrichPublisherLegPrices(
+  stockDetails,
+  freshPrices = {},
+  symbolMap = {},
+) {
+  return (stockDetails || []).map(stock => {
+    const resolved = resolveZerodhaSymbol(stock, symbolMap);
+    const resolvedSymbol = String(resolved.tradingsymbol || '').toUpperCase();
+    const freshPrice = Number(freshPrices?.[resolvedSymbol]);
+    const fallbackPrice = [
+      stock?.referencePrice,
+      stock?.ltp,
+      stock?.rebalancePrice,
+      stock?.frozenPrice,
+      stock?.price,
+      resolved.cachedLtp,
+    ]
+      .map(Number)
+      .find(value => Number.isFinite(value) && value > 0);
+    const referencePrice =
+      Number.isFinite(freshPrice) && freshPrice > 0
+        ? freshPrice
+        : fallbackPrice;
+
+    if (!referencePrice) return stock;
+    const isMarket = mapKiteOrderType(stock?.orderType) === 'MARKET';
+    const submittedPrice = Number(stock?.price);
+    return {
+      ...stock,
+      price:
+        isMarket || !Number.isFinite(submittedPrice) || submittedPrice <= 0
+          ? referencePrice
+          : submittedPrice,
+      referencePrice,
+      ltp: referencePrice,
+    };
+  });
+}
+
+/**
+ * Create order batches based on broker's max basket size.
+ *
+ * Two-phase publisher (mirrors prod-alphaquark-github/src/utils/brokerPublisher.js
+ * §Fix C, 2026-06-24 dgopujkar/MFCC): when `separateSellsFromBuys` is set,
+ * SELL legs are batched into their own Kite basket(s) BEFORE the BUY legs,
+ * and a batch never mixes the two. The customer approves the sell basket
+ * first, so its proceeds can settle as margin before the buy basket is
+ * placed — otherwise a rebalance that sells and buys in the SAME basket
+ * bounces every buy on "insufficient funds" (sell proceeds aren't usable
+ * as margin in the same instant). Sells-first also matches the sequencing
+ * for API brokers (buys_sell_all_brokers.py: sells → confirm → buys). Any
+ * buy that still bounces (settlement not instant) is fully recoverable via
+ * the repair completeness pass. SCOPED via the flag — FNO multi-leg baskets
+ * (where leg order is intentional) must NOT be reordered, so they pass false.
+ */
+export function createBatches(stockDetails, broker, separateSellsFromBuys = false) {
   const config = BROKER_PUBLISHER_CONFIG[broker];
   if (!config) return [stockDetails];
 
   const maxSize = config.maxBasketSize;
-  const batches = [];
-  for (let i = 0; i < stockDetails.length; i += maxSize) {
-    batches.push(stockDetails.slice(i, i + maxSize));
+  const sliceInto = (items) => {
+    const out = [];
+    for (let i = 0; i < items.length; i += maxSize) {
+      out.push(items.slice(i, i + maxSize));
+    }
+    return out;
+  };
+
+  if (separateSellsFromBuys) {
+    const isSell = (s) =>
+      (s.transactionType || s.orderType || s.transaction_type || '').toUpperCase() === 'SELL';
+    const sells = stockDetails.filter(isSell);
+    const buys = stockDetails.filter((s) => !isSell(s));
+    return [...sliceInto(sells), ...sliceInto(buys)];
+  }
+
+  return sliceInto(stockDetails);
+}
+
+/**
+ * Model-portfolio Zerodha invariant: a mixed rebalance must expose every SELL
+ * batch before any BUY batch.  Keep this assertion at the mobile boundary as
+ * well as inside createBatches so a future mapper/refactor cannot silently
+ * regress to the legacy one-window flow (prod/testaccount, 2026-09-04: BUY
+ * placed while four unauthorized SELL legs never reached Kite).
+ */
+export function createModelPortfolioPublisherBatches(stockDetails, broker = 'Zerodha') {
+  const rows = Array.isArray(stockDetails) ? stockDetails : [];
+  const batches = createBatches(rows, broker, true);
+  const sideOf = row => String(
+    row?.transactionType || row?.transaction_type || row?.orderType || '',
+  ).toUpperCase();
+  const hasSell = rows.some(row => sideOf(row) === 'SELL');
+  const hasBuy = rows.some(row => sideOf(row) === 'BUY');
+
+  if (hasSell && hasBuy) {
+    let buySeen = false;
+    for (const batch of batches) {
+      const sides = new Set((batch || []).map(sideOf));
+      if (sides.size !== 1 || (!sides.has('SELL') && !sides.has('BUY'))) {
+        throw new Error('Unsafe Zerodha rebalance batch: BUY and SELL legs were mixed.');
+      }
+      if (sides.has('BUY')) buySeen = true;
+      if (sides.has('SELL') && buySeen) {
+        throw new Error('Unsafe Zerodha rebalance batch: SELL must be placed before BUY.');
+      }
+    }
+    if (!batches.length || sideOf(batches[0]?.[0]) !== 'SELL') {
+      throw new Error('Unsafe Zerodha rebalance batch: the first basket is not SELL.');
+    }
   }
   return batches;
 }
@@ -299,23 +461,23 @@ function mapKiteProductType(productType, exchange) {
  * scrips), trading a tiny amount of price precision for guaranteed
  * tick-validity across every broker's quirks:
  *
- *   price ≤ ₹1000           → tick ₹0.10
- *   ₹1000 < price ≤ ₹4000   → tick ₹0.50
- *   price > ₹4000           → tick ₹1.00
+ *   price < ₹250            → tick ₹0.01
+ *   ₹250 ≤ price ≤ ₹1000    → tick ₹0.05
+ *   ₹1000 < price ≤ ₹5000   → tick ₹0.10
+ *   ₹5000 < price ≤ ₹10000  → tick ₹0.50
+ *   ₹10000 < price ≤ ₹20000 → tick ₹1.00
+ *   price > ₹20000          → tick ₹5.00
  *
- * Pre-B-35a used 0.10/0.20/0.50 buckets which could produce LIMIT prices
- * that weren't multiples of the real 0.05 exchange tick — e.g. 1200.40
- * (multiple of 0.20 but not 0.05) could be rejected on a scrip whose
- * exchange tick is 0.05. The B-35a schedule is strictly safer: all snap
- * values are multiples of 0.05 so they remain valid on any scrip on the
- * real 0.05 tick.
+ * This is the conservative NSE price-band fallback used by the web publisher.
+ * It includes the ₹5 increment above ₹20,000 that the earlier mobile
+ * 0.10/0.50/1.00 fallback omitted.
  *
  * Without this snap, `applyKiteMarketProtection` produces e.g.
  * `1.45 * 1.015 = 1.47175` and Kite responds with "invalid price" for the
  * basket item (and silently drops it in some cases). Call this on the
  * limit price only — the LTP itself is reported verbatim.
  *
- * Rounding is to the NEAREST tick (not floor/ceil), then we normalize to
+ * Rounding defaults to the NEAREST tick, then we normalize to
  * 2 decimals to avoid float drift artifacts (0.30000000001).
  *
  * BUY callers can use Math.ceil(price/tick)*tick (snap UP); SELL callers
@@ -323,23 +485,194 @@ function mapKiteProductType(productType, exchange) {
  * The default here is nearest-tick — appropriate for applyKiteMarketProtection
  * which already applies a 1.0% (equity) or 1.5% (derivative) buffer.
  */
-export function roundToKiteTick(price) {
+export function roundToKiteTick(price, mode = 'nearest') {
   if (!Number.isFinite(price) || price <= 0) return price;
   let tick;
-  if (price > 4000) tick = 1.0;
-  else if (price > 1000) tick = 0.5;
-  else tick = 0.10;
-  const rounded = Math.round(price / tick) * tick;
+  if (price > 20000) tick = 5.0;
+  else if (price > 10000) tick = 1.0;
+  else if (price > 5000) tick = 0.5;
+  else if (price > 1000) tick = 0.1;
+  else if (price >= 250) tick = 0.05;
+  else tick = 0.01;
+  let rounded;
+  if (mode === 'ceil') rounded = Math.ceil(price / tick) * tick;
+  else if (mode === 'floor') rounded = Math.floor(price / tick) * tick;
+  else rounded = Math.round(price / tick) * tick;
   // Normalize to 2 decimals; all three ticks have at most 1 decimal so
   // this drops float-drift trailing digits without losing precision.
   return Math.round(rounded * 100) / 100;
 }
 
 /**
+ * Circuit bands from the last `publisher-safe-quotes` call, keyed
+ * `EXCHANGE:SYMBOL`.
+ *
+ * Held here rather than threaded through `overrides` because the fetch and the
+ * conversion happen back-to-back in the same flow at seven call sites; routing
+ * the band through every one of them would be a far larger change than the
+ * defect warrants. Entries are replaced on every fetch and ignored once stale,
+ * so a band can never outlive the basket it was read for.
+ */
+const _circuitBands = new Map();
+const CIRCUIT_BAND_TTL_MS = 5 * 60 * 1000;
+
+function rememberCircuitBands(bands) {
+  _circuitBands.clear();
+  if (!bands || typeof bands !== 'object') return;
+  const at = Date.now();
+  Object.keys(bands).forEach(instrument => {
+    const band = bands[instrument];
+    if (!band || typeof band !== 'object') return;
+    const lower = Number(band.lower);
+    const upper = Number(band.upper);
+    _circuitBands.set(String(instrument).toUpperCase(), {
+      lower: Number.isFinite(lower) && lower > 0 ? lower : null,
+      upper: Number.isFinite(upper) && upper > 0 ? upper : null,
+      at,
+    });
+  });
+}
+
+/** The remembered band for one instrument, or null when absent or stale. */
+export function getCircuitBand(exchange, symbol) {
+  if (!exchange || !symbol) return null;
+  const entry = _circuitBands.get(`${exchange}:${symbol}`.toUpperCase());
+  if (!entry) return null;
+  if (Date.now() - entry.at > CIRCUIT_BAND_TTL_MS) return null;
+  if (entry.lower == null && entry.upper == null) return null;
+  return {lower: entry.lower, upper: entry.upper};
+}
+
+/** Test seam. */
+export function __setCircuitBandsForTest(bands) {
+  rememberCircuitBands(bands);
+}
+
+/**
+ * Hold a protective LIMIT inside the instrument's circuit band.
+ *
+ * The buffer moves the price in our favour so a MARKET-intent leg still fills;
+ * the clamp keeps it inside the range the exchange will accept. Without the
+ * clamp a scrip sitting AT its circuit is refused outright and places nothing:
+ * 2026-09-18, tidi/prikc1333, BSE TAPARIA ltp 14.03 == upper circuit 14.03,
+ * protected to 14.18, and Kite replied "Your order price is higher than the
+ * current upper circuit limit of 14.03" — no order id, no rejection, and no
+ * reason the customer could see.
+ *
+ * After clamping we round AWAY from the breach (a BUY pinned to the upper
+ * circuit rounds DOWN to the tick) so tick rounding cannot push the price back
+ * over the edge it was just clamped to. A band narrower than one tick falls
+ * back to the edge itself. No band ⇒ the price is returned untouched, which is
+ * exactly the behaviour before this change.
+ */
+export function clampToCircuitBand(price, isBuy, band) {
+  if (!Number.isFinite(price) || price <= 0 || !band) return price;
+  const upper = Number.isFinite(band.upper) && band.upper > 0 ? band.upper : null;
+  const lower = Number.isFinite(band.lower) && band.lower > 0 ? band.lower : null;
+  let out = price;
+  if (upper != null && out > upper) out = roundToKiteTick(upper, 'floor');
+  if (lower != null && out < lower) out = roundToKiteTick(lower, 'ceil');
+  if (upper != null && out > upper) out = upper;
+  if (lower != null && out < lower) out = lower;
+  return out;
+}
+
+/** Batch Kite quote lookup for advisory last price and opposite-side depth. */
+export async function fetchFreshKiteProtectionPrices(
+  stockDetails,
+  symbolMap = {},
+) {
+  const marketLegs = (stockDetails || [])
+    .filter(stock => mapKiteOrderType(stock?.orderType) === 'MARKET')
+    .map(stock => {
+      const resolved = resolveZerodhaSymbol(stock, symbolMap);
+      const resolvedSymbol = String(resolved.tradingsymbol || '').toUpperCase();
+      return {
+        symbol: resolvedSymbol,
+        exchange: resolved.exchange,
+        side: String(stock?.transactionType || stock?.transaction_type || stock?.side || 'BUY').toUpperCase(),
+      };
+    })
+    .filter(leg => leg.symbol && leg.exchange);
+
+  // Drop anything remembered from an earlier basket before we start. Every
+  // early return below then leaves the registry empty, so a failed or skipped
+  // quote can never clamp a later price with stale data.
+  _circuitBands.clear();
+
+  if (marketLegs.length === 0) return {};
+
+  const userEmail = await getAccountEmailAsync();
+  if (!userEmail) {
+    warnBeforeKiteReview(['Zerodha prices and depth could not be checked.']);
+    return {};
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 4000);
+  let response;
+  try {
+    response = await fetch(`${server.ccxtServer.baseUrl}zerodha/publisher-safe-quotes`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Advisor-Subdomain': getTenantSubdomain(),
+        'aq-encrypted-key': generateToken(
+          RNConfig.REACT_APP_AQ_KEYS,
+          RNConfig.REACT_APP_AQ_SECRET,
+        ),
+      },
+      body: JSON.stringify({
+        userEmail,
+        orders: marketLegs.map(leg => ({
+          symbol: leg.symbol,
+          exchange: leg.exchange,
+          transactionType: leg.side,
+        })),
+      }),
+      signal: controller.signal,
+    });
+  } catch (_) {
+    warnBeforeKiteReview(['Zerodha prices and depth could not be checked.']);
+    return {};
+  } finally {
+    clearTimeout(timeout);
+  }
+  let payload;
+  try { payload = await response.json(); } catch (_) { payload = null; }
+  if (!response.ok || payload?.status !== 0) {
+    warnBeforeKiteReview(['Zerodha prices and depth could not be checked.']);
+    return {};
+  }
+  const fetchedPrices = payload.prices || {};
+  // Circuit limits, so the protective LIMIT can be clamped into a range the
+  // exchange will accept. Additive on the server side, so an older backend
+  // simply yields no band and the buffer behaves exactly as before.
+  rememberCircuitBands(payload.bands);
+  const freshPrices = {};
+  const warnings = (payload.warnings || []).map(item => `${item.symbol}: ${item.reason}`);
+  marketLegs.forEach(leg => {
+    const price = Number(fetchedPrices?.[`${leg.exchange}:${leg.symbol}`]);
+    if (price > 0) {
+      freshPrices[leg.symbol] = price;
+    } else {
+      if (!warnings.some(warning => warning.startsWith(`${leg.exchange}:${leg.symbol}:`))) {
+        warnings.push(`${leg.symbol}: last price unavailable`);
+      }
+    }
+  });
+
+  if (warnings.length > 0) {
+    warnBeforeKiteReview(warnings);
+  }
+
+  return freshPrices;
+}
+
+/**
  * Convert a stock to Kite/Fyers basket item format.
  */
 /**
- * Apply MARKET→LIMIT-IOC conversion with a 1% market-protection buffer to a
+ * Apply MARKET→LIMIT-DAY conversion with a 1% market-protection buffer to a
  * Kite basket order. Returns a new order dict with order_type / price / validity
  * updated when conditions are met; returns the input unchanged otherwise.
  *
@@ -371,9 +704,16 @@ export function applyKiteMarketProtection(baseOrder, ltp, transactionType) {
     : ltpNumeric * (1 - bufferPct);
   // Snap to the nearest valid tick for this price bucket. Required —
   // Kite rejects LIMIT orders whose price isn't on a valid increment.
-  const limitPrice = roundToKiteTick(rawBuffered);
-  // Validity: IOC on NSE/NFO, DAY on BSE/BFO (BSE+BFO reject LIMIT+IOC).
-  const validity = (exchangeUpper === 'BSE' || exchangeUpper === 'BFO') ? 'DAY' : 'IOC';
+  // Keep BUY limits above and SELL limits below the reference price. Nearest
+  // rounding can cross to the wrong side for low-priced shares (for example,
+  // VIKASECO at ₹1.11 used to become a non-marketable BUY at ₹1.10).
+  const limitPrice = roundToKiteTick(
+    rawBuffered,
+    isBuy ? 'ceil' : 'floor',
+  );
+  // Kite Publisher does not reliably accept LIMIT+CNC+IOC basket legs. The
+  // production web flow uses DAY for every exchange; keep mobile identical.
+  const validity = 'DAY';
   console.log(
     `[ZerodhaPublisher] MARKET→LIMIT for ${baseOrder.tradingsymbol}: ltp=${ltpNumeric} ` +
       `${isBuy ? 'BUY' : 'SELL'} ` +
@@ -383,20 +723,35 @@ export function applyKiteMarketProtection(baseOrder, ltp, transactionType) {
   return { ...baseOrder, order_type: 'LIMIT', price: limitPrice, validity };
 }
 
-export function convertToBasketItem(broker, stock, symbolMap) {
+export function convertToBasketItem(broker, stock, symbolMap, overrides = {}) {
   if (broker === 'Zerodha') {
-    const symbolInfo = symbolMap?.[stock.tradingSymbol] || {};
-    // Prefer API-returned exchange over stock.exchange — handles BSE-primary
-    // stocks mislabeled as NSE in tradeReco (e.g. VIKASECO).
-    const exchange = symbolInfo.exchange || stock.exchange;
+    const adviceSymbol = stock?.tradingSymbol || stock?.symbol || '';
+    const symbolInfo = symbolMap?.[adviceSymbol] || {};
+    // BUY: prefer the scripmaster's exchange over stock.exchange — it handles
+    // BSE-primary stocks mislabeled as NSE in tradeReco (e.g. VIKASECO).
+    // SELL: the leg's exchange wins when present. The calculator resolved it
+    // from the broker's own holdings row, i.e. where the shares actually sit,
+    // and Kite validates a CNC sell against THAT exchange's holding. On
+    // 2026-09-18 the scripmaster said VIKASECO-EQ → NSE while the customer's
+    // 82 shares were held as BSE; Kite rejected the NSE sell with "Holding
+    // quantity: 0" even though both the book and the snapshot said 82.
+    const legSide = String(
+      stock?.transactionType || stock?.type || stock?.side || '',
+    ).toUpperCase();
+    const heldExchange = String(stock?.exchange || '').trim();
+    const exchange =
+      overrides.exchange ||
+      (legSide === 'SELL' && heldExchange ? heldExchange : null) ||
+      symbolInfo.exchange ||
+      stock.exchange;
     // Strip -EQ suffix if present for Zerodha symbol
-    let tradingsymbol = symbolInfo.zerodha_symbol || stock.tradingSymbol;
-    if (tradingsymbol.endsWith('-EQ')) {
+    let tradingsymbol =
+      overrides.tradingsymbol || symbolInfo.zerodha_symbol || adviceSymbol;
+    if (typeof tradingsymbol === 'string' && tradingsymbol.endsWith('-EQ')) {
       tradingsymbol = tradingsymbol.replace(/-EQ$/, '');
     }
 
-    // MARKET -> LIMIT with market-protection buffer (IOC on NSE/NFO,
-    // DAY on BSE/BFO).
+    // MARKET -> LIMIT-DAY with a market-protection buffer.
     //
     // B-35 (2026-05-19 mobile migration): exchange-aware buffer policy:
     //   • Equity (NSE/BSE):     1.0% (mobile retained legacy)
@@ -411,10 +766,15 @@ export function convertToBasketItem(broker, stock, symbolMap) {
     const isDerivative = exchangeUpper === 'NFO' || exchangeUpper === 'BFO';
     const MARKET_PROTECTION_BUFFER_PCT = isDerivative ? 0.015 : 0.01;
     let orderType = mapKiteOrderType(stock.orderType);
-    let price = stock.price || 0;
+    let price = overrides.price ?? stock.price ?? 0;
     let validity = null;
     const ltp = parseFloat(
-      stock.ltp || stock.lastPrice || stock.currentPrice || stock.last_price || 0
+      overrides.ltp ??
+        stock.ltp ??
+        stock.lastPrice ??
+        stock.currentPrice ??
+        stock.last_price ??
+        0
     );
     if (orderType === 'MARKET' && ltp > 0) {
       const isBuy = (stock.transactionType || 'BUY').toUpperCase() === 'BUY';
@@ -422,18 +782,43 @@ export function convertToBasketItem(broker, stock, symbolMap) {
         ? ltp * (1 + MARKET_PROTECTION_BUFFER_PCT)
         : ltp * (1 - MARKET_PROTECTION_BUFFER_PCT);
       // Snap to the tick-safe schedule (0.10/0.50/1.00 — see roundToKiteTick).
-      const limitPrice = roundToKiteTick(rawBuffered);
+      const bufferedPrice = roundToKiteTick(
+        rawBuffered,
+        isBuy ? 'ceil' : 'floor',
+      );
+      // Hold it inside the circuit band when the broker reported one. This
+      // touches ONLY the price synthesised here for a MARKET leg; an explicit
+      // LIMIT never reaches this branch. With no band the value is returned
+      // unchanged, which is the behaviour before this change.
+      const band = getCircuitBand(exchange, tradingsymbol);
+      const limitPrice = clampToCircuitBand(bufferedPrice, isBuy, band);
       orderType = 'LIMIT';
       price = limitPrice;
-      validity = (exchangeUpper === 'BSE' || exchangeUpper === 'BFO') ? 'DAY' : 'IOC';
+      validity = 'DAY';
       console.log(
         `[BrokerPublisher] MARKET→LIMIT for ${tradingsymbol}: ltp=${ltp} ` +
           `${isBuy ? 'BUY' : 'SELL'} ` +
           `${isDerivative ? 'derivative 1.5%' : 'equity 1.0%'} ` +
-          `limit=${limitPrice} validity=${validity}`
+          `limit=${limitPrice} validity=${validity}` +
+          (limitPrice !== bufferedPrice
+            ? ` (clamped from ${bufferedPrice} to the circuit band ` +
+              `${band?.lower ?? '-'}..${band?.upper ?? '-'})`
+            : '')
       );
     }
 
+    const quantity = overrides.quantity ?? stock.quantity;
+    const transactionType = (
+      overrides.transactionType || stock.transactionType || 'BUY'
+    ).toUpperCase();
+    const tag = String(
+      overrides.tag ??
+        stock.publisherTag ??
+        stock.tag ??
+        stock.zerodhaTradeId ??
+        stock.tradeId ??
+        '',
+    ).substring(0, 20);
     const item = {
       tradingsymbol,
       // No silent default — callers must validate via validateStockExchanges()
@@ -441,17 +826,17 @@ export function convertToBasketItem(broker, stock, symbolMap) {
       // exchange, which has caused live orders (e.g. BSE-only ADARSHPL) to
       // vanish without an error.
       exchange,
-      transaction_type: stock.transactionType,
-      quantity: stock.quantity,
+      transaction_type: transactionType,
+      quantity,
       order_type: orderType,
       // B-28: pass exchange so F&O (NFO/BFO) maps CARRYFORWARD → NRML
       // instead of CNC. Equity (NSE/BSE) is unchanged.
       product: mapKiteProductType(stock.productType, exchange),
       price,
-      trigger_price: stock.triggerPrice || 0,
+      trigger_price: overrides.triggerPrice ?? stock.triggerPrice ?? 0,
       variety: 'regular',
-      readonly: false,
-      tag: stock.zerodhaTradeId || stock.tradeId || '',
+      readonly: overrides.readonly ?? Number(quantity) > 100,
+      tag,
     };
     if (validity) item.validity = validity;
     return item;
@@ -474,6 +859,52 @@ export function getPublisherRecordEndpoint(broker, baseUrl) {
   // Fyers branch removed 2026-04-26 — Fyers REST path through
   // /rebalance/process-trade records its own results server-side.
   return `${base}api/publisher/record-orders`;
+}
+
+/**
+ * Void the `traderecos` rows written by `update-reco-with-zerodha-model-pf`
+ * when the attempt was refused BEFORE the dispatch boundary.
+ *
+ * The rows are created before anything authorises the attempt, so a refusal
+ * (ccxt 409 on a consumed plan, a missing execution identity) leaves status-less
+ * rows that no reconciler owns — the Orders screen then renders them as
+ * "Unknown" forever. prod/arulthakur, 2026-09-17: a refused second launch left
+ * five such rows. See
+ * prod-alphaquark-github/docs/server_issues/2026-09-17-arul-zerodha-orders-unknown-orphan-rows.md.
+ *
+ * A definitive client refusal (4xx) is the only proof the basket never opened.
+ * An ambiguous outcome — timeout, connection reset, 5xx — must NOT be voided:
+ * the plan may be consumed and the basket may still open, which is the same
+ * rule `publisherBatchDispatch` applies past `authorize()`.
+ *
+ * Never throws, and returns the number of rows voided: this runs while an error
+ * is already being reported to the customer, so a failed cleanup must not
+ * replace the real reason.
+ */
+export async function voidUnsentPublisherRecos({legs, email, headers, error}) {
+  const status = error?.response?.status;
+  if (!(status >= 400 && status < 500)) return 0;
+
+  const tradeIds = (Array.isArray(legs) ? legs : [])
+    .map(leg => leg?.tradeId)
+    .filter(Boolean)
+    .map(String);
+  if (tradeIds.length === 0) return 0;
+
+  try {
+    const response = await axios.post(
+      `${server.server.baseUrl}api/zerodha/model-portfolio/void-reco-with-zerodha-model-pf`,
+      {tradeIds, email},
+      {headers},
+    );
+    return response?.data?.data?.voided ?? 0;
+  } catch (cleanupError) {
+    console.warn(
+      '[Publisher] Could not void unsent trade recos:',
+      cleanupError?.message || cleanupError,
+    );
+    return 0;
+  }
 }
 
 /**

@@ -314,17 +314,41 @@ useEffect(() => {
 ```javascript
 useEffect(() => {
   async function createChannel() {
+    // Channel id 'notifications' — NEW id chosen 2026-08-14 (ported
+    // from markup_app). Android permanently ignores sound/vibration
+    // changes on EXISTING channel records (AOSP
+    // PreferencesHelper.createNotificationChannel copies only
+    // name/description/group/importance on update, and even
+    // delete+recreate keeps the old record's sound — soft-delete). The
+    // legacy 'default' channel was created without `sound` and is stuck
+    // silent on every installed device, so all push display sites moved
+    // to this fresh channel, which is created WITH sound from day one.
+    // The FCM background path follows via
+    // `messaging_android_notification_channel_id` in firebase.json.
     await notifee.createChannel({
-      id: 'default',
-      name: 'Default Channel',
+      id: 'notifications',
+      name: 'Notifications',
       importance: AndroidImportance.HIGH,
+      sound: 'default',
+      vibration: true,
+      vibrationPattern: [300, 500],
     });
   }
   createChannel();
 }, []);
 ```
 
-**Purpose:** Create Android notification channel
+**Purpose:** Create the Android notification channel used by ALL push
+display sites (bespoke, news, rebalance, reco_message, trade_modified and
+the `index.js` background handler). Must carry `sound: 'default'`
+explicitly — a channel created/updated without it is silent, and Android
+will never let the app fix an existing channel's sound afterwards (see
+comment above; verified against AOSP android14-release
+`PreferencesHelper.createNotificationChannel` lines 911–981). The
+background FCM display path targets the same channel via
+`com.google.firebase.messaging.default_notification_channel_id` =
+`notifications` (merged from `firebase.json`'s
+`messaging_android_notification_channel_id`).
 
 ### 6. Status Bar Styling
 
@@ -489,7 +513,7 @@ const handleNewsNotification = async (title, body, notificationType, image, desc
     title: `${title}`,
     body: `<b style="color: #4caf50; font-size: 12px;">${description}</b>`,
     android: {
-      channelId: 'default',
+      channelId: 'notifications',
       style: { type: AndroidStyle.BIGPICTURE, picture: `${image}` },
       importance: AndroidImportance.HIGH,
       pressAction: { id: 'default' },
@@ -515,7 +539,7 @@ const handleRebalanceNotification = async (title, body, notificationType) => {
       title: title || 'New Rebalance!',
       body: body || 'You have received a new rebalance from your advisor. Tap to review.',
       android: {
-        channelId: 'default',
+        channelId: 'notifications',
         importance: AndroidImportance.HIGH,
         pressAction: { id: 'default' },
         color: '#E8210C',
@@ -541,7 +565,7 @@ const displayNotification = async (title, body, notificationType) => {
     title,
     body,
     android: {
-      channelId: 'default',
+      channelId: 'notifications',
       importance: AndroidImportance.HIGH,
       pressAction: { id: 'default' },
       color: '#E8210C',
@@ -570,7 +594,7 @@ const displayStockNotification = async (
     title: `${title}`,
     body: `${symbol} - ${type}`,
     android: {
-      channelId: 'default',
+      channelId: 'notifications',
       importance: AndroidImportance.HIGH,
       pressAction: { id: 'default' },
       color: '#E8210C',

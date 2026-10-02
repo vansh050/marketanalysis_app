@@ -3,6 +3,7 @@ import { Text, StyleSheet,View } from "react-native";
 import axios from 'axios';
 import { io } from "socket.io-client";
 import useLTPStore from "./DynamicText/useLtpStore";
+import { designColor, designFont } from '../../design/literalTokens';
 // WebSocket Manager remains the same
 
 const ReviewTradeTextRebalance = React.memo(({ symbol, orderType,exchange, limitPrice }) => {
@@ -11,16 +12,19 @@ const ReviewTradeTextRebalance = React.memo(({ symbol, orderType,exchange, limit
     const renderPrice = () => {
     switch (orderType) {
       case 'MARKET':
-        return <View style={{alignContent:'center',alignItems:'center',alignSelf:'center',flexDirection:'row'}}>
-          <Text style={styles.cellTextmktprice}>₹{price !== null ? price?.toFixed(2) : '-'}</Text>
-          <Text style={{color:'grey',fontSize:10,fontFamily:'Poppins-Small'}}> (Mkt)</Text>
-          </View>;
-      case 'LIMIT':
-        return <View style={{alignContent:'center',alignItems:'center',alignSelf:'center',flexDirection:'row'}}>
-             <Text style={styles.cellTextmktprice}>₹{price !== null ? price?.toFixed(2) : '-'}</Text>
-             <Text style={{color:'grey',fontSize:10,fontFamily:'Poppins-Small'}}>{limitPrice !== null ? limitPrice : '-'} (Lmt)</Text>
+        return (
+          <View style={{alignContent:'center',alignItems:'center',alignSelf:'center',flexDirection:'row'}}>
+            <Text style={styles.cellTextmktprice}>₹{price !== null ? price?.toFixed(2) : '-'}</Text>
+            <Text style={{color:'grey',fontSize:10,fontFamily:designFont('Poppins-Small')}}> (Mkt)</Text>
             </View>
-     ;
+        );
+      case 'LIMIT':
+        return (
+          <View style={{alignContent:'center',alignItems:'center',alignSelf:'center',flexDirection:'row'}}>
+               <Text style={styles.cellTextmktprice}>₹{price !== null ? price?.toFixed(2) : '-'}</Text>
+               <Text style={{color:'grey',fontSize:10,fontFamily:designFont('Poppins-Small')}}>{limitPrice !== null ? limitPrice : '-'} (Lmt)</Text>
+              </View>
+        );
      case 'BUY':
         return <View style={{alignContent:'center',alignItems:'center',alignSelf:'center'}}>
           <Text style={styles.cellTextmktprice}>₹{price !== null ? price?.toFixed(2) : '-'}</Text>
@@ -45,7 +49,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     color: 'black',
     flexDirection: 'column',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   fnostyle : {
     fontSize: 13,
@@ -53,8 +57,8 @@ const styles = StyleSheet.create({
     alignContent:'center',
     alignItems:'center',
     alignSelf:'center',
-    color: "#333333",
-    fontFamily:'Satoshi-Medium',
+    color: designColor('333333'),
+    fontFamily:designFont('Satoshi-Medium'),
     textAlign: "right",
   }
 });

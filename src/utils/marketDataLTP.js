@@ -10,6 +10,26 @@ import server from './serverConfig';
 // In-memory LTP cache with timestamps
 const ltpCache = {};
 const CACHE_TTL_MS = 30 * 1000; // 30 seconds
+const FAILURE_COOLDOWN_MS = 5 * 1000;
+const REQUEST_TIMEOUT_MS = 10 * 1000;
+const inFlightBatches = new Map();
+const failedBatchCooldowns = new Map();
+
+const normalizedOrders = symbols => {
+  const seen = new Set();
+  return symbols
+    .map(s => ({
+      exchange: String(s.exchange || 'NSE').trim().toUpperCase(),
+      tradingSymbol: String(s.symbol || s.tradingSymbol || '').trim().toUpperCase(),
+    }))
+    .filter(order => {
+      if (!order.tradingSymbol) return false;
+      const key = `${order.exchange}:${order.tradingSymbol}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
 
 /**
  * Fetch LTP for multiple symbols via REST API.
@@ -19,12 +39,16 @@ const CACHE_TTL_MS = 30 * 1000; // 30 seconds
 export async function fetchLTPBatch(symbols) {
   if (!symbols || symbols.length === 0) return {};
 
-  const orders = symbols.map(s => ({
-    exchange: s.exchange || 'NSE',
-    tradingSymbol: s.symbol || s.tradingSymbol,
-  }));
+  const orders = normalizedOrders(symbols);
+  if (orders.length === 0) return {};
+  const key = orders.map(o => `${o.exchange}:${o.tradingSymbol}`).sort().join('|');
+  if ((failedBatchCooldowns.get(key) || 0) > Date.now()) return {};
+  if (inFlightBatches.has(key)) return inFlightBatches.get(key);
 
-  try {
+  const pending = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
     const response = await fetch(
       `${server.websocket.baseUrl}market-data/ltp`,
       {
@@ -37,6 +61,7 @@ export async function fetchLTPBatch(symbols) {
           ),
         },
         body: JSON.stringify({Orders: orders}),
+        signal: controller.signal,
       },
     );
 
@@ -58,11 +83,21 @@ export async function fetchLTPBatch(symbols) {
       }
     });
 
-    return result;
-  } catch (err) {
-    console.warn('[marketDataLTP] Batch fetch error:', err);
-    return {};
-  }
+      if (Object.keys(result).length === 0) {
+        failedBatchCooldowns.set(key, Date.now() + FAILURE_COOLDOWN_MS);
+      }
+      return result;
+    } catch (err) {
+      failedBatchCooldowns.set(key, Date.now() + FAILURE_COOLDOWN_MS);
+      console.warn('[marketDataLTP] Batch fetch error:', err);
+      return {};
+    } finally {
+      clearTimeout(timeout);
+      inFlightBatches.delete(key);
+    }
+  })();
+  inFlightBatches.set(key, pending);
+  return pending;
 }
 
 /**

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Animated, Easing } from 'react-native';
 
+import { designColor } from '../design/literalTokens';
+
 const SocialProofPopup = ({ message, visible, onHidden }) => {
   const [animation] = useState(new Animated.Value(100)); // Start off-screen
 
@@ -51,18 +53,18 @@ const styles = StyleSheet.create({
     bottom: 20,
     left: 20,
     right: 20,
-    backgroundColor: '#000',
+    backgroundColor: designColor('000'),
     padding: 10,
     borderRadius: 10,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
     shadowRadius: 5,
     elevation: 5,
   },
   text: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
   },
 });

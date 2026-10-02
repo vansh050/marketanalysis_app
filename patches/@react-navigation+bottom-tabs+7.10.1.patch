@@ -1,0 +1,82 @@
+diff --git a/node_modules/@react-navigation/bottom-tabs/lib/module/utils/useIsKeyboardShown.js b/node_modules/@react-navigation/bottom-tabs/lib/module/utils/useIsKeyboardShown.js
+index 01e8826..93b6169 100644
+--- a/node_modules/@react-navigation/bottom-tabs/lib/module/utils/useIsKeyboardShown.js
++++ b/node_modules/@react-navigation/bottom-tabs/lib/module/utils/useIsKeyboardShown.js
+@@ -2,9 +2,12 @@
+ 
+ import * as React from 'react';
+ import { Keyboard, Platform } from 'react-native';
+-export function useIsKeyboardShown() {
++export function useIsKeyboardShown(enabled = true) {
+   const [isKeyboardShown, setIsKeyboardShown] = React.useState(false);
+   React.useEffect(() => {
++    if (!enabled) {
++      return;
++    }
+     const handleKeyboardShow = () => setIsKeyboardShown(true);
+     const handleKeyboardHide = () => setIsKeyboardShown(false);
+     let subscriptions;
+@@ -16,7 +19,7 @@ export function useIsKeyboardShown() {
+     return () => {
+       subscriptions.forEach(s => s.remove());
+     };
+-  }, []);
++  }, [enabled]);
+   return isKeyboardShown;
+ }
+ //# sourceMappingURL=useIsKeyboardShown.js.map
+diff --git a/node_modules/@react-navigation/bottom-tabs/lib/module/views/BottomTabBar.js b/node_modules/@react-navigation/bottom-tabs/lib/module/views/BottomTabBar.js
+index cb4e310..86859b1 100644
+--- a/node_modules/@react-navigation/bottom-tabs/lib/module/views/BottomTabBar.js
++++ b/node_modules/@react-navigation/bottom-tabs/lib/module/views/BottomTabBar.js
+@@ -138,7 +138,7 @@ export function BottomTabBar({
+   if (tabBarLabelPosition === 'below-icon' && tabBarVariant === 'uikit' && (tabBarPosition === 'left' || tabBarPosition === 'right')) {
+     throw new Error("The 'below-icon' label position for tab bar is only supported when 'tabBarPosition' is set to 'top' or 'bottom' when using the 'uikit' variant.");
+   }
+-  const isKeyboardShown = useIsKeyboardShown();
++  const isKeyboardShown = useIsKeyboardShown(tabBarHideOnKeyboard);
+   const onHeightChange = React.useContext(BottomTabBarHeightCallbackContext);
+   const shouldShowTabBar = !(tabBarHideOnKeyboard && isKeyboardShown);
+   const visibilityAnimationConfigRef = React.useRef(tabBarVisibilityAnimationConfig);
+diff --git a/node_modules/@react-navigation/bottom-tabs/src/utils/useIsKeyboardShown.tsx b/node_modules/@react-navigation/bottom-tabs/src/utils/useIsKeyboardShown.tsx
+index 2ee04ac..373775d 100644
+--- a/node_modules/@react-navigation/bottom-tabs/src/utils/useIsKeyboardShown.tsx
++++ b/node_modules/@react-navigation/bottom-tabs/src/utils/useIsKeyboardShown.tsx
+@@ -1,10 +1,14 @@
+ import * as React from 'react';
+ import { type EmitterSubscription, Keyboard, Platform } from 'react-native';
+ 
+-export function useIsKeyboardShown() {
++export function useIsKeyboardShown(enabled = true) {
+   const [isKeyboardShown, setIsKeyboardShown] = React.useState(false);
+ 
+   React.useEffect(() => {
++    if (!enabled) {
++      return;
++    }
++
+     const handleKeyboardShow = () => setIsKeyboardShown(true);
+     const handleKeyboardHide = () => setIsKeyboardShown(false);
+ 
+@@ -25,7 +29,7 @@ export function useIsKeyboardShown() {
+     return () => {
+       subscriptions.forEach((s) => s.remove());
+     };
+-  }, []);
++  }, [enabled]);
+ 
+   return isKeyboardShown;
+ }
+diff --git a/node_modules/@react-navigation/bottom-tabs/src/views/BottomTabBar.tsx b/node_modules/@react-navigation/bottom-tabs/src/views/BottomTabBar.tsx
+index 55b9c8f..99f4cab 100644
+--- a/node_modules/@react-navigation/bottom-tabs/src/views/BottomTabBar.tsx
++++ b/node_modules/@react-navigation/bottom-tabs/src/views/BottomTabBar.tsx
+@@ -201,7 +201,7 @@ export function BottomTabBar({
+     );
+   }
+ 
+-  const isKeyboardShown = useIsKeyboardShown();
++  const isKeyboardShown = useIsKeyboardShown(tabBarHideOnKeyboard);
+ 
+   const onHeightChange = React.useContext(BottomTabBarHeightCallbackContext);
+ 

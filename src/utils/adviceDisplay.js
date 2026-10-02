@@ -70,6 +70,45 @@ export function orderTypeDisplay(orderType) {
 }
 
 /**
+ * Returns whether an advice closes all or part of an earlier position.
+ * Backend payloads historically use camelCase, while some stored rows and
+ * clients lowercase the value, so normalize before comparing.
+ */
+export function isExitAdvice(closurestatus) {
+  const normalizedStatus = String(closurestatus || '').trim().toLowerCase();
+  return normalizedStatus === 'fullclose' || normalizedStatus === 'partialclose';
+}
+
+function recommendationId(trade = {}) {
+  return trade.advice_reco_id || trade.adviceRecoId || trade.recommendationId || trade.recoId;
+}
+
+function positionAdviceId(trade = {}) {
+  return trade.positionAdviceRecoId || trade.sourceAdviceRecoId || recommendationId(trade);
+}
+
+/**
+ * A full-close for a recommendation which was never placed withdraws the
+ * recommendation; it must not leave the original entry in the Active tab.
+ * Basket rows have their own position-aware lifecycle resolver.
+ */
+export function isWithdrawnUnfilledEntry(trade = {}, allTrades = []) {
+  if (String(trade.trade_place_status || '').trim().toLowerCase() !== 'recommend') {
+    return false;
+  }
+  if (trade.basketId || trade.basket_id || trade.basket_advice) return false;
+
+  const id = positionAdviceId(trade);
+  const symbol = String(trade.Symbol || trade.symbol || '').trim().toUpperCase();
+  return Boolean(id) && allTrades.some(candidate =>
+    candidate !== trade &&
+    positionAdviceId(candidate) === id &&
+    String(candidate.Symbol || candidate.symbol || '').trim().toUpperCase() === symbol &&
+    String(candidate.closurestatus || '').trim().toLowerCase() === 'fullclose'
+  );
+}
+
+/**
  * Truthiness test mirroring mailer.py's
  * `trade.get('stopLoss') and trade.get('stopLoss') != '-'`, adapted to JS:
  * treats undefined/null/''/'-'  and numeric 0 (incl. '0' string) as "absent".
@@ -153,4 +192,6 @@ export function adviceHeaderLabel(params = {}) {
 export default {
   orderTypeDisplay,
   adviceHeaderLabel,
+  isExitAdvice,
+  isWithdrawnUnfilledEntry,
 };

@@ -12,7 +12,7 @@
  *   - brokerSupport (broker availability + order-type matrix)
  *   - rebalanceHelpers (payload builder, auth-error detector, funds check)
  *   - rebalanceDiffUtils (diff + summary)
- *   - OrderService.placeOrders (new direct-ccxt path with legacy fallback)
+ *   - OrderService.placeOrders (single direct-ccxt dispatch path)
  */
 
 jest.mock('react-native-crypto-js');
@@ -38,6 +38,11 @@ jest.mock('../../utils/serverConfig', () => ({
 jest.mock('../../utils/Config', () => ({
   AQ_KEY: 'test-key',
   AQ_SECRET: 'test-secret',
+}));
+jest.mock('../../utils/customerAuthHeaders', () => ({
+  getCustomerAuthHeaders: jest.fn(async () => ({
+    Authorization: 'Bearer firebase-token',
+  })),
 }));
 
 jest.mock('axios', () => {
@@ -124,7 +129,7 @@ describe('Integration: Broker Trade Flow (Phase A direct-ccxt)', () => {
       jwtToken: 'zerodha-token-123',
     };
 
-    test('POSTs to ccxt /orders/process-trade with clientTradeId enriched', async () => {
+    test('POSTs with stable request, leg identity, and explicit quantity unit', async () => {
       axios.post.mockResolvedValueOnce({
         data: {
           results: [
@@ -141,37 +146,30 @@ describe('Integration: Broker Trade Flow (Phase A direct-ccxt)', () => {
       const data = await placeOrders(samplePayload, configData);
       expect(axios.post).toHaveBeenCalledTimes(1);
       const [url, body, opts] = axios.post.mock.calls[0];
-      expect(url).toBe('https://ccxtprod.alphaquark.in/orders/process-trade');
+      expect(url).toBe('https://server.alphaquark.in/api/process-trades/order-place');
       expect(body.trades[0].clientTradeId).toBeDefined();
+      expect(body.requestId).toBeDefined();
+      expect(body.trades[0].quantity_unit).toBe('shares');
+      expect(opts.headers['x-request-id']).toBe(body.requestId);
       expect(opts.headers['X-Advisor-Subdomain']).toBe('test-advisor');
+      expect(opts.headers.Authorization).toBe('Bearer firebase-token');
       expect(data.results[0].orderStatus).toBe('COMPLETE');
     });
 
-    test('falls back to legacy Node on 5xx', async () => {
-      axios.post
-        .mockRejectedValueOnce({response: {status: 503}, message: 'unavailable'})
-        .mockResolvedValueOnce({
-          data: {response: [{orderStatus: 'COMPLETE', orderId: 'ZRD-002'}]},
-        });
-
-      const data = await placeOrders(samplePayload, configData);
-      expect(axios.post).toHaveBeenCalledTimes(2);
-      expect(axios.post.mock.calls[0][0]).toBe(
-        'https://ccxtprod.alphaquark.in/orders/process-trade',
-      );
-      expect(axios.post.mock.calls[1][0]).toBe(
-        'https://server.alphaquark.in/api/process-trades/order-place',
-      );
-      expect(data.response[0].orderStatus).toBe('COMPLETE');
+    test('does not dispatch a second route after a 5xx', async () => {
+      axios.post.mockRejectedValueOnce({response: {status: 503}, message: 'unavailable'});
+      await expect(placeOrders(samplePayload, configData)).rejects.toMatchObject({
+        response: {status: 503},
+      });
+      expect(axios.post).toHaveBeenCalledTimes(1);
     });
 
-    test('falls back on network error (no response)', async () => {
-      axios.post
-        .mockRejectedValueOnce({message: 'Network Error'})
-        .mockResolvedValueOnce({data: {response: []}});
-
-      await placeOrders(samplePayload, configData);
-      expect(axios.post).toHaveBeenCalledTimes(2);
+    test('does not dispatch a second route after a network error', async () => {
+      axios.post.mockRejectedValueOnce({message: 'Network Error'});
+      await expect(placeOrders(samplePayload, configData)).rejects.toMatchObject({
+        message: 'Network Error',
+      });
+      expect(axios.post).toHaveBeenCalledTimes(1);
     });
 
     test('does NOT fall back on 4xx', async () => {
@@ -187,11 +185,11 @@ describe('Integration: Broker Trade Flow (Phase A direct-ccxt)', () => {
     });
   });
 
-  // ─── IIFL blocked flow (broker matrix gate) ────────────────────
+  // ─── IIFL direct flow (broker matrix gate) ─────────────────────
 
-  describe('IIFL Securities blocked flow', () => {
-    test('broker availability check blocks IIFL', () => {
-      expect(isBrokerAvailable('IIFL Securities')).toBe(false);
+  describe('IIFL Securities direct flow', () => {
+    test('broker availability check permits IIFL', () => {
+      expect(isBrokerAvailable('IIFL Securities')).toBe(true);
     });
   });
 
@@ -275,7 +273,7 @@ describe('Integration: Broker Trade Flow (Phase A direct-ccxt)', () => {
           serverId: 'sr',
           viewToken: 'vt',
         },
-        ['consumerKey', 'accessToken', 'sid', 'serverId', 'viewToken'],
+        ['apiKey', 'apiAccessToken', 'accessToken', 'sid', 'serverId'],
       ],
       [
         'Hdfc Securities',

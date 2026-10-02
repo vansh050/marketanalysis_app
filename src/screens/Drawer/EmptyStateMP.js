@@ -9,13 +9,15 @@ import React from 'react';
 import { useComponent } from '../../design/useDesign';
 import { useConfig } from '../../context/ConfigContext';
 
+import { designColor } from '../../design/literalTokens';
+
 const EmptyStateInfoMP = ({
   title = 'Premium Access Required',
   subtitle = 'Purchase this plan to view all distributions and unlock advanced insights.',
 }) => {
   const config = useConfig();
-  const themeColor = config?.themeColor || '#0056B7';
-  const mainColor = config?.mainColor || '#002651';
+  const themeColor = config?.themeColor || designColor('0056b7');
+  const mainColor = config?.mainColor || designColor('002651');
 
   const Presentation = useComponent('composites.EmptyStateMP');
 

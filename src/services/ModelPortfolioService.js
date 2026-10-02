@@ -7,13 +7,12 @@ import axios from 'axios';
 import Config from 'react-native-config';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 
 function getHeaders(configData) {
   return {
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain':
-      configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(configData),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,
@@ -114,20 +113,31 @@ const isSdkExecuteAdviceEnabled = () => {
  * Phase C SDK path: when sdkClient is passed (third arg) and the
  * REACT_APP_USE_SDK_EXECUTE_ADVICE flag is on, routes through
  * sdkClient.executeAdvice({ kind: 'mpRebalance' }). Falls back to
- * legacy on SDK failure. Service file — can't use hooks, so callers
- * must pass useSdkClient() result explicitly.
+ * Never falls through to legacy after SDK placement starts: a timeout may
+ * mean the broker accepted the order and a second path could duplicate it.
+ * Service file — can't use hooks, so callers must pass useSdkClient() result.
  */
 export async function processRebalanceTrade(payload, configData, sdkClient) {
   // SDK executeAdvice dual-path (Phase C).
   if (isSdkExecuteAdviceEnabled() && sdkClient) {
     try {
+      const clientAdviceId = String(
+        payload.attempt_id ||
+        payload.requestId ||
+        payload.plan_id ||
+        payload.unique_id ||
+        `${payload.model_id}:${payload.modelName}`
+      );
       const sdkResult = await sdkClient.executeAdvice({
         kind: 'mpRebalance',
-        clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        clientAdviceId,
         brokerName: payload.user_broker,
         modelId: payload.model_id,
         modelName: payload.modelName,
         uniqueId: payload.unique_id,
+        planId: payload.plan_id,
+        planVersion: payload.plan_version,
+        planHash: payload.plan_hash,
         trades: payload.trades || [],
       });
       const placementResults = (sdkResult?.rows || []).map(row => ({
@@ -136,10 +146,24 @@ export async function processRebalanceTrade(payload, configData, sdkClient) {
         tradingSymbol: row.symbol,
       }));
       console.log('[ModelPortfolioService] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
-      return { results: placementResults };
+      return {
+        results: placementResults,
+        executionState: sdkResult?.executionState || 'complete',
+        // `notSent` = the server refused before any order reached the
+        // broker (MARKET_CLOSED, expired session, drifted plan). Nothing is
+        // in flight, so it is not a reconciliation and IS safe to retry.
+        reconciliationRequired:
+          sdkResult?.executionState === 'paused' && sdkResult?.notSent !== true,
+        retryAllowed:
+          sdkResult?.executionState !== 'paused' || sdkResult?.notSent === true,
+        notSent: sdkResult?.notSent === true,
+        code: sdkResult?.code,
+        message: sdkResult?.notSent === true ? sdkResult?.recovery?.message : undefined,
+        recovery: sdkResult?.recovery,
+      };
     } catch (sdkErr) {
-      console.error('[ModelPortfolioService] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
-      // Fall through to legacy path below
+      console.error('[ModelPortfolioService] SDK executeAdvice failed; legacy fallback blocked:', sdkErr?.message);
+      throw sdkErr;
     }
   }
 
@@ -212,6 +236,46 @@ export async function insertUserDoc(payload, configData) {
 }
 
 /**
+ * Read the customer's current investment base for a model (same preview
+ * the Modify Investment screen uses).
+ */
+export async function getInvestmentPreview(payload, configData) {
+  const response = await axios.post(
+    `${server.ccxtServer.baseUrl}rebalance/investment-preview`,
+    payload,
+    {headers: getHeaders(configData)},
+  );
+  return response.data;
+}
+
+/**
+ * Record a `fund_pending` capital instruction (Phase 2, 2026-09-20): the
+ * customer agreed to add exactly the recorded allocation gap. Refreshing
+ * Repair mints those same frozen legs linked to the new funding authority; a
+ * pre-instruction Repair plan must be refreshed. A later Calculate is only a
+ * buy-only fallback for a still-unresolved gap.
+ */
+export async function recordFundPendingInstruction(
+  {userEmail, userBroker, modelName, modelId, advisor, gapAmount},
+  configData,
+) {
+  const {fundPendingEntry} = require('../utils/fundPendingGap');
+  const preview = await getInvestmentPreview(
+    {userEmail, userBroker, modelName, advisor, model_id: modelId || ''},
+    configData,
+  );
+  const entry = fundPendingEntry({preview, gapAmount, dateTime: new Date().toISOString()});
+  const data = await insertUserDoc(
+    {userEmail, model: modelName, advisor, model_id: modelId, userBroker, subscriptionAmountRaw: [entry]},
+    configData,
+  );
+  if (data?.status === 1 || data?.status === 2 || data?.success === false) {
+    throw new Error(data?.message || 'The funding instruction was not saved.');
+  }
+  return entry;
+}
+
+/**
  * Change broker for model portfolio.
  */
 export async function changeBrokerModelPF(userEmail, userBroker, configData) {
@@ -219,6 +283,29 @@ export async function changeBrokerModelPF(userEmail, userBroker, configData) {
     `${server.ccxtServer.baseUrl}rebalance/change_broker_model_pf`,
     {user_email: userEmail, user_broker: userBroker},
     {headers: getHeaders(configData)},
+  );
+  return response.data;
+}
+
+/**
+ * Start server-owned reconciliation after a successful broker connection.
+ * This is a non-blocking latency optimization; Calculate has its own
+ * synchronous admission barrier and remains safe if this beacon fails.
+ */
+export async function startAccountReconciliation(
+  userEmail,
+  userBroker,
+  configData,
+  trigger = 'app_broker_connected',
+) {
+  const response = await axios.post(
+    `${server.ccxtServer.baseUrl}rebalance/reconcile-account`,
+    {
+      userEmail,
+      userBroker,
+      trigger,
+    },
+    {headers: getHeaders(configData), timeout: 10000},
   );
   return response.data;
 }

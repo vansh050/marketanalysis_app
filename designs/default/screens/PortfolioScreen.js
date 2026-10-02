@@ -37,12 +37,7 @@ import {
     TouchableOpacity,
     RefreshControl,
 } from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import PortfolioCard from '../../../src/screens/PortfolioScreen/PortFolioCard';
-import RenderEmptyMessage from '../../../src/screens/PortfolioScreen/EmptyMessageCard';
-import HoldingScoreModal from '../../../src/screens/PortfolioScreen/HoldingScoreModal';
-import PortfolioSummaryCard from '../composites/PortfolioSummaryCard';
 import formatCurrency from '../../../src/utils/formatCurrency';
 import styles from '../../../src/screens/PortfolioScreen/PortfolioScreen.styles';
 
@@ -60,12 +55,16 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
         profitAndLoss,
         pnlPercentage,
         pnlposneg,
+        availableCash,
 
         // Lists
         processedData,
         BrokerHoldingsData,
         PositionsData,
         broker,
+        brokerSessionUsable,
+        staleHoldingsAcknowledged,
+        staleHoldingsAsOf,
 
         // Refresh + gestures
         refreshing,
@@ -85,7 +84,15 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
         modalVisible,
         scoreSymbol,
         setModalVisible,
+        slots = {},
     } = portfolio;
+
+    const {
+        PortfolioCard,
+        RenderEmptyMessage,
+        HoldingScoreModal,
+        PortfolioSummaryCard,
+    } = slots;
 
     // The P&L summary deliberately belongs to each scrolling holdings list,
     // rather than the fixed screen chrome. This keeps the source visible at
@@ -99,12 +106,12 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
             pnlPercentage={pnlPercentage}
             pnlposneg={pnlposneg}
             broker={broker}
-            selectedPlan={null}
+            availableCash={availableCash}
         />
     );
 
     return (
-        <GestureHandlerRootView style={{ flex: 1 }}>
+        <>
             <View {...panResponder.panHandlers} style={{ flex: 1 }}>
                     <View style={{ backgroundColor: '#EFF0EE', flex: 1 }}>
                     <View style={styles.headerContainer}>
@@ -156,6 +163,14 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
 
                             {selectedInnerTab === 0 && (
                                 <>
+                                    {!brokerSessionUsable && staleHoldingsAcknowledged ? (
+                                        <View style={styles.staleHoldingsBanner}>
+                                            <Text style={styles.staleHoldingsTitle}>Data is stale</Text>
+                                            <Text style={styles.staleHoldingsText}>
+                                                Showing broker holdings as of {staleHoldingsAsOf}.
+                                            </Text>
+                                        </View>
+                                    ) : null}
                                     <View style={styles.tabContainer}>
                                         <TouchableOpacity
                                             style={[styles.tabButton, tabIndex === 2 && styles.activeTab]}
@@ -235,6 +250,9 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                     <FlatList
                                             style={styles.list}
                                             data={BrokerHoldingsData?.holding}
+                                            contentContainerStyle={{ paddingBottom: 96 }}
+                                            nestedScrollEnabled={true}
+                                            showsVerticalScrollIndicator={true}
                                             ListHeaderComponent={renderBrokerSummary}
                                             refreshControl={
                                                 <RefreshControl
@@ -258,7 +276,14 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                     style={styles.list}
                                     renderItem={renderModalPFCard}
                                     keyExtractor={(item, index) => `${item?.modelName || index}_${index}`}
-                                    ListHeaderComponent={<PortfolioSummaryCard />}
+                                    ListHeaderComponent={
+                                        <PortfolioSummaryCard
+                                            onViewHoldings={() => {
+                                                setTabIndex(2);
+                                                setSelectedInnerTab(0);
+                                            }}
+                                        />
+                                    }
                                     ListEmptyComponent={null}
                                     scrollEventThrottle={16}
                                 />
@@ -274,7 +299,7 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                     />
                 )}
             </View>
-        </GestureHandlerRootView>
+        </>
     );
 };
 

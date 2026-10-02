@@ -1,6 +1,8 @@
 import { View, Text, StyleSheet } from "react-native"
 import { Check } from "lucide-react-native"
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const StepProgressBar = ({ steps, currentStep }) => {
  // console.log("stepss--",steps);
   return (
@@ -19,7 +21,7 @@ const StepProgressBar = ({ steps, currentStep }) => {
                 isCurrent ? styles.currentCircle : isCompleted ? styles.completedCircle : styles.upcomingCircle,
               ]}>
                 {isCompleted ? (
-                  <Check size={20} color="#fff" />
+                  <Check size={20} color={designColor('fff')} />
                 ) : (
                   <Text style={[
                     styles.stepNumber,
@@ -29,7 +31,6 @@ const StepProgressBar = ({ steps, currentStep }) => {
                   </Text>
                 )}
               </View>
-
               {/* Connector as dotted dashed line except last */}
               {index < steps.length - 1 && (
                 <View style={[
@@ -37,21 +38,19 @@ const StepProgressBar = ({ steps, currentStep }) => {
                   isCompleted ? styles.completedConnector : styles.upcomingConnector,
                 ]} />
               )}
-
               {/* Step Label */}
-               <Text style={[
-                styles.stepLabel,
-                isCurrent ? styles.currentStepLabel : isCompleted ? styles.completedStepLabel : styles.upcomingStepLabel,
-              ]}>
-                Step {stepNumber}
-              </Text>
-          
+              <Text style={[
+               styles.stepLabel,
+               isCurrent ? styles.currentStepLabel : isCompleted ? styles.completedStepLabel : styles.upcomingStepLabel,
+             ]}>
+               Step {stepNumber}
+             </Text>
             </View>
-          )
+          );
         })}
       </View>
     </View>
-  )
+  );
 }
 
 const CIRCLE_SIZE = 34
@@ -81,34 +80,34 @@ const styles = StyleSheet.create({
     borderRadius: 5,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
+    backgroundColor: designColor('fff'),
     borderWidth: 1,
-    borderColor: "#7c7c7c",
+    borderColor: designColor('7c7c7c'),
     marginBottom: 6,
     zIndex: 2,
   },
   currentCircle: {
-    backgroundColor: "#22a100",
-    borderColor: "#22a100",
+    backgroundColor: designColor('22a100'),
+    borderColor: designColor('22a100'),
   },
   completedCircle: {
-    backgroundColor: "#22a100",
-    borderColor: "#22a100",
+    backgroundColor: designColor('22a100'),
+    borderColor: designColor('22a100'),
   },
   upcomingCircle: {
-    backgroundColor: "#f0f0f0",
-    borderColor: "#b0b0b0",
+    backgroundColor: designColor('f0f0f0'),
+    borderColor: designColor('b0b0b0'),
   },
   stepNumber: {
     fontSize: 13,
-    fontFamily:'Poppins-Medium',
+    fontFamily:designFont('Poppins-Medium'),
     marginTop:3,
   },
   currentStepNumber: {
-    color: "#fff",
+    color: designColor('fff'),
   },
   upcomingStepNumber: {
-    color: "#b0b0b0",
+    color: designColor('b0b0b0'),
   },
   connector: {
     position: "absolute",
@@ -119,28 +118,28 @@ const styles = StyleSheet.create({
     zIndex: 1,
     borderBottomWidth: 2,
     borderStyle: "dashed",
-    borderColor: "#a0a0a0",
+    borderColor: designColor('a0a0a0'),
   },
   completedConnector: {
-    borderColor: "#22a100",
+    borderColor: designColor('22a100'),
   },
   upcomingConnector: {
-    borderColor: "#a0a0a0",
+    borderColor: designColor('a0a0a0'),
   },
   stepLabel: {
     fontSize: 10,
     fontWeight: "600",
-    color: "#a0a0a0",
+    color: designColor('a0a0a0'),
     textAlign: "center",
   },
   currentStepLabel: {
-    color: "#222222",
+    color: designColor('222222'),
   },
   completedStepLabel: {
-    color: "#22a100",
+    color: designColor('22a100'),
   },
   upcomingStepLabel: {
-    color: "#a0a0a0",
+    color: designColor('a0a0a0'),
   },
 })
 

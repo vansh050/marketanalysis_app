@@ -411,7 +411,7 @@
 | **Precondition** | Logged in |
 | **Steps** | 1. Navigate to More → Broker Setting (or Subscription screen) |
 | | 2. Observe broker list |
-| **Expected** | All supported brokers listed: Zerodha, Angel One, Upstox, ICICI Direct, Kotak, Dhan, Fyers, AliceBlue, HDFC Securities, Groww, Motilal Oswal, Axis Securities. IIFL marked as "temporarily unavailable" |
+| **Expected** | All supported brokers listed, including IIFL Securities. IIFL opens the customer-owned App Key/App Secret setup flow. |
 | **Pass Criteria** | All broker names visible with logos |
 
 ### BROKER-002: OAuth Broker Connection (Zerodha)
@@ -471,14 +471,14 @@
 | **Expected** | Expired status shown with "Reconnect" option. Tapping opens auth flow |
 | **Pass Criteria** | Correct status, reconnect flow works |
 
-### BROKER-007: IIFL Unavailable Message
+### BROKER-007: IIFL Direct Connection
 | Field | Value |
 |-------|-------|
 | **Priority** | P2 — Regression |
 | **Precondition** | On broker list |
 | **Steps** | 1. Find IIFL Securities in list |
 | | 2. Tap on it |
-| **Expected** | Toast or alert: "IIFL Securities integration is temporarily unavailable. Please use another broker." |
+| **Expected** | The app shows the IIFL Capital portal link, copyable redirect URL, assigned IPv6 whitelist step, App Key/App Secret fields, and keeps Connect locked until the IP acknowledgement is checked. Completing IIFL login persists the broker and shows a success message. |
 | **Pass Criteria** | User informed, not allowed to proceed |
 
 ---

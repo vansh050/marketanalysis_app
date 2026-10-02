@@ -12,7 +12,7 @@
  *
  * Contract:
  *   viewModel = {
- *     invoiceData, gradient1, gradient2,
+ *     invoiceData, gradient1, gradient2, advisorLogo, advisorLogoFallback,
  *     showFeeTab,            // bool — render the segmented control + fee tab
  *     tab,                   // 'transactions' | 'fees'
  *     feeStatements,         // [{ id, invoice_id, period, planName, category, status, aua, fee, gst, total }]
@@ -56,11 +56,46 @@ const FEE_STATUS = {
     void: { label: 'Void', bg: '#F0F0F0', fg: '#6B7280' },
 };
 
+const toImageSource = value => {
+    if (!value) return null;
+    return typeof value === 'string' ? { uri: value } : value;
+};
+
+const PaymentLogo = ({
+    advisorLogo,
+    advisorLogoFallback,
+    historicalLogo,
+}) => {
+    const candidates = [
+        advisorLogo,
+        advisorLogoFallback,
+        historicalLogo,
+    ].filter(Boolean);
+    const [candidateIndex, setCandidateIndex] = React.useState(0);
+
+    React.useEffect(() => {
+        setCandidateIndex(0);
+    }, [advisorLogo, advisorLogoFallback, historicalLogo]);
+
+    const source = toImageSource(candidates[candidateIndex]);
+    if (!source) return null;
+
+    return (
+        <Image
+            source={source}
+            style={styles.paymentLogo}
+            onError={() => setCandidateIndex(index => index + 1)}
+        />
+    );
+};
+
 const PaymentHistoryScreen = ({ viewModel, actions }) => {
     const {
         invoiceData = [],
         gradient1 = 'rgba(0, 86, 183, 1)',
         gradient2 = 'rgba(0, 38, 81, 1)',
+        advisorLogo = null,
+        advisorLogoFallback = null,
         showFeeTab = false,
         tab = 'transactions',
         feeStatements = [],
@@ -79,9 +114,10 @@ const PaymentHistoryScreen = ({ viewModel, actions }) => {
         <View style={styles.paymentItem}>
             <View style={styles.leftContent}>
                 <View style={[styles.iconContainer, { backgroundColor: item.bgColor }]}>
-                    <Image
-                        source={{ uri: item.invoice_data?.company_logo }}
-                        style={{ width: 40, height: 40, borderRadius: 25 }}
+                    <PaymentLogo
+                        advisorLogo={advisorLogo}
+                        advisorLogoFallback={advisorLogoFallback}
+                        historicalLogo={item.invoice_data?.company_logo}
                     />
                     <Text
                         style={[
@@ -308,6 +344,7 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
         alignItems: 'center',
     },
+    paymentLogo: { width: 40, height: 40, borderRadius: 25 },
     iconText: { fontSize: 14, fontWeight: '500' },
     textContainer: { marginLeft: 12 },
     nameText: { fontSize: 16, fontFamily: 'Satoshi-Bold', color: '#000000' },

@@ -33,6 +33,8 @@ import {
 } from '@alphaquark/mobile-sdk';
 import Config from 'react-native-config';
 
+import { designColor } from '../design/literalTokens';
+
 const BROKER_REDIRECT_URL =
   Config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL ||
   'https://prod.alphaquark.in/stock-recommendation';
@@ -202,15 +204,15 @@ export default function SdkBrokerConnectModal({
 }
 
 const styles = StyleSheet.create({
-  root: {flex: 1, backgroundColor: '#fff'},
+  root: {flex: 1, backgroundColor: designColor('fff')},
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e0e0e0',
-    backgroundColor: '#fff',
+    borderBottomColor: designColor('e0e0e0'),
+    backgroundColor: designColor('fff'),
   },
   closeBtn: {
     width: 36,
@@ -219,37 +221,37 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: 18,
   },
-  closeBtnText: {fontSize: 20, color: '#444'},
+  closeBtnText: {fontSize: 20, color: designColor('444')},
   headerTitle: {flex: 1, fontWeight: '600', fontSize: 16, marginLeft: 8},
   headerSpacer: {width: 36},
   statusPanel: {flex: 1, padding: 24, justifyContent: 'center'},
   statusOk: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#1b5e20',
+    color: designColor('1b5e20'),
     marginBottom: 12,
   },
   statusBad: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#b00020',
+    color: designColor('b00020'),
     marginBottom: 12,
   },
-  statusBody: {color: '#444', lineHeight: 20, marginBottom: 24},
+  statusBody: {color: designColor('444'), lineHeight: 20, marginBottom: 24},
   primaryBtn: {
-    backgroundColor: '#1976d2',
+    backgroundColor: designColor('1976d2'),
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
   },
-  primaryBtnText: {color: '#fff', fontWeight: '600', fontSize: 16},
+  primaryBtnText: {color: designColor('fff'), fontWeight: '600', fontSize: 16},
   secondaryBtn: {
     borderWidth: 1,
-    borderColor: '#1976d2',
+    borderColor: designColor('1976d2'),
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
     marginBottom: 12,
   },
-  secondaryBtnText: {color: '#1976d2', fontWeight: '600', fontSize: 16},
+  secondaryBtnText: {color: designColor('1976d2'), fontWeight: '600', fontSize: 16},
 });

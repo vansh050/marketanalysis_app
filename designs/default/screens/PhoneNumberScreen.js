@@ -15,11 +15,11 @@
 import React from 'react';
 import { View, StyleSheet, TouchableOpacity, ActivityIndicator } from 'react-native';
 import CountryCodeDropdownPicker from 'react-native-dropdown-country-picker';
-import LogoSection from '../../../src/components/LogoSection';
 import Text from '../primitives/Text';
 
-const PhoneNumberScreen = ({ viewModel, actions }) => {
+const PhoneNumberScreen = ({ viewModel, actions, slots }) => {
     const { countryCode = '+91', phoneNumber = '', isLoading = false } = viewModel || {};
+    const { LogoSection } = slots || {};
     const {
         onCountryCodeChange = () => {},
         onCountryChange = () => {},

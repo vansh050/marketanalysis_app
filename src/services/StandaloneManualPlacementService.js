@@ -4,7 +4,7 @@ import Config from 'react-native-config';
 
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 
 export async function recordStandaloneManualPlacement(payload, configData) {
   const user = getAuth()?.currentUser;
@@ -16,7 +16,7 @@ export async function recordStandaloneManualPlacement(payload, configData) {
     {headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${firebaseToken}`,
-      'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+      'X-Advisor-Subdomain': getTenantSubdomain(configData),
       'aq-encrypted-key': Config.REACT_APP_AQ_ENCRYPTED_KEY || generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
     }},
   );

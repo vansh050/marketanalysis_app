@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 
+import { designColor } from '../../design/literalTokens';
+
 const OtpBoxModal = ({ broker, submitOtp }) => {
   const [mpin, setMpin] = useState('');
   const [otp, setOtp] = useState('');
@@ -15,7 +17,6 @@ const OtpBoxModal = ({ broker, submitOtp }) => {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Connect {broker}</Text>
-
       {/* Otp Input */}
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>Otp:</Text>
@@ -27,7 +28,6 @@ const OtpBoxModal = ({ broker, submitOtp }) => {
           onChangeText={setMpin}
         />
       </View>
-
       {/* Mpin Input */}
       <View style={styles.inputGroup}>
         <Text style={styles.inputLabel}>Mpin:</Text>
@@ -39,7 +39,6 @@ const OtpBoxModal = ({ broker, submitOtp }) => {
           onChangeText={setOtp}
         />
       </View>
-
       {/* Submit Button */}
       <TouchableOpacity
         style={[styles.submitButton, (!mpin || !otp) && styles.disabledButton]}
@@ -47,7 +46,7 @@ const OtpBoxModal = ({ broker, submitOtp }) => {
         onPress={handleSubmitOtp}
       >
         {loading ? (
-          <ActivityIndicator size="small" color="#fff" />
+          <ActivityIndicator size="small" color={designColor('fff')} />
         ) : (
           <Text style={styles.buttonText}>Submit Otp</Text>
         )}
@@ -79,10 +78,10 @@ const styles = StyleSheet.create({
   inputBox: {
     flex: 0.6,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     borderRadius: 5,
     padding: 10,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   submitButton: {
     marginTop: 20,
@@ -92,10 +91,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   disabledButton: {
-    backgroundColor: '#00000030',
+    backgroundColor: designColor('00000030'),
   },
   buttonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
     fontWeight: 'bold',
   },

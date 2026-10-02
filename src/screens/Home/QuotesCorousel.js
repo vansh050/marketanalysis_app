@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Dimensions, Animated } from 'react-native';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const { width } = Dimensions.get('window'); // Get the width of the screen
 
 // Sample quotes
@@ -55,12 +57,12 @@ const HomeCarousel = () => {
                 { opacity }, // Apply opacity to each item
               ]}
             >
-                <View style={{backgroundColor:'#000',padding:8, opacity:0.1 ,position:'absolute',left:0,borderTopRightRadius:20,borderBottomRightRadius:20}}>
+              <View style={{backgroundColor:designColor('000'),padding:8, opacity:0.1 ,position:'absolute',left:0,borderTopRightRadius:20,borderBottomRightRadius:20}}>
 
 </View>
-<View style={{backgroundColor:'#000',padding:8, opacity:0.1 ,position:'absolute',right:0,borderTopLeftRadius:20,borderBottomLeftRadius:20}}>
+              <View style={{backgroundColor:designColor('000'),padding:8, opacity:0.1 ,position:'absolute',right:0,borderTopLeftRadius:20,borderBottomLeftRadius:20}}>
 
-</View>
+              </View>
               <Text style={styles.quoteText}>{quote}</Text>
             </Animated.View>
           );
@@ -105,7 +107,7 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 5, 
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     marginHorizontal: 5, 
   },
   carouselWrapper: {
@@ -116,9 +118,9 @@ const styles = StyleSheet.create({
     width: 250,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#9D2115',
+    backgroundColor: designColor('9d2115'),
     borderRadius: 30,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
@@ -131,8 +133,8 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontStyle:'italic',
     textAlign: 'center',
-    color: '#fff',
-    fontFamily:'Satoshi-Regular'
+    color: designColor('fff'),
+    fontFamily:designFont('Satoshi-Regular')
   },
 });
 

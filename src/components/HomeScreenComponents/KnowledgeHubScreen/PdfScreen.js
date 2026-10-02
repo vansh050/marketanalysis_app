@@ -6,6 +6,7 @@
 
 import React from 'react';
 import { useComponent } from '../../../design/useDesign';
+import KnowledgeHub from '../KnowledgeHub';
 
 const PdfScreen = ({ navigation, route }) => {
     const Presentation = useComponent('screens.PdfScreen');
@@ -14,6 +15,7 @@ const PdfScreen = ({ navigation, route }) => {
         <Presentation
             viewModel={{ navigation }}
             actions={{}}
+            slots={{ KnowledgeHub }}
         />
     );
 };

@@ -5,6 +5,7 @@ import { useTrade } from '../../screens/TradeContext';
 import BestPerformerGainText from '../AdviceScreenComponents/DynamicText/BestPerformerGainText';
 import { FlatList } from 'react-native-gesture-handler';
 import { FadeLoading } from 'react-native-fade-loading';
+import { designColor, designFont } from '../../design/literalTokens';
 const screenWidth = Dimensions.get('window').width;
 const BestPerformers = () => {
   const { bestPerformer,isPerformerLoading } = useTrade();
@@ -40,58 +41,56 @@ const BestPerformers = () => {
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Missed Opportunities</Text>
       </View>
-     
-        <View style={styles.flatListContainer}>
-          <FlatList
-            data={stockRecoNotExecuted}
-            renderItem={renderItem}
-            keyExtractor={(item, index) => index.toString()}
-            nestedScrollEnabled={true} // Add this line
-            showsVerticalScrollIndicator={true}
-             ListEmptyComponent={() => (
-                        isPerformerLoading ? (
-                                  <View style={{ flexDirection: 'colum',alignContent:'center',alignSelf:'center' }}>
-                                    <FadeLoading
-                                      style={{ width: screenWidth * 0.8, height: 20, marginTop: 5,}}
-                                      primaryColor="#f0f0f0"
-                                      secondaryColor="#e0e0e0"
-                                      duration={500}
-                                    /> 
-                                    <FadeLoading
-                                      style={{ width: screenWidth * 0.8, height: 20, marginTop: 5,}}
-                                      primaryColor="#f0f0f0"
-                                      secondaryColor="#e0e0e0"
-                                      duration={500}
-                                    /> 
-                                     <FadeLoading
-                                      style={{ width: screenWidth * 0.8, height: 20, marginTop: 5,}}
-                                      primaryColor="#f0f0f0"
-                                      secondaryColor="#e0e0e0"
-                                      duration={500}
-                                    /> 
-                                     <FadeLoading
-                                      style={{ width: screenWidth * 0.8, height: 20, marginVertical: 5,}}
-                                      primaryColor="#f0f0f0"
-                                      secondaryColor="#e0e0e0"
-                                      duration={500}
-                                    /> 
-                                  </View>
-                                ) : (
-                                  <View style={styles.containerEmpty}>
-                                  <Text style={styles.title}>No Missed Opportunities Yet</Text>
-                      <Text style={styles.subtitle}>
-                        Looks like there's no data to display right now. Once you have performers, they'll appear here.
-                      </Text>
+      <View style={styles.flatListContainer}>
+        <FlatList
+          data={stockRecoNotExecuted}
+          renderItem={renderItem}
+          keyExtractor={(item, index) => index.toString()}
+          nestedScrollEnabled={true} // Add this line
+          showsVerticalScrollIndicator={true}
+           ListEmptyComponent={() => (
+                      isPerformerLoading ? (
+                                <View style={{ flexDirection: 'colum',alignContent:'center',alignSelf:'center' }}>
+                                  <FadeLoading
+                                    style={{ width: screenWidth * 0.8, height: 20, marginTop: 5,}}
+                                    primaryColor={designColor('f0f0f0')}
+                                    secondaryColor={designColor('e0e0e0')}
+                                    duration={500}
+                                  />
+                                  <FadeLoading
+                                    style={{ width: screenWidth * 0.8, height: 20, marginTop: 5,}}
+                                    primaryColor={designColor('f0f0f0')}
+                                    secondaryColor={designColor('e0e0e0')}
+                                    duration={500}
+                                  />
+                                   <FadeLoading
+                                    style={{ width: screenWidth * 0.8, height: 20, marginTop: 5,}}
+                                    primaryColor={designColor('f0f0f0')}
+                                    secondaryColor={designColor('e0e0e0')}
+                                    duration={500}
+                                  />
+                                   <FadeLoading
+                                    style={{ width: screenWidth * 0.8, height: 20, marginVertical: 5,}}
+                                    primaryColor={designColor('f0f0f0')}
+                                    secondaryColor={designColor('e0e0e0')}
+                                    duration={500}
+                                  />
                                 </View>
-                                )
-                              )}
-        
-           contentContainerStyle={{paddingHorizontal:10}}
-            indicatorStyle='black'
-         
-          />
-        </View>
-    
+                              ) : (
+                                <View style={styles.containerEmpty}>
+                                <Text style={styles.title}>No Missed Opportunities Yet</Text>
+                    <Text style={styles.subtitle}>
+                      Looks like there's no data to display right now. Once you have performers, they'll appear here.
+                    </Text>
+                              </View>
+                              )
+                            )}
+
+         contentContainerStyle={{paddingHorizontal:10}}
+          indicatorStyle='black'
+
+        />
+      </View>
     </View>
   );
 };
@@ -101,7 +100,7 @@ const styles = StyleSheet.create({
     flex: 1, // Allow the BestPerformers container to grow within the outer FlatList
     paddingHorizontal: 20,
     paddingTop: 10,
-    backgroundColor: '#FDFDFD',
+    backgroundColor: designColor('fdfdfd'),
   },
   containerEmpty: {
     paddingVertical:50,
@@ -109,7 +108,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignContent:'center',
     alignSelf:'center',
-    backgroundColor: '#fDfDfD',
+    backgroundColor: designColor('fdfdfd'),
   },
   image: {
     width: 200,
@@ -118,15 +117,15 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 18,
-    fontFamily:'Satoshi-Bold',
-    color: '#000',
+    fontFamily:designFont('Satoshi-Bold'),
+    color: designColor('000'),
     marginBottom: 10,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: '#666',
-    fontFamily:'Satoshi-Medium',
+    color: designColor('666'),
+    fontFamily:designFont('Satoshi-Medium'),
     textAlign: 'center',
     marginBottom: 20,
   },
@@ -134,15 +133,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#E6E6E6',
+    borderBottomColor: designColor('e6e6e6'),
   },
   stockName: {
     fontSize: 14,
     color: 'black',
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     textAlign: 'left',
   },
   header: {
@@ -153,14 +152,14 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'black',
   },
   flatListContainer: {
- 
+
     borderRadius: 15,
     borderWidth: 1.2,
-    borderColor: '#F2F2F2',
+    borderColor: designColor('f2f2f2'),
     flex:1,// Keep the fixed height for the scrollable area
     maxHeight:200,
     overflow: 'hidden',

@@ -30,6 +30,8 @@ import EgressIpCallout from '../../components/BrokerConnectionModal/EgressIpCall
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 const commonHeight = 40;
 
@@ -86,7 +88,7 @@ const ICICIConnectUI = ({
           style={styles.headerRow}>
           <View style={styles.headerLeft}>
             <TouchableOpacity style={styles.backButton} onPress={onClose}>
-              <ChevronLeft size={23} color="#fff" />
+              <ChevronLeft size={23} color={designColor('fff')} />
             </TouchableOpacity>
             <View style={styles.headerCopy}>
               <Text style={styles.headerEyebrow}>BROKER AUTHORISATION</Text>
@@ -94,12 +96,12 @@ const ICICIConnectUI = ({
             </View>
           </View>
           <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <X size={20} color="#fff" />
+            <X size={20} color={designColor('fff')} />
           </TouchableOpacity>
         </LinearGradient>
         {shouldRenderContent && !showWebView && expanded && (
           /* Full Screen Help when expanded */
-          <View style={styles.fullScreenHelp}>
+          (<View style={styles.fullScreenHelp}>
             <ScrollView
               ref={scrollViewRef}
               style={{flex: 1}}
@@ -112,12 +114,12 @@ const ICICIConnectUI = ({
                   onPress={() => setExpanded(false)}>
                   <Text style={styles.toggleText}>See Less</Text>
                   <View style={styles.toggleIconContainer}>
-                    <ChevronUp size={14} color="#000" />
+                    <ChevronUp size={14} color={designColor('000')} />
                   </View>
                 </TouchableOpacity>
               </View>
             </ScrollView>
-          </View>
+          </View>)
         )}
 
         {shouldRenderContent && !showWebView && !expanded && (
@@ -140,7 +142,7 @@ const ICICIConnectUI = ({
                 style={styles.toggleContainer}>
                 <Text style={styles.toggleText}>Read More</Text>
                 <View style={styles.toggleIconContainer}>
-                  <ChevronDown size={14} color="#000" />
+                  <ChevronDown size={14} color={designColor('000')} />
                 </View>
               </TouchableOpacity>
 
@@ -204,14 +206,14 @@ const ICICIConnectUI = ({
                       {
                         backgroundColor:
                           apiKey && secretKey && egressReady
-                            ? '#0056B7'
-                            : '#d3d3d3',
+                            ? designColor('0056b7')
+                            : designColor('d3d3d3'),
                       },
                     ]}
                     onPress={initiateAuth}
                     disabled={!(apiKey && secretKey && egressReady)}>
                     {loading ? (
-                      <ActivityIndicator size={27} color="#fff" />
+                      <ActivityIndicator size={27} color={designColor('fff')} />
                     ) : (
                       <Text style={styles.proceedButtonText}>Connect ICICI</Text>
                     )}
@@ -235,7 +237,7 @@ const ICICIConnectUI = ({
               renderLoading={() => (
                 <ActivityIndicator
                   size="large"
-                  color="#0056B7"
+                  color={designColor('0056b7')}
                   style={{
                     position: 'absolute',
                     top: '50%',
@@ -267,7 +269,7 @@ const styles = StyleSheet.create({
   fullScreen: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   backButton: {
     width: 40,
@@ -289,22 +291,22 @@ const styles = StyleSheet.create({
   headerEyebrow: {color: 'rgba(255,255,255,0.76)', fontSize: 10, fontWeight: '800', letterSpacing: 0.7},
   headerTitle: {
     fontSize: 16,
-    fontFamily: 'Satoshi-Bold',
-    color: '#fff',
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designColor('fff'),
     marginTop: 2,
   },
   closeButton: {width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)'},
   guideBox: {
     margin: 10,
     borderWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
     borderRadius: 8,
   },
-  fullScreenHelp: {flex: 1, backgroundColor: '#fff'},
+  fullScreenHelp: {flex: 1, backgroundColor: designColor('fff')},
   toggleWrapper: {
     borderTopWidth: 1,
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
     paddingVertical: 5,
   },
   toggleContainer: {
@@ -313,29 +315,29 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     padding: 5,
   },
-  toggleText: {fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#0056B7'},
+  toggleText: {fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), color: designColor('0056b7')},
   inputCard: {
     padding: 0,
     marginHorizontal: 15,
     borderWidth: 0.3,
     borderRadius: 8,
-    borderColor: '#c8c8c8',
+    borderColor: designColor('c8c8c8'),
   },
   connectRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    backgroundColor: designColor('f5f5f5'),
     padding: 10,
     borderRadius: 3,
     marginBottom: 10,
   },
-  connectLabel: {fontSize: 16, fontWeight: '700', color: '#000'},
+  connectLabel: {fontSize: 16, fontWeight: '700', color: designColor('000')},
   headerLabel: {
     fontSize: 14,
     marginVertical: 5,
     color: 'black',
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
   },
   inputContainer: {
     flexDirection: 'row',
@@ -343,7 +345,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 10,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     marginBottom: 10,
   },
   proceedButton: {
@@ -356,24 +358,24 @@ const styles = StyleSheet.create({
   },
   proceedButtonText: {
     fontSize: 16,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     color: 'white',
   },
-  webViewWrapper: {flex: 1, backgroundColor: '#fff'},
+  webViewWrapper: {flex: 1, backgroundColor: designColor('fff')},
   webViewHeader: {
     height: 60,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 10,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderBottomWidth: 1,
-    borderBottomColor: '#E8E9EC',
+    borderBottomColor: designColor('e8e9ec'),
   },
   webView: {flex: 1},
   content: {paddingBottom: 20},
   toggleIconContainer: {
-    backgroundColor: '#fff',
-    shadowColor: '#000',
+    backgroundColor: designColor('fff'),
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.12,
     shadowRadius: 3,
@@ -385,7 +387,7 @@ const styles = StyleSheet.create({
   },
   inputStyles: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     paddingVertical: 5,
   },
 });

@@ -7,7 +7,9 @@ import {
   Modal,
   TouchableOpacity,
   StyleSheet,
+  Alert,
 } from 'react-native';
+import {InfoIcon} from 'lucide-react-native';
 import eventEmitter from '../../components/EventEmitter';
 import {getAuth} from '@react-native-firebase/auth';
 import axios from 'axios';
@@ -23,11 +25,7 @@ import PortfolioPositionText from '../../components/AdviceScreenComponents/Dynam
 import HoldingDynamicText from '../../components/AdviceScreenComponents/DynamicText/HoldingDynamicText';
 import {useConfig} from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
-import {
-  useFocusEffect,
-  useIsFocused,
-  useNavigation,
-} from '@react-navigation/native';
+import {useIsFocused, useNavigation} from '@react-navigation/native';
 import useWebSocketCurrentPrice from '../../FunctionCall/useWebSocketCurrentPrice';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
 import portfolioEvents, {PORTFOLIO_EVENTS} from '../../utils/portfolioEvents';
@@ -35,7 +33,24 @@ import {isOrderRejected, isOrderSuccess, isOrderPending} from '../../utils/order
 import {useComponent} from '../../design/useDesign';
 import useHomeMarketSummary from '../Home/hooks/useHomeMarketSummary';
 import styles from './PortfolioScreen.styles';
-import {getAccountEmail} from '../../utils/accountEmail';
+import {getAccountEmail, useAccountEmail, getAccountDisplayName} from '../../utils/accountEmail';
+import {
+  buildPriceInstruments,
+  calculateCompleteHoldingsSummary,
+  getBrokerHoldingRows,
+} from '../../utils/portfolioSummary';
+import {calculateCompletePositionsSummary} from '../../utils/positionPnl';
+import PortfolioCard from './PortFolioCard';
+import RenderEmptyMessage from './EmptyMessageCard';
+import HoldingScoreModal from './HoldingScoreModal';
+import PortfolioSummaryCard from '../../components/designContainers/PortfolioSummaryCardContainer';
+import {
+  baseSymbol,
+  corporateActionMessage,
+  getRecentCorporateActionNotices,
+} from '../../utils/corporateActionNotice';
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 const PortfolioScreen = () => {
   const navigation = useNavigation();
@@ -45,10 +60,13 @@ const PortfolioScreen = () => {
     getUserDeatils,
     BrokerHoldingsData,
     getAllBrokerSpecificHoldings,
+    lastBrokerHoldingsRefresh,
     allHoldingsData,
     getAllHoldings,
     configData,
     modelPortfolioRepairTrades,
+    modelPortfolioStrategyfinal,
+    modelPortfolioEntitlementsLoaded,
   } = useTrade();
 
   const config = useConfig();
@@ -64,7 +82,7 @@ const PortfolioScreen = () => {
   const user = auth.currentUser;
   const userEmail = getAccountEmail();
   // Variant-facing user name + tickers for the alphanomy `_AppHeader`.
-  const userName = userDetails?.name || user?.displayName || '';
+  const userName = getAccountDisplayName(userDetails?.name, user?.displayName);
   const { tickers } = useHomeMarketSummary();
 
   const [brokerStatus, setBrokerStatus] = useState(
@@ -72,51 +90,23 @@ const PortfolioScreen = () => {
   );
 
   const collapseThreshold = 100;
-
-  const subscribeToSymbols = async () => {
-    const wsManager = WebSocketManager.getInstance();
-    await wsManager.subscribeToAllSymbols(PositionsData);
-  };
+  const [HoldingsData, setHoldingsData] = useState([]);
+  const [PositionsData, setpositionsData] = useState([]);
 
   useEffect(() => {
-    subscribeToSymbols();
-  }, []);
+    const wsManager = WebSocketManager.getInstance();
+    wsManager.subscribeToAllSymbols(PositionsData);
+  }, [PositionsData]);
 
   const [modelPortfolioStrategy, setModelPortfolioStrategy] = useState([]);
   const getModelPortfolioStrategyDetails = () => {
-    if (userEmail) {
-      axios
-        .get(
-          `${server.server.baseUrl}api/model-portfolio/subscribed-strategies/${userEmail}`,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-              'aq-encrypted-key': generateToken(
-                Config.REACT_APP_AQ_KEYS,
-                Config.REACT_APP_AQ_SECRET,
-              ),
-            },
-          },
-        )
-        .then(res => {
-          const portfolios = res?.data?.subscribedPortfolios || [];
-          const publishedPortfolios = portfolios.filter(
-            portfolio => !portfolio.draft,
-          );
-          setModelPortfolioStrategy(publishedPortfolios);
-        })
-        .catch(err => console.log(err));
-    }
+    setModelPortfolioStrategy([]);
   };
 
   // modelPortfolioRepairTrades now comes from TradeContext (auto-fetched
   // alongside getModelPortfolioStrategyDetails). Local fetch removed
   // 2026-05-11 — see docs/MODEL_PORTFOLIO_ARCHITECTURE.md § 6g.
   const modelNames = modelPortfolioStrategy.map(item => item.model_name);
-
-  const [HoldingsData, setHoldingsData] = useState([]);
-  const [PositionsData, setpositionsData] = useState([]);
 
   const isToday = date => {
     const today = new Date();
@@ -241,6 +231,12 @@ const PortfolioScreen = () => {
       makeRequest(`${server.ccxtServer.baseUrl}groww/position`, {
         accessToken: jwtToken,
       });
+    } else if (broker === 'DefinEdge Securities' && jwtToken) {
+      makeRequest(`${server.ccxtServer.baseUrl}definedge/positions`, {
+        apiSessionKey: jwtToken,
+        accessToken: jwtToken,
+        actid: clientCode,
+      });
     } else if (broker === 'Motilal Oswal' && jwtToken) {
       makeRequest(`${server.ccxtServer.baseUrl}motilal-oswal/positions`, {
         apiKey: checkValidApiAnSecret(apiKey),
@@ -249,13 +245,6 @@ const PortfolioScreen = () => {
       });
     }
   };
-
-  useEffect(() => {
-    eventEmitter.on('OrderPlacedReferesh', getAllPositionsData);
-    return () => {
-      eventEmitter.off('OrderPlacedReferesh', getAllPositionsData);
-    };
-  }, []);
 
   const angelApi = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
 
@@ -272,10 +261,14 @@ const PortfolioScreen = () => {
 
   const checkValidApiAnSecret = data => {
     if (!data) return null;
-    const bytesKey = CryptoJS.AES.decrypt(data, 'ApiKeySecret');
-    const Key = bytesKey.toString(CryptoJS.enc.Utf8);
-    if (Key) {
-      return Key;
+    try {
+      const bytesKey = CryptoJS.AES.decrypt(data, 'ApiKeySecret');
+      const Key = bytesKey.toString(CryptoJS.enc.Utf8);
+      return Key || data;
+    } catch (error) {
+      // Decrypt-or-passthrough: plaintext credentials (e.g. Zerodha's API
+      // key) must be sent as-is (2026-08-13).
+      return data;
     }
   };
 
@@ -477,6 +470,8 @@ const PortfolioScreen = () => {
   const [selectedInnerTab, setSelectedInnerTab] = useState(0);
   const [showDisconnectedHoldingsWarning, setShowDisconnectedHoldingsWarning] =
     useState(false);
+  const [staleHoldingsAcknowledged, setStaleHoldingsAcknowledged] =
+    useState(false);
 
   const brokerConnectionResolved = Boolean(
     userDetails &&
@@ -518,6 +513,15 @@ const PortfolioScreen = () => {
     !disconnectedStatuses.has(normalizedConnectionStatus) &&
     !disconnectedStatuses.has(normalizedEntryStatus) &&
     (!Number.isFinite(tokenExpiry) || tokenExpiry > Date.now());
+  const staleHoldingsAsOf = lastBrokerHoldingsRefresh
+    ? new Date(lastBrokerHoldingsRefresh).toLocaleString('en-IN', {
+        day: '2-digit',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      })
+    : 'last successful refresh unavailable';
 
   useEffect(() => {
     if (
@@ -533,6 +537,7 @@ const PortfolioScreen = () => {
       selectedInnerTab !== 0
     ) {
       setShowDisconnectedHoldingsWarning(false);
+      setStaleHoldingsAcknowledged(false);
     }
   }, [
     brokerConnectionResolved,
@@ -544,17 +549,42 @@ const PortfolioScreen = () => {
   // Client-side MP P&L aggregation (matching web app behavior)
   const [mpHoldings, setMpHoldings] = useState([]);
   const [mpHoldingsLoaded, setMpHoldingsLoaded] = useState(false);
-  // "As of" timestamp for the last holdings fetch — drives the
-  // refresh-on-focus staleness check below (web parity: ModalPFList
-  // holdingsAsOf + focus/visibilitychange refetch, C4-1).
-  const holdingsAsOfRef = useRef(0);
 
+  useEffect(() => {
+    if (!modelPortfolioEntitlementsLoaded) {
+      setModelPortfolioStrategy([]);
+      setMpHoldings([]);
+      setMpHoldingsLoaded(false);
+      return;
+    }
+    const publishedPortfolios = (modelPortfolioStrategyfinal || []).filter(
+      portfolio => !portfolio.draft,
+    );
+    setModelPortfolioStrategy(publishedPortfolios);
+    if (publishedPortfolios.length === 0) {
+      setMpHoldings([]);
+      setMpHoldingsLoaded(true);
+    }
+  }, [modelPortfolioEntitlementsLoaded, modelPortfolioStrategyfinal]);
+
+  const brokerHoldingRows = React.useMemo(
+    () => getBrokerHoldingRows(BrokerHoldingsData),
+    [BrokerHoldingsData],
+  );
+  const priceInstruments = React.useMemo(
+    () => buildPriceInstruments(mpHoldings, brokerHoldingRows, PositionsData),
+    [mpHoldings, brokerHoldingRows, PositionsData],
+  );
   const {getLTPForSymbol} = useWebSocketCurrentPrice(
-    mpHoldings.map(h => ({symbol: h.symbol, exchange: h.exchange || 'NSE'})),
+    priceInstruments,
   );
 
-  const fetchAllMPHoldings = async () => {
-    if (!userEmail || !modelPortfolioStrategy?.length) return;
+  const fetchAllMPHoldings = React.useCallback(async () => {
+    if (!modelPortfolioEntitlementsLoaded || !userEmail || !modelPortfolioStrategy?.length) {
+      setMpHoldings([]);
+      setMpHoldingsLoaded(modelPortfolioEntitlementsLoaded);
+      return;
+    }
     try {
       const allHoldings = [];
       for (const portfolio of modelPortfolioStrategy) {
@@ -590,6 +620,9 @@ const PortfolioScreen = () => {
               exchange: order.exchange || 'NSE',
               quantity: Number(order.quantity || 0),
               avgPrice: Number(order.averagePrice || 0),
+              corp_action_action_id: order.corp_action_action_id,
+              corp_action_orig_qty: order.corp_action_orig_qty,
+              corp_action_applied_at: order.corp_action_applied_at,
             });
           });
         } catch (err) {
@@ -598,36 +631,16 @@ const PortfolioScreen = () => {
       }
       setMpHoldings(allHoldings);
       setMpHoldingsLoaded(true);
-      holdingsAsOfRef.current = Date.now();
     } catch (err) {
       console.log('MP holdings aggregation error:', err.message);
     }
-  };
-
-  // Refresh holdings on screen focus when the snapshot is stale (>60s) —
-  // RN analog of web's focus/visibilitychange staleness refetch. Prevents
-  // showing an old holdings snapshot when the user returns to this tab
-  // after executing a rebalance / trade elsewhere (web parity C4-1).
-  useFocusEffect(
-    React.useCallback(() => {
-      if (
-        userEmail &&
-        configData &&
-        modelPortfolioStrategy?.length > 0 &&
-        holdingsAsOfRef.current &&
-        Date.now() - holdingsAsOfRef.current > 60000
-      ) {
-        fetchAllMPHoldings();
-      }
-      // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userEmail, configData, modelPortfolioStrategy]),
-  );
+  }, [broker, configData, modelPortfolioEntitlementsLoaded, modelPortfolioStrategy, userEmail]);
 
   useEffect(() => {
     if (userEmail && configData && modelPortfolioStrategy?.length > 0) {
       fetchAllMPHoldings();
     }
-  }, [userEmail, configData, modelPortfolioStrategy]);
+  }, [fetchAllMPHoldings, userEmail, configData, modelPortfolioStrategy]);
 
   // Re-fetch on HOLDINGS_REFRESH event (after execution)
   useEffect(() => {
@@ -636,195 +649,97 @@ const PortfolioScreen = () => {
       fetchAllMPHoldings();
     });
     return unsub;
-  }, [userEmail, configData, modelPortfolioStrategy]);
+  }, [fetchAllMPHoldings, userEmail, configData, modelPortfolioStrategy]);
 
   // Compute MP P&L client-side from holdings + LTP (matching web BrokerHoldingsCards.js)
   const mpSummary = React.useMemo(() => {
     if (!mpHoldingsLoaded || mpHoldings.length === 0) return null;
-    const validHoldings = mpHoldings.filter(h => {
-      const ltp = getLTPForSymbol(h.symbol);
-      return ltp !== null && ltp !== 0;
-    });
-    if (validHoldings.length === 0) return null;
-
-    const totalInvested = validHoldings.reduce(
-      (sum, h) => sum + h.avgPrice * h.quantity, 0,
-    );
-    const totalCurrent = validHoldings.reduce((sum, h) => {
-      const ltp = getLTPForSymbol(h.symbol);
-      const price = (ltp !== null && ltp !== 0) ? Number(ltp) : h.avgPrice;
-      return sum + price * h.quantity;
-    }, 0);
-    const totalReturns = totalCurrent - totalInvested;
-    const returnsPercentage = totalInvested > 0
-      ? (totalReturns / totalInvested) * 100
-      : 0;
-
-    return {totalInvested, totalCurrent, totalReturns, returnsPercentage};
+    return calculateCompleteHoldingsSummary(mpHoldings, getLTPForSymbol);
   }, [mpHoldings, mpHoldingsLoaded, getLTPForSymbol]);
 
-  // Plan holdings for All Holdings tab (matching web app behavior)
-  const [selectedPlan, setSelectedPlan] = useState(null);
-  const [planHoldings, setPlanHoldings] = useState([]);
-  const [planHoldingsLoading, setPlanHoldingsLoading] = useState(false);
-  const [showPlanPicker, setShowPlanPicker] = useState(false);
-
-  const fetchPlanHoldings = async (planName, brokerName) => {
-    if (!planName || !userEmail) return;
-    setPlanHoldingsLoading(true);
-    try {
-      const headers = {
-        'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-        'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
-      };
-
-      // Fetch from both endpoints in parallel (matching web app & AfterSubscriptionScreen)
-      // 1. CCXT server — has the correct, up-to-date user_net_pf_model
-      // 2. Backend — has subscription metadata
-      const [portfolioResponse, subscriptionResponse] = await Promise.allSettled([
-        axios.get(
-          `${server.ccxtServer.baseUrl}rebalance/user-portfolio/latest/${encodeURIComponent(userEmail)}/${encodeURIComponent(planName)}`,
-          {headers},
-        ),
-        axios.get(
-          `${server.server.baseUrl}api/model-portfolio-db-update/subscription-raw-amount?email=${encodeURIComponent(userEmail)}&modelName=${encodeURIComponent(planName)}&user_broker=${encodeURIComponent(brokerName || '')}`,
-          {headers},
-        ),
-      ]);
-
-      const portfolioData = portfolioResponse.status === 'fulfilled'
-        ? portfolioResponse.value?.data?.data
-        : null;
-      const subscriptionData = subscriptionResponse.status === 'fulfilled'
-        ? subscriptionResponse.value?.data?.data
-        : null;
-
-      // Normalize user_net_pf_model to always be an array (matching web)
-      if (portfolioData?.user_net_pf_model && !Array.isArray(portfolioData.user_net_pf_model)) {
-        portfolioData.user_net_pf_model = [portfolioData.user_net_pf_model];
-      }
-
-      // Merge: CCXT's user_net_pf_model takes priority (matching web & AfterSubscriptionScreen)
-      const data = {
-        ...subscriptionData,
-        user_net_pf_model: portfolioData?.user_net_pf_model || subscriptionData?.user_net_pf_model || [],
-      };
-
-      let sourceEntries = null;
-      if (data?.user_net_pf_model?.length > 0) {
-        sourceEntries = [...data.user_net_pf_model].sort(
-          (a, b) => new Date(b.execDate) - new Date(a.execDate),
-        );
-      } else if (data?.user_net_pf_updated?.length > 0) {
-        sourceEntries = [...data.user_net_pf_updated].sort(
-          (a, b) => new Date(b.execDate) - new Date(a.execDate),
-        );
-      }
-      if (sourceEntries) {
-        const latestEntry = sourceEntries[0];
-        if (latestEntry?.order_results?.length > 0) {
-          const rejectedStatuses = ['rejected', 'failure', 'cancelled', 'failed', 'unplaced'];
-          const holdings = latestEntry.order_results
-            .filter(order => {
-              const status = (order.orderStatus || '').toLowerCase();
-              if (rejectedStatuses.includes(status)) return false;
-              return Number(order.quantity || 0) > 0;
-            })
-            .map(order => ({
-              symbol: order.symbol || order.tradingsymbol || '',
-              exchange: order.exchange || 'NSE',
-              quantity: Number(order.quantity || 0),
-              avgPrice: Number(order.averagePrice || order.avgPrice || 0),
-              broker: order.user_broker || latestEntry.user_broker || data.user_broker || brokerName || '',
-              modelName: planName,
-            }));
-          setPlanHoldings(holdings);
-        } else {
-          setPlanHoldings([]);
-        }
-      } else {
-        setPlanHoldings([]);
-      }
-    } catch (error) {
-      console.error('Error fetching plan holdings:', error);
-      setPlanHoldings([]);
-    } finally {
-      setPlanHoldingsLoading(false);
-    }
-  };
-
-  // Auto-select first plan when strategies load
-  useEffect(() => {
-    if (modelPortfolioStrategy?.length > 0 && !selectedPlan) {
-      setSelectedPlan(modelPortfolioStrategy[0].model_name);
-    }
-  }, [modelPortfolioStrategy]);
-
-  // Fetch plan holdings when plan or broker changes
-  useEffect(() => {
-    if (selectedPlan && selectedInnerTab === 0) {
-      fetchPlanHoldings(selectedPlan, broker);
-    }
-  }, [selectedPlan, broker]);
-
-  // Client-side plan summary — mirrors mpSummary but scoped to the selected
-  // plan so the top card matches the plan-filtered Holdings list below it.
-  // planHoldings' symbols are a subset of mpHoldings (both sourced from MP
-  // strategies), so the existing WebSocket LTP subscription covers them.
-  const planSummary = React.useMemo(() => {
-    if (!planHoldings || planHoldings.length === 0) return null;
-    const validHoldings = planHoldings.filter(h => {
-      const ltp = getLTPForSymbol(h.symbol);
-      return ltp !== null && ltp !== 0;
-    });
-    if (validHoldings.length === 0) return null;
-
-    const totalInvested = validHoldings.reduce(
-      (sum, h) => sum + h.avgPrice * h.quantity, 0,
+  const corporateActionNotices = React.useMemo(
+    () => getRecentCorporateActionNotices(mpHoldings),
+    [mpHoldings],
+  );
+  const pendingNoticeForHolding = React.useCallback(item => {
+    const notice = corporateActionNotices.find(
+      candidate => candidate.symbol === baseSymbol(item?.symbol),
     );
-    const totalCurrent = validHoldings.reduce((sum, h) => {
-      const ltp = getLTPForSymbol(h.symbol);
-      const price = (ltp !== null && ltp !== 0) ? Number(ltp) : h.avgPrice;
-      return sum + price * h.quantity;
-    }, 0);
-    const totalReturns = totalCurrent - totalInvested;
-    const returnsPercentage = totalInvested > 0
-      ? (totalReturns / totalInvested) * 100
-      : 0;
-
-    return {totalInvested, totalCurrent, totalReturns, returnsPercentage};
-  }, [planHoldings, getLTPForSymbol]);
+    if (!notice) return null;
+    const brokerQuantity = Number(item?.quantity);
+    return Number.isFinite(brokerQuantity) && brokerQuantity >= notice.adjustedQuantity
+      ? null
+      : notice;
+  }, [corporateActionNotices]);
 
   // Switch between broker data, plan data, and MP data based on tab/plan state
   const isMP = selectedInnerTab === 1;
-  // All Holdings is broker-scoped and must never inherit a remembered model
-  // plan selection. Model-specific summaries belong to Model Portfolios.
-  const usePlanSummary = false;
-  const profitAndLoss = isMP
-    ? (mpSummary?.totalReturns ?? 0).toFixed(2)
-    : usePlanSummary
-      ? planSummary.totalReturns.toFixed(2)
-      : Number.parseFloat(allHoldingsData?.totalprofitandloss || 0).toFixed(2);
-  const pnlPercentage = isMP
-    ? (mpSummary?.returnsPercentage ?? 0).toFixed(2)
-    : usePlanSummary
-      ? planSummary.returnsPercentage.toFixed(2)
-      : Number.parseFloat(allHoldingsData?.totalpnlpercentage || 0).toFixed(2);
+  const isPositionsTab = selectedInnerTab === 0 && tabIndex === 1;
+  // All Holdings is broker-scoped. Model-specific summaries and requests
+  // belong exclusively to the Model Portfolios tab.
+  const positionSummary = React.useMemo(
+    () =>
+      calculateCompletePositionsSummary(PositionsData, getLTPForSymbol),
+    [PositionsData, getLTPForSymbol],
+  );
+  // The broker summary endpoint can return a zero P&L while the individual
+  // holdings (and their live LTPs) are valid. Derive a fallback from those
+  // same holdings so the hero card cannot contradict the rows below it.
+  const liveBrokerSummary = React.useMemo(() => {
+    return calculateCompleteHoldingsSummary(
+      BrokerHoldingsData,
+      getLTPForSymbol,
+    );
+  }, [BrokerHoldingsData, getLTPForSymbol]);
+  const apiPnl = Number(allHoldingsData?.totalprofitandloss);
+  const useLiveBrokerSummary =
+    !isMP &&
+    !isPositionsTab &&
+    !!liveBrokerSummary;
+  const profitAndLoss = (
+    isPositionsTab
+      ? positionSummary?.totalReturns ?? 0
+      : isMP
+        ? mpSummary?.totalReturns ?? 0
+        : useLiveBrokerSummary
+            ? liveBrokerSummary.totalReturns
+            : Number.isFinite(apiPnl)
+              ? apiPnl
+              : 0
+  ).toFixed(2);
+  const pnlPercentage = (
+    isPositionsTab
+      ? positionSummary?.returnsPercentage ?? 0
+      : isMP
+        ? mpSummary?.returnsPercentage ?? 0
+        : useLiveBrokerSummary
+            ? liveBrokerSummary.returnsPercentage
+            : Number(allHoldingsData?.totalpnlpercentage) || 0
+  ).toFixed(2);
   // Override allHoldingsData for PortfolioCard to match the list below it
-  const effectiveHoldingsData = isMP && mpSummary
+  const effectiveHoldingsData = isPositionsTab
+    ? positionSummary
+      ? {
+          totalinvvalue: positionSummary.totalInvested,
+          totalholdingvalue: positionSummary.totalCurrent,
+          totalprofitandloss: positionSummary.totalReturns,
+          totalpnlpercentage: positionSummary.returnsPercentage,
+        }
+      : null
+    : isMP && mpSummary
     ? {
         totalinvvalue: mpSummary.totalInvested,
         totalholdingvalue: mpSummary.totalCurrent,
         totalprofitandloss: mpSummary.totalReturns,
         totalpnlpercentage: mpSummary.returnsPercentage,
       }
-    : usePlanSummary
+    : useLiveBrokerSummary
     ? {
-        totalinvvalue: planSummary.totalInvested,
-        totalholdingvalue: planSummary.totalCurrent,
-        totalprofitandloss: planSummary.totalReturns,
-        totalpnlpercentage: planSummary.returnsPercentage,
+        ...allHoldingsData,
+        totalinvvalue: liveBrokerSummary.totalInvested,
+        totalholdingvalue: liveBrokerSummary.totalCurrent,
+        totalprofitandloss: liveBrokerSummary.totalReturns,
+        totalpnlpercentage: liveBrokerSummary.returnsPercentage,
       }
     : allHoldingsData;
 
@@ -864,9 +779,7 @@ const PortfolioScreen = () => {
       getAllPositionsData();
       getAllBrokerSpecificHoldings();
       getAllHoldingsData();
-      if (selectedPlan) {
-        fetchPlanHoldings(selectedPlan, broker);
-      }
+      getAllHoldings();
     } catch (error) {
       console.error('Error refreshing data:', error);
     } finally {
@@ -882,7 +795,10 @@ const PortfolioScreen = () => {
     return () => {
       eventEmitter.off('cartUpdated', handlePortfolioUpdate);
     };
-  }, []);
+    // Re-register on account changes. onRefresh is render-local and
+    // including its identity would resubscribe after every state update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userDetails, configData, broker]);
 
   let holdingfinal = [];
   let positionfinal = [];
@@ -980,7 +896,11 @@ const PortfolioScreen = () => {
     getAllPositionsData();
     getAllHoldings();
     getAllStrategy();
-  }, [userEmail]);
+    // This is keyed to the connected account identifiers. The request helpers
+    // are render-local functions and adding their identities would retrigger
+    // the full portfolio bootstrap after every state update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userEmail, broker, jwtToken, clientCode]);
 
   useEffect(() => {
     const refreshPortfolioData = () => {
@@ -994,7 +914,10 @@ const PortfolioScreen = () => {
     return () => {
       eventEmitter.removeListener('OrderPlacedReferesh', refreshPortfolioData);
     };
-  }, []);
+    // Re-register only when the connected account/config changes; the local
+    // request helper identities change on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userDetails, configData]);
 
   useEffect(() => {
     getAllFunds();
@@ -1002,6 +925,9 @@ const PortfolioScreen = () => {
     getAllBrokerSpecificHoldings();
     getAllPositionsData();
     getAllHoldings();
+    // Refresh this group when broker user details change. Including each
+    // render-local helper would create a request loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userDetails]);
 
   const pan = useRef(new Animated.Value(0)).current;
@@ -1103,7 +1029,7 @@ const PortfolioScreen = () => {
 
   const renderHoldings = ({item}) => (
     // console.log('item i get Here All broker:', item),
-    <View style={styles.flatListContainerHolding}>
+    (<View style={styles.flatListContainerHolding}>
       <View style={styles.listItem}>
         <View>
           <View style={{flexDirection: 'colum'}}>
@@ -1112,8 +1038,8 @@ const PortfolioScreen = () => {
                 <Text
                   style={{
                     fontSize: 12,
-                    color: '#A0A0A0',
-                    fontFamily: 'Satoshi-Regular',
+                    color: designColor('a0a0a0'),
+                    fontFamily: designFont('Satoshi-Regular'),
                   }}>
                   Qty.{' '}
                 </Text>
@@ -1122,16 +1048,16 @@ const PortfolioScreen = () => {
                   style={{
                     marginLeft: 5,
                     color: 'black',
-                    fontFamily: 'Satoshi-Bold',
+                    fontFamily: designFont('Satoshi-Bold'),
                   }}>
                   •
                 </Text>
                 <Text
                   style={{
                     marginHorizontal: 5,
-                    fontFamily: 'Satoshi-Regular',
+                    fontFamily: designFont('Satoshi-Regular'),
                     fontSize: 12,
-                    color: '#A0A0A0',
+                    color: designColor('a0a0a0'),
                   }}>
                   Avg
                 </Text>
@@ -1199,7 +1125,7 @@ const PortfolioScreen = () => {
           </View>
         </View>
       </View>
-    </View>
+    </View>)
   );
 
   const [modalVisible, setModalVisible] = useState(false);
@@ -1254,6 +1180,7 @@ const PortfolioScreen = () => {
 
   const renderAllHoldings = ({item}) => {
     const investedAmount = item?.avgPrice * item?.quantity;
+    const corporateActionNotice = pendingNoticeForHolding(item);
     return (
       <View style={styles.flatListContainerHolding}>
         <View style={styles.listItem}>
@@ -1264,8 +1191,8 @@ const PortfolioScreen = () => {
                   <Text
                     style={{
                       fontSize: 12,
-                      color: '#A0A0A0',
-                      fontFamily: 'Satoshi-Regular',
+                      color: designColor('a0a0a0'),
+                      fontFamily: designFont('Satoshi-Regular'),
                     }}>
                     Qty.{' '}
                   </Text>
@@ -1274,16 +1201,16 @@ const PortfolioScreen = () => {
                     style={{
                       marginLeft: 5,
                       color: 'black',
-                      fontFamily: 'Satoshi-Bold',
+                      fontFamily: designFont('Satoshi-Bold'),
                     }}>
                     •
                   </Text>
                   <Text
                     style={{
                       marginHorizontal: 5,
-                      fontFamily: 'Satoshi-Regular',
+                      fontFamily: designFont('Satoshi-Regular'),
                       fontSize: 12,
-                      color: '#A0A0A0',
+                      color: designColor('a0a0a0'),
                     }}>
                     Avg.
                   </Text>
@@ -1312,6 +1239,18 @@ const PortfolioScreen = () => {
                 }}>
                 <View style={{flexDirection: 'row', alignItems: 'center'}}>
                   <Text style={styles.stockName}>{item?.symbol}</Text>
+                  {corporateActionNotice && (
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={`${corporateActionNotice.symbol} corporate action information`}
+                      onPress={() => Alert.alert(
+                        corporateActionNotice.type === 'BONUS' ? 'Bonus shares pending' : 'Stock split adjustment',
+                        corporateActionMessage(corporateActionNotice, item?.quantity),
+                      )}
+                      style={{marginLeft: 8, padding: 4}}>
+                      <InfoIcon size={16} color={designColor('b45309')} />
+                    </TouchableOpacity>
+                  )}
                   {/* <TouchableOpacity
                     onPress={() => OpenScoreModel(item)}
                     style={{marginLeft: 8}}>
@@ -1322,6 +1261,7 @@ const PortfolioScreen = () => {
                   <HoldingDynamicText
                     symbol={item.symbol}
                     exchange={item.exchange}
+                    liveLtp={getLTPForSymbol(item.symbol)}
                     investedAmount={investedAmount}
                     quantity={item?.quantity}
                     type="pnlPercent"
@@ -1346,6 +1286,7 @@ const PortfolioScreen = () => {
                     advisedRangeCondition={0}
                     symbol={item.symbol}
                     exchange={item.exchange}
+                    liveLtp={getLTPForSymbol(item.symbol)}
                     stockDetails={BrokerHoldingsData}
                     advisedPrice={0}
                     type="ltpprice"
@@ -1361,8 +1302,6 @@ const PortfolioScreen = () => {
   };
 
   const renderPositions = ({item}) => {
-    console.log('items:', item);
-    const symbol = item.symbol;
     const netQuantity = Number(item.netQuantity);
     const buyQuantity = parseFloat(item.buyQuantity) || 0;
     const sellQuantity = parseFloat(item.sellQuantity) || 0;
@@ -1370,24 +1309,22 @@ const PortfolioScreen = () => {
     // Updated isClosed logic: trade is closed if buyQuantity equals sellQuantity
     const isClosed = buyQuantity === sellQuantity;
 
-    const iniprice = Number.parseFloat(item.buyAvgPrice ?? 0);
-    const quantity = Number.parseFloat(buyQuantity - sellQuantity ?? 0);
-    const ltp = Number.parseFloat(item?.ltp ?? 0);
+    const quantity = Number.isFinite(netQuantity)
+      ? netQuantity
+      : buyQuantity - sellQuantity;
+    const iniprice = Number.parseFloat(
+      quantity < 0 ? item.sellAvgPrice ?? 0 : item.buyAvgPrice ?? 0,
+    );
     const exe = item.exchange;
-
-    const pnl = (ltp - iniprice) * quantity;
-    const profitPercent =
-      iniprice !== 0 ? ((ltp - iniprice) / iniprice) * 100 : 0;
-    const pnlColor = pnl > 0 ? 'green' : pnl < 0 ? 'red' : 'grey';
 
     return (
       <View
         style={[
           styles.flatListContainerpos,
-          isClosed && {backgroundColor: '#FFE5E5', opacity: 0.6},
+          isClosed && {backgroundColor: designColor('ffe5e5'), opacity: 0.6},
         ]}>
         <View
-          style={[styles.listItem, isClosed && {backgroundColor: '#FFE5E5'}]}>
+          style={[styles.listItem, isClosed && {backgroundColor: designColor('ffe5e5')}]}>
           {/* Your existing JSX - keep it exactly as is */}
           <View>
             <View style={{flexDirection: 'column'}}>
@@ -1401,8 +1338,8 @@ const PortfolioScreen = () => {
                   <Text
                     style={{
                       fontSize: 12,
-                      color: '#A0A0A0',
-                      fontFamily: 'Satoshi-Regular',
+                      color: designColor('a0a0a0'),
+                      fontFamily: designFont('Satoshi-Regular'),
                     }}>
                     Qty.
                   </Text>
@@ -1413,16 +1350,16 @@ const PortfolioScreen = () => {
                     style={{
                       marginLeft: 5,
                       color: 'black',
-                      fontFamily: 'Satoshi-Bold',
+                      fontFamily: designFont('Satoshi-Bold'),
                     }}>
                     |
                   </Text>
                   <Text
                     style={{
                       marginHorizontal: 5,
-                      fontFamily: 'Satoshi-Regular',
+                      fontFamily: designFont('Satoshi-Regular'),
                       fontSize: 12,
-                      color: '#A0A0A0',
+                      color: designColor('a0a0a0'),
                     }}>
                     Avg.
                   </Text>
@@ -1436,7 +1373,7 @@ const PortfolioScreen = () => {
                     <Text
                       style={{
                         color: 'red',
-                        fontFamily: 'Satoshi-Bold',
+                        fontFamily: designFont('Satoshi-Bold'),
                         fontSize: 12,
                       }}>
                       CLOSED
@@ -1446,11 +1383,11 @@ const PortfolioScreen = () => {
                       advisedRangeCondition={0}
                       symbol={item.symbol}
                       exchange={item.exchange}
+                      liveLtp={getLTPForSymbol(item.symbol)}
                       stockDetails={PositionsData}
                       advisedPrice={0}
                       type="positionpnlPercent"
                       data={item}
-                      isClosed={isClosed}
                     />
                   )}
                 </View>
@@ -1469,6 +1406,7 @@ const PortfolioScreen = () => {
                     advisedRangeCondition={0}
                     symbol={item.symbol}
                     exchange={item.exchange}
+                    liveLtp={getLTPForSymbol(item.symbol)}
                     stockDetails={PositionsData}
                     advisedPrice={0}
                     type="positionpnlRupee"
@@ -1497,6 +1435,7 @@ const PortfolioScreen = () => {
                     advisedRangeCondition={0}
                     symbol={item.symbol}
                     exchange={item.exchange}
+                    liveLtp={getLTPForSymbol(item.symbol)}
                     stockDetails={PositionsData}
                     advisedPrice={0}
                     type="ltpprice"
@@ -1537,6 +1476,7 @@ const PortfolioScreen = () => {
     // Tabs
     selectedInnerTab, setSelectedInnerTab,
     tabIndex, setTabIndex,
+    isPositionsTab,
 
     // P&L hero
     Loading,
@@ -1544,19 +1484,20 @@ const PortfolioScreen = () => {
     profitAndLoss,
     pnlPercentage,
     pnlposneg,
+    availableCash:
+      funds?.availablecash !== undefined && funds?.availablecash !== null
+        ? Number(funds.availablecash)
+        : null,
 
     // Lists
     modelPortfolioStrategy,
     processedData,
     BrokerHoldingsData,
     PositionsData,
-    planHoldings,
-    planHoldingsLoading,
-
-    // Plan picker
-    showPlanPicker, setShowPlanPicker,
-    selectedPlan, setSelectedPlan,
     broker,
+    brokerSessionUsable,
+    staleHoldingsAcknowledged,
+    staleHoldingsAsOf,
 
     // Refresh + gestures
     refreshing, onRefresh,
@@ -1580,6 +1521,12 @@ const PortfolioScreen = () => {
 
     // Modal
     modalVisible, scoreSymbol, setModalVisible,
+    slots: {
+      PortfolioCard,
+      RenderEmptyMessage,
+      HoldingScoreModal,
+      PortfolioSummaryCard,
+    },
   };
 
   return (
@@ -1612,12 +1559,15 @@ const PortfolioScreen = () => {
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityLabel="Dismiss stale holdings warning"
+              accessibilityLabel="Ignore broker warning and view stale holdings"
               activeOpacity={0.8}
               style={brokerWarningStyles.secondaryButton}
-              onPress={() => setShowDisconnectedHoldingsWarning(false)}>
+              onPress={() => {
+                setStaleHoldingsAcknowledged(true);
+                setShowDisconnectedHoldingsWarning(false);
+              }}>
               <Text style={brokerWarningStyles.secondaryButtonText}>
-                View stale data
+                Ignore
               </Text>
             </TouchableOpacity>
           </View>
@@ -1639,18 +1589,18 @@ const brokerWarningStyles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     padding: 20,
   },
   title: {
-    color: '#1F2937',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('1f2937'),
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 18,
     marginBottom: 8,
   },
   message: {
-    color: '#4B5563',
-    fontFamily: 'Satoshi-Regular',
+    color: designColor('4b5563'),
+    fontFamily: designFont('Satoshi-Regular'),
     fontSize: 14,
     lineHeight: 21,
     marginBottom: 18,
@@ -1661,8 +1611,8 @@ const brokerWarningStyles = StyleSheet.create({
     paddingVertical: 12,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('ffffff'),
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 14,
   },
   secondaryButton: {
@@ -1670,8 +1620,8 @@ const brokerWarningStyles = StyleSheet.create({
     paddingTop: 13,
   },
   secondaryButtonText: {
-    color: '#4B5563',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('4b5563'),
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 13,
   },
 });

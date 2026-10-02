@@ -1,3 +1,4 @@
+import {publisherOrderLabel} from '../../utils/publisherOrderLabel';
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -19,7 +20,7 @@ import axios from 'axios';
 import Config from 'react-native-config';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import Toast from 'react-native-toast-message';
 import {
   XIcon,
@@ -36,11 +37,18 @@ import {
 import { Linking } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import moment from 'moment';
-import { isOrderSuccess, isOrderRejected, isOrderPending } from '../../utils/orderStatusUtils';
+import {
+  isOrderSuccess,
+  isOrderRejected,
+  isOrderPending,
+  isOrderManuallyPlaced,
+  summarizeOrderStatuses,
+} from '../../utils/orderStatusUtils';
 import {
   isCautionaryListingMessage,
   isInsufficientFundsMessage,
 } from '../../utils/rebalanceHelpers';
+import { designColor, designFont } from '../../design/literalTokens';
 const { height: screenHeight } = Dimensions.get('window');
 const { width: screenWidth } = Dimensions.get('window');
 import { useModal } from '../ModalContext';
@@ -50,28 +58,12 @@ import { resolveResultVariant } from '../../utils/tradeVariant';
 import { DEFAULT_TOKENS } from '../../theme/colors';
 import useTokens from '../../theme/useTokens';
 import portfolioEvents, { PORTFOLIO_EVENTS } from '../../utils/portfolioEvents';
+import {refreshSingleOrderStatus} from '../../services/OrderService';
+import CustomerExecutionReportModal from '../CustomerExecutionReportModal';
 
 const CheckedIcon = require('../../assets/checked.png');
 const FailureIcon = require('../../assets/cross.png');
 const PartialIcon = require('../../assets/partial_success.png');
-
-// Maps broker display names to the ccxt-india route slug used for
-// the v2/single-order-status endpoint (POST /<slug>/v2/single-order-status).
-const BROKER_SLUG_MAP = {
-  'Axis Securities': 'axis',
-  'Angel One': 'angelone',
-  'Zerodha': 'zerodha',
-  'Upstox': 'upstox',
-  'Dhan': 'dhan',
-  'Fyers': 'fyers',
-  'ICICI Direct': 'icici',
-  'Kotak': 'kotak',
-  'AliceBlue': 'aliceblue',
-  'Motilal Oswal': 'motilal-oswal',
-  'HDFC Securities': 'hdfc',
-  'IIFL Securities': 'iifl',
-  'Groww': 'groww',
-};
 
 const RecommendationSuccessModal = ({
   openSuccessModal,
@@ -99,6 +91,7 @@ const RecommendationSuccessModal = ({
   modelId,
   modelName,
   uniqueId,
+  onContinuePublisherBuys,
 }) => {
   // Brand colors via useTokens — variant supplies the fallback, backend
   // config.gradient1 / gradient2 still override through legacy branding.
@@ -108,7 +101,7 @@ const RecommendationSuccessModal = ({
   const gradient2 = tokens.colors.brand.gradientEnd;
   const brandPrimary = tokens.colors.brand.primary;
   const infoColor = tokens.colors.status.info;
-  const stepCompletedColor = config?.paymentModal?.stepCompletedColor || '#29A400';
+  const stepCompletedColor = config?.paymentModal?.stepCompletedColor || designColor('29a400');
   // Status warning tokens — used by the AMO pill on result cards. Sourced
   // from `theme/colors.js § DEFAULT_TOKENS.status`. Tenant overrides via
   // `colorTokens.status.warning(Bg)` are honoured when present (config
@@ -132,10 +125,71 @@ const RecommendationSuccessModal = ({
 
   const navigation = useNavigation();
   const [orderResponse, setOrderResponse] = useState(orderPlacementResponse);
+  const [publisherRecovery, setPublisherRecovery] = useState(null);
+  const [showCustomerReport, setShowCustomerReport] = useState(false);
+  const [customerReportStatus, setCustomerReportStatus] = useState(null);
 
   useEffect(() => {
     setOrderResponse(orderPlacementResponse);
-  }, []);
+  }, [orderPlacementResponse]);
+
+  const publisherAttemptId =
+    orderPlacementResponse?.find?.(row => row?.attemptId)?.attemptId ||
+    originalStockDetails?.find?.(row => row?.attemptId)?.attemptId;
+  const publisherSubmittedSide =
+    orderPlacementResponse?.find?.(row => row?.publisherSubmittedSide)
+      ?.publisherSubmittedSide || 'SELL';
+
+  useEffect(() => {
+    if (
+      !openSuccessModal ||
+      currentBroker !== 'Zerodha' ||
+      !userEmail ||
+      !publisherAttemptId
+    ) return undefined;
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const response = await axios.post(
+          `${server.server.baseUrl}api/zerodha/publisher/attempt-status`,
+          {
+            userEmail,
+            attemptId: publisherAttemptId,
+            publisherFinished: true,
+            submittedSide: publisherSubmittedSide,
+          },
+          {
+            timeout: 15000,
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': getTenantSubdomain(),
+              'aq-encrypted-key': generateToken(
+                Config.REACT_APP_AQ_KEYS,
+                Config.REACT_APP_AQ_SECRET,
+              ),
+            },
+          },
+        );
+        if (cancelled) return;
+        const state = response?.data;
+        if (Array.isArray(state?.legs) && state.legs.length > 0) {
+          setOrderResponse(state.legs);
+        }
+        setPublisherRecovery(state || null);
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('[PublisherAttempt] foreground refresh failed:', error?.message);
+        }
+      }
+    };
+    poll();
+    const timer = setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [openSuccessModal, currentBroker, userEmail, publisherAttemptId,
+      publisherSubmittedSide]);
 
   const [showStocksDetails, setShowStocksDetails] = useState(false);
 
@@ -165,25 +219,79 @@ const RecommendationSuccessModal = ({
   const refreshOrderStatus = async (idx, item) => {
     if (refreshingIdx !== null) return;
     const orderId = item?.orderId || item?.uniqueOrderId;
-    if (!orderId || !userEmail || !currentBroker) return;
-    const slug = BROKER_SLUG_MAP[currentBroker];
-    if (!slug) return;
+    if (!userEmail || !currentBroker) return;
     setRefreshingIdx(idx);
     try {
-      const resp = await axios.post(
-        `${server.ccxtServer.baseUrl}${slug}/v2/single-order-status`,
-        { user_email: userEmail, orderId },
-        {
-          headers: {
-            'Content-Type': 'application/json',
-            'aq-encrypted-key': generateToken(
-              Config.REACT_APP_AQ_KEYS,
-              Config.REACT_APP_AQ_SECRET,
-            ),
+      // Publisher can complete before one or more broker rows are visible. In
+      // that state there is no orderId for the legacy single-order endpoint;
+      // re-run exact attempt correlation against the whole Zerodha order book.
+      if (!orderId && currentBroker === 'Zerodha') {
+        const publisherStockDetails =
+          Array.isArray(originalStockDetails) && originalStockDetails.length > 0
+            ? originalStockDetails
+            : orderResponse;
+        const attemptId =
+          item?.attemptId ||
+          publisherStockDetails?.find(row => row?.attemptId)?.attemptId ||
+          '';
+        const headers = {
+          'Content-Type': 'application/json',
+          'X-Advisor-Subdomain': getTenantSubdomain(),
+          'aq-encrypted-key': generateToken(
+            Config.REACT_APP_AQ_KEYS,
+            Config.REACT_APP_AQ_SECRET,
+          ),
+        };
+        const recordResponse = await axios.post(
+          `${server.server.baseUrl}api/zerodha/publisher/record-orders`,
+          {
+            stockDetails: publisherStockDetails,
+            publisherResults: [{status: 'success', source: 'manual_refresh'}],
+            userEmail,
+            broker: 'Zerodha',
+            attemptId,
+            model_id: modelId,
+            modelName,
+            unique_id: uniqueId,
           },
-        },
+          {headers, timeout: 30000},
+        );
+        const refreshed =
+          recordResponse?.data?.response || recordResponse?.data?.results || [];
+        if (Array.isArray(refreshed) && refreshed.length > 0) {
+          setOrderResponse(refreshed);
+          if (modelId) {
+            await axios.post(
+              `${server.server.baseUrl}api/model-portfolio-db-update`,
+              {
+                modelId,
+                orderResults: refreshed,
+                modelName,
+                userEmail,
+                user_broker: currentBroker,
+              },
+              {headers},
+            );
+          }
+          Toast.show({
+            type: refreshed.some(row => row?.orderId) ? 'success' : 'info',
+            text1: refreshed.some(row => row?.orderId)
+              ? 'Broker status refreshed'
+              : 'Still awaiting Zerodha confirmation',
+            text2: 'Every basket leg was checked against your latest Kite order book.',
+            visibilityTime: 4000,
+          });
+          return;
+        }
+        throw new Error('No broker status was returned for this attempt');
+      }
+      if (!orderId) return;
+      const statusResponse = await refreshSingleOrderStatus(
+        currentBroker,
+        userEmail,
+        orderId,
       );
-      const newStatus = resp?.data?.orderStatus;
+      const newStatus = statusResponse?.orderStatus;
       if (newStatus && newStatus.toUpperCase() !== 'OPEN') {
         setOrderResponse(prev => {
           if (!Array.isArray(prev)) return prev;
@@ -208,6 +316,7 @@ const RecommendationSuccessModal = ({
             {
               headers: {
                 'Content-Type': 'application/json',
+                'X-Advisor-Subdomain': getTenantSubdomain(),
                 'aq-encrypted-key': generateToken(
                   Config.REACT_APP_AQ_KEYS,
                   Config.REACT_APP_AQ_SECRET,
@@ -277,7 +386,7 @@ const RecommendationSuccessModal = ({
       return;
     }
     const qtyNum = Number(manualEditQty);
-    const priceNum = manualEditPrice === '' ? null : Number(manualEditPrice);
+    const priceNum = Number(manualEditPrice);
     if (!Number.isFinite(qtyNum) || qtyNum <= 0) {
       Toast.show({
         type: 'error',
@@ -286,11 +395,11 @@ const RecommendationSuccessModal = ({
       });
       return;
     }
-    if (priceNum !== null && (!Number.isFinite(priceNum) || priceNum < 0)) {
+    if (!Number.isFinite(priceNum) || priceNum <= 0) {
       Toast.show({
         type: 'error',
         text1: 'Invalid price',
-        text2: 'Leave blank or enter a non-negative number.',
+        text2: 'Enter the actual average execution price from your broker.',
       });
       return;
     }
@@ -313,10 +422,7 @@ const RecommendationSuccessModal = ({
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain':
-              config?.config?.REACT_APP_HEADER_NAME ||
-              config?.subdomain ||
-              getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(config),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -391,18 +497,25 @@ const RecommendationSuccessModal = ({
   // one above. If you need to debug result rows, do it from the
   // RebalanceModal SDK callsite, not here on every re-render.
 
-  const successCount = orderResponse?.filter(
-    item => isOrderSuccess(item?.orderStatus) || isOrderPending(item?.orderStatus),
-  ).length;
-
-  const failureCount = orderResponse?.filter(
-    item => isOrderRejected(item?.orderStatus),
-  ).length;
-
-  const totalCount = orderResponse?.length;
-  const successPercentage = (successCount / totalCount) * 100;
-  const failurePercentage = (failureCount / totalCount) * 100;
-  const partialFailurePercentage = 100 - successPercentage;
+  const {
+    totalCount,
+    executedCount,
+    manualPlacedCount,
+    successCount,
+    pendingCount,
+    failureCount,
+    unknownCount,
+  } = summarizeOrderStatuses(orderResponse);
+  const unconfirmedCount = pendingCount + unknownCount;
+  const directReconciliationRow = orderResponse?.find?.(row =>
+    row?.reconciliationRequired === true &&
+    (row?.directAsyncJobId || row?.directAsyncRequestId),
+  );
+  const percentageOfTotal = count =>
+    totalCount > 0 ? (count / totalCount) * 100 : 0;
+  const successPercentage = percentageOfTotal(successCount);
+  const pendingPercentage = percentageOfTotal(unconfirmedCount);
+  const failurePercentage = percentageOfTotal(failureCount);
 
   // Classifiers extracted to rebalanceHelpers so RebalanceCard repair-mode
   // and any other surface can use the same matching rules. See
@@ -487,10 +600,30 @@ const RecommendationSuccessModal = ({
 
   const renderOrderItem = ({ item, index }) => {
     const isSuccessStatus =
-      isOrderSuccess(item?.orderStatus) || isOrderPending(item?.orderStatus);
+      isOrderSuccess(item?.orderStatus) ||
+      isOrderManuallyPlaced(item?.orderStatus);
+    const isPendingStatus =
+      isOrderPending(item?.orderStatus) &&
+      !isOrderManuallyPlaced(item?.orderStatus);
+    const isFailureStatus = isOrderRejected(item?.orderStatus);
+    // A rejection the SERVER retries on its own must not invite the customer
+    // to place it by hand. moneyman/dgopujkar 2026-09-23: LIQUIDCASE BUY 2801
+    // was rejected for insufficient funds at 08:40 and Repair placed 2790 at
+    // 08:44; for those four minutes this modal offered "Mark as Placed"
+    // pre-filled with 2801. Confirming records a fill that never happened --
+    // and placing it at the broker as well leaves the customer holding both.
+    // Narrow by design: only the funds class is withheld, because that is the
+    // class Repair re-places. A cautionary listing can never be auto-placed,
+    // so its escape hatch stays.
+    const isRepairRetriableRejection =
+      isFailureStatus && isInsufficientFundsMessage(item);
+    const isUnconfirmedStatus =
+      !isSuccessStatus && !isFailureStatus;
 
     const cardStyle = isSuccessStatus
       ? styles.successCard
+      : isUnconfirmedStatus
+        ? styles.pendingCard
       : styles.rejectedCard;
 
     const failureReason =
@@ -512,32 +645,20 @@ const RecommendationSuccessModal = ({
           }}>
           <View style={{ flexDirection: 'row', alignContent: 'center', alignItems: 'center', flex: 1 }}>
             <Text style={styles.orderTitle}>{item.symbol}</Text>
-            {!isSuccessStatus && (
+            {(isUnconfirmedStatus || isFailureStatus) && (
               <View style={{
                 marginLeft: 8,
-                backgroundColor: '#FEE2E2',
+                backgroundColor: isUnconfirmedStatus ? designColor('dbeafe') : designColor('fee2e2'),
                 paddingHorizontal: 6,
                 paddingVertical: 2,
                 borderRadius: 4,
               }}>
-                <Text style={{ color: '#DC2626', fontSize: 10, fontFamily: 'Poppins-Medium' }}>
-                  {(item?.orderStatus || 'Rejected').toUpperCase()}
-                </Text>
-              </View>
-            )}
-            {/* Amber OPEN badge — order placed but broker confirmation pending
-                (Axis timing race: order.history returns [] immediately after
-                placement; cron resolves at 4:30 PM or user can tap Refresh). */}
-            {isSuccessStatus && (item?.orderStatus || '').toUpperCase() === 'OPEN' && (
-              <View style={{
-                marginLeft: 8,
-                backgroundColor: '#FEF3C7',
-                paddingHorizontal: 6,
-                paddingVertical: 2,
-                borderRadius: 4,
-              }}>
-                <Text style={{ color: '#92400E', fontSize: 10, fontFamily: 'Poppins-Medium' }}>
-                  OPEN
+                <Text style={{
+                  color: isUnconfirmedStatus ? designColor('1d4ed8') : designColor('dc2626'),
+                  fontSize: 10,
+                  fontFamily: designFont('Poppins-Medium'),
+                }}>
+                  {publisherOrderLabel(item?.orderStatus || (isUnconfirmedStatus ? 'Unconfirmed' : 'Rejected'))}
                 </Text>
               </View>
             )}
@@ -561,7 +682,7 @@ const RecommendationSuccessModal = ({
                   style={{
                     color: warningColor,
                     fontSize: 10,
-                    fontFamily: 'Poppins-Medium',
+                    fontFamily: designFont('Poppins-Medium'),
                   }}>
                   AMO
                 </Text>
@@ -576,19 +697,25 @@ const RecommendationSuccessModal = ({
                 backgroundColor:
                   item.transactionType.toLowerCase() === 'buy'
                     ? stepCompletedColor
-                    : '#FF2F2F',
+                    : designColor('ff2f2f'),
               },
             ]}>
             <Text style={styles.buyButtonText}>{item?.transactionType}</Text>
           </TouchableOpacity>
         </View>
-
         <View
           style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2 }}>
           <Text style={styles.metaTextMuted}>Qty.</Text>
-          <Text style={styles.metaTextStrong}> {item.quantity} </Text>
+          <Text style={styles.metaTextStrong}>
+            {' '}{item?.requestedQuantity ?? item?.quantity}{' '}
+          </Text>
         </View>
-
+        {(item?.remainingQuantity !== undefined || item?.filledShares !== undefined) && (
+          <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 1}}>
+            <Text style={styles.metaTextMuted}>Filled {item?.filledShares ?? 0}</Text>
+            <Text style={styles.metaTextMuted}> · Remaining {item?.remainingQuantity ?? 0}</Text>
+          </View>
+        )}
         <View
           style={{
             flexDirection: 'row',
@@ -610,25 +737,29 @@ const RecommendationSuccessModal = ({
             <Text style={styles.dateText}>{getFormattedDate()}</Text>
           </View>
         </View>
-
-        {/* Rejection reason displayed inline */}
+        {/* Broker status detail displayed inline. Pending is informational,
+            never styled as a rejection or counted as execution. */}
         {!isSuccessStatus && failureReason ? (
           <View style={{
             marginTop: 6,
             marginBottom: 4,
             padding: 8,
-            backgroundColor: '#FEF2F2',
+            backgroundColor: isUnconfirmedStatus ? designColor('eff6ff') : designColor('fef2f2'),
             borderWidth: 1,
-            borderColor: '#FECACA',
+            borderColor: isUnconfirmedStatus ? designColor('bfdbfe') : designColor('fecaca'),
             borderRadius: 6,
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-              <AlertCircle size={14} color="#DC2626" style={{ marginTop: 1, marginRight: 6 }} />
+              <AlertCircle
+                size={14}
+                color={isUnconfirmedStatus ? designColor('2563eb') : designColor('dc2626')}
+                style={{ marginTop: 1, marginRight: 6 }}
+              />
               <Text style={{
                 flex: 1,
-                color: '#991B1B',
+                color: isUnconfirmedStatus ? designColor('1e40af') : designColor('991b1b'),
                 fontSize: 11,
-                fontFamily: 'Poppins-Regular',
+                fontFamily: designFont('Poppins-Regular'),
                 lineHeight: 16,
               }}>
                 {failureReason}
@@ -636,7 +767,6 @@ const RecommendationSuccessModal = ({
             </View>
           </View>
         ) : null}
-
         {/* 2026-05-07: per-row "Mark as Placed" inline editor.
          *
          * Shown for ANY rejection (cautionary listing, restricted
@@ -659,7 +789,21 @@ const RecommendationSuccessModal = ({
          * (bespoke uses its own /api/recommendation manually_placed
          * pattern in StockAdvices.js).
          */}
-        {modelId && !isSuccessStatus && manualEditingIdx !== index ? (
+        {modelId && isFailureStatus && isRepairRetriableRejection ? (
+          <Text
+            style={{
+              marginTop: 4,
+              marginBottom: 4,
+              fontSize: 11,
+              lineHeight: 15,
+              color: designColor('b45309'),
+            }}>
+            Not enough funds for this order. We retry it for you once your
+            sells settle — don't place it at the broker yourself, or you may
+            end up buying it twice.
+          </Text>
+        ) : null}
+        {modelId && isFailureStatus && !isRepairRetriableRejection && manualEditingIdx !== index ? (
           <TouchableOpacity
             onPress={() => startManualEdit(index, item)}
             style={{
@@ -671,19 +815,18 @@ const RecommendationSuccessModal = ({
               borderRadius: 6,
               borderWidth: 1,
               borderColor: brandPrimary,
-              backgroundColor: '#EFF6FF',
+              backgroundColor: designColor('eff6ff'),
             }}>
             <Text
               style={{
                 color: brandPrimary,
                 fontSize: 11,
-                fontFamily: 'Poppins-Medium',
+                fontFamily: designFont('Poppins-Medium'),
               }}>
               Mark as Placed (manual)
             </Text>
           </TouchableOpacity>
         ) : null}
-
         {/* 2026-05-07: "Refresh Status" inline section for OPEN orders.
          *
          * Shown when the order has orderStatus='OPEN' — meaning it was
@@ -694,14 +837,17 @@ const RecommendationSuccessModal = ({
          * status. If still OPEN, shows a toast. Status also auto-resolves
          * via the 4:30 PM cron (cron_resolve_stale_orders.py).
          */}
-        {isSuccessStatus && (item?.orderStatus || '').toUpperCase() === 'OPEN' ? (
+        {isPendingStatus && (
+          (item?.orderStatus || '').toUpperCase() === 'OPEN' ||
+          (!(item?.orderId || item?.uniqueOrderId) && currentBroker === 'Zerodha')
+        ) ? (
           <View style={{
             marginTop: 6,
             marginBottom: 4,
             padding: 8,
-            backgroundColor: '#FFFBEB',
+            backgroundColor: designColor('fffbeb'),
             borderWidth: 1,
-            borderColor: '#FDE68A',
+            borderColor: designColor('fde68a'),
             borderRadius: 6,
             flexDirection: 'row',
             alignItems: 'center',
@@ -709,13 +855,15 @@ const RecommendationSuccessModal = ({
           }}>
             <Text style={{
               flex: 1,
-              color: '#78350F',
+              color: designColor('78350f'),
               fontSize: 11,
-              fontFamily: 'Poppins-Regular',
+              fontFamily: designFont('Poppins-Regular'),
               lineHeight: 16,
               marginRight: 8,
             }}>
-              Placed — awaiting broker confirmation
+              {item?.orderId
+                ? 'Placed — awaiting broker confirmation'
+                : 'Awaiting exact Zerodha basket confirmation'}
             </Text>
             <TouchableOpacity
               onPress={() => refreshOrderStatus(index, item)}
@@ -725,42 +873,41 @@ const RecommendationSuccessModal = ({
                 paddingVertical: 5,
                 borderRadius: 6,
                 borderWidth: 1,
-                borderColor: '#D97706',
-                backgroundColor: '#FEF3C7',
+                borderColor: designColor('d97706'),
+                backgroundColor: designColor('fef3c7'),
                 flexDirection: 'row',
                 alignItems: 'center',
                 opacity: refreshingIdx !== null ? 0.6 : 1,
               }}>
               {refreshingIdx === index ? (
-                <ActivityIndicator size="small" color="#92400E" style={{ marginRight: 4 }} />
+                <ActivityIndicator size="small" color={designColor('92400e')} style={{ marginRight: 4 }} />
               ) : null}
-              <Text style={{ color: '#92400E', fontSize: 11, fontFamily: 'Poppins-Medium' }}>
+              <Text style={{ color: designColor('92400e'), fontSize: 11, fontFamily: designFont('Poppins-Medium') }}>
                 {refreshingIdx === index ? 'Checking…' : 'Refresh'}
               </Text>
             </TouchableOpacity>
           </View>
         ) : null}
-
-        {modelId && !isSuccessStatus && manualEditingIdx === index ? (
+        {modelId && isFailureStatus && !isRepairRetriableRejection && manualEditingIdx === index ? (
           <View style={{
             marginTop: 6,
             padding: 10,
-            backgroundColor: '#F0F9FF',
+            backgroundColor: designColor('f0f9ff'),
             borderWidth: 1,
-            borderColor: '#BFDBFE',
+            borderColor: designColor('bfdbfe'),
             borderRadius: 8,
           }}>
             <Text style={{
-              color: '#0F172A',
+              color: designColor('0f172a'),
               fontSize: 11,
-              fontFamily: 'Poppins-Medium',
+              fontFamily: designFont('Poppins-Medium'),
               marginBottom: 6,
             }}>
               Confirm what you actually placed at the broker:
             </Text>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-              <Text style={{ width: 60, color: '#475569', fontSize: 11, fontFamily: 'Poppins-Regular' }}>
+              <Text style={{ width: 60, color: designColor('475569'), fontSize: 11, fontFamily: designFont('Poppins-Regular') }}>
                 Quantity
               </Text>
               <TextInput
@@ -771,23 +918,23 @@ const RecommendationSuccessModal = ({
                 style={{
                   flex: 1,
                   borderWidth: 1,
-                  borderColor: '#CBD5E1',
+                  borderColor: designColor('cbd5e1'),
                   borderRadius: 6,
                   paddingHorizontal: 8,
                   paddingVertical: 6,
                   fontSize: 12,
-                  fontFamily: 'Poppins-Regular',
-                  backgroundColor: '#FFF',
-                  color: '#0F172A',
+                  fontFamily: designFont('Poppins-Regular'),
+                  backgroundColor: designColor('fff'),
+                  color: designColor('0f172a'),
                 }}
                 placeholder="e.g. 100"
-                placeholderTextColor="#94A3B8"
+                placeholderTextColor={designColor('94a3b8')}
               />
             </View>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-              <Text style={{ width: 60, color: '#475569', fontSize: 11, fontFamily: 'Poppins-Regular' }}>
-                Price
+              <Text style={{ width: 60, color: designColor('475569'), fontSize: 11, fontFamily: designFont('Poppins-Regular') }}>
+                Avg. price
               </Text>
               <TextInput
                 value={manualEditPrice}
@@ -797,17 +944,17 @@ const RecommendationSuccessModal = ({
                 style={{
                   flex: 1,
                   borderWidth: 1,
-                  borderColor: '#CBD5E1',
+                  borderColor: designColor('cbd5e1'),
                   borderRadius: 6,
                   paddingHorizontal: 8,
                   paddingVertical: 6,
                   fontSize: 12,
-                  fontFamily: 'Poppins-Regular',
-                  backgroundColor: '#FFF',
-                  color: '#0F172A',
+                  fontFamily: designFont('Poppins-Regular'),
+                  backgroundColor: designColor('fff'),
+                  color: designColor('0f172a'),
                 }}
-                placeholder="₹ per share (optional)"
-                placeholderTextColor="#94A3B8"
+                placeholder="Actual ₹ per share"
+                placeholderTextColor={designColor('94a3b8')}
               />
             </View>
 
@@ -821,10 +968,10 @@ const RecommendationSuccessModal = ({
                   marginRight: 8,
                   borderRadius: 6,
                   borderWidth: 1,
-                  borderColor: '#CBD5E1',
+                  borderColor: designColor('cbd5e1'),
                   opacity: submittingManualIdx !== null ? 0.5 : 1,
                 }}>
-                <Text style={{ color: '#475569', fontSize: 11, fontFamily: 'Poppins-Medium' }}>
+                <Text style={{ color: designColor('475569'), fontSize: 11, fontFamily: designFont('Poppins-Medium') }}>
                   Cancel
                 </Text>
               </TouchableOpacity>
@@ -841,9 +988,9 @@ const RecommendationSuccessModal = ({
                   opacity: submittingManualIdx !== null ? 0.7 : 1,
                 }}>
                 {submittingManualIdx === index ? (
-                  <ActivityIndicator size="small" color="#FFF" style={{ marginRight: 6 }} />
+                  <ActivityIndicator size="small" color={designColor('fff')} style={{ marginRight: 6 }} />
                 ) : null}
-                <Text style={{ color: '#FFF', fontSize: 11, fontFamily: 'Poppins-Medium' }}>
+                <Text style={{ color: designColor('fff'), fontSize: 11, fontFamily: designFont('Poppins-Medium') }}>
                   {submittingManualIdx === index ? 'Saving…' : 'Confirm Placed'}
                 </Text>
               </TouchableOpacity>
@@ -875,7 +1022,7 @@ const RecommendationSuccessModal = ({
                   setsuccessclosemodel(true);
                   hideAddToCartModal();
                 }}>
-                <ChevronLeft size={24} color="#000" />
+                <ChevronLeft size={24} color={designColor('000')} />
               </TouchableOpacity>
               <View style={styles.headerTextContainer}>
                 <Text style={styles.headerTitle}>Trade Details</Text>
@@ -944,13 +1091,13 @@ const RecommendationSuccessModal = ({
 
             {totalCount === 0 && (
               <View style={styles.statusContainer}>
-                <View style={[styles.statusIcon, { backgroundColor: '#EF4639' }]}>
+                <View style={[styles.statusIcon, { backgroundColor: designColor('ef4639') }]}>
                   <XIcon size={40} color={'white'} />
                 </View>
                 <View style={styles.statusTextContainer}>
                   <Text style={styles.statusTitle}>No Orders Placed</Text>
                   <Text style={{
-                    marginTop: 4, fontFamily: 'Poppins-Medium',
+                    marginTop: 4, fontFamily: designFont('Poppins-Medium'),
                     color: 'black',
                     fontSize: 10,
                     paddingRight: 10,
@@ -963,7 +1110,7 @@ const RecommendationSuccessModal = ({
 
             {failureCount === totalCount && totalCount > 0 && (
               <View style={styles.statusContainer}>
-                <View style={[styles.statusIcon, { backgroundColor: '#EF4639' }]}>
+                <View style={[styles.statusIcon, { backgroundColor: designColor('ef4639') }]}>
                   <XIcon size={40} color={'white'} />
                 </View>
 
@@ -975,7 +1122,7 @@ const RecommendationSuccessModal = ({
                       the full per-reason explanation, so the header subtitle
                       just needs to point users at them. */}
                   <Text style={{
-                    marginTop: 4, fontFamily: 'Poppins-Medium',
+                    marginTop: 4, fontFamily: designFont('Poppins-Medium'),
                     color: 'black',
                     fontSize: 10,
                     paddingRight: 10,
@@ -1008,10 +1155,93 @@ const RecommendationSuccessModal = ({
               </View>
             )}
 
+            {publisherRecovery?.nextAction === 'CONTINUE_BUYS' && (
+              <View style={{marginHorizontal: 16, marginTop: 12, padding: 14,
+                borderRadius: 10, backgroundColor: designColor('eaf4ff')}}>
+                <Text style={{fontFamily: designFont('Poppins-SemiBold'), color: designColor('073b75')}}>
+                  Zerodha sells confirmed
+                </Text>
+                <Text style={{fontFamily: designFont('Poppins-Regular'), color: designColor('31465c'),
+                  fontSize: 11, marginTop: 4}}>
+                  The buy order was not sent yet. Continue with the remaining buy-only basket.
+                </Text>
+                <TouchableOpacity
+                  style={{marginTop: 10, backgroundColor: designColor('0b63ce'), borderRadius: 8,
+                    paddingVertical: 11, alignItems: 'center'}}
+                  onPress={() => onContinuePublisherBuys?.({
+                    attemptId: publisherAttemptId,
+                    buyLegs: publisherRecovery.legs?.filter(
+                      leg => String(leg?.transactionType || '').toUpperCase() === 'BUY',
+                    ) || [],
+                    allLegs: publisherRecovery.legs || [],
+                    context: publisherRecovery.context || {},
+                  })}>
+                  <Text style={{color: 'white', fontFamily: designFont('Poppins-SemiBold')}}>
+                    Continue with {publisherRecovery.buySummary?.expected || 1} Buy
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
-            {successCount > 0 && successCount !== totalCount && (
+            {publisherRecovery?.nextAction === 'REPAIR_REMAINING' && (
+              <View style={{padding: 12, marginBottom: 12, backgroundColor: designColor('fffbeb'), borderRadius: 8}}>
+                <Text style={{color: designColor('78350f'), fontFamily: designFont('Poppins-Regular')}}>
+                  {publisherRecovery.message}
+                </Text>
+              </View>
+            )}
+            {publisherRecovery?.nextAction === 'AUTHORIZE_OR_CHECK_ACCOUNT' && (
+              <View style={{marginHorizontal: 16, marginTop: 12, padding: 14,
+                borderRadius: 10, backgroundColor: designColor('fff4e5')}}>
+                <Text style={{fontFamily: designFont('Poppins-SemiBold'), color: designColor('8a4b00')}}>
+                  Zerodha orders were not found
+                </Text>
+                <Text style={{fontFamily: designFont('Poppins-Regular'), color: designColor('5b4630'),
+                  fontSize: 11, marginTop: 4}}>
+                  {publisherRecovery.message}
+                </Text>
+              </View>
+            )}
+
+            {unconfirmedCount > 0 && (
               <View style={styles.statusContainer}>
-                <View style={[styles.statusIcon, { backgroundColor: '#FFCD28' }]}>
+                <View style={[styles.statusIcon, { backgroundColor: infoColor }]}>
+                  <Info size={40} color={'white'} />
+                </View>
+                <View style={styles.statusTextContainer}>
+                  <Text style={styles.statusTitle}>
+                    Awaiting Broker Confirmation
+                  </Text>
+                  <Text style={styles.statusDescription}>
+                    {unconfirmedCount} of {totalCount} order
+                    {unconfirmedCount === 1 ? ' is' : 's are'} not confirmed by{' '}
+                    {currentBroker || 'the broker'} yet. Check the broker order
+                    book before retrying.
+                  </Text>
+                  {directReconciliationRow ? (
+                    <TouchableOpacity
+                      onPress={() => setShowCustomerReport(true)}
+                      style={{marginTop: 10, alignSelf: 'flex-start', backgroundColor: designColor('2563eb'),
+                        paddingHorizontal: 12, paddingVertical: 8, borderRadius: 7}}>
+                      <Text style={{color: designColor('fff'), fontFamily: designFont('Poppins-SemiBold'), fontSize: 11}}>
+                        {customerReportStatus ? 'Update what happened' : 'Tell us what happened'}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+                  {customerReportStatus ? (
+                    <Text style={{fontSize: 10, color: designColor('1e40af'), marginTop: 6}}>
+                      Report received; verification is pending. Retry remains blocked.
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+            )}
+
+            {successCount > 0 &&
+              successCount !== totalCount &&
+              unconfirmedCount === 0 && (
+              <View style={styles.statusContainer}>
+                <View style={[styles.statusIcon, { backgroundColor: designColor('ffcd28') }]}>
                   <AlertCircle size={40} color={'black'} />
                 </View>
                 <View style={styles.statusTextContainer}>
@@ -1040,7 +1270,7 @@ const RecommendationSuccessModal = ({
                 {/* Header with icon */}
                 <View style={cautionaryStyles.headerRow}>
                   <View style={cautionaryStyles.iconCircle}>
-                    <AlertTriangle size={20} color="#D97706" />
+                    <AlertTriangle size={20} color={designColor('d97706')} />
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={cautionaryStyles.alertTitle}>
@@ -1052,7 +1282,7 @@ const RecommendationSuccessModal = ({
                 {/* Explanation */}
                 <Text style={cautionaryStyles.alertDescription}>
                   {brokerDisplayName} does not allow stocks under{' '}
-                  <Text style={{ fontFamily: 'Poppins-SemiBold' }}>
+                  <Text style={{ fontFamily: designFont('Poppins-SemiBold') }}>
                     Exchange Cautionary Listing
                   </Text>{' '}
                   to be placed through the broker API connection. The following
@@ -1109,7 +1339,7 @@ const RecommendationSuccessModal = ({
               <View style={lowFundsStyles.alertContainer}>
                 <View style={lowFundsStyles.headerRow}>
                   <View style={lowFundsStyles.iconCircle}>
-                    <AlertCircle size={20} color="#B91C1C" />
+                    <AlertCircle size={20} color={designColor('b91c1c')} />
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={lowFundsStyles.alertTitle}>
@@ -1120,8 +1350,9 @@ const RecommendationSuccessModal = ({
 
                 <Text style={lowFundsStyles.alertDescription}>
                   {brokerDisplayName} rejected the orders below because available
-                  funds are below the required amount. Add funds to your broker
-                  account, then try again.
+                  funds are below the required amount. These quantities remain unfilled
+                  in Repair. If this rebalance included sells, some proceeds may
+                  not yet be usable.
                 </Text>
 
                 {(lowFundsAvailable !== null || lowFundsSawAnyRequired) && (
@@ -1132,7 +1363,7 @@ const RecommendationSuccessModal = ({
                         <Text
                           style={[
                             lowFundsStyles.amountValue,
-                            lowFundsAvailable < 0 && { color: '#B91C1C' },
+                            lowFundsAvailable < 0 && { color: designColor('b91c1c') },
                           ]}>
                           {formatINR(lowFundsAvailable)}
                         </Text>
@@ -1174,16 +1405,15 @@ const RecommendationSuccessModal = ({
                         What you need to do:
                       </Text>
                       <Text style={lowFundsStyles.instructionStep}>
-                        1. Open your {brokerDisplayName} app and add funds to
-                        cover the required amount
+                        1. Check available funds in your {brokerDisplayName} account
                       </Text>
                       <Text style={lowFundsStyles.instructionStep}>
-                        2. Once funds are credited, return here and place the
-                        orders again
+                        2. If sale proceeds are pending, try Repair the next trading
+                        day after your broker credits them
                       </Text>
                       <Text style={lowFundsStyles.instructionStep}>
-                        3. A negative available balance usually means existing
-                        margin debit — clear it before retrying
+                        3. If funds are still insufficient, review your broker
+                        balance before retrying the unfilled quantities
                       </Text>
                     </View>
                   </View>
@@ -1194,13 +1424,19 @@ const RecommendationSuccessModal = ({
             {/* Info Row */}
             <View style={styles.infoRow}>
               <View style={styles.infoItem}>
-                <Text style={styles.infoTitle}>Placed On</Text>
+                <Text style={styles.infoTitle}>
+                  {successCount > 0 ? 'Placed On' : 'Attempted On'}
+                </Text>
                 <Text style={styles.infoValue}>{getFormattedDate()}</Text>
               </View>
               <View style={styles.infoItem1}>
                 <Text style={styles.infoTitle}>Status</Text>
                 <Text style={styles.infoValue}>
-                  {successCount === totalCount
+                  {totalCount === 0
+                    ? 'No Orders'
+                    : unconfirmedCount > 0
+                    ? 'Pending'
+                    : successCount === totalCount
                     ? 'Placed'
                     : successCount > 0
                       ? 'Partially Placed'
@@ -1210,10 +1446,14 @@ const RecommendationSuccessModal = ({
               </View>
               <View style={styles.infoItem}>
                 <Text style={styles.infoTitle}>
-                  {successCount} of {totalCount} Executed
+                  {unconfirmedCount > 0
+                    ? `${unconfirmedCount} of ${totalCount} Pending`
+                    : manualPlacedCount > 0 && executedCount !== totalCount
+                      ? `${successCount} of ${totalCount} Placement Confirmed`
+                      : `${executedCount} of ${totalCount} Executed`}
                 </Text>
                 <View style={styles.progressBarContainer}>
-                  {successCount === totalCount && (
+                  {successCount > 0 && (
                     <View
                       style={[
                         styles.successBar,
@@ -1222,30 +1462,22 @@ const RecommendationSuccessModal = ({
                     />
                   )}
 
-                  {failureCount === totalCount && totalCount > 0 && (
+                  {unconfirmedCount > 0 && (
+                    <View
+                      style={[
+                        styles.pendingBar,
+                        { width: `${pendingPercentage}%` },
+                      ]}
+                    />
+                  )}
+
+                  {failureCount > 0 && (
                     <View
                       style={[
                         styles.failureBar,
                         { width: `${failurePercentage}%` },
                       ]}
                     />
-                  )}
-
-                  {successCount >= 1 && successCount !== totalCount && (
-                    <>
-                      <View
-                        style={[
-                          styles.successBar,
-                          { width: `${successPercentage}%` },
-                        ]}
-                      />
-                      <View
-                        style={[
-                          styles.failureBar,
-                          { width: `${partialFailurePercentage}%` },
-                        ]}
-                      />
-                    </>
                   )}
                 </View>
               </View>
@@ -1254,6 +1486,15 @@ const RecommendationSuccessModal = ({
             {/* end of ListHeaderComponent banner content */}
               </View>
             }
+          />
+          <CustomerExecutionReportModal
+            visible={showCustomerReport}
+            onClose={() => setShowCustomerReport(false)}
+            jobId={directReconciliationRow?.directAsyncJobId}
+            requestId={directReconciliationRow?.directAsyncRequestId}
+            tradeId={directReconciliationRow?.directAsyncTradeId}
+            configData={config}
+            onSubmitted={setCustomerReportStatus}
           />
         </View>
 
@@ -1271,9 +1512,9 @@ const cautionaryStyles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 4,
     padding: 14,
-    backgroundColor: '#FFFBEB',
+    backgroundColor: designColor('fffbeb'),
     borderWidth: 1,
-    borderColor: '#FCD34D',
+    borderColor: designColor('fcd34d'),
     borderRadius: 12,
   },
   headerRow: {
@@ -1285,19 +1526,19 @@ const cautionaryStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#FEF3C7',
+    backgroundColor: designColor('fef3c7'),
     alignItems: 'center',
     justifyContent: 'center',
   },
   alertTitle: {
     fontSize: 14,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#92400E',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('92400e'),
   },
   alertDescription: {
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: '#B45309',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('b45309'),
     lineHeight: 18,
     marginBottom: 10,
   },
@@ -1308,46 +1549,46 @@ const cautionaryStyles = StyleSheet.create({
     marginBottom: 12,
   },
   stockBadge: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: designColor('fef3c7'),
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 16,
   },
   stockBadgeText: {
     fontSize: 12,
-    fontFamily: 'Poppins-Medium',
-    color: '#92400E',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('92400e'),
   },
   instructionsBox: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: designColor('eff6ff'),
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: designColor('bfdbfe'),
     borderRadius: 8,
     padding: 10,
   },
   instructionsTitle: {
     fontSize: 12,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#1E40AF',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('1e40af'),
     marginBottom: 4,
   },
   instructionStep: {
     fontSize: 11,
-    fontFamily: 'Poppins-Regular',
-    color: '#1D4ED8',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('1d4ed8'),
     lineHeight: 18,
     marginLeft: 2,
   },
   partialSuccessNote: {
     fontSize: 11,
-    fontFamily: 'Poppins-Medium',
-    color: '#166534',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('166534'),
     marginTop: 10,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: designColor('f0fdf4'),
     padding: 8,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#BBF7D0',
+    borderColor: designColor('bbf7d0'),
   },
 });
 
@@ -1360,9 +1601,9 @@ const lowFundsStyles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 4,
     padding: 14,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: designColor('fef2f2'),
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: designColor('fecaca'),
     borderRadius: 12,
   },
   headerRow: {
@@ -1374,19 +1615,19 @@ const lowFundsStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: designColor('fee2e2'),
     justifyContent: 'center',
     alignItems: 'center',
   },
   alertTitle: {
     fontSize: 14,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#991B1B',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('991b1b'),
   },
   alertDescription: {
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: '#991B1B',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('991b1b'),
     lineHeight: 18,
   },
   amountsBox: {
@@ -1394,20 +1635,20 @@ const lowFundsStyles = StyleSheet.create({
     marginTop: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: designColor('fecaca'),
     borderRadius: 8,
   },
   amountLabel: {
     fontSize: 10,
-    fontFamily: 'Poppins-Regular',
-    color: '#7F1D1D',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('7f1d1d'),
   },
   amountValue: {
     fontSize: 13,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#111827',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('111827'),
     marginTop: 2,
   },
   stockBadgeContainer: {
@@ -1418,34 +1659,34 @@ const lowFundsStyles = StyleSheet.create({
   stockBadge: {
     paddingHorizontal: 12,
     paddingVertical: 5,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: designColor('fee2e2'),
     borderRadius: 16,
     marginRight: 6,
     marginBottom: 6,
   },
   stockBadgeText: {
     fontSize: 12,
-    fontFamily: 'Poppins-Medium',
-    color: '#991B1B',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('991b1b'),
   },
   instructionsBox: {
     marginTop: 10,
     padding: 10,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: designColor('eff6ff'),
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: designColor('bfdbfe'),
     borderRadius: 8,
   },
   instructionsTitle: {
     fontSize: 12,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#1E40AF',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('1e40af'),
     marginBottom: 4,
   },
   instructionStep: {
     fontSize: 11,
-    fontFamily: 'Poppins-Regular',
-    color: '#1D4ED8',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('1d4ed8'),
     lineHeight: 18,
   },
 });
@@ -1453,11 +1694,11 @@ const lowFundsStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   modalContent: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
 
   headerGradient: {
@@ -1476,8 +1717,8 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontFamily: 'Poppins-Medium',
-    color: '#fff',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('fff'),
   },
   subHeaderContainer: {
     marginLeft: 45,
@@ -1485,8 +1726,8 @@ const styles = StyleSheet.create({
   },
   subHeaderText: {
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: '#f0f0f0',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('f0f0f0'),
   },
 
   contentContainer: {
@@ -1509,12 +1750,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statusTitle: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'black',
     fontSize: 18,
   },
   statusDescription: {
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     color: 'black',
     fontSize: 10,
     paddingRight: 10,
@@ -1533,11 +1774,14 @@ const styles = StyleSheet.create({
 
   bottomSafeArea: {
     height: Platform.OS === 'ios' ? 34 : 0,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
 
   successCard: {
-    backgroundColor: '#B6FF92',
+    backgroundColor: designColor('b6ff92'),
+  },
+  pendingCard: {
+    backgroundColor: designColor('eff6ff'),
   },
   rejectedCard: {
     backgroundColor: 'rgba(255, 0, 0, 0.10)',
@@ -1545,14 +1789,14 @@ const styles = StyleSheet.create({
   backButton: {
     padding: 4,
     borderRadius: 5,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     marginRight: 10,
   },
   linkText: {
     fontSize: 10,
     color: 'blue',
     marginTop: 6,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     textDecorationLine: 'underline',
   },
   infoRow: {
@@ -1561,7 +1805,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#ccc',
+    borderBottomColor: designColor('ccc'),
   },
   infoItem: {
     flex: 1,
@@ -1577,13 +1821,13 @@ const styles = StyleSheet.create({
   },
   infoTitle: {
     fontSize: 11,
-    fontFamily: 'Poppins-Regular',
-    color: '#888',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('888'),
   },
   infoValue: {
-    color: '#464646',
+    color: designColor('464646'),
     fontSize: 12,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
   },
   progressBarContainer: {
     flexDirection: 'row',
@@ -1594,17 +1838,21 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignContent: 'flex-start',
     alignItems: 'flex-start',
-    backgroundColor: '#D9D9D9',
+    backgroundColor: designColor('d9d9d9'),
     borderRadius: 8,
   },
   successBar: {
-    backgroundColor: '#338D72',
+    backgroundColor: designColor('338d72'),
     height: 5,
     borderTopLeftRadius: 3,
     borderBottomLeftRadius: 3,
   },
+  pendingBar: {
+    backgroundColor: designColor('3b82f6'),
+    height: 5,
+  },
   failureBar: {
-    backgroundColor: '#EF344A',
+    backgroundColor: designColor('ef344a'),
     height: 5,
     alignSelf: 'flex-start',
     justifyContent: 'flex-start',
@@ -1614,47 +1862,47 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 3,
   },
   orderGreenCard: {
-    backgroundColor: '#B6FF92',
+    backgroundColor: designColor('b6ff92'),
     paddingTop: 10,
     paddingHorizontal: 10,
     borderRadius: 0,
     width: '100%',
-    borderColor: '#c8c8c8',
+    borderColor: designColor('c8c8c8'),
     borderBottomWidth: 0.5,
   },
   orderTitle: {
     fontSize: 12,
-    color: '#161917',
+    color: designColor('161917'),
     fontWeight: '500',
     letterSpacing: 0.5,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
   },
   orderType: {
-    color: '#fff',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('fff'),
+    fontFamily: designFont('Satoshi-Bold'),
     fontSize: 10,
     borderRadius: 3,
     paddingVertical: 2,
     paddingHorizontal: 10,
   },
   buyButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 12,
     fontWeight: '400',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   metaTextMuted: {
-    color: '#888B8C',
+    color: designColor('888b8c'),
     fontSize: 12,
     fontWeight: '400',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     marginRight: 2,
   },
   metaTextStrong: {
-    color: '#15171A',
+    color: designColor('15171a'),
     fontSize: 12,
     fontWeight: '500',
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     marginRight: 6,
   },
   dateRow: {
@@ -1662,9 +1910,9 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   dateText: {
-    color: '#4A4A4A',
+    color: designColor('4a4a4a'),
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
 });
 

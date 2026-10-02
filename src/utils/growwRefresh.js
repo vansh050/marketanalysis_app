@@ -27,7 +27,7 @@ import Config from 'react-native-config';
 
 import server from './serverConfig';
 import { generateToken } from './SecurityTokenManager';
-import { getAdvisorSubdomain } from './variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from './variantHelper';
 import { saveBrokerSessionTime } from './brokerSessionUtils';
 import eventEmitter from '../components/EventEmitter';
 
@@ -35,8 +35,7 @@ const GROWW_API_KEYS_URL = 'https://groww.in/trade-api/api-keys';
 
 const buildHeaders = (advisorSubdomain) => ({
   'Content-Type': 'application/json',
-  'X-Advisor-Subdomain':
-    advisorSubdomain || Config.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+  'X-Advisor-Subdomain': advisorSubdomain || getTenantSubdomain(),
   'aq-encrypted-key': generateToken(
     Config.REACT_APP_AQ_KEYS,
     Config.REACT_APP_AQ_SECRET,

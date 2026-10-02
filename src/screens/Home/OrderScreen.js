@@ -18,10 +18,13 @@
  *   - useConfig() → gradient1 / gradient2 for the empty-state hero
  *   - useModalStore() → openModal('DdpiHelp', { broker })
  *   - getAuth() → user.email
- *   - eventEmitter on 'cartUpdated' → re-fetch trades
+ *   - eventEmitter on 'cartUpdated' / 'OrderPlacedReferesh' / 'refreshEvent'
+ *     → re-fetch trades; plus a focus refetch, because this screen lives
+ *     in the bottom-tab navigator and its mount effect runs only once
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
 import Config from 'react-native-config';
@@ -33,11 +36,28 @@ import { useTrade } from '../TradeContext';
 import { isOrderPending, isOrderRejected } from '../../utils/orderStatusUtils';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import { useComponent } from '../../design/useDesign';
-import useHomeMarketSummary from './hooks/useHomeMarketSummary';
-import {useAccountEmail} from '../../utils/accountEmail';
+import { useAccountEmail, getAccountDisplayName } from '../../utils/accountEmail';
+import {
+    shouldShowInOrderHistory,
+} from '../../utils/basketOrderState';
 
-const getOrderTimestamp = (order) =>
-    new Date(order?.exitDate || order?.purchaseDate || order?.date || order?.created_at);
+// A basket container's top-level date is the advice date; the actual
+// activity (entry fill / exit fill) lives on its legs. Sorting must use the
+// LATEST leg datetime so a basket whose exit happened after its advice sorts
+// by the exit — otherwise Order History is not descending by datetime.
+const getOrderTimestamp = (order) => {
+    if (Array.isArray(order?.basket_advice) && order.basket_advice.length > 0) {
+        let latest = null;
+        order.basket_advice.forEach((leg) => {
+            const t = new Date(
+                leg?.exitDate || leg?.purchaseDate || leg?.date || leg?.created_at
+            );
+            if (!Number.isNaN(t.getTime()) && (!latest || t > latest)) latest = t;
+        });
+        if (latest) return latest;
+    }
+    return new Date(order?.exitDate || order?.purchaseDate || order?.date || order?.created_at);
+};
 
 const isToday = (date, today = new Date()) =>
     !Number.isNaN(date?.getTime?.()) &&
@@ -82,18 +102,39 @@ export default function OrderScreen() {
     const auth = getAuth();
     // Reactive: this screen gates its fetch on `userEmail`, and on a cold
     // start / fresh Apple sign-in the identity resolves AFTER mount — a
-    // one-shot read would capture null and never refetch.
+    // one-shot read would capture null and never refetch (and the bare
+    // getAccountEmail symbol was never imported here, which crashed the
+    // screen outright on open).
     const userEmail = useAccountEmail();
 
     const [allOrders, setAllOrders] = useState([]);
     const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
+    const [loadError, setLoadError] = useState(false);
+    const inFlightRef = useRef(null);
 
-    const fetchTrades = () => {
-        if (!userEmail) return;
+    const fetchTrades = useCallback((options) => {
+        if (!userEmail) {
+            inFlightRef.current = null;
+            setAllOrders([]);
+            setLoading(false);
+            setRefreshing(false);
+            return Promise.resolve();
+        }
+        // Focus, cart and placement events can arrive together. One request is
+        // enough; parallel full-history responses repeatedly parse and sort a
+        // large payload on the Android JS thread, delaying taps.
+        const requestKey = `${userEmail}|${configData?.config?.REACT_APP_HEADER_NAME || ''}`;
+        if (inFlightRef.current?.key === requestKey) return inFlightRef.current.promise;
+        const currentRequest = {key: requestKey, promise: null};
+        inFlightRef.current = currentRequest;
         setLoading(true);
+        setRefreshing(options?.pullToRefresh === true);
+        setLoadError(false);
         const reqConfig = {
             method: 'get',
             url: `${server.server.baseUrl}api/user/trade-reco-for-user?user_email=${userEmail}`,
+            timeout: 12000,
             headers: {
                 'Content-Type': 'application/json',
                 'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
@@ -103,14 +144,13 @@ export default function OrderScreen() {
                 ),
             },
         };
-        axios
+        const request = axios
             .request(reqConfig)
             .then((response) => {
+                if (inFlightRef.current !== currentRequest) return;
                 const trades = response.data?.trades || [];
                 const executed = trades.filter((t) => {
-                    if (t.trade_place_status === 'recommend' || t.trade_place_status === 'ignored') {
-                        return false;
-                    }
+                    if (!shouldShowInOrderHistory(t)) return false;
                     // Do not keep stale failed-to-place orders in the customer
                     // order book forever. Regular pending/AMO status is relevant
                     // only on its trading day; GTT is the intentional exception.
@@ -125,23 +165,56 @@ export default function OrderScreen() {
                     return db - da;
                 });
                 setAllOrders(sorted);
-                setLoading(false);
             })
             .catch(() => {
-                setLoading(false);
+                if (inFlightRef.current === currentRequest) setLoadError(true);
+            })
+            .finally(() => {
+                if (inFlightRef.current === currentRequest) {
+                    inFlightRef.current = null;
+                    setLoading(false);
+                    setRefreshing(false);
+                }
             });
-    };
+        currentRequest.promise = request;
+        return request;
+    }, [configData?.config?.REACT_APP_HEADER_NAME, userEmail]);
+
+    // Orders lives in the bottom-tab navigator, so a mount effect runs once and
+    // never again — placing an order from another tab left this screen showing
+    // the pre-order list with no way back to fresh data except pull-to-refresh
+    // (user-reported 2026-09-02: "Orders screen did not get auto refreshed and
+    // it was not showing the orders placed"). Refetch on focus instead, which
+    // also covers the first open and a late-resolving `userEmail` (the callback
+    // re-runs while focused when its deps change), so no separate mount effect
+    // is needed — having both just double-fetched on every open.
+    useFocusEffect(
+        useCallback(() => {
+            if (userEmail) fetchTrades();
+        }, [userEmail, fetchTrades]),
+    );
+
+    // The listeners below are registered once, so a closure over `fetchTrades`
+    // would pin the FIRST render's copy — the one built before `userEmail`
+    // resolved, which early-returns. Go through a ref so they always call the
+    // current fetcher.
+    const fetchTradesRef = useRef(fetchTrades);
+    useEffect(() => {
+        fetchTradesRef.current = fetchTrades;
+    }, [fetchTrades]);
 
     useEffect(() => {
-        if (userEmail) fetchTrades();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [userEmail]);
-
-    useEffect(() => {
-        const handlePortfolioUpdate = () => fetchTrades();
+        const handlePortfolioUpdate = () => fetchTradesRef.current();
         eventEmitter.on('cartUpdated', handlePortfolioUpdate);
+        // Covers the case where the order is placed while Orders is already
+        // the focused tab (deep-link execution, a modal over this screen), so
+        // no focus transition follows the placement.
+        eventEmitter.on('OrderPlacedReferesh', handlePortfolioUpdate);
+        eventEmitter.on('refreshEvent', handlePortfolioUpdate);
         return () => {
             eventEmitter.off('cartUpdated', handlePortfolioUpdate);
+            eventEmitter.off('OrderPlacedReferesh', handlePortfolioUpdate);
+            eventEmitter.off('refreshEvent', handlePortfolioUpdate);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -156,33 +229,40 @@ export default function OrderScreen() {
         [openModal]
     );
 
-    // Variant-facing live tickers (alphanomy reads these for `_AppHeader`).
-    // userEmail is already in scope above (line 44).
-    const { tickers } = useHomeMarketSummary();
+    // The shared CustomToolbar already owns live index subscriptions. Orders
+    // does not render tickers; subscribing here caused another socket callback
+    // and 30-second market-data poll on every Orders mount.
     // Variant-facing user name for the greeting (full name preferred over
     // email-derived first-name fallback). See AccountSettingsScreen
     // container for the same useTrade().userDetails source.
     const userName =
-        userDetailsTradeCtx?.name || auth.currentUser?.displayName || '';
+        getAccountDisplayName(
+            userDetailsTradeCtx?.name,
+            auth.currentUser?.displayName,
+        );
 
     const viewModel = useMemo(
         () => ({
             orders: allOrders,
             isLoading: loading,
+            isRefreshing: refreshing,
+            loadError,
             gradient: {
                 start: config?.gradient1,
                 end: config?.gradient2,
             },
             // Additive — default presentation ignores these.
-            tickers,
             userEmail,
             userName,
             config,
         }),
-        [allOrders, loading, config, tickers, userEmail, userName],
+        [allOrders, loading, refreshing, loadError, config, userEmail, userName],
     );
 
-    const actions = useMemo(() => ({ openDdpiHelp }), [openDdpiHelp]);
+    const actions = useMemo(
+        () => ({ openDdpiHelp, refreshOrders: () => fetchTrades({pullToRefresh: true}) }),
+        [openDdpiHelp, fetchTrades],
+    );
 
     // Reference kept so a future PR can surface a "rejected only" filter
     // in the UI without re-deriving — not currently displayed.

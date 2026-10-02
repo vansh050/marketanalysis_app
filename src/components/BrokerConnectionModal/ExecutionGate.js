@@ -96,7 +96,10 @@ import {AlertCircle} from 'lucide-react-native';
 import {useTrade} from '../../screens/TradeContext';
 import useRefreshBrokerStatus from '../../hooks/useRefreshBrokerStatus';
 import {validateBrokerSession} from '../../utils/brokerSessionValidator';
+import {getPlatformDisplayName} from '../../utils/advisorContentProfile';
 import BrokerConnectModalDispatch from './BrokerConnectModalDispatch';
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 const isEffectivelyConnected = broker => {
   if (!broker) {return false;}
@@ -295,7 +298,7 @@ const ExecutionGate = ({
             Toast.show({
               type: 'error',
               text1: 'Connection issue',
-              text2: outcome.message || 'Could not reach AlphaQuark. Please try again.',
+              text2: outcome.message || `Could not reach ${getPlatformDisplayName()}. Please try again.`,
               visibilityTime: 4000,
             });
             onCancel?.();
@@ -379,11 +382,10 @@ const ExecutionGate = ({
         <View style={[busy && styles.dimmed]}>{children}</View>
         {busy && (
           <View style={styles.spinnerOverlay} pointerEvents="none">
-            <ActivityIndicator size="small" color="#1F2937" />
+            <ActivityIndicator size="small" color={designColor('1f2937')} />
           </View>
         )}
       </Pressable>
-
       {/* Reconnect dialog — same visual idiom as KotakModal/Phase3 */}
       <Modal
         visible={!!reconnect}
@@ -393,7 +395,7 @@ const ExecutionGate = ({
         <View style={styles.dialogBackdrop}>
           <View style={styles.dialogBox}>
             <View style={styles.dialogHeader}>
-              <AlertCircle size={22} color="#DC2626" />
+              <AlertCircle size={22} color={designColor('dc2626')} />
               <Text style={styles.dialogTitle}>Session Expired</Text>
             </View>
             <Text style={styles.dialogMessage}>
@@ -415,7 +417,6 @@ const ExecutionGate = ({
           </View>
         </View>
       </Modal>
-
       {/* Inline reconnect dispatcher — flag-aware via the existing
           BrokerConnectModalDispatch (no bypass). */}
       {dispatchOpen && (
@@ -459,7 +460,7 @@ const styles = StyleSheet.create({
   dialogBox: {
     width: '100%',
     maxWidth: 400,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     borderRadius: 16,
     padding: 20,
   },
@@ -471,14 +472,14 @@ const styles = StyleSheet.create({
   },
   dialogTitle: {
     fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     fontWeight: '600',
-    color: '#111827',
+    color: designColor('111827'),
   },
   dialogMessage: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#4B5563',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('4b5563'),
     lineHeight: 20,
     marginBottom: 20,
   },
@@ -496,18 +497,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
   dialogBtnSecondaryText: {
-    color: '#6B7280',
+    color: designColor('6b7280'),
     fontSize: 14,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     fontWeight: '500',
   },
   dialogBtnPrimary: {
-    backgroundColor: '#EA580C',
+    backgroundColor: designColor('ea580c'),
   },
   dialogBtnPrimaryText: {
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
     fontSize: 14,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     fontWeight: '600',
   },
 });

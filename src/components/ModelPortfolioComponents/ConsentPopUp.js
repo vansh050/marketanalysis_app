@@ -2,6 +2,8 @@ import React from 'react';
 import {View, Text, TouchableOpacity, Modal, StyleSheet} from 'react-native';
 import {ShieldAlert} from 'lucide-react-native';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const ConsentPopup = ({
   isConsentPopupOpen,
   setIsConsentPopupOpen,
@@ -15,12 +17,11 @@ const ConsentPopup = ({
       onRequestClose={() => setIsConsentPopupOpen(false)}>
       {/* Semi-transparent background */}
       <View style={styles.overlay} />
-
       {/* Centered popup */}
       <View style={styles.container}>
         <View style={styles.popup}>
           <View style={styles.iconRow}>
-            <ShieldAlert size={22} color="#f59e0b" />
+            <ShieldAlert size={22} color={designColor('f59e0b')} />
             <Text style={styles.title}>Important Disclaimer</Text>
           </View>
           <Text style={styles.message}>
@@ -66,12 +67,12 @@ const styles = StyleSheet.create({
     zIndex: 50,
   },
   popup: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     padding: 24,
     borderRadius: 16,
     width: '90%',
     maxWidth: 400,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOpacity: 0.2,
     shadowRadius: 8,
     shadowOffset: {width: 0, height: 4},
@@ -85,20 +86,20 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#1a1a1a',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('1a1a1a'),
   },
   message: {
     fontSize: 13,
-    fontFamily: 'Poppins-Regular',
-    color: '#374151',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('374151'),
     marginBottom: 10,
     lineHeight: 20,
   },
   sebiNote: {
     fontSize: 11,
-    fontFamily: 'Poppins-Regular',
-    color: '#9ca3af',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('9ca3af'),
     marginBottom: 20,
     lineHeight: 16,
   },
@@ -113,19 +114,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   cancelButton: {
-    backgroundColor: '#f3f4f6',
+    backgroundColor: designColor('f3f4f6'),
   },
   cancelButtonText: {
-    color: '#374151',
-    fontFamily: 'Poppins-Medium',
+    color: designColor('374151'),
+    fontFamily: designFont('Poppins-Medium'),
     fontSize: 13,
   },
   agreeButton: {
-    backgroundColor: '#1a1a1a',
+    backgroundColor: designColor('1a1a1a'),
   },
   agreeButtonText: {
-    color: '#fff',
-    fontFamily: 'Poppins-Medium',
+    color: designColor('fff'),
+    fontFamily: designFont('Poppins-Medium'),
     fontSize: 13,
   },
 });

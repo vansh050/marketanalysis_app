@@ -21,29 +21,31 @@ import axios from 'axios';
 import {useTrade} from '../screens/TradeContext';
 import {useConfig} from '../context/ConfigContext';
 
+import { designColor, designFont } from '../design/literalTokens';
+
 const {width} = Dimensions.get('window');
 
 const colorPalette = [
-  '#EAE7DC',
-  '#F5F3F4',
-  '#D4ECDD',
-  '#FFDDC1',
-  '#F8E9A1',
-  '#B2C9AB',
-  '#FFC8A2',
-  '#F6BD60',
-  '#CB997E',
-  '#A5A58D',
-  '#B7CADB',
-  '#E2F0CB',
-  '#C1D37F',
-  '#FFEBBB',
-  '#D3C4C4',
-  '#D4A5A5',
-  '#FFF3E2',
-  '#F7B7A3',
-  '#EFD6AC',
-  '#FAE3D9',
+  designColor('eae7dc'),
+  designColor('f5f3f4'),
+  designColor('d4ecdd'),
+  designColor('ffddc1'),
+  designColor('f8e9a1'),
+  designColor('b2c9ab'),
+  designColor('ffc8a2'),
+  designColor('f6bd60'),
+  designColor('cb997e'),
+  designColor('a5a58d'),
+  designColor('b7cadb'),
+  designColor('e2f0cb'),
+  designColor('c1d37f'),
+  designColor('ffebbb'),
+  designColor('d3c4c4'),
+  designColor('d4a5a5'),
+  designColor('fff3e2'),
+  designColor('f7b7a3'),
+  designColor('efd6ac'),
+  designColor('fae3d9'),
 ];
 
 const RebalanceChangeDetailModal = ({
@@ -51,75 +53,66 @@ const RebalanceChangeDetailModal = ({
   onClose,
   modelName,
   handleAcceptClick,
+  rebalanceDetails,
 }) => {
   const {configData} = useTrade();
   const config = useConfig();
-  const gradient2 = config?.gradient2 || '#0076FB';
-  const [rebalanceData, setRebalanceData] = useState([]);
+  const gradient2 = config?.gradient2 || designColor('0076fb');
+  const advisorHeader = configData?.config?.REACT_APP_HEADER_NAME;
   const [tableData, setTableData] = useState([]);
   const [loading, setLoading] = useState(false);
-  const getStrategyDetails = () => {
-    if (modelName) {
-      setLoading(true);
-      axios
-        .get(
-          `${
-            server.server.baseUrl
-          }api/model-portfolio/portfolios/strategy/${modelName.replaceAll(
-            /_/g,
-            ' ',
-          )}`,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
-              'aq-encrypted-key': generateToken(
-                Config.REACT_APP_AQ_KEYS,
-                Config.REACT_APP_AQ_SECRET,
-              ),
-            },
-          },
-        )
-        .then(res => {
-          const portfolioData = res.data[0]?.originalData;
-          if (portfolioData?.model?.rebalanceHistory?.length > 0) {
-            const history = portfolioData.model.rebalanceHistory;
-            setRebalanceData(history);
-            processTableData(history);
-          }
-          setLoading(false);
-        })
-        .catch(err => {
-          console.log('Error fetching strategy details:', err);
-          setLoading(false);
-        });
-    }
-  };
+  const [loadError, setLoadError] = useState('');
 
   const processTableData = history => {
-    if (history.length === 0) return;
+    if (!Array.isArray(history) || history.length === 0) {
+      setTableData([]);
+      return false;
+    }
 
-    const latestRebalance = history[history.length - 1];
+    const orderedHistory = [...history].sort(
+      (left, right) =>
+        new Date(left?.rebalanceDate || 0) -
+        new Date(right?.rebalanceDate || 0),
+    );
+
+    const latestRebalance = orderedHistory[orderedHistory.length - 1];
     const previousRebalance =
-      history.length > 1 ? history[history.length - 2] : null;
+      orderedHistory.length > 1
+        ? orderedHistory[orderedHistory.length - 2]
+        : null;
+
+    if (!Array.isArray(latestRebalance?.adviceEntries)) {
+      setTableData([]);
+      return false;
+    }
 
     console.log('Latest Rebalance:', latestRebalance?.rebalanceDate);
     console.log('Previous Rebalance:', previousRebalance?.rebalanceDate);
-    console.log('Total history entries:', history.length);
+    console.log('Total history entries:', orderedHistory.length);
+
+    const allocationPercent = value => {
+      const parsed = Number.parseFloat(value);
+      if (!Number.isFinite(parsed)) return 0;
+      return Math.abs(parsed) <= 1 ? parsed * 100 : parsed;
+    };
 
     // Create a map of previous allocations for quick lookup
     const previousAllocMap = {};
     if (previousRebalance && previousRebalance.adviceEntries) {
       previousRebalance.adviceEntries.forEach(entry => {
-        previousAllocMap[entry.symbol] = parseFloat(entry.value) || 0;
+        previousAllocMap[entry.symbol] = allocationPercent(entry.value);
       });
     }
 
     // Process current allocations
     const processedData = latestRebalance.adviceEntries.map((entry, index) => {
-      const currentAlloc = parseFloat(entry.value) * 100 || 0;
+      const currentAlloc = allocationPercent(entry.value);
       const previousValue = previousAllocMap[entry.symbol];
-      const previousAlloc = previousValue ? previousValue * 100 : null;
+      const hasPreviousAllocation = Object.prototype.hasOwnProperty.call(
+        previousAllocMap,
+        entry.symbol,
+      );
+      const previousAlloc = hasPreviousAllocation ? previousValue : null;
 
       let previousHoldings = 'NA';
       let isNewStock = false;
@@ -161,14 +154,68 @@ const RebalanceChangeDetailModal = ({
 
     console.log('Processed data sample:', processedData.slice(0, 3));
     setTableData(processedData);
-    setLoading(false);
+    return processedData.length > 0;
   };
-  console.log('loading---', loading);
+
   useEffect(() => {
-    if (isVisible && modelName) {
-      getStrategyDetails();
-    }
-  }, [isVisible, modelName]);
+    if (!isVisible || !modelName) return undefined;
+
+    let cancelled = false;
+    const loadComparison = async () => {
+      setLoadError('');
+      setTableData([]);
+
+      // The card already owns the exact selected strategy snapshot. Prefer it
+      // so this modal cannot go blank because a second, older public endpoint
+      // is stale or temporarily returns an empty history.
+      const selectedHistory = rebalanceDetails?.model?.rebalanceHistory;
+      if (Array.isArray(selectedHistory) && selectedHistory.length > 0) {
+        processTableData(selectedHistory);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const response = await axios.get(
+          `${
+            server.server.baseUrl
+          }api/model-portfolio/portfolios/strategy/${modelName.replaceAll(
+            /_/g,
+            ' ',
+          )}`,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Advisor-Subdomain': advisorHeader,
+              'aq-encrypted-key': generateToken(
+                Config.REACT_APP_AQ_KEYS,
+                Config.REACT_APP_AQ_SECRET,
+              ),
+            },
+            timeout: 15000,
+          },
+        );
+        if (cancelled) return;
+        const fallbackHistory =
+          response.data?.[0]?.originalData?.model?.rebalanceHistory;
+        if (!processTableData(fallbackHistory)) {
+          setLoadError('Allocation details are temporarily unavailable. Please refresh and try again.');
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.log('Error fetching strategy details:', error);
+        setLoadError('Allocation details are temporarily unavailable. Please refresh and try again.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    loadComparison();
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisible, modelName, rebalanceDetails, advisorHeader]);
 
   const renderItem = ({item}) => (
     <View style={[styles.row, {backgroundColor: `${item.bgColor}4D`}]}>
@@ -184,7 +231,7 @@ const RebalanceChangeDetailModal = ({
             styles.previousHoldingsText,
             item.isNewStock
               ? {color: gradient2, fontWeight: '700'}
-              : {color: '#000'},
+              : {color: designColor('000')},
           ]}>
           {item.previousHoldings}
         </Text>
@@ -197,7 +244,7 @@ const RebalanceChangeDetailModal = ({
               {item.isIncrease && (
                 <ArrowUp
                   style={{marginBottom: 2}}
-                  color="#00B761"
+                  color={designColor('00b761')}
                   size={14}
                   strokeWidth={2}
                 />
@@ -205,7 +252,7 @@ const RebalanceChangeDetailModal = ({
               {item.isDecrease && (
                 <ArrowDown
                   style={{marginBottom: 2}}
-                  color="#FF3B30"
+                  color={designColor('ff3b30')}
                   size={14}
                   strokeWidth={2}
                 />
@@ -213,7 +260,7 @@ const RebalanceChangeDetailModal = ({
               <Text
                 style={[
                   styles.diffText,
-                  item.isIncrease ? {color: '#00B761'} : {color: '#FF3B30'},
+                  item.isIncrease ? {color: designColor('00b761')} : {color: designColor('ff3b30')},
                 ]}>
                 {item.isIncrease
                   ? `(+${item.diffValue})`
@@ -241,7 +288,7 @@ const RebalanceChangeDetailModal = ({
           <View style={styles.header}>
             <Text style={styles.headerText}>Expected vs Current Holdings</Text>
             <TouchableOpacity onPress={onClose}>
-              <X color="#000" size={24} />
+              <X color={designColor('000')} size={24} />
             </TouchableOpacity>
           </View>
 
@@ -251,35 +298,48 @@ const RebalanceChangeDetailModal = ({
             </View>
           ) : (
             <>
-              {/* Table Header */}
-              <View style={[styles.tableHeaderContainer, {backgroundColor: gradient2}]}>
-                <View style={styles.tableHeader}>
-                  <Text style={[styles.headerCell, styles.headerCellStock]}>
-                    Stocks
-                  </Text>
-                  <Text style={[styles.headerCell, styles.headerCellCenter]}>
-                    Allocation (prior)
-                  </Text>
-                  <Text style={[styles.headerCell, styles.headerCellCenter]}>
-                    Allocation (required)
+              {tableData.length > 0 ? (
+                <>
+                  <View style={[styles.tableHeaderContainer, {backgroundColor: gradient2}]}>
+                    <View style={styles.tableHeader}>
+                      <Text style={[styles.headerCell, styles.headerCellStock]}>
+                        Stocks
+                      </Text>
+                      <Text style={[styles.headerCell, styles.headerCellCenter]}>
+                        Allocation (prior)
+                      </Text>
+                      <Text style={[styles.headerCell, styles.headerCellCenter]}>
+                        Allocation (required)
+                      </Text>
+                    </View>
+                  </View>
+
+                  <ScrollView style={styles.tableContent}>
+                    <FlatList
+                      data={tableData}
+                      renderItem={renderItem}
+                      keyExtractor={(item, index) => item.symbol + index}
+                      scrollEnabled={false}
+                    />
+                  </ScrollView>
+                </>
+              ) : (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>
+                    {loadError || 'No allocation changes are available.'}
                   </Text>
                 </View>
-              </View>
-
-              {/* Table Content */}
-              <ScrollView style={styles.tableContent}>
-                <FlatList
-                  data={tableData}
-                  renderItem={renderItem}
-                  keyExtractor={(item, index) => item.symbol + index}
-                  scrollEnabled={false}
-                />
-              </ScrollView>
+              )}
 
               {/* Accept Button */}
               <TouchableOpacity
-                style={[styles.acceptButton, {backgroundColor: gradient2}]}
-                onPress={handleAcceptClick}>
+                style={[
+                  styles.acceptButton,
+                  {backgroundColor: gradient2},
+                  tableData.length === 0 && styles.acceptButtonDisabled,
+                ]}
+                onPress={handleAcceptClick}
+                disabled={tableData.length === 0}>
                 <Text style={styles.acceptButtonText}>View and act</Text>
               </TouchableOpacity>
             </>
@@ -304,8 +364,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  emptyContainer: {
+    minHeight: 140,
+    paddingHorizontal: 28,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyText: {
+    color: designColor('b42318'),
+    fontSize: 14,
+    fontFamily: designFont('Poppins-Medium'),
+    textAlign: 'center',
+  },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     marginHorizontal: 0,
     borderTopLeftRadius: 12,
     borderTopRightRadius: 12,
@@ -323,10 +395,10 @@ const styles = StyleSheet.create({
   headerText: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#000',
+    color: designColor('000'),
   },
   tableHeaderContainer: {
-    backgroundColor: '#0056B7',
+    backgroundColor: designColor('0056b7'),
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderTopRightRadius: 20,
@@ -338,8 +410,8 @@ const styles = StyleSheet.create({
   },
   headerCell: {
     fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-    color: '#fff',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('fff'),
   },
   headerCellStock: {
     flex: 2,
@@ -357,7 +429,7 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: designColor('f0f0f0'),
     justifyContent: 'space-between',
     borderRadius: 8,
     marginVertical: 0,
@@ -377,30 +449,30 @@ const styles = StyleSheet.create({
   },
   stockText: {
     fontSize: 15,
-    fontFamily: 'Poppins-Medium',
-    color: '#000',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('000'),
   },
   newLabel: {
-    backgroundColor: '#0066FF',
+    backgroundColor: designColor('0066ff'),
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
   },
   newLabelText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 10,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
   },
   ltpText: {
     fontSize: 11,
-    color: '#8E8E93',
+    color: designColor('8e8e93'),
     marginTop: 4,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   holdingsText: {
     fontSize: 13,
-    color: '#000',
-    fontFamily: 'Poppins-Medium',
+    color: designColor('000'),
+    fontFamily: designFont('Poppins-Medium'),
   },
   holdingsContainer: {
     alignItems: 'center',
@@ -414,11 +486,11 @@ const styles = StyleSheet.create({
   },
   diffText: {
     fontSize: 12,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
   },
   previousHoldingsText: {
     fontSize: 13,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
   },
   reqHoldingsContainer: {
     flexDirection: 'row',
@@ -427,14 +499,14 @@ const styles = StyleSheet.create({
   },
   reqHoldingsText: {
     fontSize: 13,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
   },
   dropdownContainer: {
     alignItems: 'center',
     paddingVertical: 10,
   },
   dropdownButton: {
-    backgroundColor: '#F5F5F5',
+    backgroundColor: designColor('f5f5f5'),
     borderRadius: 20,
     width: 40,
     height: 40,
@@ -442,7 +514,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   acceptButton: {
-    backgroundColor: '#0056B7',
+    backgroundColor: designColor('0056b7'),
     marginHorizontal: 20,
     marginVertical: 16,
     paddingVertical: 10,
@@ -450,10 +522,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   acceptButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 14,
     marginTop: 2,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
+  },
+  acceptButtonDisabled: {
+    opacity: 0.45,
   },
 });
 

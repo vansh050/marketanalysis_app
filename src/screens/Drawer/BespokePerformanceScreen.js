@@ -7,7 +7,7 @@
  * Renders presentation resolved from `screens.BespokePerformanceScreen`.
  */
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-native';
 import { Dimensions } from 'react-native';
 import axios from 'axios';
@@ -23,20 +23,30 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 import { useTrade } from '../TradeContext';
 import { convertResponse } from '../../utils/tradeUtils';
 import { useGstConfig } from '../../context/GstConfigContext';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import { useComponent } from '../../design/useDesign';
+import useTokens from '../../theme/useTokens';
 import { getSubscriptionStatusString } from '../../utils/subscriptionStatus';
 import { useConfig } from '../../context/ConfigContext';
 import {getAccountEmail} from '../../utils/accountEmail';
+import PaymentSuccessModal from '../../components/ModelPortfolioComponents/PaymentSuccessModal';
+import UserStrategySubscribeModal from '../../components/ModelPortfolioComponents/UserStrategySubscribeModal';
+import MPInvestNowModal from '../../components/ModelPortfolioComponents/MPInvestNowModal';
+import MPReviewTradeModal from '../../components/ModelPortfolioComponents/MPReviewTradeModal';
+import RecommendationSuccessModal from '../../components/ModelPortfolioComponents/RecommendationSuccessModal';
+import CustomTabBarMPPerformance from './CustomTabbarMPPerformance';
+import ConsentPopup from '../../components/ModelPortfolioComponents/ConsentPopUp';
+
+import { designColor } from '../../design/literalTokens';
 
 const screenWidth = Dimensions.get('window').width;
 const ScreenHeight = Dimensions.get('window').height;
 
 const colorPalette = [
-    '#EAE7DC', '#F5F3F4', '#D4ECDD', '#FFDDC1', '#F8E9A1',
-    '#B2C9AB', '#FFC8A2', '#F6BD60', '#CB997E', '#A5A58D',
-    '#B7CADB', '#E2F0CB', '#C1D37F', '#FFEBBB', '#D3C4C4',
-    '#D4A5A5', '#FFF3E2', '#F7B7A3', '#EFD6AC', '#FAE3D9',
+    designColor('eae7dc'), designColor('f5f3f4'), designColor('d4ecdd'), designColor('ffddc1'), designColor('f8e9a1'),
+    designColor('b2c9ab'), designColor('ffc8a2'), designColor('f6bd60'), designColor('cb997e'), designColor('a5a58d'),
+    designColor('b7cadb'), designColor('e2f0cb'), designColor('c1d37f'), designColor('ffebbb'), designColor('d3c4c4'),
+    designColor('d4a5a5'), designColor('fff3e2'), designColor('f7b7a3'), designColor('efd6ac'), designColor('fae3d9'),
 ];
 
 const BespokePerformanceScreen = ({ route }) => {
@@ -50,6 +60,15 @@ const BespokePerformanceScreen = ({ route }) => {
     const user = auth.currentUser;
     const { fileName } = useParams();
     const userEmail = getAccountEmail();
+
+    // Header gradient + accent colors resolved from the current design tokens
+    // so the Bespoke Plan detail page matches the tenant's home-screen palette
+    // (previously hardcoded to a blue gradient that clashed on markup / other
+    // whitelabels — request UPDATE 6, 2026-07-24).
+    const tokens = useTokens();
+    const gradient1 = tokens.colors.brand.gradientStart;
+    const gradient2 = tokens.colors.brand.gradientEnd;
+    const mainColor = tokens.colors.brand.primary;
 
     // State
     const [confirmOrder, setConfirmOrder] = useState(false);
@@ -88,7 +107,7 @@ const BespokePerformanceScreen = ({ route }) => {
 
     const [routes] = useState([
         { key: 'keyfeatures', title: 'Key Features' },
-        { key: 'overview', title: 'OverView' },
+        { key: 'overview', title: 'Overview' },
     ]);
 
     const [modalContext, setModalContext] = useState({
@@ -140,7 +159,7 @@ const BespokePerformanceScreen = ({ route }) => {
                     .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
                         headers: {
                             'Content-Type': 'application/json',
-                            'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                            'X-Advisor-Subdomain': getTenantSubdomain(),
                             'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
                         },
                     })
@@ -268,10 +287,11 @@ const BespokePerformanceScreen = ({ route }) => {
         try {
             const bytesKey = CryptoJS.AES.decrypt(data, 'ApiKeySecret');
             const Key = bytesKey.toString(CryptoJS.enc.Utf8);
-            if (Key) return Key;
-            throw new Error('Invalid Key');
+            return Key || data;
         } catch (error) {
-            return null;
+            // Decrypt-or-passthrough: plaintext credentials (e.g. Zerodha's
+            // API key) must be sent as-is (2026-08-13).
+            return data;
         }
     };
 
@@ -403,13 +423,41 @@ const BespokePerformanceScreen = ({ route }) => {
     };
 
     const pricingOptions = getPricingOptions();
-    const [selectedPricing, setSelectedPricing] = useState(pricingOptions.length > 0 ? pricingOptions[0].period : null);
+
+    // Backend attaches `subscribedPeriod` (derived from the subscription's paid
+    // window) to the plan payload. Preselect the bought period instead of
+    // defaulting to the FIRST option (Monthly) — a quarterly subscriber kept
+    // seeing "Monthly" selected. Falls back to the first option when unknown.
+    // Only auto-applies until the user taps a pricing chip themselves.
+    const resolveSubscribedPeriod = useCallback((src) => {
+        const sp = src?.subscribedPeriod;
+        if (!sp) return null;
+        if (sp.onetimeOptionIndex != null) {
+            const match = pricingOptions.find(o => o.period === `onetime-${sp.onetimeOptionIndex}`);
+            if (match) return match.period;
+        }
+        if (sp.periodKey) {
+            const match = pricingOptions.find(o => o.period === sp.periodKey);
+            if (match) return match.period;
+        }
+        return null;
+    }, [pricingOptions]);
+
+    const initialSelectedPricing =
+        resolveSubscribedPeriod(specificPlan) ||
+        resolveSubscribedPeriod(planDetails) ||
+        (pricingOptions.length > 0 ? pricingOptions[0].period : null);
+    const [selectedPricing, setSelectedPricing] = useState(initialSelectedPricing);
+    const userPickedPricingRef = useRef(false);
 
     useEffect(() => {
-        if (pricingOptions.length > 0 && !pricingOptions.find(opt => opt.period === selectedPricing)) {
-            setSelectedPricing(pricingOptions[0].period);
+        if (userPickedPricingRef.current) return;
+        const subscribedPeriod = resolveSubscribedPeriod(specificPlan) || resolveSubscribedPeriod(planDetails);
+        const preferred = subscribedPeriod || (pricingOptions.length > 0 ? pricingOptions[0].period : null);
+        if (preferred && preferred !== selectedPricing) {
+            setSelectedPricing(preferred);
         }
-    }, [pricingOptions]);
+    }, [pricingOptions, planDetails, selectedPricing, resolveSubscribedPeriod, specificPlan]);
 
     const getCurrentPrice = () => {
         if (!specificPlan) return 0;
@@ -515,12 +563,15 @@ const BespokePerformanceScreen = ({ route }) => {
                 configGst,
                 configGstWithText,
                 serverBaseUrl: server.server.baseUrl,
+                gradient1,
+                gradient2,
+                mainColor,
             }}
             actions={{
                 onGoBack: () => navigation.goBack(),
                 onOpenResearchReports: () => navigation.navigate('ResearchReportScreen'),
                 onTabIndexChange: setIndex,
-                onSelectedPricingChange: setSelectedPricing,
+                onSelectedPricingChange: (period) => { userPickedPricingRef.current = true; setSelectedPricing(period); },
                 onInvestNow: () => setPaymentModal(true),
                 onCloseInvestNowModal: () => setPaymentModal(false),
                 onCloseReviewTrade: () => setOpenStrategy(false),
@@ -547,6 +598,15 @@ const BespokePerformanceScreen = ({ route }) => {
                 getSingleStrategyDetails,
                 onHandleTabLayout: handleTabLayout,
                 onHandleCardClickSelect: handleCardClickSelect,
+            }}
+            slots={{
+                PaymentSuccessModal,
+                UserStrategySubscribeModal,
+                MPInvestNowModal,
+                MPReviewTradeModal,
+                RecommendationSuccessModal,
+                CustomTabBarMPPerformance,
+                ConsentPopup,
             }}
         />
     );

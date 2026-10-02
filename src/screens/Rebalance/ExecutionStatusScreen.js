@@ -8,24 +8,18 @@
  *   modelName, advisor, uniqueId, caPendingInfo[]
  */
 import React, { useCallback, useRef, useState } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  ActivityIndicator,
-} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import axios from 'axios';
 import Config from 'react-native-config';
 
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import eventEmitter from '../../components/EventEmitter';
 import useSdkClient from '../../sdk/useSdkClient';
+import {canAttemptRebalancePlacement} from '../../utils/rebalanceMarketGate';
+import {useComponent} from '../../design/useDesign';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -34,7 +28,7 @@ const isSdkExecuteAdviceEnabled = () => {
 
 const getHeaders = () => ({
   'Content-Type': 'application/json',
-  'X-Advisor-Subdomain': getAdvisorSubdomain(),
+  'X-Advisor-Subdomain': getTenantSubdomain(),
   'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
 });
 
@@ -49,11 +43,13 @@ const isMarketOpen = () => {
 };
 
 const ExecutionStatusScreen = () => {
+  const Presentation = useComponent('screens.ExecutionStatusScreen');
   const navigation = useNavigation();
   const route = useRoute();
   const {
     portfolio, userEmail, broker, brokerCredentials,
     orders, modelId, modelName, advisor, uniqueId, caPendingInfo,
+    planId, planVersion, planHash,
   } = route.params || {};
 
   const showAlert = useModalStore((state) => state.showAlert);
@@ -64,24 +60,73 @@ const ExecutionStatusScreen = () => {
   const [state, setState] = useState('confirm');
   const [results, setResults] = useState([]);
   const [errorMsg, setErrorMsg] = useState(null);
+  const [requiresGuardedPublisher, setRequiresGuardedPublisher] = useState(false);
+  // Frozen-plan 409 (PLAN_DRIFTED / expired / ALREADY_CONSUMED — see
+  // REBALANCE_PLAN_FREEZE_PLAN.md §4.4): the plan_id we hold is dead, so a
+  // plain "Retry" would just resubmit the same stale plan_id and 409 again.
+  // When true, the error CTA routes back to RebalanceReviewScreen for a
+  // fresh calculate instead of offering Retry.
+  const [needsRecompute, setNeedsRecompute] = useState(false);
   const executing = state === 'executing';
+  const executionInFlightRef = useRef(false);
 
   const isDummyBroker = broker === 'DummyBroker' || !broker;
+  const marketGateOpen = canAttemptRebalancePlacement({
+    broker,
+    marketOpen: isMarketOpen(),
+  });
 
   // ── Execute orders ──
   const executeOrders = useCallback(async () => {
+    if (executionInFlightRef.current) return;
+    executionInFlightRef.current = true;
     setState('executing');
     setResults([]);
     setErrorMsg(null);
+    setNeedsRecompute(false);
+    setRequiresGuardedPublisher(false);
 
     try {
-      const trades = orders.map((o) => ({
+      const hasSell = (orders || []).some(
+        order => String(order?.transactionType || '').toUpperCase() === 'SELL',
+      );
+      const hasBuy = (orders || []).some(
+        order => String(order?.transactionType || '').toUpperCase() === 'BUY',
+      );
+      if (broker === 'Zerodha' && hasSell && hasBuy) {
+        setRequiresGuardedPublisher(true);
+        setErrorMsg(
+          'This Zerodha rebalance contains both sells and buys. Go back to the model portfolio and use its Rebalance action so buys remain locked until Zerodha confirms every sell fill and refreshes available margin.',
+        );
+        setState('error');
+        return;
+      }
+
+      const sellsFirst = [...(orders || [])].sort((a, b) => {
+        const rank = o => (String(o.transactionType || 'BUY').toUpperCase() === 'SELL' ? 0 : 1);
+        return rank(a) - rank(b);
+      });
+      const trades = sellsFirst.map((o) => ({
         tradingSymbol: o.symbol || o.tradingSymbol,
         transactionType: o.transactionType || 'BUY',
         exchange: o.exchange || 'NSE',
         quantity: o.quantity,
         price: o.price,
+        settledQuantity: o.settledQuantity,
+        t1Quantity: o.t1Quantity,
+        sameDayCredit: o.sameDayCredit,
       }));
+
+      // Phase 1 plan freeze (docs/REBALANCE_PLAN_FREEZE_PLAN.md §4.4/§4.5):
+      // forward the frozen plan_id/plan_version RebalanceReviewScreen's
+      // calculate minted so ccxt executes the server-frozen, re-validated
+      // plan instead of these client-built `trades`. We still send `trades`
+      // (backend ignores them on the frozen path) so nothing breaks if the
+      // backend flag is off / plan missing. Flag off / no planId ⇒ fields
+      // absent ⇒ byte-identical legacy payload.
+      const frozenPlanFields = planId
+        ? { plan_id: planId, plan_version: planVersion, plan_hash: planHash }
+        : {};
 
       const body = {
         user_broker: broker || 'DummyBroker',
@@ -92,6 +137,7 @@ const ExecutionStatusScreen = () => {
         advisor,
         unique_id: uniqueId,
         caPendingInfo: caPendingInfo || [],
+        ...frozenPlanFields,
       };
 
       // Add broker credentials
@@ -110,11 +156,14 @@ const ExecutionStatusScreen = () => {
         try {
           const sdkResult = await sdkClient.executeAdvice({
             kind: 'mpRebalance',
-            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            clientAdviceId: `mp-rebalance:${broker || 'DummyBroker'}:${planId || uniqueId || modelId}`,
             brokerName: broker || 'DummyBroker',
             modelId,
             modelName,
             uniqueId,
+            planId,
+            planVersion,
+            planHash,
             trades,
           });
           const mappedRows = (sdkResult?.rows || []).map(row => ({
@@ -125,8 +174,8 @@ const ExecutionStatusScreen = () => {
           resp = { data: { results: mappedRows } };
           console.log('[ExecutionStatusScreen] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
         } catch (sdkErr) {
-          console.error('[ExecutionStatusScreen] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
-          resp = null;
+          console.error('[ExecutionStatusScreen] SDK owns this attempt; legacy fallback blocked:', sdkErr?.message);
+          throw sdkErr;
         }
       }
       if (!resp) {
@@ -176,10 +225,24 @@ const ExecutionStatusScreen = () => {
       setState('done');
     } catch (e) {
       console.error('[Execution] error:', e);
-      setErrorMsg(e.response?.data?.message || e.message || 'Order placement failed');
+      if (e?.response?.status === 409 && e?.response?.data?.recompute) {
+        setNeedsRecompute(true);
+        setErrorMsg(e.response.data.message || 'The rebalance plan changed and needs to be recalculated.');
+      } else {
+        setErrorMsg(e.response?.data?.message || e.message || 'Order placement failed');
+      }
       setState('error');
+    } finally {
+      executionInFlightRef.current = false;
     }
-  }, [orders, userEmail, broker, brokerCredentials, modelId, modelName, advisor, uniqueId, caPendingInfo, isDummyBroker, sdkExecuteAdviceEnabled, sdkClient]);
+  }, [orders, userEmail, broker, brokerCredentials, modelId, modelName, advisor, uniqueId, caPendingInfo, isDummyBroker, sdkExecuteAdviceEnabled, sdkClient, planId, planVersion, planHash]);
+
+  // Frozen-plan recompute recovery: tell RebalanceReviewScreen (still mounted
+  // underneath in the stack) to re-run calculateRebalance, then pop back to it.
+  const handleRecomputeNavigate = () => {
+    eventEmitter.emit('rebalancePlanRecompute');
+    navigation.goBack();
+  };
 
   const normalizeStatus = (raw) => {
     const s = (raw || '').toLowerCase();
@@ -191,167 +254,29 @@ const ExecutionStatusScreen = () => {
   const successCount = results.filter((r) => r.status === 'success').length;
   const failedCount = results.filter((r) => r.status === 'failed').length;
 
-  // ── Render ──
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => { if (!executing) navigation.goBack(); }} style={styles.backBtn} disabled={executing}>
-          <Text style={[styles.backBtnText, executing && { opacity: 0.3 }]}>{'<'}</Text>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Trade Details</Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Status section */}
-        {state === 'confirm' && (
-          <View style={styles.statusBox}>
-            <Text style={styles.statusTitle}>Review & Confirm Orders</Text>
-            <Text style={styles.statusDesc}>{orders?.length || 0} orders ready. Tap "Place Order" below to execute.</Text>
-          </View>
-        )}
-
-        {executing && (
-          <View style={styles.statusBox}>
-            <ActivityIndicator size="small" color="#1A237E" />
-            <Text style={[styles.statusTitle, { marginTop: 8 }]}>Placing orders...</Text>
-          </View>
-        )}
-
-        {state === 'done' && (
-          <View style={[styles.statusBox, failedCount === 0 ? styles.statusSuccess : styles.statusPartial]}>
-            <Text style={styles.statusTitle}>
-              {failedCount === 0 ? 'All Orders Placed' : `${successCount} Placed, ${failedCount} Failed`}
-            </Text>
-          </View>
-        )}
-
-        {state === 'error' && (
-          <View style={[styles.statusBox, styles.statusError]}>
-            <Text style={styles.statusTitle}>Execution Failed</Text>
-            <Text style={styles.statusDesc}>{errorMsg}</Text>
-          </View>
-        )}
-
-        {/* Order cards */}
-        {state === 'confirm' && orders?.map((o, i) => (
-          <View key={`order-${i}`} style={styles.orderRow}>
-            <View style={[styles.badge, (o.transactionType || '').toUpperCase() === 'BUY' ? styles.badgeBuy : styles.badgeSell]}>
-              <Text style={styles.badgeText}>{(o.transactionType || 'BUY').toUpperCase()}</Text>
-            </View>
-            <Text style={styles.orderSymbol} numberOfLines={1}>{o.symbol || o.tradingSymbol}</Text>
-            <Text style={styles.orderQty}>Qty: {o.quantity}</Text>
-            <Text style={styles.orderPrice}>₹{Number(o.price || 0).toFixed(1)}</Text>
-          </View>
-        ))}
-
-        {state === 'done' && results.map((r, i) => (
-          <View key={`result-${i}`} style={styles.orderRow}>
-            <View style={[styles.badge,
-              r.status === 'success' ? styles.badgeBuy :
-              r.status === 'failed' ? styles.badgeSell : styles.badgePending]}>
-              <Text style={styles.badgeText}>{r.status === 'success' ? '✓' : r.status === 'failed' ? '✗' : '...'}</Text>
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.orderSymbol}>{r.symbol}</Text>
-              {r.message ? <Text style={styles.errorMsg}>{r.message}</Text> : null}
-            </View>
-            <Text style={styles.orderQty}>Qty: {r.quantity}</Text>
-          </View>
-        ))}
-      </ScrollView>
-
-      {/* Bottom CTAs */}
-      <View style={styles.bottomSection}>
-        {state === 'confirm' && (
-          <>
-            <TouchableOpacity
-              style={[styles.placeOrderBtn, !isMarketOpen() && styles.placeOrderBtnDisabled]}
-              onPress={isMarketOpen() ? executeOrders : null}
-              disabled={!isMarketOpen()}
-            >
-              <Text style={styles.placeOrderBtnText}>
-                {isMarketOpen() ? 'Place Order' : 'Market Closed'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.goBackBtn} onPress={() => navigation.goBack()}>
-              <Text style={styles.goBackBtnText}>Go Back</Text>
-            </TouchableOpacity>
-          </>
-        )}
-
-        {state === 'done' && (
-          <TouchableOpacity style={styles.doneBtn} onPress={() => {
-            navigation.popToTop();
-          }}>
-            <Text style={styles.doneBtnText}>Done</Text>
-          </TouchableOpacity>
-        )}
-
-        {state === 'error' && (
-          <>
-            <TouchableOpacity style={styles.retryBtn} onPress={executeOrders}>
-              <Text style={styles.retryBtnText}>Retry</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.goBackBtn} onPress={() => navigation.goBack()}>
-              <Text style={styles.goBackBtnText}>Go Back</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
-    </View>
+    <Presentation
+      viewModel={{
+        state,
+        executing,
+        results,
+        orders,
+        errorMsg,
+        requiresGuardedPublisher,
+        needsRecompute,
+        marketGateOpen,
+        successCount,
+        failedCount,
+      }}
+      actions={{
+        onBack: () => { if (!executing) navigation.goBack(); },
+        onPlaceOrder: executeOrders,
+        onDone: () => navigation.popToTop(),
+        onRecompute: handleRecomputeNavigate,
+        onRetry: executeOrders,
+      }}
+    />
   );
 };
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FC' },
-
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingTop: 50, paddingBottom: 12, backgroundColor: '#1A237E',
-  },
-  backBtn: { width: 40, height: 40, justifyContent: 'center', alignItems: 'center' },
-  backBtnText: { color: '#fff', fontSize: 22, fontWeight: '600' },
-  headerTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
-
-  scrollContent: { padding: 16, paddingBottom: 140 },
-
-  statusBox: {
-    padding: 18, backgroundColor: '#E8EAF6', borderRadius: 14, marginBottom: 16, alignItems: 'center',
-  },
-  statusSuccess: { backgroundColor: '#E8F5E9' },
-  statusPartial: { backgroundColor: '#FFF8E1' },
-  statusError: { backgroundColor: '#FFEBEE' },
-  statusTitle: { fontSize: 16, fontWeight: '700', color: '#333' },
-  statusDesc: { fontSize: 13, color: '#666', marginTop: 6, textAlign: 'center', lineHeight: 20 },
-
-  orderRow: {
-    flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 10,
-    backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
-  },
-  badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, marginRight: 10 },
-  badgeBuy: { backgroundColor: '#E8F5E9' },
-  badgeSell: { backgroundColor: '#FFEBEE' },
-  badgePending: { backgroundColor: '#FFF8E1' },
-  badgeText: { fontSize: 10, fontWeight: '700' },
-  orderSymbol: { flex: 1, fontSize: 13, fontWeight: '600', color: '#333' },
-  orderQty: { fontSize: 12, color: '#666', marginRight: 12 },
-  orderPrice: { fontSize: 12, fontWeight: '500', color: '#555' },
-  errorMsg: { fontSize: 11, color: '#EF5350', marginTop: 2 },
-
-  bottomSection: {
-    position: 'absolute', bottom: 0, left: 0, right: 0, padding: 16,
-    backgroundColor: '#F8F9FC', borderTopWidth: 1, borderTopColor: '#E0E0E0',
-  },
-  placeOrderBtn: { backgroundColor: '#2E7D32', paddingVertical: 15, borderRadius: 14, alignItems: 'center', marginBottom: 8 },
-  placeOrderBtnDisabled: { backgroundColor: '#999' },
-  placeOrderBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  goBackBtn: { paddingVertical: 12, alignItems: 'center' },
-  goBackBtnText: { color: '#1A237E', fontSize: 14, fontWeight: '600' },
-  doneBtn: { backgroundColor: '#1A237E', paddingVertical: 15, borderRadius: 14, alignItems: 'center' },
-  doneBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-  retryBtn: { backgroundColor: '#FF9800', paddingVertical: 15, borderRadius: 14, alignItems: 'center', marginBottom: 8 },
-  retryBtnText: { color: '#fff', fontSize: 16, fontWeight: '700' },
-});
 
 export default ExecutionStatusScreen;

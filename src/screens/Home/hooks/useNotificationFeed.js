@@ -45,6 +45,7 @@ import Config from 'react-native-config';
 import { useTrade } from '../../TradeContext';
 import server from '../../../utils/serverConfig';
 import { generateToken } from '../../../utils/SecurityTokenManager';
+import dedupeNotificationFeed from '../../../utils/notificationDedup';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Time + section formatting
@@ -198,7 +199,7 @@ const normalizeFeed = (rawList) => {
     const out = [];
     if (!Array.isArray(rawList)) {return out;}
 
-    for (const n of rawList) {
+    for (const n of dedupeNotificationFeed(rawList)) {
         if (!n) {continue;}
         if (
             Array.isArray(n.inAppNotifications) &&

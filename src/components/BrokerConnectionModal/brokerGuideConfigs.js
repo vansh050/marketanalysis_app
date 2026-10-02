@@ -15,6 +15,29 @@
  *
  * Branding rule (mirrors web): the broker's brand colors paint ONLY the
  * monogram badge; action elements use the app/advisor accent passed in.
+ *
+ * === walkthroughVideoId (UPDATE 2, 2026-07-24) ===
+ * Each broker entry can carry a `walkthroughVideoId: '<youtube-id>'` so the
+ * connect sheet shows a "Watch walkthrough" button that plays an in-app
+ * YouTube video (BrokerConnectStepperSheet reads this and opens the video
+ * modal). Videos are much clearer than text steps for the API-key setup,
+ * so every broker should have one.
+ *
+ * To add / replace a video: extract the 11-char YouTube ID from the URL
+ * (e.g. https://youtu.be/qYgpZTYYdyk → 'qYgpZTYYdyk') and set
+ * `walkthroughVideoId` on that broker's entry. Missing / empty values
+ * simply hide the button on that broker — no crash.
+ *
+ * Tenants that need their OWN videos (rather than the AlphaQuark defaults
+ * below) should patch this file in their fork; there is no per-tenant
+ * override on the backend today. See the markup fork's SYNC.md for the
+ * standard override pattern.
+ *
+ * Brokers WITHOUT a video today (placeholder slots — please supply):
+ *   - Angel One            (`walkthroughVideoId: ''`)
+ *   - IIFL Securities      (`walkthroughVideoId: ''`)
+ *   - Motilal Oswal        (`walkthroughVideoId: ''`)
+ * Every other broker below already has a working YouTube ID.
  */
 
 import React from 'react';
@@ -29,6 +52,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import Clipboard from '@react-native-clipboard/clipboard';
 import { PlayCircle, ExternalLink } from 'lucide-react-native';
 
+import { designColor } from '../../design/literalTokens';
+
 /**
  * opts: { whiteLabelText, brokerConnectRedirectURL, iciciRedirectUrl, ccxtBaseUrl }
  * Returns null for brokers with no guide (caller falls back to its
@@ -36,6 +61,9 @@ import { PlayCircle, ExternalLink } from 'lucide-react-native';
  */
 export function getBrokerGuideConfig(brokerName, opts = {}) {
   const wl = opts.whiteLabelText || 'AlphaQuark';
+  const ccxtBaseUrl = opts.ccxtBaseUrl
+    ? `${String(opts.ccxtBaseUrl).replace(/\/+$/, '')}/`
+    : '';
   // The modal dispatcher normalises UI triggers to short names (ICICI,
   // HDFC), while the SDK schema exposes the broker display names. Treat
   // both spellings identically so these brokers never fall through to the
@@ -51,8 +79,8 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
   const MAP = {
     Upstox: {
       monogram: 'U',
-      brandFrom: '#8b54ff',
-      brandTo: '#5b21d6',
+      brandFrom: designColor('8b54ff'),
+      brandTo: designColor('5b21d6'),
       portalUrl: 'https://account.upstox.com/developer/apps',
       portalLabel: 'Open Upstox developer portal',
       redirectUrl: opts.brokerConnectRedirectURL || '',
@@ -68,8 +96,8 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
     },
     HDFC: {
       monogram: 'H',
-      brandFrom: '#e4002b',
-      brandTo: '#8e0019',
+      brandFrom: designColor('e4002b'),
+      brandTo: designColor('8e0019'),
       portalUrl: 'https://developer.hdfcsky.com/',
       portalLabel: 'Open HDFC developer portal',
       redirectUrl: opts.brokerConnectRedirectURL || '',
@@ -85,8 +113,8 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
     },
     ICICI: {
       monogram: 'I',
-      brandFrom: '#f37e20',
-      brandTo: '#a3231f',
+      brandFrom: designColor('f37e20'),
+      brandTo: designColor('a3231f'),
       portalUrl: 'https://api.icicidirect.com/apiuser/home',
       portalLabel: 'Open ICICI Breeze portal',
       redirectUrl: opts.iciciRedirectUrl || '',
@@ -102,8 +130,8 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
     },
     Kotak: {
       monogram: 'K',
-      brandFrom: '#e3001b',
-      brandTo: '#9c0014',
+      brandFrom: designColor('e3001b'),
+      brandTo: designColor('9c0014'),
       portalUrl: 'https://trade.kotakneo.com/Login',
       portalLabel: 'Open Kotak Neo',
       walkthroughVideoId: 'J15Z4dP19o8',
@@ -119,8 +147,8 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
     },
     Groww: {
       monogram: 'G',
-      brandFrom: '#00b386',
-      brandTo: '#0a7d63',
+      brandFrom: designColor('00b386'),
+      brandTo: designColor('0a7d63'),
       portalUrl: 'https://groww.in/trade-api/api-keys',
       portalLabel: 'Open Groww Trade API',
       walkthroughVideoId: 'Stba6JN-uMI',
@@ -135,8 +163,8 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
     },
     Fyers: {
       monogram: 'F',
-      brandFrom: '#3d5afe',
-      brandTo: '#1e40af',
+      brandFrom: designColor('3d5afe'),
+      brandTo: designColor('1e40af'),
       portalUrl: 'https://fyers.in/web/api-dashboard/user-apps',
       portalLabel: 'Open Fyers API Dashboard',
       redirectUrl: opts.brokerConnectRedirectURL || '',
@@ -144,28 +172,36 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
       guideSteps: [
         'Log in with your <b>mobile number</b>, OTP/TOTP and <b>PIN</b>',
         'Open <b>fyers.in/web/api-dashboard/user-apps</b>',
-        'Click <b>Create App</b>',
+        'On that list, click the app named <b>“Algo trading app”</b> (it sits at the top). <b>Do not</b> press <b>Create App</b> — that makes an ordinary app which can never place orders',
         'Set the <b>Redirect URL</b> below',
-        'Paste your <b>IP</b> into <b>Allowed IPs</b>',
-        'Copy your <b>App ID</b> and <b>Secret ID</b>',
+        'Paste the <b>static IP</b> below into <b>Static IP</b> — it must match exactly',
+        'Tick the permissions, including <b>Order Placement</b>',
+        'Click <b>Activate</b>',
+        'Fyers now issues a <b>new App ID and Secret</b>. Copy the <b>App ID</b> — it ends in <b>-200</b> and is <b>not</b> your YR…/XL… login ID',
+        'Copy the new <b>Secret ID</b>',
       ],
-      note: 'Tick the <b>Order Placement</b> permission when creating the app — without it Fyers rejects orders with "algo orders are not allowed".',
+      note: 'Since April 2026 Fyers only accepts orders from the <b>activated “Algo trading app”</b> — its App ID ends in <b>-200</b>. Any older app still logs in and shows your holdings, then rejects every order with "algo orders are not allowed". Ticking Order Placement on an older app does <b>not</b> fix it: open the “Algo trading app” entry and Activate it, which issues a <b>new App ID and Secret ID</b>. A static IP that does not match the one shown here causes the same error.',
     },
     'IIFL Securities': {
       monogram: 'I',
-      brandFrom: '#e76822',
-      brandTo: '#b83d14',
+      brandFrom: designColor('e11d2e'),
+      brandTo: designColor('991b1b'),
+      portalUrl: 'https://developers.iiflcapital.com/',
+      portalLabel: 'Open IIFL Capital developer portal',
+      redirectUrl: opts.brokerConnectRedirectURL || '',
       guideSteps: [
-        'Continue to the secure <b>IIFL Securities</b> sign-in below',
-        'Sign in with your IIFL account and approve the authorisation request',
-        'Return to AlphaQuark when IIFL finishes the sign-in',
+        'Apply for the free <b>Individual Trader API</b>',
+        `Create an app for <b>${wl}</b> after IIFL approves access`,
+        'Set the <b>Redirect URL</b> shown below',
+        'Add the assigned <b>IPv6</b> shown below under <b>Whitelisted IPs</b>',
+        "Copy the app's <b>App Key</b> and <b>App Secret</b>",
       ],
-      note: 'This is the legacy IIFL v1 partner authorisation flow. It does not use XTS Connect, a customer App ID, or an IP-whitelist step.',
+      note: 'IIFL requires a fresh browser login each trading day. Your App Secret stays encrypted on AlphaQuark servers.',
     },
     'Arihant Capital': {
       monogram: 'A',
-      brandFrom: '#ff7a00',
-      brandTo: '#cc5500',
+      brandFrom: designColor('ff7a00'),
+      brandTo: designColor('cc5500'),
       portalUrl: 'https://tradebridge.arihantplus.com',
       portalLabel: 'Open Arihant TradeBridge',
       walkthroughVideoId: 'kE3nviz2T9k',
@@ -180,13 +216,14 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
     },
     'Motilal Oswal': {
       monogram: 'M',
-      brandFrom: '#f7a600',
-      brandTo: '#b87400',
+      brandFrom: designColor('f7a600'),
+      brandTo: designColor('b87400'),
       portalUrl: 'https://invest.motilaloswal.com/',
       portalLabel: 'Open Motilal Oswal',
-      redirectUrl: opts.ccxtBaseUrl
-        ? `${opts.ccxtBaseUrl}motilal-oswal/callback`
+      redirectUrl: ccxtBaseUrl
+        ? `${ccxtBaseUrl}motilal-oswal/callback`
         : '',
+      walkthroughVideoId: '', // TODO(UPDATE 2, 2026-07-24): supply Motilal Oswal walkthrough
       guideSteps: [
         'Log in at <b>invest.motilaloswal.com</b> — Customer Login → <b>Older Version</b>',
         'Tap the <b>Profile icon</b> to find your <b>Client Code</b>',
@@ -198,25 +235,30 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
     },
     'Angel One': {
       monogram: 'A',
-      brandFrom: '#e31e24',
-      brandTo: '#8e1015',
+      brandFrom: designColor('e31e24'),
+      brandTo: designColor('8e1015'),
       portalUrl: 'https://smartapi.angelone.in/',
       portalLabel: 'Open SmartAPI portal',
-      redirectUrl: opts.brokerConnectRedirectURL || '',
+      // SmartAPI redirects through the ccxt callback, not the tenant's
+      // stock-recommendation URL used by brokers such as Fyers/Upstox.
+      redirectUrl: ccxtBaseUrl
+        ? `${ccxtBaseUrl}angelone/callback`
+        : '',
+      walkthroughVideoId: '', // TODO(UPDATE 2, 2026-07-24): supply SmartAPI walkthrough
       guideSteps: [
         'Sign up / log in at <b>smartapi.angelone.in</b>',
         'Open <b>My Apps</b> → <b>Create New App</b> (type: <b>Trading APIs</b>)',
         `Name it <b>${wl}</b>`,
         'Set the <b>Redirect URL</b> and <b>Postback URL</b> shown below',
         'Paste your <b>IP</b> into <b>Whitelisted IPs</b>',
-        'Copy your <b>API Key</b> and <b>Secret</b>',
+        'Copy your <b>API Key</b>',
       ],
-      note: 'Use your own SmartAPI credentials for this connection. You can enter them securely in this app to complete the setup.',
+      note: 'Enter your SmartAPI API Key and Angel One Client Code below. SmartAPI does not issue or require an API Secret for this connection.',
     },
     'DefinEdge Securities': {
       monogram: 'D',
-      brandFrom: '#1565c0',
-      brandTo: '#0d3f8a',
+      brandFrom: designColor('1565c0'),
+      brandTo: designColor('0d3f8a'),
       portalUrl: 'https://myaccount.definedgesecurities.com',
       portalLabel: 'Open Definedge MyAccount',
       walkthroughVideoId: 'A6ytHApBTo4',
@@ -259,7 +301,7 @@ const RichText = ({ text, style, boldStyle }) => {
  */
 export const BrokerGuideCard = ({
   config,
-  accent = '#0056B7',
+  accent = designColor('0056b7'),
   brokerName,
   onWatchWalkthrough,
 }) => {
@@ -314,7 +356,7 @@ export const BrokerGuideCard = ({
             style={[styles.portalBtn, { backgroundColor: accent }]}
             onPress={() => Linking.openURL(config.portalUrl)}
           >
-            <ExternalLink size={14} color="#fff" />
+            <ExternalLink size={14} color={designColor('fff')} />
             <Text style={styles.portalBtnText}>
               {config.portalLabel || 'Open broker portal'}
             </Text>
@@ -341,11 +383,11 @@ export const BrokerGuideCard = ({
 const styles = StyleSheet.create({
   card: {
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: designColor('e5e7eb'),
     borderRadius: 16,
     padding: 14,
     marginBottom: 14,
-    backgroundColor: '#fafafa',
+    backgroundColor: designColor('fafafa'),
   },
   titleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12 },
   monogram: {
@@ -356,17 +398,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 10,
   },
-  monogramText: { color: '#fff', fontWeight: '800', fontSize: 15 },
-  title: { fontSize: 13, fontWeight: '800', color: '#111827', flex: 1 },
+  monogramText: { color: designColor('fff'), fontWeight: '800', fontSize: 15 },
+  title: { fontSize: 13, fontWeight: '800', color: designColor('111827'), flex: 1 },
   oneTimeNotice: {
     marginBottom: 12,
     padding: 10,
     borderRadius: 10,
     borderWidth: 1,
-    backgroundColor: '#eff6ff',
+    backgroundColor: designColor('eff6ff'),
   },
   oneTimeNoticeTitle: {fontSize: 10, fontWeight: '800', letterSpacing: 0.6},
-  oneTimeNoticeText: {marginTop: 3, fontSize: 12, lineHeight: 17, color: '#334155'},
+  oneTimeNoticeText: {marginTop: 3, fontSize: 12, lineHeight: 17, color: designColor('334155')},
   stepRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
   stepNum: {
     height: 20,
@@ -379,20 +421,20 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
   stepNumText: { fontSize: 11, fontWeight: '800' },
-  stepText: { flex: 1, fontSize: 13, lineHeight: 19, color: '#374151' },
-  stepBold: { fontWeight: '700', color: '#111827' },
+  stepText: { flex: 1, fontSize: 13, lineHeight: 19, color: designColor('374151') },
+  stepBold: { fontWeight: '700', color: designColor('111827') },
   redirectRow: {
     borderWidth: 1,
-    borderColor: '#e5e7eb',
+    borderColor: designColor('e5e7eb'),
     borderRadius: 10,
     padding: 10,
     marginTop: 6,
     marginBottom: 4,
-    backgroundColor: '#ffffff',
+    backgroundColor: designColor('ffffff'),
   },
-  redirectLabel: { fontSize: 11, fontWeight: '700', color: '#6b7280' },
+  redirectLabel: { fontSize: 11, fontWeight: '700', color: designColor('6b7280') },
   redirectValue: { fontSize: 12, fontWeight: '600', marginTop: 2 },
-  note: { fontSize: 12, color: '#6b7280', marginTop: 4, marginBottom: 2, lineHeight: 17 },
+  note: { fontSize: 12, color: designColor('6b7280'), marginTop: 4, marginBottom: 2, lineHeight: 17 },
   actionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -407,7 +449,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
     marginRight: 12,
   },
-  portalBtnText: { color: '#fff', fontWeight: '700', fontSize: 12, marginLeft: 6 },
+  portalBtnText: { color: designColor('fff'), fontWeight: '700', fontSize: 12, marginLeft: 6 },
   videoBtn: { flexDirection: 'row', alignItems: 'center', paddingVertical: 9 },
   videoBtnText: { fontWeight: '700', fontSize: 12, marginLeft: 5 },
 });

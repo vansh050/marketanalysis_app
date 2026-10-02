@@ -11,14 +11,24 @@ import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
 import {SvgUri} from 'react-native-svg';
 import {useConfig} from '../context/ConfigContext';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain, getBuildTenantSubdomain} from '../utils/variantHelper';
 import {getAccountEmailAsync} from '../utils/accountEmail';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import {getRaId, getUserData, storeLoginData, tryResolveAdvisor, updateRACodeAndConfig} from '../utils/storageUtils';
+import {checkAndFetchAdvisorConfig, getRaId, getUserData, setUserData, storeLoginData, tryResolveAdvisor, updateRACodeAndConfig} from '../utils/storageUtils';
+import { designColor } from '../design/literalTokens';
+import {useNavigationLayout} from '../navigation/useNavigationLayout';
 export default function SplashScreen() {
   const [progress, setProgress] = useState(0.0);
+  const hasRoutedRef = useRef(false);
   const screenWidth = Dimensions.get('window').width;
   const navigation = useNavigation();
+  // First pre-login screen of the phone-first flow comes from the variant's
+  // navigation manifest (`preLogin`); default = Onboarding carousel. Ref so
+  // the delayed auth callback below reads it fresh (manifest is fixed per
+  // build, but keep the ref pattern consistent with the config refs).
+  const {preLoginRoute} = useNavigationLayout();
+  const preLoginRouteRef = useRef(preLoginRoute);
+  preLoginRouteRef.current = preLoginRoute;
 
   // Get logo from database via ConfigContext
   const config = useConfig();
@@ -61,6 +71,30 @@ export default function SplashScreen() {
   };
 
   useEffect(() => {
+    let mounted = true;
+    const pendingTimers = new Set();
+    const navigateOnce = (route, delay = 0) => {
+      if (hasRoutedRef.current) return;
+      hasRoutedRef.current = true;
+      const timer = setTimeout(() => {
+        pendingTimers.delete(timer);
+        if (mounted) navigation.replace(route);
+      }, delay);
+      pendingTimers.add(timer);
+    };
+
+    // Native auth normally emits immediately, but a delayed/missed callback
+    // must never strand the customer on a completed progress bar. This final
+    // escape uses the locally restored Firebase session only; protected data
+    // still remains subject to the normal server-side authentication checks.
+    const startupWatchdog = setTimeout(() => {
+      if (hasRoutedRef.current) return;
+      const restoredUser = auth().currentUser;
+      console.warn('[SplashScreen] startup watchdog recovered stalled routing');
+      navigateOnce(restoredUser ? 'Home' : 'Login');
+    }, 12000);
+    pendingTimers.add(startupWatchdog);
+
     const unsubscribe = auth().onAuthStateChanged(user => {
       // NOT `user.email` — an Apple "Hide My Email" user has none, which made
       // this cold-start gate fail closed: checkUserStatus never ran, so the
@@ -68,18 +102,19 @@ export default function SplashScreen() {
       // identity is resolved inside (async) via getAccountEmailAsync().
       if (user) {
         const checkUserStatus = async () => {
-          const email = await getAccountEmailAsync();
-          if (!email) {
-            // Signed in but no resolvable identity yet (Apple user who hasn't
-            // completed the email screen). Let the normal navigation flow
-            // take them there rather than hanging on the splash.
-            console.warn(
-              '[SplashScreen] signed-in user has no resolvable account email — routing to auth flow',
-            );
-            setTimeout(() => navigation.replace('Login'), 1000);
-            return;
-          }
           try {
+            // Identity resolution can read native/AsyncStorage state and can
+            // reject. Keep it inside this catch boundary so a damaged or
+            // partially-restored install cannot leave Splash pending forever.
+            const email = await getAccountEmailAsync();
+            if (!email) {
+              console.warn(
+                '[SplashScreen] signed-in user has no resolvable account email — routing to auth flow',
+              );
+              navigateOnce('Login', 1000);
+              return;
+            }
+
             // First, check if we have a cached RA ID from AsyncStorage
             const cachedRaId = await getRaId();
             const cachedUserData = await getUserData();
@@ -93,9 +128,7 @@ export default function SplashScreen() {
             // If we have cached RA ID and it matches the current user's email, go directly to Home
             if (cachedRaId && cachedUserData?.email === email) {
               console.log('✅ Using cached advisor configuration for:', cachedRaId);
-              setTimeout(() => {
-                navigation.replace('Home');
-              }, 1000); // Shorter wait since we're using cache
+              navigateOnce('Home', 1000); // Shorter wait since we're using cache
               return;
             }
 
@@ -111,12 +144,15 @@ export default function SplashScreen() {
               {
                 headers: {
                   'Content-Type': 'application/json',
-                  'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                  'X-Advisor-Subdomain': getBuildTenantSubdomain(),
                   'aq-encrypted-key': generateToken(
                     Config.REACT_APP_AQ_KEYS,
                     Config.REACT_APP_AQ_SECRET,
                   ),
                 },
+                // A slow/unreachable API must degrade to the existing auth
+                // fallback instead of holding the launch screen indefinitely.
+                timeout: 8000,
               },
             );
             const userDetails = response.data.User;
@@ -124,17 +160,38 @@ export default function SplashScreen() {
             const advisorRaCode = Config.ADVISOR_RA_CODE || userDetails?.advisor_ra_code;
             const hasAdvisorRaCode = !!advisorRaCode;
 
+            // The inline advisorConfig blob is keyed to the user's mongo
+            // advisor_ra_code, not the env-pinned Config.ADVISOR_RA_CODE.
+            // For users registered under multiple advisors (cross-fork
+            // signups), those two diverge — trusting the inline blob then
+            // writes prod's REACT_APP_HEADER_NAME ("prod") into AsyncStorage
+            // and every subsequent API call sends X-Advisor-Subdomain: prod,
+            // returning the wrong tenant's plans/recos.
+            const inlineMatchesEnvRa =
+              !Config.ADVISOR_RA_CODE ||
+              (userDetails?.advisor_ra_code || '').toUpperCase().trim() ===
+                Config.ADVISOR_RA_CODE.toUpperCase().trim();
+
             // Store data so next cold start hits the fast cache path
-            if (hasAdvisorRaCode && advisorConfig) {
+            if (hasAdvisorRaCode && advisorConfig && inlineMatchesEnvRa) {
               await storeLoginData({
                 raCode: advisorRaCode,
                 userData: {email, advisor_ra_code: advisorRaCode, ...userDetails},
                 advisorConfig,
               });
+            } else if (hasAdvisorRaCode) {
+              // Inline blob belongs to the wrong advisor — discard it and
+              // fetch the correct config keyed to Config.ADVISOR_RA_CODE.
+              await setUserData({
+                email,
+                advisor_ra_code: advisorRaCode,
+                ...userDetails,
+              });
+              await checkAndFetchAdvisorConfig(advisorRaCode);
             }
 
             if (hasAdvisorRaCode) {
-              setTimeout(() => navigation.replace('Home'), 2000);
+              navigateOnce('Home', 1000);
             } else {
               // Try auto-resolve before showing RA ID screen
               const resolveResult = await tryResolveAdvisor(email);
@@ -145,33 +202,40 @@ export default function SplashScreen() {
                   email,
                 );
                 if (configResult.success) {
-                  setTimeout(() => navigation.replace('Home'), 2000);
+                  navigateOnce('Home', 1000);
                 } else {
-                  setTimeout(() => navigation.replace('SignUpRADetails'), 2000);
+                  navigateOnce('SignUpRADetails', 1000);
                 }
               } else {
-                setTimeout(() => navigation.replace('SignUpRADetails'), 2000);
+                navigateOnce('SignUpRADetails', 1000);
               }
             }
           } catch (error) {
             console.error('Error checking user status:', error.message);
-            setTimeout(() => navigation.replace('Login'), 2000);
+            navigateOnce('Login', 1000);
           }
         };
 
         checkUserStatus(); // Call the async function
       } else {
-        setTimeout(async () => {
+        const unauthenticatedTimer = setTimeout(async () => {
+          pendingTimers.delete(unauthenticatedTimer);
           // Phone-first login flow — per-advisor opt-in (default OFF, see
           // ConfigContext.js). Loading/off/error all resolve to the
           // standard Login screen, matching the app's existing behavior.
           const phoneFirst = await resolvePhoneFirstLoginEnabled();
-          navigation.replace(phoneFirst ? 'Onboarding' : 'Login');
+          navigateOnce(phoneFirst ? preLoginRouteRef.current : 'Login');
         }, 2000);
+        pendingTimers.add(unauthenticatedTimer);
       }
     });
 
-    return unsubscribe; // Clean up listener
+    return () => {
+      mounted = false;
+      unsubscribe();
+      pendingTimers.forEach(clearTimeout);
+      pendingTimers.clear();
+    };
   }, [navigation]);
 
   useEffect(() => {
@@ -202,7 +266,7 @@ export default function SplashScreen() {
         */}
         {configLoading ? (
           // Show nothing or a placeholder while config is loading
-          <View style={{width: 150, height: 150}} />
+          (<View style={{width: 150, height: 150}} />)
         ) : LogoComponent && typeof LogoComponent === 'function' ? (
           <LogoComponent width={200} height={200} />
         ) : LogoComponent && typeof LogoComponent === 'string' && LogoComponent.endsWith('.svg') ? (
@@ -233,17 +297,16 @@ export default function SplashScreen() {
           />
         )}
       </View>
-
       {/* Progress Bar Section */}
       <View style={{marginBottom: 70}}>
         <ProgressBar
           progress={progress}
           borderWidth={1}
-          fillColor="#000"
-          unfilledColor="#E9E9E9"
+          fillColor={designColor('000')}
+          unfilledColor={designColor('e9e9e9')}
           height={7}
           width={screenWidth * 0.5}
-          borderColor="#E9E9E9"
+          borderColor={designColor('e9e9e9')}
           duration={150}
         />
       </View>
@@ -257,7 +320,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   logoContainer: {
     justifyContent: 'center',

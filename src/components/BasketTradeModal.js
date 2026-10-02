@@ -26,6 +26,9 @@ import { getAdvisorSubdomain } from '../utils/variantHelper';
 import SliderButton from './SliderButton';
 import { useComponent } from '../design/useDesign';
 import useAngelOneSurveillance from '../hooks/useAngelOneSurveillance';
+import SurveillanceWarning from './SurveillanceWarning';
+
+import { designColor } from '../design/literalTokens';
 
 const BasketTradeModal = ({
     visible,
@@ -326,10 +329,10 @@ const BasketTradeModal = ({
                 style={{
                     paddingVertical: 5,
                     paddingHorizontal: 10,
-                    borderTopColor: '#e4e4e4',
+                    borderTopColor: designColor('e4e4e4'),
                     borderTopWidth: 0.5,
                     elevation: 1,
-                    backgroundColor: '#fff',
+                    backgroundColor: designColor('fff'),
                 }}
             >
                 <SliderButton
@@ -389,7 +392,13 @@ const BasketTradeModal = ({
         renderSliderButton,
     };
 
-    return <Presentation viewModel={viewModel} actions={actions} />;
+    return (
+        <Presentation
+            viewModel={viewModel}
+            actions={actions}
+            slots={{ SurveillanceWarning }}
+        />
+    );
 };
 
 export default BasketTradeModal;

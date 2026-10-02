@@ -1,3 +1,4 @@
+import {isEmptyInvoiceResponse} from '../../utils/expectedApiStates';
 /**
  * PaymentHistoryScreen — container (Phase G batch 2, 2026-05-02)
  *
@@ -29,9 +30,13 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import RiaBillingService from '../../FunctionCall/services/RiaBillingService';
 import {getAccountEmail} from '../../utils/accountEmail';
+import APP_VARIANTS from '../../utils/Config';
+import SafeConfig from '../../utils/safeConfig';
+
+import { designFont } from '../../design/literalTokens';
 
 // Robustly turn an axios arraybuffer (or already-base64 string) into base64 so the
 // existing savePdfToFile (atob → RNFS.writeFile) can consume it unchanged.
@@ -99,6 +104,11 @@ const PaymentHistoryScreen = () => {
     const config = useConfig();
     const gradient1 = config?.gradient1 || 'rgba(0, 86, 183, 1)';
     const gradient2 = config?.gradient2 || 'rgba(0, 38, 81, 1)';
+    const variantKey =
+        config?.selectedVariant || SafeConfig?.APP_VARIANT || 'alphaquark';
+    const advisorLogoFallback =
+        APP_VARIANTS[variantKey]?.logo || APP_VARIANTS.alphaquark?.logo || null;
+    const advisorLogo = config?.logo || config?.toolbarlogo || advisorLogoFallback;
     const navigation = useNavigation();
     const [InvoiceData, setInvoiceData] = useState([]);
 
@@ -120,8 +130,7 @@ const PaymentHistoryScreen = () => {
     // 2026-06-09 fix for "invoices not coming".
     const headers = () => ({
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain':
-            configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -131,7 +140,7 @@ const PaymentHistoryScreen = () => {
     const getInvoiceDetails = async () => {
         try {
             const response = await axios.get(
-                `${server.ccxtServer.baseUrl}comms/get-invoices/${userEmail}`,
+                `${server.ccxtServer.baseUrl}comms/get-invoices/${encodeURIComponent(userEmail)}`,
                 { headers: headers() },
             );
             const invoices = response.data.invoices || [];
@@ -142,6 +151,11 @@ const PaymentHistoryScreen = () => {
             });
             setInvoiceData(invoices);
         } catch (error) {
+            if (isEmptyInvoiceResponse(error)) {
+                setInvoiceData([]);
+                return;
+            }
+            showToast('Unable to load invoices. Please try again.', 'error', '');
             // Surface URL + status so the next "invoices not coming" report
             // includes the diagnostic info instead of just being silent.
             console.error(
@@ -190,12 +204,12 @@ const PaymentHistoryScreen = () => {
                 color: 'black',
                 fontSize: 11,
                 fontWeight: 0,
-                fontFamily: 'Poppins-Medium',
+                fontFamily: designFont('Poppins-Medium'),
             },
             text2Style: {
                 color: 'black',
                 fontSize: 12,
-                fontFamily: 'Poppins-Regular',
+                fontFamily: designFont('Poppins-Regular'),
             },
         });
     };
@@ -330,6 +344,10 @@ const PaymentHistoryScreen = () => {
                 invoiceData: InvoiceData,
                 gradient1,
                 gradient2,
+                // Always prefer the live tenant brand over the historical
+                // logo snapshot stored inside an old invoice row.
+                advisorLogo,
+                advisorLogoFallback,
                 // P1 fee-statement view-model (inert unless showFeeTab)
                 showFeeTab,
                 tab,

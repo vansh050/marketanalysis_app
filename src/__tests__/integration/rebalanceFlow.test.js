@@ -107,9 +107,12 @@ describe('Integration: Rebalance Flow', () => {
 
   describe('portfolio shortfall detection', () => {
     test('detects shortfall and still allows trade execution', () => {
+      // Message-based contract (aligned with web, 2026-04-08 commit
+      // 97b03ad): the backend signals shortfall via the "less than
+      // required minimum" message, not a numeric minInvestmentValue.
       const response = {
+        message: 'Portfolio value is less than required minimum amount (50000)',
         totalValue: 30000,
-        minInvestmentValue: 50000,
         buy: [{symbol: 'RELIANCE', quantity: 5}],
         sell: [],
       };
@@ -117,6 +120,7 @@ describe('Integration: Rebalance Flow', () => {
       const shortfall = checkPortfolioShortfall(response);
       expect(shortfall.isShortfall).toBe(true);
       expect(shortfall.hasTrades).toBe(true);
+      expect(shortfall.requiredAmount).toBe(50000);
       // Shortfall is a warning, not a blocker — trades should still proceed
     });
   });
@@ -162,14 +166,17 @@ describe('Integration: Rebalance Flow', () => {
       expect(Object.keys(payload)).toEqual(['accessToken']);
     });
 
-    test('Kotak rebalance payload has 6 fields', () => {
+    test('Kotak rebalance payload carries the complete NEO session', () => {
       const payload = buildBrokerPayloadFields('Kotak', {
         apiKey: 'enc', secretKey: 'enc', jwtToken: 'kt',
-        sid: 'sid1', serverId: 'srv1', viewToken: 'vt1',
+        sid: 'sid1', serverId: 'srv1', baseUrl: 'https://e43.kotaksecurities.com',
       }, mockDecrypt);
-      expect(Object.keys(payload)).toHaveLength(6);
-      expect(payload.consumerKey).toBeDefined();
+      expect(Object.keys(payload)).toHaveLength(7);
+      expect(payload.apiKey).toBeDefined();
+      expect(payload.apiAccessToken).toBeDefined();
+      expect(payload.consumerSecret).toBeUndefined();
       expect(payload.sid).toBe('sid1');
+      expect(payload.baseUrl).toBe('https://e43.kotaksecurities.com');
     });
 
     test('Dhan rebalance payload maps clientCode → clientId', () => {

@@ -7,21 +7,21 @@
  *
  * ⚠️ DEFERRED / UNMOUNTED (matches web): per docs/WEB_PARITY_MIGRATION_2026-06.md §2 +
  * D6-timing, this is built for parity but NOT mounted on home until web mounts it.
- * Self-gated on `transitionEngineEnabled` (default OFF) AND requires a `target` model;
- * with no target it renders null (never a fabricated alignment number).
+ * The src-owned caller supplies `enabled`; the presentation also requires a
+ * `target` model. With either condition false it renders null (never a
+ * fabricated alignment number).
  *
  * SEBI boundary: buckets are value judgments (sell/buy), legitimate ONLY because the
  * target is the RA's model — so the RA-attribution header renders ABOVE the diff, and
  * we communicate ALIGNMENT to the model, never a returns forecast.
  *
  * Contract (pure-presentation when given props; self-gated wrapper otherwise):
- *   props = { transition, modelName, advisorName }
+ *   props = { enabled, transition, modelName, advisorName }
  *     transition = computeTransition(holdings, target, opts) result, or null
  */
 
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import { useConfig } from '../../../src/context/ConfigContext';
 import { TRANSITION_BUCKET } from '../../../src/utils/nba/portfolioTransition';
 
 const BUCKET_META = {
@@ -32,11 +32,9 @@ const BUCKET_META = {
     [TRANSITION_BUCKET.EXIT]: { label: 'Exit', tone: '#DC2626' },
 };
 
-const PortfolioTransitionCard = ({ transition, modelName, advisorName }) => {
-    const config = useConfig();
-
+const PortfolioTransitionCard = ({ enabled = false, transition, modelName, advisorName }) => {
     // Deferred + gated: render nothing unless explicitly enabled AND a target exists.
-    if (!config?.transitionEngineEnabled) return null;
+    if (!enabled) return null;
     if (!transition || !transition.hasTarget) return null;
 
     const { alignmentPct, buckets } = transition;

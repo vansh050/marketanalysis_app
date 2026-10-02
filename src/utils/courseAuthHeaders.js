@@ -11,13 +11,13 @@
 
 import Config from 'react-native-config';
 import { getAuth } from '@react-native-firebase/auth';
-import { getAdvisorSubdomain } from './variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from './variantHelper';
 import { generateToken } from './SecurityTokenManager';
 
 export function getPublicHeaders() {
   return {
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain': getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,

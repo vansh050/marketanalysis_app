@@ -28,9 +28,45 @@ import EgressIpCallout from '../../components/BrokerConnectionModal/EgressIpCall
 import fyersIcon from '../../assets/fyers.png';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
+import {FYERS_REDIRECT_MISMATCH} from '../../utils/fyersOAuthErrors';
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 const commonHeight = 40;
+
+// Fyers renders OAuth validation failures inside its JavaScript application;
+// neither WebView's HTTP error callback nor the navigation URL exposes the
+// message. Observe the rendered body and notify native code only for the
+// redirect mismatch marker so users do not remain trapped on Fyers' generic
+// error page.
+const FYERS_OAUTH_ERROR_PROBE = `
+  (function () {
+    var sent = false;
+    var inspect = function () {
+      if (sent || !document || !document.body) {
+        return;
+      }
+      var compact = String(document.body.innerText || document.body.textContent || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '');
+      if (compact.indexOf('redirecturlmismatch') !== -1 ||
+          compact.indexOf('redirecturimismatch') !== -1) {
+        sent = true;
+        window.ReactNativeWebView.postMessage(JSON.stringify({
+          type: '${FYERS_REDIRECT_MISMATCH}'
+        }));
+      }
+    };
+    inspect();
+    var observer = new MutationObserver(inspect);
+    observer.observe(document.documentElement, {childList: true, subtree: true, characterData: true});
+    setTimeout(inspect, 500);
+    setTimeout(inspect, 1500);
+    setTimeout(inspect, 3000);
+    true;
+  })();
+`;
 
 const FyersConnectUI = ({
   isVisible,
@@ -50,6 +86,8 @@ const FyersConnectUI = ({
   helpVisible,
   setHelpVisible,
   handleWebViewNavigationStateChange,
+  handleWebViewMessage,
+  handleWebViewRenderProcessGone,
   egressUserId,
   egressUserEmail,
   egressReady,
@@ -79,13 +117,13 @@ const FyersConnectUI = ({
         <View style={{flex: 1, paddingTop: insets.top}}>
           {/* Header */}
           <LinearGradient
-            colors={['#0B3D91', '#0056B7']}
+            colors={[designColor('0b3d91'), designColor('0056b7')]}
             start={{x: 0, y: 0}}
             end={{x: 1, y: 1}}
             style={styles.headerRow}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <Pressable onPress={onClose} style={styles.backButton}>
-                <ChevronLeft size={24} color="#000" />
+                <ChevronLeft size={24} color={designColor('000')} />
               </Pressable>
               <Text style={styles.headerTitle}>Connect Fyers</Text>
             </View>
@@ -99,11 +137,15 @@ const FyersConnectUI = ({
               javaScriptEnabled
               domStorageEnabled
               startInLoadingState
+              injectedJavaScript={FYERS_OAUTH_ERROR_PROBE}
+              onMessage={handleWebViewMessage}
               onNavigationStateChange={handleWebViewNavigationStateChange}
+              onRenderProcessGone={handleWebViewRenderProcessGone}
+              onContentProcessDidTerminate={handleWebViewRenderProcessGone}
             />
           ) : expanded ? (
             /* Full Screen Help when expanded */
-            <View style={styles.fullScreenHelp}>
+            (<View style={styles.fullScreenHelp}>
               <ScrollView
                 style={{flex: 1}}
                 contentContainerStyle={{padding: 15, paddingBottom: 20}}
@@ -115,12 +157,12 @@ const FyersConnectUI = ({
                     onPress={() => setExpanded(false)}>
                     <Text style={styles.toggleText}>See Less</Text>
                     <View style={styles.toggleIconContainer}>
-                      <ChevronUp size={14} color="#000" />
+                      <ChevronUp size={14} color={designColor('000')} />
                     </View>
                   </Pressable>
                 </View>
               </ScrollView>
-            </View>
+            </View>)
           ) : (
             <KeyboardAvoidingView
               style={{flex: 1}}
@@ -142,7 +184,7 @@ const FyersConnectUI = ({
                   onPress={() => setExpanded(true)}>
                   <Text style={styles.toggleText}>Read More</Text>
                   <View style={styles.toggleIconContainer}>
-                    <ChevronDown size={14} color="#000" />
+                    <ChevronDown size={14} color={designColor('000')} />
                   </View>
                 </Pressable>
 
@@ -178,7 +220,7 @@ const FyersConnectUI = ({
                         <TextInput
                           value={secretKey}
                           placeholder="Enter your App ID"
-                          placeholderTextColor="#aaa"
+                          placeholderTextColor={designColor('aaa')}
                           style={[styles.inputStyles, {flex: 1}]}
                           autoCapitalize="none"
                           autoCorrect={false}
@@ -193,7 +235,7 @@ const FyersConnectUI = ({
                         <TextInput
                           value={apiKey}
                           placeholder="Enter your Secret ID"
-                          placeholderTextColor="#aaa"
+                          placeholderTextColor={designColor('aaa')}
                           style={[styles.inputStyles, {flex: 1}]}
                           autoCapitalize="none"
                           autoCorrect={false}
@@ -208,14 +250,14 @@ const FyersConnectUI = ({
                         {
                           backgroundColor:
                             apiKey && secretKey && egressReady
-                              ? '#0056B7'
-                              : '#d3d3d3',
+                              ? designColor('0056b7')
+                              : designColor('d3d3d3'),
                         },
                       ]}
                       onPress={updateSecretKey}
                       disabled={!(apiKey && secretKey && egressReady)}>
                       {loading ? (
-                        <ActivityIndicator size={27} color="#fff" />
+                        <ActivityIndicator size={27} color={designColor('fff')} />
                       ) : (
                         <Text style={styles.proceedButtonText}>
                           Connect Fyers
@@ -243,7 +285,7 @@ const styles = StyleSheet.create({
   fullScreen: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   headerRow: {
     flexDirection: 'row',
@@ -255,8 +297,8 @@ const styles = StyleSheet.create({
   backButton: {
     padding: 4,
     borderRadius: 5,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
+    backgroundColor: designColor('fff'),
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.10,
     shadowRadius: 2,
@@ -264,40 +306,40 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#fff',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('fff'),
     marginLeft: 10,
   },
-  headerIcon: {width: 35, height: 35, borderRadius: 3, backgroundColor: '#fff'},
+  headerIcon: {width: 35, height: 35, borderRadius: 3, backgroundColor: designColor('fff')},
   guideBox: {
     borderWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
     borderRadius: 8,
     padding: 10,
   },
-  fullScreenHelp: {flex: 1, backgroundColor: '#fff'},
+  fullScreenHelp: {flex: 1, backgroundColor: designColor('fff')},
   toggleWrapper: {
     borderTopWidth: 1,
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
     paddingVertical: 5,
   },
   toggleContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingVertical: 10,
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
     justifyContent: 'flex-start',
     marginHorizontal: 20,
   },
-  toggleText: {fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#0056B7'},
+  toggleText: {fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), color: designColor('0056b7')},
   toggleIconContainer: {
     marginLeft: 5,
     borderRadius: 20,
     padding: 3,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
+    backgroundColor: designColor('fff'),
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.10,
     shadowRadius: 2,
@@ -305,29 +347,29 @@ const styles = StyleSheet.create({
   },
   bottomContainer: {
     borderTopWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
     padding: 15,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   inputCard: {
     marginTop: 10,
     borderWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
     borderRadius: 12,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     overflow: 'hidden',
   },
   cardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    backgroundColor: designColor('f5f5f5'),
     padding: 12,
   },
   cardIcon: {
     width: 30,
     height: 30,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 3,
   },
   inputSection: {
@@ -336,23 +378,23 @@ const styles = StyleSheet.create({
   inputWrapper: {marginBottom: 10},
   headerLabel: {
     fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-    color: '#000',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('000'),
     marginBottom: 5,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     borderRadius: 8,
     paddingHorizontal: 10,
     height: commonHeight,
   },
   inputStyles: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#000',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('000'),
     paddingVertical: 0,
   },
   proceedButton: {
@@ -362,11 +404,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 10,
   },
-  proceedButtonText: {color: '#fff', fontSize: 16, fontWeight: '600'},
+  proceedButtonText: {color: designColor('fff'), fontSize: 16, fontWeight: '600'},
   connectLabel: {
     fontSize: 16,
-    color: '#000',
-    fontFamily: 'Poppins-SemiBold',
+    color: designColor('000'),
+    fontFamily: designFont('Poppins-SemiBold'),
   },
 });
 

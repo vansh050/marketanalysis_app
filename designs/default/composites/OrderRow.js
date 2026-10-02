@@ -30,6 +30,7 @@ import {
     isOrderRejected,
     isOrderPending,
     getOrderStatusDisplay,
+    isManagerClosedZeroFill,
 } from '../../../src/utils/orderStatusUtils';
 import { isSellAuthRejection } from '../../../src/utils/sellAuthMessage';
 import { getBrokerDdpiHelp } from '../../../src/config/brokerDdpiHelp';
@@ -42,22 +43,49 @@ import Icon from '../primitives/Icon';
 const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
     const tokens = useTokens();
     const [showReason, setShowReason] = useState(false);
-    const isRejected = isOrderRejected(item.trade_place_status);
+    const managerClosedZeroFill = isManagerClosedZeroFill(item);
+    const isRejected = isOrderRejected(item.trade_place_status) && !managerClosedZeroFill;
     const rejectionReason = item.orderStatusMessage || item.message_aq || '';
     const totalQty = item.Lots || item.Quantity || '';
     const avgPrice = item.AvgPrice || item.tradedPrice || '';
     const isBuy = item.Type === 'BUY';
 
-    const StatusIconComponent = isOrderSuccess(item.trade_place_status)
+    const StatusIconComponent = isOrderSuccess(item.trade_place_status) || managerClosedZeroFill
         ? Check
         : isOrderPending(item.trade_place_status)
           ? Pause
           : X;
 
+    const statusLabel = managerClosedZeroFill
+        ? 'Closed by manager'
+        : getOrderStatusDisplay(item.trade_place_status);
+
+    // Full instrument name: for NFO/BFO show base symbol + strike + option
+    // type (FUT included — a naked "BEML-EQ" style symbol hides whether the
+    // leg is the future or the option). FUT legs carry a junk Strike value
+    // ("Order") that must not render as a strike. Company name when present.
+    const isDerivative =
+        item?.Exchange === 'NFO' || item?.Exchange === 'BFO';
+    const isFuture = item?.OptionType === 'FUT';
+    const strikeValue =
+        isFuture || !item?.Strike || String(item.Strike).toLowerCase() === 'order'
+            ? null
+            : item.Strike;
     const symbolText =
-        (item?.Exchange === 'NFO' || item?.Exchange === 'BFO') && item?.OptionType !== 'FUT'
-            ? `${item.searchSymbol}${item.Exchange === 'NFO' || item.Exchange === 'BFO' ? ` | ${item.Strike} | ${item.OptionType}` : ''}`
+        isDerivative
+            ? [item.searchSymbol, strikeValue, item.OptionType]
+                .filter(Boolean)
+                .join(' | ')
             : item.Symbol;
+    const companyName = item?.companyName;
+
+    // Exit rows must show the actual exit price explicitly; the generic
+    // "Avg." line only shows tradedPrice which for a SELL is ambiguous. For a
+    // manager-closed zero-fill leg there is no fill — fall back to the
+    // advised exit price so the row is not blank.
+    const exitPrice =
+        !isBuy && (item?.exitPrice ?? item?.tradedPrice ?? item?.AvgPrice ?? item?.Price ?? item?.price);
+    const lotSize = item?.Lots || item?.lotSize;
 
     return (
         <TouchableOpacity
@@ -120,7 +148,7 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
                     <Text
                         variant="caption"
                         style={{fontSize: 11, color: color2, marginLeft: 3, fontFamily: 'Satoshi-Medium'}}>
-                        {getOrderStatusDisplay(item.trade_place_status)}
+                        {statusLabel}
                     </Text>
                 </View>
             </View>
@@ -135,13 +163,13 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
             >
                 <View style={{flexDirection: 'row', alignItems: 'center', flex: 1, paddingRight: 8}}>
                     <Pill
-                        variant={isBuy ? 'profit' : 'loss'}
+                        variant={isBuy ? 'profit' : 'sell'}
                         label={isBuy ? 'Buy' : 'Sell'}
                         style={{paddingHorizontal: 8, paddingVertical: 2}}
                         labelStyle={{fontSize: 10, color: '#fff', fontFamily: 'Poppins-Medium'}}
                     />
                     <Text variant="caption" numberOfLines={1} style={{fontSize: 11, color: tokens.colors.text.muted, marginLeft: 7}}>
-                        {item?.user_broker || 'Broker not recorded'} · {item.Exchange || '—'}
+                        {companyName || item?.user_broker || 'Broker not recorded'} · {item.Exchange || '—'}
                     </Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
@@ -159,7 +187,8 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
             </View>
 
             <Text variant="caption" style={{color: tokens.colors.text.muted, fontSize: 12, letterSpacing: 0.1, marginTop: 8}}>
-                Qty. {item.tradedQty || 0}/{totalQty || '—'}  ·  Avg. {avgPrice || '—'}
+                Qty. {item.tradedQty || 0}/{totalQty || '—'}  ·  {isBuy ? 'Avg' : 'Exit'} {isBuy ? (avgPrice || '—') : (exitPrice || avgPrice || '—')}
+                {lotSize ? `  ·  Lot ${lotSize}` : ''}
             </Text>
 
             {isRejected && rejectionReason ? (

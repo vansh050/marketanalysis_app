@@ -1,3 +1,4 @@
+import {availableFundsPayload} from '../../utils/fundingContinuation';
 /**
  * MPPerformanceScreen — container (Phase I, 2026-05-02)
  *
@@ -12,7 +13,7 @@
  * Tab content, EDIS modals, and all child modals are passed as slots.
  */
 
-import React, {useState, useEffect, useMemo, useRef} from 'react';
+import React, {useState, useEffect, useMemo, useRef, useCallback} from 'react';
 import {
   View,
   Text,
@@ -36,12 +37,13 @@ import {generateToken} from '../../utils/SecurityTokenManager';
 import IsMarketHours from '../../utils/isMarketHours';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
 import {convertResponse} from '../../utils/tradeUtils';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
+import {getAdvisorPlanColor} from '../../utils/advisorContentProfile';
 import {useTrade} from '../TradeContext';
 import {useConfig} from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
 import {useGstConfig} from '../../context/GstConfigContext';
-import {withGst, gstLabel} from '../../utils/gstHelpers';
+import {withGst, gstLabel, recBase} from '../../utils/gstHelpers';
 
 import PaymentSuccessModal from '../../components/ModelPortfolioComponents/PaymentSuccessModal';
 import MPInvestNowModal from '../../components/ModelPortfolioComponents/MPInvestNowModal';
@@ -61,20 +63,29 @@ import {AngleOneTpinModal} from '../../components/DdpiModal';
 import {FyersTpinModal} from '../../components/DdpiModal';
 import {OtherBrokerModel} from '../../components/DdpiModal';
 import {FileText} from 'lucide-react-native';
-import {getAccountEmail} from '../../utils/accountEmail';
 
+import {getAccountEmail} from '../../utils/accountEmail';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { designColor, designFont } from '../../design/literalTokens';
+import {sellOrdersForAuth} from '../../utils/sellAuthOrders';
 const Alpha100 = require('../../assets/alpha-100.png');
 const screenWidth = Dimensions.get('window').width;
 
 const colorPalette = [
-  '#EAE7DC', '#F5F3F4', '#D4ECDD', '#FFDDC1', '#F8E9A1',
-  '#B2C9AB', '#FFC8A2', '#F6BD60', '#CB997E', '#A5A58D',
-  '#B7CADB', '#E2F0CB', '#C1D37F', '#FFEBBB', '#D3C4C4',
-  '#D4A5A5', '#FFF3E2', '#F7B7A3', '#EFD6AC', '#FAE3D9',
+  designColor('eae7dc'), designColor('f5f3f4'), designColor('d4ecdd'), designColor('ffddc1'), designColor('f8e9a1'),
+  designColor('b2c9ab'), designColor('ffc8a2'), designColor('f6bd60'), designColor('cb997e'), designColor('a5a58d'),
+  designColor('b7cadb'), designColor('e2f0cb'), designColor('c1d37f'), designColor('ffebbb'), designColor('d3c4c4'),
+  designColor('d4a5a5'), designColor('fff3e2'), designColor('f7b7a3'), designColor('efd6ac'), designColor('fae3d9'),
 ];
 
 const entitlementKey = value =>
   String(value || '').toLowerCase().replace(/_/g, ' ').trim();
+
+const firstMeaningful = (...values) =>
+  values.find(value => value !== undefined && value !== null && value !== '');
+
+const firstPositive = (...values) =>
+  values.find(value => Number.isFinite(Number(value)) && Number(value) > 0);
 
 const MPPerformanceScreen = ({route}) => {
   const {modelName, specificPlan} = route.params;
@@ -89,9 +100,18 @@ const MPPerformanceScreen = ({route}) => {
 
   const appConfig = useConfig();
   const tokens = useTokens();
-  const gradient1 = tokens.colors.brand.gradientStart;
-  const gradient2 = tokens.colors.brand.gradientEnd;
-  const mainColor = tokens.colors.brand.primary;
+  // RA request (2026-08-13): the plan DETAIL surface must match the card the
+  // user opened. When the tenant supplies plan colours (whitelabel/content.js
+  // getMoneyManPlanColor — MAMM→green, MFCC→purple, MSRO→blue), resolve the
+  // plan's identity color and thread it through the summary card gradient,
+  // Save tag, tab bar, buttons and disclaimer accent instead of the brand
+  // green. Identity-based (not position-based) — the detail screen shows
+  // exactly one plan, so its color never changes with list order. Falls back
+  // to the brand tokens for tenants without plan colours / unknown plans.
+  const planColor = getAdvisorPlanColor(modelName);
+  const gradient1 = planColor || tokens.colors.brand.gradientStart;
+  const gradient2 = planColor || tokens.colors.brand.gradientEnd;
+  const mainColor = planColor || tokens.colors.brand.primary;
 
   const auth = getAuth();
   const user = auth.currentUser;
@@ -127,7 +147,7 @@ const MPPerformanceScreen = ({route}) => {
   // Overview first (index 0) so "View More" lands on Overview, not the
   // subscriber-locked Portfolio tab.
   const [routes] = useState([
-    {key: 'overview', title: 'OverView'},
+    {key: 'overview', title: 'Overview'},
     {key: 'portfolio', title: 'Portfolio'},
     {key: 'research', title: 'Research'},
   ]);
@@ -160,6 +180,18 @@ const MPPerformanceScreen = ({route}) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const overviewScrollRef = useRef(null);
   const performanceSectionOffset = useRef(0);
+  const consentStorageKey = useMemo(
+    () => `@app:mp-performance-consent:${entitlementKey(modelName)}`,
+    [modelName],
+  );
+
+  useEffect(() => {
+    let live = true;
+    AsyncStorage.getItem(consentStorageKey)
+      .then(value => { if (live && value === 'accepted') setGlobalConsent(true); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [consentStorageKey]);
 
   // Pricing
   const [selectedPricing, setSelectedPricing] = useState(null);
@@ -170,16 +202,26 @@ const MPPerformanceScreen = ({route}) => {
     try {
       const bytesKey = CryptoJS.AES.decrypt(data, 'ApiKeySecret');
       const Key = bytesKey.toString(CryptoJS.enc.Utf8);
-      return Key || null;
+      return Key || data;
     } catch (error) {
-      return null;
+      // Decrypt-or-passthrough: plaintext credentials (e.g. Zerodha's API
+      // key) must be sent as-is (2026-08-13).
+      return data;
     }
   };
 
-  const clientCode = userDetails?.clientCode;
-  const apiKey = userDetails?.apiKey;
-  const jwtToken = userDetails?.jwtToken;
-  const secretKey = userDetails?.secretKey;
+  // Resolve the ACTIVE broker's credentials from connected_brokers[] rather
+  // than the legacy top-level single-broker fields. Multi-broker users (e.g.
+  // Zerodha + DefinEdge) have per-broker creds in the array; the top-level
+  // jwtToken/apiKey mirror only one broker and can be stale for the broker
+  // being transacted. Fall back to top-level for back-compat.
+  const _activeBrokerEntry = (userDetails?.connected_brokers || []).find(
+    b => b?.broker === (userDetails?.user_broker || userDetails?.primary_broker),
+  );
+  const clientCode = _activeBrokerEntry?.clientCode ?? userDetails?.clientCode;
+  const apiKey = _activeBrokerEntry?.apiKey ?? userDetails?.apiKey;
+  const jwtToken = _activeBrokerEntry?.jwtToken ?? userDetails?.jwtToken;
+  const secretKey = _activeBrokerEntry?.secretKey ?? userDetails?.secretKey;
 
   // Data fetching
   const getUserDetails = () => {
@@ -188,7 +230,7 @@ const MPPerformanceScreen = ({route}) => {
         .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(),
             'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
           },
         })
@@ -382,24 +424,46 @@ const MPPerformanceScreen = ({route}) => {
       });
     }
     const isValidPrice = p => p != null && !isNaN(Number(p)) && Number(p) > 0;
-    if (isValidPrice(specificPlan?.pricingWithoutGst?.monthly))
-      options.push({ period: 'monthly', label: 'Monthly', value: specificPlan.pricingWithoutGst.monthly });
-    if (isValidPrice(specificPlan?.pricingWithoutGst?.quarterly))
-      options.push({ period: 'quarterly', label: 'Quarterly', value: specificPlan.pricingWithoutGst.quarterly });
-    if (isValidPrice(specificPlan?.pricingWithoutGst?.['half-yearly']))
-      options.push({ period: 'half-yearly', label: '6 Months', value: specificPlan.pricingWithoutGst['half-yearly'] });
-    if (isValidPrice(specificPlan?.pricing?.yearly))
-      options.push({ period: 'yearly', label: 'Yearly', value: specificPlan.pricing.yearly });
+    [
+      ['monthly', 'Monthly'],
+      ['quarterly', 'Quarterly'],
+      ['half-yearly', '6 Months'],
+      ['yearly', 'Yearly'],
+    ].forEach(([period, label]) => {
+      const basePrice = recBase(specificPlan, period, configGst);
+      if (isValidPrice(basePrice)) {
+        options.push({period, label, value: basePrice});
+      }
+    });
     return options;
   };
 
   const pricingOptions = getPricingOptions();
+  // Auto-preselect stops once the user taps a pricing option themselves.
+  const userPickedPricingRef = useRef(false);
 
   useEffect(() => {
-    if (pricingOptions.length > 0 && !pricingOptions.find(opt => opt.period === selectedPricing)) {
-      setSelectedPricing(pricingOptions[0].period);
+    if (userPickedPricingRef.current) return;
+    // Backend attaches `subscribedPeriod` (derived from the subscription's paid
+    // window) to the plan payload. Preselect the bought period instead of
+    // defaulting to the FIRST option (Monthly). Falls back when unknown.
+    const sp = specificPlan?.subscribedPeriod || planDetails?.subscribedPeriod;
+    let preferred = null;
+    if (sp) {
+      if (sp.onetimeOptionIndex != null) {
+        const m = pricingOptions.find(o => o.period === `onetime-${sp.onetimeOptionIndex}`);
+        if (m) preferred = m.period;
+      }
+      if (!preferred && sp.periodKey) {
+        const m = pricingOptions.find(o => o.period === sp.periodKey);
+        if (m) preferred = m.period;
+      }
     }
-  }, [pricingOptions]);
+    if (!preferred && pricingOptions.length > 0) preferred = pricingOptions[0].period;
+    if (preferred && preferred !== selectedPricing) {
+      setSelectedPricing(preferred);
+    }
+  }, [pricingOptions, planDetails, selectedPricing, specificPlan]);
 
   const getCurrentPrice = () => {
     if (!specificPlan) return 0;
@@ -434,12 +498,22 @@ const MPPerformanceScreen = ({route}) => {
     return 'Invest now';
   };
 
-  // Image
-  const imageUri = resolveImageUrl(strategyDetails?.image, server.server.baseUrl) || null;
+  // Image. Plan.image is the authoritative logo (uploads write Plan first,
+  // then mirror to ModelPortfolio). `specificPlan`/`planDetails` carry the Plan
+  // doc with the CURRENT logo; `strategyDetails` may be overwritten ~2s later by
+  // the slower /portfolios/strategy fetch returning a stale/empty
+  // model_portfolio.image. Prefer the Plan image so a stale model_portfolio
+  // image can't regress the header to the alpha-100 placeholder.
+  const imageUri =
+    resolveImageUrl(
+      specificPlan?.image || planDetails?.image || strategyDetails?.image,
+      server.server.baseUrl,
+    ) || null;
 
   // Consent handlers
-  const handleConsentAccept = () => {
+  const handleConsentAccept = useCallback(() => {
     setGlobalConsent(true);
+    AsyncStorage.setItem(consentStorageKey, 'accepted').catch(() => {});
     setIsConsentPopupOpen(false);
     // Consent can originate from the summary while another tab is selected.
     // Always land the customer at the newly revealed, disclosure-led chart
@@ -451,18 +525,18 @@ const MPPerformanceScreen = ({route}) => {
         animated: true,
       });
     }, 350);
-  };
-  const handleConsentOpen = () => { setIsConsentPopupOpen(true); };
+  }, [consentStorageKey]);
+  const handleConsentOpen = useCallback(() => { setIsConsentPopupOpen(true); }, []);
 
   // Invest handlers
-  const handleInvestNow = () => { setPaymentModal(true); };
+  const handleInvestNow = useCallback(() => { setPaymentModal(true); }, []);
   const closeInvestNowModal = () => { setPaymentModal(false); };
   const handleCardClickSelect = item => { setSelectedCard(item); };
   const onCloseReviewTrade = () => { setOpenStrategy(false); };
   const onClose = () => { setOpenSubscribeModel(false); };
 
   // calculateRebalance
-  const calculateRebalance = () => {
+  const calculateRebalance = (options = {}) => {
     setCalculateLoading(true);
     if (broker === undefined) {
       setBrokerModel(true);
@@ -476,7 +550,9 @@ const MPPerformanceScreen = ({route}) => {
         modelName: strategyDetails?.model_name,
         advisor: strategyDetails?.advisor,
         model_id: latestRebalance?.model_Id,
-        userFund: funds?.data?.availablecash,
+        userFund: options?.forceRefresh ? '0' : funds?.data?.availablecash,
+        ...(options?.forceRefresh ? {forceRefresh: true} : {}),
+        ...availableFundsPayload(options),
       };
       if (broker === 'IIFL Securities') payload.clientCode = clientCode;
       else if (broker === 'ICICI Direct') {
@@ -499,7 +575,7 @@ const MPPerformanceScreen = ({route}) => {
         payload.accessToken = jwtToken;
       }
 
-      axios.post(`${server.ccxtServer.baseUrl}rebalance/calculate`, payload, {
+      return axios.post(`${server.ccxtServer.baseUrl}rebalance/calculate`, payload, {
         headers: {
           'Content-Type': 'application/json',
           'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
@@ -548,12 +624,18 @@ const MPPerformanceScreen = ({route}) => {
   }, [latestRebalance]);
 
   // Research reports
-  const researchReports = strategyDetails?.model?.rebalanceHistory
-    ?.filter(r => r.rr_link_mpf)
-    ?.sort((a, b) => new Date(b.rebalanceDate) - new Date(a.rebalanceDate)) || [];
+  const researchReports = useMemo(
+    () => strategyDetails?.model?.rebalanceHistory
+      ?.filter(r => r.rr_link_mpf)
+      ?.sort((a, b) => new Date(b.rebalanceDate) - new Date(a.rebalanceDate)) || [],
+    [strategyDetails?.model?.rebalanceHistory],
+  );
 
   // --- Render tab content ---
-  const PortfolioTab = () => (
+  // TabView treats each slot function as a component type. Keep their identity
+  // stable across unrelated TradeContext/quote refreshes; otherwise every
+  // parent render remounts PerformanceChart and repeats both CCXT requests.
+  const PortfolioTab = useCallback(() => (
     <View style={{flex: 1, width: '100%', paddingHorizontal: 16}}>
       {isActive ? (
         <DistributionGrid
@@ -566,10 +648,10 @@ const MPPerformanceScreen = ({route}) => {
         </View>
       )}
     </View>
-  );
+  ), [isActive, latestRebalance]);
 
-  const OverviewTab = ({HeaderSlot} = {}) => (
-    <View style={{flex: 1, backgroundColor: '#fff'}}>
+  const OverviewTab = useCallback(({HeaderSlot} = {}) => (
+    <View style={{flex: 1, backgroundColor: designColor('fff')}}>
       <ScrollView
         ref={overviewScrollRef}
         nestedScrollEnabled
@@ -582,8 +664,8 @@ const MPPerformanceScreen = ({route}) => {
         {(singleStrategyDetails?.definingUniverse ||
           singleStrategyDetails?.researchOverView ||
           singleStrategyDetails?.constituentScreening) && (
-          <View style={{backgroundColor: '#fafafa', borderRadius: 12, padding: 16}}>
-            <Text style={{fontFamily: 'Poppins-SemiBold', fontSize: 14, color: '#1a1a1a', marginBottom: 12}}>
+          <View style={{backgroundColor: designColor('fafafa'), borderRadius: 12, padding: 16}}>
+            <Text style={{fontFamily: designFont('Poppins-SemiBold'), fontSize: 14, color: designColor('1a1a1a'), marginBottom: 12}}>
               Methodology
             </Text>
             {singleStrategyDetails?.definingUniverse ? (
@@ -632,7 +714,7 @@ const MPPerformanceScreen = ({route}) => {
             performanceSectionOffset.current = event.nativeEvent.layout.y;
           }}
           style={{marginTop: 24}}>
-          <Text style={{fontFamily: 'Poppins-SemiBold', fontSize: 14, color: '#1a1a1a', marginBottom: 12}}>
+          <Text style={{fontFamily: designFont('Poppins-SemiBold'), fontSize: 14, color: designColor('1a1a1a'), marginBottom: 12}}>
             Performance
           </Text>
           {!globalConsent ? (
@@ -646,13 +728,13 @@ const MPPerformanceScreen = ({route}) => {
         </View>
       </ScrollView>
     </View>
-  );
+  ), [globalConsent, handleConsentAccept, mainColor, modelName, singleStrategyDetails]);
 
-  const ResearchTab = () => (
-    <View style={{flex: 1, backgroundColor: '#fff'}}>
-      <View style={{paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0'}}>
-        <Text style={{fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#1F2937'}}>Research Reports</Text>
-        <Text style={{fontSize: 11, fontFamily: 'Poppins-Regular', color: '#6B7280'}}>
+  const ResearchTab = useCallback(() => (
+    <View style={{flex: 1, backgroundColor: designColor('fff')}}>
+      <View style={{paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: designColor('f0f0f0')}}>
+        <Text style={{fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), color: designColor('1f2937')}}>Research Reports</Text>
+        <Text style={{fontSize: 11, fontFamily: designFont('Poppins-Regular'), color: designColor('6b7280')}}>
           {isActive
             ? 'Research reports for each rebalance'
             : 'Available with an active subscription'}
@@ -660,21 +742,21 @@ const MPPerformanceScreen = ({route}) => {
       </View>
       {!modelPortfolioEntitlementsLoaded ? (
         <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32}}>
-          <Text style={{fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#1F2937'}}>Checking subscription status…</Text>
+          <Text style={{fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), color: designColor('1f2937')}}>Checking subscription status…</Text>
         </View>
       ) : !isActive ? (
         <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32}}>
-          <FileText size={32} color="#9CA3AF" />
-          <Text style={{fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#1F2937', marginTop: 12, textAlign: 'center'}}>
+          <FileText size={32} color={designColor('9ca3af')} />
+          <Text style={{fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), color: designColor('1f2937'), marginTop: 12, textAlign: 'center'}}>
             Research reports are included with this subscription
           </Text>
-          <Text style={{fontSize: 12, lineHeight: 18, fontFamily: 'Poppins-Regular', color: '#6B7280', marginTop: 6, textAlign: 'center'}}>
+          <Text style={{fontSize: 12, lineHeight: 18, fontFamily: designFont('Poppins-Regular'), color: designColor('6b7280'), marginTop: 6, textAlign: 'center'}}>
             Subscribe to access the research report published for each rebalance.
           </Text>
           <TouchableOpacity
             onPress={handleInvestNow}
             style={{marginTop: 18, backgroundColor: mainColor, paddingHorizontal: 18, paddingVertical: 10, borderRadius: 8}}>
-            <Text style={{fontSize: 12, fontFamily: 'Poppins-SemiBold', color: '#fff'}}>View subscription options</Text>
+            <Text style={{fontSize: 12, fontFamily: designFont('Poppins-SemiBold'), color: designColor('fff')}}>View subscription options</Text>
           </TouchableOpacity>
         </View>
       ) : researchReports.length > 0 ? (
@@ -684,17 +766,17 @@ const MPPerformanceScreen = ({route}) => {
           contentContainerStyle={{padding: 12}}
           renderItem={({item}) => (
             <View
-              style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, marginBottom: 8, backgroundColor: '#F9FAFB', borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB'}}
+              style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 12, marginBottom: 8, backgroundColor: designColor('f9fafb'), borderRadius: 8, borderWidth: 1, borderColor: designColor('e5e7eb')}}
             >
               <View style={{flexDirection: 'row', alignItems: 'center', flex: 1}}>
-                <View style={{padding: 8, backgroundColor: '#FEE2E2', borderRadius: 8, marginRight: 12}}>
-                  <FileText size={16} color="#DC2626" />
+                <View style={{padding: 8, backgroundColor: designColor('fee2e2'), borderRadius: 8, marginRight: 12}}>
+                  <FileText size={16} color={designColor('dc2626')} />
                 </View>
                 <View style={{flex: 1}}>
-                  <Text style={{fontSize: 13, fontFamily: 'Poppins-SemiBold', color: '#1F2937'}}>
+                  <Text style={{fontSize: 13, fontFamily: designFont('Poppins-SemiBold'), color: designColor('1f2937')}}>
                     Rebalance Report - {moment(item.rebalanceDate).format('MMM DD, YYYY')}
                   </Text>
-                  <Text style={{fontSize: 11, fontFamily: 'Poppins-Regular', color: '#6B7280'}}>
+                  <Text style={{fontSize: 11, fontFamily: designFont('Poppins-Regular'), color: designColor('6b7280')}}>
                     Research report for this rebalance
                   </Text>
                 </View>
@@ -703,29 +785,41 @@ const MPPerformanceScreen = ({route}) => {
                 style={{backgroundColor: mainColor, paddingVertical: 6, paddingHorizontal: 12, borderRadius: 6}}
                 onTouchEnd={() => setResearchWebViewUrl(item.rr_link_mpf)}
               >
-                <Text style={{fontSize: 11, fontFamily: 'Poppins-Medium', color: '#fff'}}>View</Text>
+                <Text style={{fontSize: 11, fontFamily: designFont('Poppins-Medium'), color: designColor('fff')}}>View</Text>
               </View>
             </View>
           )}
         />
       ) : (
         <View style={{flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40}}>
-          <FileText size={32} color="#9CA3AF" />
-          <Text style={{fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#1F2937', marginTop: 12}}>No Research Reports</Text>
-          <Text style={{fontSize: 12, fontFamily: 'Poppins-Regular', color: '#6B7280', marginTop: 4}}>No research reports available yet.</Text>
+          <FileText size={32} color={designColor('9ca3af')} />
+          <Text style={{fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), color: designColor('1f2937'), marginTop: 12}}>No Research Reports</Text>
+          <Text style={{fontSize: 12, fontFamily: designFont('Poppins-Regular'), color: designColor('6b7280'), marginTop: 4}}>No research reports available yet.</Text>
         </View>
       )}
     </View>
-  );
+  ), [handleInvestNow, isActive, mainColor, modelPortfolioEntitlementsLoaded, researchReports]);
 
   return (
     <Presentation
       viewModel={{
         modelName,
+        // Offering copy belongs to the exact Plan selected from the catalogue.
+        // Fall back through the fetched plan and the enriched portfolio API for
+        // legacy navigation payloads, then use overView only as a last resort.
+        description:
+          planDetails?.description ||
+          specificPlan?.description ||
+          strategyDetails?.planDescription ||
+          strategyDetails?.overView ||
+          '',
         gradient1,
         gradient2,
         mainColor,
-        stepCompletedColor: appConfig?.paymentModal?.stepCompletedColor || '#58a100',
+        stepCompletedColor:
+          planColor
+            ? mainColor
+            : appConfig?.paymentModal?.stepCompletedColor || designColor('58a100'),
         imageUri,
         fallbackImage: Alpha100,
         currentPrice: displayPrice,
@@ -734,9 +828,9 @@ const MPPerformanceScreen = ({route}) => {
         gstLabel: gstLabelText,
         pricingOptions,
         selectedPricing,
-        minInvestment: singleStrategyDetails?.minInvestment,
-        volatility: strategyDetails?.volatility,
-        frequency: singleStrategyDetails?.frequency,
+        minInvestment: firstPositive(planDetails?.minInvestment, specificPlan?.minInvestment, strategyDetails?.minInvestment, singleStrategyDetails?.minInvestment),
+        volatility: firstMeaningful(planDetails?.riskProfile, specificPlan?.riskProfile, strategyDetails?.riskProfile, singleStrategyDetails?.riskProfile, planDetails?.volatility, specificPlan?.volatility, strategyDetails?.volatility, singleStrategyDetails?.volatility),
+        frequency: singleStrategyDetails?.frequency ?? strategyDetails?.frequency ?? planDetails?.frequency ?? specificPlan?.frequency,
         nextRebalanceDate,
         isSubscribed: subscribed,
         subscriptionStatus,
@@ -749,7 +843,7 @@ const MPPerformanceScreen = ({route}) => {
       }}
       actions={{
         onGoBack: () => navigation.goBack(),
-        onSelectPricing: setSelectedPricing,
+        onSelectPricing: (period) => { userPickedPricingRef.current = true; setSelectedPricing(period); },
         onConsentOpen: handleConsentOpen,
         onTabIndexChange: setIndex,
         onInvestNow: handleInvestNow,
@@ -767,7 +861,7 @@ const MPPerformanceScreen = ({route}) => {
         OverviewTabSlot: OverviewTab,
         ResearchTabSlot: ResearchTab,
         TabBarSlot: (props) => (
-          <CustomTabBarMPPerformance isSubscriptionActive={!isActive} {...props} />
+          <CustomTabBarMPPerformance accentColor={planColor || undefined} isSubscriptionActive={!isActive} {...props} />
         ),
         InvestNowModalSlot: paymentModal ? (
           <MPInvestNowModal
@@ -850,6 +944,11 @@ const MPPerformanceScreen = ({route}) => {
             setOpenSucessModal={setOpenSucessModal}
             orderPlacementResponse={orderPlacementResponse}
             originalStockDetails={lastSubmittedTrades}
+            currentBroker={broker}
+            userEmail={userEmail}
+            modelId={latestRebalance?.model_Id}
+            modelName={strategyDetails?.model_name}
+            uniqueId={calculatedPortfolioData?.uniqueId}
           />
         ) : null,
         SubscribeModalSlot: OpenSubscribeModel && latestRebalance ? (
@@ -877,6 +976,7 @@ const MPPerformanceScreen = ({route}) => {
         ) : null,
         DdpiModalSlot: showDdpiModal ? (
           <DdpiModal
+            sellOrders={sellOrdersForAuth(orderPlacementResponse)}
             isOpen={showDdpiModal}
             setIsOpen={setShowDdpiModal}
             userDetails={userDetails}
@@ -886,6 +986,7 @@ const MPPerformanceScreen = ({route}) => {
         ) : null,
         AngelOneTpinSlot: showAngleOneTpinModel ? (
           <AngleOneTpinModal
+            sellOrders={sellOrdersForAuth(orderPlacementResponse)}
             isOpen={showAngleOneTpinModel}
             setIsOpen={setShowAngleOneTpinModel}
             userDetails={userDetails}
@@ -896,16 +997,19 @@ const MPPerformanceScreen = ({route}) => {
         ) : null,
         DhanTpinSlot: showDhanTpinModel ? (
           <DhanTpinModal
+            sellOrders={sellOrdersForAuth(orderPlacementResponse)}
             isOpen={showDhanTpinModel}
             setIsOpen={setShowDhanTpinModel}
             userDetails={userDetails}
             dhanEdisStatus={dhanEdisStatus}
             reopenRebalanceModal={() => {}}
             getUserDetails={getUserDetails}
+            onEdisStatusRefresh={setDhanEdisStatus}
           />
         ) : null,
         FyersTpinSlot: showFyersTpinModal ? (
           <FyersTpinModal
+            sellOrders={sellOrdersForAuth(orderPlacementResponse)}
             isOpen={showFyersTpinModal}
             setIsOpen={setShowFyersTpinModal}
             userDetails={userDetails}
@@ -915,6 +1019,7 @@ const MPPerformanceScreen = ({route}) => {
         ) : null,
         OtherBrokerSlot: showOtherBrokerModel ? (
           <OtherBrokerModel
+            sellOrders={sellOrdersForAuth(orderPlacementResponse)}
             userDetails={userDetails}
             onContinue={() => {
               setIsReturningFromOtherBrokerModal(true);
@@ -934,14 +1039,14 @@ const methodStyles = {
   head: {
     color: 'rgba(0, 0, 0, 0.85)',
     fontSize: 12,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     marginTop: 14,
     marginBottom: 4,
   },
   body: {
     color: 'rgba(0, 0, 0, 0.7)',
     fontSize: 11,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     lineHeight: 18,
   },
 };

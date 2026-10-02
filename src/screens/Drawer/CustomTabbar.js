@@ -2,6 +2,8 @@ import React, { memo } from "react";
 import { View, TouchableOpacity, StyleSheet, Text } from "react-native";
 import { useConfig } from "../../context/ConfigContext";
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const CustomTabBar = memo(({ navigationState, jumpTo }) => {
   // Get dynamic colors from config
   const config = useConfig();
@@ -16,7 +18,7 @@ const CustomTabBar = memo(({ navigationState, jumpTo }) => {
             key={route.key}
             style={[
               tabStyles.tabItem,
-              { backgroundColor: isActive ? mainColor : "#F4F4F4" },
+              { backgroundColor: isActive ? mainColor : designColor('f4f4f4') },
             ]}
             activeOpacity={0.9}
             onPress={() => jumpTo(route.key)}
@@ -24,7 +26,7 @@ const CustomTabBar = memo(({ navigationState, jumpTo }) => {
             <Text
               style={[
                 tabStyles.tabLabel,
-                { color: isActive ? "#FFFFFF" : "#808080" },
+                { color: isActive ? designColor('ffffff') : designColor('808080') },
               ]}
             >
               {route.title}
@@ -54,7 +56,7 @@ const tabStyles = StyleSheet.create({
   },
   tabLabel: {
     fontSize: 14,
-    fontFamily: "Poppins-Medium",
+    fontFamily: designFont('Poppins-Medium'),
     textAlign: "center",
   },
 });

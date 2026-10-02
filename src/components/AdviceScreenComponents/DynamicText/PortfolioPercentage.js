@@ -3,6 +3,8 @@ import { Text, StyleSheet, View } from 'react-native';
 import WebSocketManager from './WebSocketManager';
 import formatCurrency from '../../../utils/formatCurrency';
 
+import { designColor, designFont } from '../../../design/literalTokens';
+
 const PortfolioPercentage = React.memo(
   ({ type, totalInvested, net_portfolio_updated }) => {
     const [prices, setPrices] = useState({});
@@ -97,7 +99,7 @@ const PortfolioPercentage = React.memo(
     const netReturnsPercentage =
       totalInvested > 0 ? (totalNetReturns / totalInvested) * 100 : 0;
 
-    const backgroundColor = percentageDifference > 0 ? '#338D72' : '#EF344A';
+    const backgroundColor = percentageDifference > 0 ? designColor('338d72') : designColor('ef344a');
 
     return (
       <View>
@@ -106,9 +108,9 @@ const PortfolioPercentage = React.memo(
           <View>
             <Text
               style={{
-                color: '#FFFFFF',
+                color: designColor('ffffff'),
                 fontSize: 18,
-                fontFamily: 'Poppins-SemiBold',
+                fontFamily: designFont('Poppins-SemiBold'),
                 marginTop: 2,
               }}>
               {totalCurrent
@@ -116,17 +118,16 @@ const PortfolioPercentage = React.memo(
                 : '-'}
             </Text>
             {!hasAllLTPs && totalCurrent > 0 && (
-              <Text style={{color: 'rgba(255,255,255,0.6)', fontSize: 9, fontFamily: 'Poppins-Regular', marginTop: -2}}>
+              <Text style={{color: 'rgba(255,255,255,0.6)', fontSize: 9, fontFamily: designFont('Poppins-Regular'), marginTop: -2}}>
                 Prices may be delayed
               </Text>
             )}
           </View>
         )}
-
         {/* -------------------- 🔥 NET RETURNS % -------------------- */}
         {type === 'totalnet' && (
           <View style={{ flexDirection: 'row', justifyContent: 'center', alignItems: 'center' }}>
-            <Text style={{ fontSize: 14, fontFamily: 'Poppins-Medium' }}>
+            <Text style={{ fontSize: 14, fontFamily: designFont('Poppins-Medium') }}>
               {totalNetReturns === 0 ? (
                 <Text style={styles.subNeutral}>{netReturnsPercentage.toFixed(2)}%</Text>
               ) : totalNetReturns >= 0 ? (
@@ -137,7 +138,6 @@ const PortfolioPercentage = React.memo(
             </Text>
           </View>
         )}
-
         {/* -------------------- 🔥 NET RETURNS AMOUNT -------------------- */}
         {type === 'totalnetreturns' &&
           (totalNetReturns > 0 ? (
@@ -162,33 +162,33 @@ const styles = StyleSheet.create({
   subNeutral: {
     color: 'rgba(255,255,255,0.9)',
     fontSize: 16,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
     marginLeft: 4,
   },
   subPositive: {
-    color: '#2ECC71',
+    color: designColor('2ecc71'),
     fontSize: 14,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
   subNegative: {
-    color: '#E43D3D',
+    color: designColor('e43d3d'),
     fontSize: 12,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
   subPositive1: {
-    color: '#16A085',
+    color: designColor('16a085'),
     fontSize: 16,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
   subNegative1: {
-    color: '#E43D3D',
+    color: designColor('e43d3d'),
     fontSize: 16,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
   neutralText: {
     fontSize: 16,
-    color: '#666',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('666'),
+    fontFamily: designFont('Satoshi-Medium'),
   },
   flexRow: {
     flexDirection: 'row',

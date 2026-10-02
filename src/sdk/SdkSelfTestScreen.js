@@ -23,6 +23,8 @@ import {
   useSellAuth,
 } from '@alphaquark/mobile-sdk';
 
+import { designColor, designFont } from '../design/literalTokens';
+
 export default function SdkSelfTestScreen({onClose}) {
   const userStatus = useUserStatus();
   const brokers = useBrokerConnections();
@@ -128,21 +130,21 @@ function Section({label, loading, error, children}) {
 const styles = StyleSheet.create({
   root: {padding: 20},
   title: {fontSize: 22, fontWeight: '700', marginBottom: 6},
-  subtle: {color: '#666', marginBottom: 16, lineHeight: 18},
+  subtle: {color: designColor('666'), marginBottom: 16, lineHeight: 18},
   section: {
     paddingVertical: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#e0e0e0',
+    borderTopColor: designColor('e0e0e0'),
   },
   sectionLabel: {fontWeight: '600', marginBottom: 6},
-  kv: {fontFamily: 'monospace', fontSize: 12, marginVertical: 1},
-  errorLine: {color: '#b00020', fontFamily: 'monospace', fontSize: 12},
+  kv: {fontFamily: designFont('monospace'), fontSize: 12, marginVertical: 1},
+  errorLine: {color: designColor('b00020'), fontFamily: designFont('monospace'), fontSize: 12},
   closeBtn: {
     marginTop: 24,
-    backgroundColor: '#1976d2',
+    backgroundColor: designColor('1976d2'),
     paddingVertical: 12,
     borderRadius: 6,
     alignItems: 'center',
   },
-  closeBtnText: {color: '#fff', fontWeight: '600'},
+  closeBtnText: {color: designColor('fff'), fontWeight: '600'},
 });

@@ -2,14 +2,13 @@
 module.exports = {
   presets: ['module:@react-native/babel-preset'],
   plugins: [
+    './scripts/babel-plugin-design-literals.js',
     ['dotenv-import', {
       moduleName: '@env',
       path: '.env',
     }],
-    // reanimated 4.1.0 + react-native-worklets/plugin (NOT
-    // react-native-reanimated/plugin which is for reanimated 3). This fork
-    // holds back on the reanimated downgrade upstream made (to 3.19.5). See
-    // SYNC.md "Per-fork holds".
+    // MarketAnalysis intentionally remains on Reanimated 4 + Worklets while
+    // the fork's New Architecture animation stack is validated separately.
     'react-native-worklets/plugin',
   ],
 };

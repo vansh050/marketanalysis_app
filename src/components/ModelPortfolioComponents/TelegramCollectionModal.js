@@ -13,6 +13,8 @@ import { X, MessageCircle, CheckCircle } from 'lucide-react-native';
 import { useConfig } from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const TelegramCollectionModal = ({
     visible,
     onClose,
@@ -184,7 +186,7 @@ const TelegramCollectionModal = ({
                                     setTelegramId(numericValue);
                                 }}
                                 placeholder="Enter your Telegram ID (e.g., 123456789)"
-                                placeholderTextColor="#9CA3AF"
+                                placeholderTextColor={designColor('9ca3af')}
                                 keyboardType="numeric"
                             />
                             <Text style={styles.inputHint}>
@@ -210,10 +212,10 @@ const TelegramCollectionModal = ({
                                     (!isValid || isSaving) && styles.saveButtonDisabled,
                                 ]}>
                                 {isSaving ? (
-                                    <ActivityIndicator size="small" color="#fff" />
+                                    <ActivityIndicator size="small" color={designColor('fff')} />
                                 ) : (
                                     <>
-                                        <MessageCircle size={20} color="#fff" />
+                                        <MessageCircle size={20} color={designColor('fff')} />
                                         <Text style={styles.saveButtonText}>Save & Continue</Text>
                                     </>
                                 )}
@@ -241,12 +243,12 @@ const styles = StyleSheet.create({
         padding: 16,
     },
     modalContainer: {
-        backgroundColor: '#fff',
+        backgroundColor: designColor('fff'),
         borderRadius: 16,
         width: '100%',
         maxWidth: 500,
         maxHeight: '90%',
-        shadowColor: '#000',
+        shadowColor: designColor('000'),
         shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.3,
         shadowRadius: 8,
@@ -263,34 +265,34 @@ const styles = StyleSheet.create({
         width: 64,
         height: 64,
         borderRadius: 32,
-        backgroundColor: '#DBEAFE',
+        backgroundColor: designColor('dbeafe'),
         alignItems: 'center',
         justifyContent: 'center',
         marginBottom: 16,
     },
     title: {
         fontSize: 24,
-        fontFamily: 'Satoshi-Bold',
-        color: '#111827',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('111827'),
         marginBottom: 8,
         textAlign: 'center',
     },
     subtitle: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Regular',
-        color: '#6B7280',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('6b7280'),
         textAlign: 'center',
     },
     benefitsContainer: {
-        backgroundColor: '#EFF6FF',
+        backgroundColor: designColor('eff6ff'),
         borderRadius: 12,
         padding: 16,
         marginBottom: 20,
     },
     benefitsTitle: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#1E40AF',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('1e40af'),
         marginBottom: 12,
     },
     benefitsList: {
@@ -304,12 +306,12 @@ const styles = StyleSheet.create({
     benefitText: {
         flex: 1,
         fontSize: 13,
-        fontFamily: 'Satoshi-Regular',
-        color: '#1E40AF',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('1e40af'),
         lineHeight: 18,
     },
     instructionsContainer: {
-        backgroundColor: '#F9FAFB',
+        backgroundColor: designColor('f9fafb'),
         borderRadius: 12,
         marginBottom: 20,
         overflow: 'hidden',
@@ -322,12 +324,12 @@ const styles = StyleSheet.create({
     },
     instructionsHeaderText: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#374151',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('374151'),
     },
     chevron: {
         fontSize: 12,
-        color: '#6B7280',
+        color: designColor('6b7280'),
     },
     instructionsContent: {
         padding: 16,
@@ -342,71 +344,71 @@ const styles = StyleSheet.create({
         width: 24,
         height: 24,
         borderRadius: 12,
-        backgroundColor: '#2563EB',
+        backgroundColor: designColor('2563eb'),
         alignItems: 'center',
         justifyContent: 'center',
     },
     stepNumberText: {
         fontSize: 12,
-        fontFamily: 'Satoshi-Bold',
-        color: '#fff',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('fff'),
     },
     stepContent: {
         flex: 1,
     },
     stepTitle: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#111827',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('111827'),
         marginBottom: 2,
     },
     stepDescription: {
         fontSize: 12,
-        fontFamily: 'Satoshi-Regular',
-        color: '#6B7280',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('6b7280'),
     },
     noteContainer: {
-        backgroundColor: '#FEF3C7',
+        backgroundColor: designColor('fef3c7'),
         borderLeftWidth: 4,
-        borderLeftColor: '#F59E0B',
+        borderLeftColor: designColor('f59e0b'),
         padding: 12,
         borderRadius: 4,
     },
     noteText: {
         fontSize: 12,
-        fontFamily: 'Satoshi-Regular',
-        color: '#92400E',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('92400e'),
     },
     noteBold: {
-        fontFamily: 'Satoshi-Bold',
+        fontFamily: designFont('Satoshi-Bold'),
     },
     inputContainer: {
         marginBottom: 24,
     },
     inputLabel: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#374151',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('374151'),
         marginBottom: 8,
     },
     optional: {
-        fontFamily: 'Satoshi-Regular',
-        color: '#6B7280',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('6b7280'),
     },
     input: {
         borderWidth: 1,
-        borderColor: '#D1D5DB',
+        borderColor: designColor('d1d5db'),
         borderRadius: 8,
         padding: 12,
         fontSize: 16,
-        fontFamily: 'Satoshi-Regular',
-        color: '#111827',
-        backgroundColor: '#fff',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('111827'),
+        backgroundColor: designColor('fff'),
     },
     inputHint: {
         fontSize: 12,
-        fontFamily: 'Satoshi-Regular',
-        color: '#6B7280',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('6b7280'),
         marginTop: 4,
     },
     buttonContainer: {
@@ -423,39 +425,39 @@ const styles = StyleSheet.create({
         justifyContent: 'center',
     },
     skipButton: {
-        backgroundColor: '#F3F4F6',
+        backgroundColor: designColor('f3f4f6'),
         borderWidth: 1,
-        borderColor: '#D1D5DB',
+        borderColor: designColor('d1d5db'),
     },
     skipButtonText: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#374151',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('374151'),
     },
     saveButton: {
-        backgroundColor: '#2563EB',
+        backgroundColor: designColor('2563eb'),
         flexDirection: 'row',
         gap: 8,
-        shadowColor: '#2563EB',
+        shadowColor: designColor('2563eb'),
         shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.3,
         shadowRadius: 4,
         elevation: 4,
     },
     saveButtonDisabled: {
-        backgroundColor: '#9CA3AF',
+        backgroundColor: designColor('9ca3af'),
         shadowOpacity: 0,
         elevation: 0,
     },
     saveButtonText: {
         fontSize: 14,
-        fontFamily: 'Satoshi-Bold',
-        color: '#fff',
+        fontFamily: designFont('Satoshi-Bold'),
+        color: designColor('fff'),
     },
     footerNote: {
         fontSize: 12,
-        fontFamily: 'Satoshi-Regular',
-        color: '#6B7280',
+        fontFamily: designFont('Satoshi-Regular'),
+        color: designColor('6b7280'),
         textAlign: 'center',
     },
 });

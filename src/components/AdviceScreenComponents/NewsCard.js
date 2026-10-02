@@ -1,6 +1,7 @@
 import { useEffect,useState } from 'react';
 
 import { View, Text, Image, StyleSheet,Dimensions } from 'react-native';
+import { designColor, designFont } from '../../design/literalTokens';
 const screenWidth = Dimensions.get('window').width;
 import { FadeLoading } from 'react-native-fade-loading';
 const NewsCard = ({ title, image, time }) => {
@@ -19,21 +20,20 @@ const NewsCard = ({ title, image, time }) => {
       {isLoading ? (
             <FadeLoading
               style={{ width: screenWidth*0.2, height: 65,}} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
+              primaryColor={designColor('f0f0f0')}
+              secondaryColor={designColor('e0e0e0')}
               duration={500}
             />
           ) : (
             <Image source={image} style={styles.newsImage} />
           )}
-     
       <View style={{ flex: 1, paddingLeft: 10 }}>
 
       {isLoading ? (
             <FadeLoading
               style={{ width: screenWidth*0.2, height: 5,}} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
+              primaryColor={designColor('f0f0f0')}
+              secondaryColor={designColor('e0e0e0')}
               duration={500}
             />
           ) : (
@@ -43,8 +43,8 @@ const NewsCard = ({ title, image, time }) => {
 {isLoading ? (
             <FadeLoading
               style={{ width: screenWidth*0.5, height: 10,marginTop:5}} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
+              primaryColor={designColor('f0f0f0')}
+              secondaryColor={designColor('e0e0e0')}
               duration={500}
             />
           ) : (
@@ -65,7 +65,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 5,
     borderWidth: 1,
-    borderColor: '#00000010',
+    borderColor: designColor('00000010'),
     shadowOffset: { width: 1, height: 1 },
     shadowOpacity: 0.06,
     paddingHorizontal:15,
@@ -84,15 +84,15 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   newsTime: {
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
     fontSize: 12,
-    color: '#888',
+    color: designColor('888'),
   },
   newsTitle: {
     fontSize: 14,
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
 
-    color: '#333',
+    color: designColor('333'),
   },
 });
 

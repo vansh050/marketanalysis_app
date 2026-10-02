@@ -12,6 +12,8 @@ import {
 } from 'react-native';
 import {CheckCircle} from 'lucide-react-native';
 
+import { designColor } from '../design/literalTokens';
+
 const FloatingAcceptRebalanceButton = ({onPress, isRepair, style}) => {
   const slideAnim = useRef(new Animated.Value(30)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
@@ -71,7 +73,7 @@ const FloatingAcceptRebalanceButton = ({onPress, isRepair, style}) => {
           styles.button,
           isRepair ? styles.repairButton : styles.rebalanceButton,
         ]}>
-        <CheckCircle size={18} color="#fff" />
+        <CheckCircle size={18} color={designColor('fff')} />
         <Text style={styles.buttonText}>
           {isRepair ? 'Repair Portfolio' : 'Accept Rebalance'}
         </Text>
@@ -98,15 +100,15 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
   },
   rebalanceButton: {
-    backgroundColor: '#16A34A',
-    shadowColor: '#16A34A',
+    backgroundColor: designColor('16a34a'),
+    shadowColor: designColor('16a34a'),
   },
   repairButton: {
-    backgroundColor: '#DE8846',
-    shadowColor: '#DE8846',
+    backgroundColor: designColor('de8846'),
+    shadowColor: designColor('de8846'),
   },
   buttonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 14,
     fontWeight: '700',
   },

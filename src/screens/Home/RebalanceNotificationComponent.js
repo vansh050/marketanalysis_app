@@ -14,6 +14,8 @@ import {
     Repeat,
 } from 'lucide-react-native';
 
+import { designColor } from '../../design/literalTokens';
+
 const formatFullDateTime = (dateString) => {
     const date = new Date(dateString);
     return date.toLocaleString('en-US', {
@@ -66,7 +68,7 @@ const RebalanceNotificationComponent = ({ selectedNotification }) => {
             {/* Header Section */}
             <View style={styles.rebalanceNotificationHeaderCard}>
                 <View style={styles.rebalanceNotificationHeaderIconRow}>
-                    <Repeat color="#407BFF" size={20} />
+                    <Repeat color={designColor('407bff')} size={20} />
                     <Text style={styles.rebalanceNotificationHeaderTitle}>Portfolio Rebalance Alert</Text>
                 </View>
                 <Text style={styles.rebalanceNotificationSubText}>
@@ -74,7 +76,6 @@ const RebalanceNotificationComponent = ({ selectedNotification }) => {
                 </Text>
 
             </View>
-
             {/* Portfolio Details */}
             <View style={styles.rebalanceNotificationCard}>
                 <Text style={styles.rebalanceNotificationSectionTitle}>Portfolio Details</Text>
@@ -86,7 +87,6 @@ const RebalanceNotificationComponent = ({ selectedNotification }) => {
                     />
                 )}
             </View>
-
             {/* Latest Rebalance Info */}
             {selectedNotification.latestRebalance && (
                 <View style={styles.rebalanceNotificationCard}>
@@ -94,7 +94,7 @@ const RebalanceNotificationComponent = ({ selectedNotification }) => {
                     {selectedNotification.latestRebalance.rebalanceDate && (
                         <InfoRow
                             label="Rebalance Date"
-                            icon={<Calendar color="#6B7280" size={16} />}
+                            icon={<Calendar color={designColor('6b7280')} size={16} />}
                             value={formatFullDateTime(selectedNotification.latestRebalance.rebalanceDate)}
                             stylePrefix="rebalanceNotification"
                         />
@@ -115,7 +115,6 @@ const RebalanceNotificationComponent = ({ selectedNotification }) => {
                     )}
                 </View>
             )}
-
             {/* Advice Entries */}
             {selectedNotification?.latestRebalance?.adviceEntries?.length > 0 && (
                 <View style={styles.rebalanceNotificationCard}>
@@ -130,7 +129,6 @@ const RebalanceNotificationComponent = ({ selectedNotification }) => {
                     )}
                 </View>
             )}
-
         </View>
     );
 };
@@ -138,14 +136,14 @@ const RebalanceNotificationComponent = ({ selectedNotification }) => {
 const styles = StyleSheet.create({
     rebalanceNotificationContainer: {
         padding: 0,
-        backgroundColor: '#F9FAFB',
+        backgroundColor: designColor('f9fafb'),
     },
     rebalanceNotificationHeaderCard: {
-        backgroundColor: '#E8F0FF',
+        backgroundColor: designColor('e8f0ff'),
         borderRadius: 12,
         padding: 20,
         marginBottom: 16,
-        shadowColor: '#BCCCDC',
+        shadowColor: designColor('bcccdc'),
         shadowOpacity: 0.1,
         shadowRadius: 6,
         elevation: 3,
@@ -158,20 +156,20 @@ const styles = StyleSheet.create({
     rebalanceNotificationHeaderTitle: {
         fontSize: 18,
         fontWeight: '700',
-        color: '#407BFF',
+        color: designColor('407bff'),
         marginLeft: 12,
     },
     rebalanceNotificationSubText: {
         fontSize: 14,
-        color: '#4B5563',
+        color: designColor('4b5563'),
         marginTop: 8,
     },
     rebalanceNotificationCard: {
-        backgroundColor: '#FFFFFF',
+        backgroundColor: designColor('ffffff'),
         borderRadius: 12,
         padding: 16,
         marginBottom: 16,
-        shadowColor: '#000',
+        shadowColor: designColor('000'),
         shadowOpacity: 0.08,
         shadowRadius: 8,
         elevation: 4,
@@ -179,7 +177,7 @@ const styles = StyleSheet.create({
     rebalanceNotificationSectionTitle: {
         fontSize: 16,
         fontWeight: '600',
-        color: '#111827',
+        color: designColor('111827'),
         marginBottom: 12,
     },
     rebalanceNotificationInfoRow: {
@@ -195,21 +193,21 @@ const styles = StyleSheet.create({
     rebalanceNotificationInfoLabel: {
         fontSize: 14,
         fontWeight: '500',
-        color: '#374151',
+        color: designColor('374151'),
     },
     rebalanceNotificationInfoValue: {
         fontSize: 14,
-        color: '#1F2937',
+        color: designColor('1f2937'),
         marginLeft: 6,
     },
     rebalanceNotificationListItem: {
-        backgroundColor: '#F3F4F6',
+        backgroundColor: designColor('f3f4f6'),
         borderRadius: 8,
         padding: 14,
         marginVertical: 6,
         borderLeftWidth: 4,
-        borderLeftColor: '#4CAF50',
-        shadowColor: '#D1D5DB',
+        borderLeftColor: designColor('4caf50'),
+        shadowColor: designColor('d1d5db'),
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 2,
@@ -217,23 +215,23 @@ const styles = StyleSheet.create({
     rebalanceNotificationListItemText: {
         fontSize: 15,
         fontWeight: '500',
-        color: '#1F2937',
+        color: designColor('1f2937'),
     },
     rebalanceNotificationListSubText: {
         fontSize: 13,
-        color: '#6B7280',
+        color: designColor('6b7280'),
         marginTop: 4,
     },
     expandButton: {
         marginTop: 12,
         paddingVertical: 8,
         alignItems: 'center',
-        backgroundColor: '#407BFF',
+        backgroundColor: designColor('407bff'),
         borderRadius: 8,
     },
     expandButtonText: {
         fontSize: 14,
-        color: '#FFFFFF',
+        color: designColor('ffffff'),
         fontWeight: '600',
     },
 });

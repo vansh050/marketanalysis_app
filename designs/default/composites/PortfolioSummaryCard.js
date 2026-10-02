@@ -25,7 +25,7 @@
  * hardcoded), so per-advisor colorTokens overrides apply.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -36,14 +36,8 @@ import {
   Dimensions,
 } from 'react-native';
 import { LineChart } from 'react-native-chart-kit';
-import { ChevronDown, ChevronRight } from 'lucide-react-native';
-import { getAuth } from '@react-native-firebase/auth';
-import { useNavigation } from '@react-navigation/native';
-import { useConfig } from '../../../src/context/ConfigContext';
+import { ChevronRight } from 'lucide-react-native';
 import useTokens from '../../../src/theme/useTokens';
-import PortfolioSummaryService from '../../../src/FunctionCall/services/PortfolioSummaryService';
-import { useTrade } from '../../../src/screens/TradeContext';
-import {useAccountEmail} from '../../../src/utils/accountEmail';
 
 // ── formatters (mirror web's `inr` / `pct`) ────────────────────────────────
 const inr = v => {
@@ -82,19 +76,18 @@ class SummaryErrorBoundary extends React.Component {
   }
 }
 
-function PortfolioSummaryInner() {
-  const navigation = useNavigation();
-  const config = useConfig();
+function PortfolioSummaryInner({ viewModel = {}, actions = {} }) {
   const tokens = useTokens();
-  const enabled = !!(config && config.performanceSummaryEnabled);
-  // Apple users have no usable currentUser.email (null / relay alias);
-  // this component gates its fetch on `email`, and the identity can
-  // resolve AFTER mount — the reactive hook re-renders when it does.
-  const email = useAccountEmail();
   const {
+    enabled,
+    ready,
+    summary,
+    history,
+    realised,
     modelPortfolioStrategyfinal,
     modelPortfolioEntitlementsLoaded,
-  } = useTrade();
+  } = viewModel;
+  const {onRenewPlans, onViewHoldings} = actions;
 
   const c = tokens.colors;
   // Red-for-losses-only tone helper.
@@ -103,36 +96,7 @@ function PortfolioSummaryInner() {
     [c],
   );
 
-  const [summary, setSummary] = useState(null); // { totals..., portfolios[] }
-  const [history, setHistory] = useState(null); // { series, by_model, summary, xirr, twrr }
-  const [realised, setRealised] = useState(null); // { funds[], totals... }
-  const [ready, setReady] = useState(false);
   const [selectedModel, setSelectedModel] = useState(''); // '' = aggregate (value history)
-  const [openFund, setOpenFund] = useState({}); // realised expand state
-
-  const load = useCallback(async () => {
-    if (!email) {
-      setReady(true);
-      return;
-    }
-    setReady(false);
-    // Each read is independent — one failing must not blank the others.
-    const [s, h, r] = await Promise.all([
-      PortfolioSummaryService.getPortfolioSummary(email).catch(() => null),
-      PortfolioSummaryService.getValueHistory(email).catch(() => null),
-      PortfolioSummaryService.getRealisedPnl(email).catch(() => null),
-    ]);
-    setSummary(s);
-    setHistory(h);
-    setRealised(r);
-    setReady(true);
-  }, [email]);
-
-  useEffect(() => {
-    // Embedded: only fetch when the feature is enabled.
-    if (!enabled) return;
-    load();
-  }, [enabled, load]);
 
   // ── derive: fund-wise summary ────────────────────────────────────────────
   const portfolios = summary?.portfolios || [];
@@ -247,7 +211,7 @@ function PortfolioSummaryInner() {
             portfolios.every(p => isSubscriptionActive(p) === false) && (
               <TouchableOpacity
                 style={styles.expiredBanner}
-                onPress={() => navigation?.navigate?.('Plans')}
+                onPress={onRenewPlans}
                 activeOpacity={0.8}>
                 <View style={styles.expiredBannerCopy}>
                   <Text style={styles.expiredBannerTitle}>Expired subscriptions</Text>
@@ -460,64 +424,35 @@ function PortfolioSummaryInner() {
             <Text style={[styles.thCell, styles.thRight]}>Your realised</Text>
             <Text style={[styles.thCell, styles.thRight, { flex: 0.7 }]}>Lots</Text>
           </View>
-          {funds.map(f => {
-            const isOpen = !!openFund[f.modelName];
-            return (
-              <View key={f.modelName}>
-                <TouchableOpacity
-                  activeOpacity={f.closedCount ? 0.6 : 1}
-                  onPress={() =>
-                    f.closedCount &&
-                    setOpenFund(o => ({ ...o, [f.modelName]: !o[f.modelName] }))
-                  }
-                  style={styles.row}>
-                  <View style={{ flex: 2, flexDirection: 'row', alignItems: 'center' }}>
-                    {f.closedCount ? (
-                      isOpen ? (
-                        <ChevronDown size={15} color={c.text.muted} />
-                      ) : (
-                        <ChevronRight size={15} color={c.text.muted} />
-                      )
-                    ) : (
-                      <View style={{ width: 15 }} />
-                    )}
-                    <Text style={[styles.fundName, { marginLeft: 4 }]} numberOfLines={1}>
-                      {f.modelName}
-                    </Text>
-                  </View>
-                  <Text
-                    style={[
-                      styles.cellRight,
-                      { color: tone(f.customerRealised), fontFamily: 'Satoshi-Bold' },
-                    ]}>
-                    {inr(f.customerRealised)}
-                  </Text>
-                  <Text style={[styles.cellRight, { flex: 0.7, color: c.text.muted }]}>
-                    {f.closedCount || 0}
-                  </Text>
-                </TouchableOpacity>
-                {isOpen &&
-                  (f.closedPositions || []).map((cp, idx) => (
-                    <View key={`${f.modelName}-${cp.symbol}-${idx}`} style={styles.subRow}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.subSymbol}>{cp.symbol}</Text>
-                        <Text style={styles.fundMeta}>
-                          {cp.qty} @ cost {inr(cp.avgCost)} → sold {inr(cp.exitPrice)}
-                          {cp.exitDate ? ` · ${String(cp.exitDate).slice(0, 10)}` : ''}
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.cellRight,
-                          { color: tone(cp.realised) },
-                        ]}>
-                        {inr(cp.realised)}
-                      </Text>
-                    </View>
-                  ))}
+          {funds.map(f => (
+            <View key={f.modelName} style={styles.row}>
+              <View style={{ flex: 2 }}>
+                <Text style={styles.fundName} numberOfLines={1}>
+                  {f.modelName}
+                </Text>
               </View>
-            );
-          })}
+              <Text
+                style={[
+                  styles.cellRight,
+                  { color: tone(f.customerRealised), fontFamily: 'Satoshi-Bold' },
+                ]}>
+                {inr(f.customerRealised)}
+              </Text>
+              <Text style={[styles.cellRight, { flex: 0.7, color: c.text.muted }]}>
+                {f.closedCount || 0}
+              </Text>
+            </View>
+          ))}
+
+          {onViewHoldings && (
+            <TouchableOpacity
+              style={styles.holdingsCta}
+              onPress={onViewHoldings}
+              activeOpacity={0.8}>
+              <Text style={styles.holdingsCtaText}>View current holdings</Text>
+              <ChevronRight size={16} color={c.brand.primary} />
+            </TouchableOpacity>
+          )}
 
           <Text style={styles.note}>
             Realised P&L is booked when a position is sold, valued at the sale
@@ -622,16 +557,19 @@ const makeStyles = c =>
       fontFamily: 'Poppins-Medium',
       color: c.text.primary,
     },
-    subRow: {
+    holdingsCta: {
+      alignSelf: 'flex-start',
       flexDirection: 'row',
       alignItems: 'center',
-      paddingVertical: 7,
-      paddingLeft: 19,
-      backgroundColor: c.surface.subtle,
-      borderBottomWidth: 1,
-      borderBottomColor: c.border.subtle,
+      gap: 4,
+      marginTop: 12,
+      paddingVertical: 4,
     },
-    subSymbol: { fontSize: 12, fontFamily: 'Satoshi-Bold', color: c.text.primary },
+    holdingsCtaText: {
+      fontSize: 12,
+      fontFamily: 'Poppins-SemiBold',
+      color: c.brand.primary,
+    },
     chips: { gap: 6, paddingVertical: 4, marginBottom: 6 },
     chip: {
       paddingHorizontal: 11,

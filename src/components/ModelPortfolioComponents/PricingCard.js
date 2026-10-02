@@ -5,6 +5,8 @@ import { useGstConfig } from '../../context/GstConfigContext';
 import { withGst, gstLabel } from '../../utils/gstHelpers';
 import useTokens from '../../theme/useTokens';
 
+import { designColor } from '../../design/literalTokens';
+
 const PricingCard = ({ pricingOptions = [], discount = 0 }) => {
   const config = useConfig();
   const mainColor = useTokens().colors.brand.primary;
@@ -63,12 +65,12 @@ const PricingCard = ({ pricingOptions = [], discount = 0 }) => {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#E0F2FE', // light blue gradient effect simplified
+    backgroundColor: designColor('e0f2fe'), // light blue gradient effect simplified
     borderRadius: 12,
     padding: 16,
     marginBottom: 24,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: designColor('bfdbfe'),
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -79,16 +81,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: designColor('e5e7eb'),
     marginRight: 8,
     marginBottom: 8,
   },
   optionButtonActive: {
-    backgroundColor: '#2563EB', // blue-600
-    borderColor: '#2563EB',
-    shadowColor: '#000',
+    backgroundColor: designColor('2563eb'), // blue-600
+    borderColor: designColor('2563eb'),
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.2,
     shadowRadius: 2,
@@ -96,11 +98,11 @@ const styles = StyleSheet.create({
   },
   optionText: {
     fontSize: 14,
-    color: '#374151', // gray-700
+    color: designColor('374151'), // gray-700
     fontWeight: '500',
   },
   optionTextActive: {
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
   },
   priceContainer: {
     flexDirection: 'row',
@@ -109,31 +111,31 @@ const styles = StyleSheet.create({
   },
   originalPrice: {
     fontSize: 16,
-    color: '#6B7280', // gray-500
+    color: designColor('6b7280'), // gray-500
     textDecorationLine: 'line-through',
   },
   currentPrice: {
     fontSize: 22,
     fontWeight: '700',
-    color: '#111827', // gray-900
+    color: designColor('111827'), // gray-900
   },
   gstText: {
     fontSize: 14,
     fontWeight: '400',
-    color: '#6B7280',
+    color: designColor('6b7280'),
   },
   saveTag: {
-    backgroundColor: '#D1FAE5', // green-50
+    backgroundColor: designColor('d1fae5'), // green-50
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#A7F3D0', // green-100
+    borderColor: designColor('a7f3d0'), // green-100
   },
   saveText: {
     fontSize: 12,
     fontWeight: '500',
-    color: '#059669', // green-600
+    color: designColor('059669'), // green-600
   },
 });
 

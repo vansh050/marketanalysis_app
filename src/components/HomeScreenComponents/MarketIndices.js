@@ -6,6 +6,9 @@ import { useTrade } from "../../screens/TradeContext";
 import server from "../../utils/serverConfig";
 import Config from "react-native-config";
 import { generateToken } from "../../utils/SecurityTokenManager";
+import { fetchLTPBatch } from "../../utils/marketDataLTP";
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 // Day-boundary / foreground refresh interval for the prev-close base.
 //
@@ -74,7 +77,6 @@ const initialLoadingState = Object.fromEntries(
 const MarketIndices = () => {
   const { configData, configLoading } = useTrade();
 
-  const [time, setTime] = useState(new Date());
   const [marketData, setMarketData] = useState(initialLoadingState);
   const [basePrices, setBasePrices] = useState({});
   const [comparisonType, setComparisonType] = useState("loading"); // "prevClose", "opening", "loading"
@@ -107,7 +109,13 @@ const MarketIndices = () => {
 
   // Fetch previous close prices from API (Option 2) with fallback to opening price (Option 3)
   useEffect(() => {
-    if (!configData) return;
+    // Index data is public market data. A missing/stale advisor-config cache
+    // must not strand the ticker: the build-pinned tenant header is enough.
+    const subdomainHeader =
+      configData?.config?.REACT_APP_HEADER_NAME ||
+      configData?.subdomain ||
+      Config.REACT_APP_HEADER_NAME ||
+      'prod';
 
     const fetchPreviousClosePrices = async (attempt = 0) => {
       try {
@@ -123,7 +131,7 @@ const MarketIndices = () => {
           {
             headers: {
               'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain,
+              'X-Advisor-Subdomain': subdomainHeader,
               'aq-encrypted-key': generateToken(
                 Config.REACT_APP_AQ_KEYS,
                 Config.REACT_APP_AQ_SECRET,
@@ -253,10 +261,8 @@ const MarketIndices = () => {
 
   // Subscribe to all indices via WebSocket
   useEffect(() => {
-    if (!configData) {
-      return;
-    }
-
+    // The LTP socket is a public stream and WebSocketManager has safe identity
+    // fallbacks, so subscription must not depend on advisor config storage.
     wsManagerRef.current = WebSocketManager.getInstance();
 
     const subscribeToIndices = async () => {
@@ -390,13 +396,64 @@ const MarketIndices = () => {
 
     subscribeToIndices();
 
-    const clock = setInterval(() => setTime(new Date()), 5000);
-
     return () => {
-      clearInterval(clock);
       Object.values(fallbackTimersRef.current).forEach((t) => clearTimeout(t));
     };
   }, [configData]);
+
+  // Keep the home indices usable while the shared WebSocket is connecting.
+  // The REST fallback fills only cards that have not received a live tick,
+  // so a recovered socket remains the authoritative source.
+  useEffect(() => {
+    let cancelled = false;
+    const hydrateMissingIndices = async () => {
+      const ltpBySymbol = await fetchLTPBatch(
+        Object.values(indicesConfig).map(({ symbol, exchange }) => ({
+          symbol,
+          exchange,
+        })),
+      );
+      if (cancelled || !ltpBySymbol || Object.keys(ltpBySymbol).length === 0) {
+        return;
+      }
+
+      setMarketData(prev => {
+        let changed = false;
+        const next = { ...prev };
+        const comparison = comparisonTypeRef.current;
+        const bases = basePricesRef.current;
+
+        Object.entries(indicesConfig).forEach(([key, config]) => {
+          const current = prev[key];
+          const ltp = Number(ltpBySymbol[config.symbol]);
+          if (!current?.loading || !Number.isFinite(ltp) || ltp <= 0) return;
+
+          const base = comparison === "prevClose" ? bases[key] : ltp;
+          const change = base ? ltp - base : 0;
+          next[key] = {
+            ...current,
+            value: ltp,
+            change: Number(change.toFixed(2)),
+            percentChange: base
+              ? Number(((change / base) * 100).toFixed(2))
+              : 0,
+            loading: false,
+            basePrice: base || null,
+          };
+          changed = true;
+        });
+
+        return changed ? next : prev;
+      });
+    };
+
+    hydrateMissingIndices();
+    const retry = setInterval(hydrateMissingIndices, 30000);
+    return () => {
+      cancelled = true;
+      clearInterval(retry);
+    };
+  }, []);
 
   const displayIndices = Object.entries(indicesConfig).map(([key, config]) => {
     const data = marketData[key];
@@ -451,7 +508,7 @@ const MarketIndices = () => {
                   <Text
                     style={[
                       styles.arrow,
-                      { color: index.isPositive ? "#85F500" : "#FF6A6A" },
+                      { color: index.isPositive ? designColor('85f500') : designColor('ff6a6a') },
                     ]}
                   >
                     {index.isPositive ? "▲" : "▼"} {index.change}
@@ -459,7 +516,7 @@ const MarketIndices = () => {
                   <Text
                     style={[
                       styles.indexValue,
-                      { color: index.isPositive ? "#85F500" : "#FF6A6A" },
+                      { color: index.isPositive ? designColor('85f500') : designColor('ff6a6a') },
                     ]}
                   >
                     ({index.value})
@@ -510,18 +567,18 @@ const styles = StyleSheet.create({
     flex: 0.75,
   },
   indexName: {
-    color: "#FFFFFF",
+    color: designColor('ffffff'),
     fontSize: 12,
-    fontFamily: "Poppins-Medium",
+    fontFamily: designFont('Poppins-Medium'),
     marginBottom: 2,
   },
   smallNameText: {
     fontSize: 9,
   },
   actualValue: {
-    color: "#ffffff",
+    color: designColor('ffffff'),
     fontSize: 10,
-    fontFamily: "Poppins-Regular",
+    fontFamily: designFont('Poppins-Regular'),
   },
   smallActualValueText: {
     fontSize: 8,
@@ -539,14 +596,14 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginRight: 4,
     marginBottom: 2,
-    fontFamily: "Poppins-SemiBold",
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   smallArrowText: {
     fontSize: 8,
   },
   indexValue: {
     fontSize: 10,
-    fontFamily: "Poppins-Regular",
+    fontFamily: designFont('Poppins-Regular'),
   },
   smallIndexValueText: {
     fontSize: 8,
@@ -561,9 +618,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   updateText: {
-    color: "#999999",
+    color: designColor('999999'),
     fontSize: 10,
-    fontFamily: "Poppins-Regular",
+    fontFamily: designFont('Poppins-Regular'),
   },
   comparisonIndicator: {
     justifyContent: "center",
@@ -575,9 +632,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255, 255, 255, 0.2)",
   },
   comparisonText: {
-    color: "#999999",
+    color: designColor('999999'),
     fontSize: 9,
-    fontFamily: "Poppins-Regular",
+    fontFamily: designFont('Poppins-Regular'),
   },
   disclaimerBox: {
     justifyContent: "center",
@@ -590,9 +647,9 @@ const styles = StyleSheet.create({
     maxWidth: 240,
   },
   disclaimerText: {
-    color: "#999999",
+    color: designColor('999999'),
     fontSize: 9,
-    fontFamily: "Poppins-Regular",
+    fontFamily: designFont('Poppins-Regular'),
     textAlign: 'center',
   },
 });

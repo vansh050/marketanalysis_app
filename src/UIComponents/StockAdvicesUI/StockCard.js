@@ -9,7 +9,7 @@
  */
 
 import React, {useState, useEffect, useRef} from 'react';
-import {Animated} from 'react-native';
+import {Animated, Alert} from 'react-native';
 import useLTPStore from '../../components/AdviceScreenComponents/DynamicText/useLtpStore';
 import {useNavigation} from '@react-navigation/native';
 import {useConfig} from '../../context/ConfigContext';
@@ -19,6 +19,16 @@ import useModalStore from '../../GlobalUIModals/modalStore';
 import {useComponent} from '../../design/useDesign';
 import StandaloneManualPlacementModal from '../../components/StandaloneManualPlacementModal';
 import {useTrade} from '../../screens/TradeContext';
+import {
+  calculateRecommendationPnl,
+  getRecommendedEntryPrice,
+  getRecommendedRange,
+  isPriceInRecommendedRange,
+} from '../../utils/recommendationPnl';
+import BlurredComponent from '../../components/GlassmorphicText';
+import PriceTextAdvice from '../../components/AdviceScreenComponents/DynamicText/PriceTextAdvice';
+
+import { designColor } from '../../design/literalTokens';
 
 const StockCard = React.memo(
   ({
@@ -44,6 +54,8 @@ const StockCard = React.memo(
     getLTPForSymbol,
     advisedPrice,
     advisedPriceByAdvisor,
+    pnlRangeActivated = false,
+    onPnlRangeActivate = () => {},
     stockRecoNotExecuted,
     stopLoss,
     profitTarget,
@@ -61,6 +73,10 @@ const StockCard = React.memo(
     isExpanded,
     onToggleExpand,
     tradePlaceStatus,
+    isOpenPosition = false,
+    tradedQty,
+    tradedPrice,
+    positionBroker,
     rejectionMessage,
     rejectionClassification,
     rejectionBroker,
@@ -73,43 +89,65 @@ const StockCard = React.memo(
   }) => {
     const [showAttachmentModal, setShowAttachmentModal] = useState(false);
     const [showManualPlacement, setShowManualPlacement] = useState(false);
-    const {getAllTrades} = useTrade();
+    const {getAllTrades, broker} = useTrade();
+    const [isPnlActivated, setIsPnlActivated] = useState(
+      Boolean(pnlRangeActivated),
+    );
     const price = useLTPStore(state => state.ltps[symbol]);
 
-    // P&L and Change% calculation (matching web app logic)
-    const entryPrice = parseFloat(advisedPrice) || 0;
-    const ltp = parseFloat(price) || 0;
-    const pnl = ltp && entryPrice ? ltp - entryPrice : null;
-    const changePercent = ltp && entryPrice ? ((ltp - entryPrice) / entryPrice) * 100 : null;
+    const {hasRange: hasRecommendedRange} = getRecommendedRange(
+      advisedRangeLower,
+      advisedRangeHigher,
+    );
+    const entryPrice = getRecommendedEntryPrice({
+      recommendedPrice: Price,
+      advisedRangeLower,
+      advisedRangeHigher,
+      action,
+    });
+    const ltp = Number.parseFloat(price);
+    const advisedRangeCondition = isPriceInRecommendedRange(
+      price,
+      advisedRangeLower,
+      advisedRangeHigher,
+    );
+    const pnlIsActive = !hasRecommendedRange || isPnlActivated;
+    const {pnl, changePercent} = calculateRecommendationPnl({
+      ltp,
+      entryPrice,
+      action,
+      isActivated: pnlIsActive,
+    });
     const formattedPlanName = planName
       ? planName.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
       : null;
 
-    // Calculate advisedRangeCondition using the price from context
-    const advisedRangeCondition = React.useMemo(() => {
-      if (price === null) return true;
+    useEffect(() => {
+      setIsPnlActivated(Boolean(pnlRangeActivated));
+    }, [id, pnlRangeActivated]);
 
-      return (
-        (advisedRangeHigher === 0 && advisedRangeLower === 0) ||
-        (advisedRangeHigher === null && advisedRangeLower === null) ||
-        (advisedRangeHigher > 0 &&
-          advisedRangeLower > 0 &&
-          Number.parseFloat(advisedRangeHigher) >= Number.parseFloat(price) &&
-          Number.parseFloat(price) >= Number.parseFloat(advisedRangeLower)) ||
-        (advisedRangeHigher > 0 &&
-          advisedRangeLower === 0 &&
-          advisedRangeLower === null &&
-          Number.parseFloat(advisedRangeHigher) >= Number.parseFloat(price)) ||
-        (advisedRangeLower > 0 &&
-          advisedRangeHigher === 0 &&
-          advisedRangeHigher === null &&
-          Number.parseFloat(advisedRangeLower) <= Number.parseFloat(price))
-      );
-    }, [price, advisedRangeHigher, advisedRangeLower]);
+    useEffect(() => {
+      if (
+        hasRecommendedRange &&
+        !isPnlActivated &&
+        advisedRangeCondition &&
+        Number.isFinite(ltp)
+      ) {
+        setIsPnlActivated(true);
+        onPnlRangeActivate({id, marketPrice: ltp});
+      }
+    }, [
+      advisedRangeCondition,
+      hasRecommendedRange,
+      id,
+      isPnlActivated,
+      ltp,
+      onPnlRangeActivate,
+    ]);
 
     // Get dynamic config from API
     const config = useConfig();
-    const themeColor = config?.themeColor || '#0056B7';
+    const themeColor = config?.themeColor || designColor('0056b7');
     const CardborderWidth = config?.CardborderWidth || 0;
     const cardElevation = config?.cardElevation || 3;
     const cardverticalmargin = config?.cardverticalmargin || 3;
@@ -127,7 +165,37 @@ const StockCard = React.memo(
     };
 
     const handleAddToCart = (sym, tid, act) => {
+      // Removing from cart is a rollback — never gate it on the advised range.
+      if (act === 'remove') {
+        handleSelectStock(sym, tid, act);
+        return;
+      }
+      if (!confirmOutOfRangePlacement()) return;
       handleSelectStock(sym, tid, act);
+    };
+
+    // Soft-warning gate for single-stock equity/derivative cards (2026-08-20).
+    // An out-of-range quote is advisory, not a block: the customer is told the
+    // current price sits outside the manager's advised range and may still
+    // choose to continue. Mirrors the basket entry-gate behaviour.
+    const confirmOutOfRangePlacement = () => {
+      if (advisedRangeCondition) return true;
+      return new Promise(resolve => {
+        Alert.alert(
+          'Price outside advised range',
+          'The current price is outside the manager\'s advised range. You may still place this trade, but the execution price can differ from the recommendation.',
+          [
+            {text: 'Cancel', style: 'cancel', onPress: () => resolve(false)},
+            {text: 'Continue', onPress: () => resolve(true)},
+          ],
+          {cancelable: true, onDismiss: () => resolve(false)},
+        );
+      });
+    };
+
+    const handleTradePressWithRangeCheck = (...args) => {
+      if (!confirmOutOfRangePlacement()) return;
+      handleTradePress(...args);
     };
 
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -139,7 +207,7 @@ const StockCard = React.memo(
         duration: 300,
         useNativeDriver: false,
       }).start();
-    }, [isExpanded]);
+    }, [animatedHeight, isExpanded]);
 
     const ltpRef = useRef(null);
 
@@ -172,6 +240,8 @@ const StockCard = React.memo(
       ltp,
       pnl,
       changePercent,
+      pnlIsActive,
+      hasRecommendedRange,
       advisedPrice,
       advisedPriceByAdvisor,
       advisedRangeLower,
@@ -195,6 +265,10 @@ const StockCard = React.memo(
       cancel,
       edit,
       tradePlaceStatus,
+      isOpenPosition,
+      tradedQty,
+      tradedPrice,
+      positionBroker,
       rejectionMessage,
       rejectionClassification,
       rejectionBroker: showDdpiHelp ? rejectionBroker : null,
@@ -212,7 +286,7 @@ const StockCard = React.memo(
       onSelectStock: handleSelectStock,
       onDecreaseQty: handleDecreaseStockQty,
       onIncreaseQty: handleIncreaseStockQty,
-      onTradePress: handleTradePress,
+      onTradePress: handleTradePressWithRangeCheck,
       onRevertTrades: handleRevertTrades,
       onIgnoreTradePress: handleIgnoreTradePress,
       onLimitOrderInputChange: handleLimitOrderInputChange,
@@ -226,11 +300,16 @@ const StockCard = React.memo(
       onOpenManualPlacement: () => setShowManualPlacement(true),
     };
 
-        return <>
-      <StockCardPresentation viewModel={viewModel} actions={actions} />
+    return <>
+      <StockCardPresentation
+        viewModel={viewModel}
+        actions={actions}
+        slots={{BlurredComponent, PriceTextAdvice}}
+      />
       <StandaloneManualPlacementModal
         visible={showManualPlacement}
         trade={{id, symbol, action, quantity}}
+        broker={broker}
         configData={config}
         onClose={() => setShowManualPlacement(false)}
         onSuccess={getAllTrades}

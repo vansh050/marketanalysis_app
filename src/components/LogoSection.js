@@ -5,6 +5,7 @@ import Config from '../utils/safeConfig';
 import {useConfig} from '../context/ConfigContext';
 import APP_VARIANTS from '../utils/Config';
 import useTokens from '../theme/useTokens';
+import { designColor, designFont } from '../design/literalTokens';
 const screenWidth = Dimensions.get('window').width;
 
 const LogoSection = () => {
@@ -57,15 +58,14 @@ const LogoSection = () => {
   return (
     <View style={styles.containerLogo}>
       {renderLogo()}
-
       <Text style={styles.subtitle}>Invest with {appName}</Text>
       <Text
         style={{
           fontSize: 13,
           textAlign: 'center',
           marginBottom: 20,
-          color: '#9ca2ae',
-          fontFamily: 'Satoshi-Medium',
+          color: designColor('9ca2ae'),
+          fontFamily: designFont('Satoshi-Medium'),
         }}>
         Please Login To Start Trading with {appName}
       </Text>
@@ -77,7 +77,7 @@ const styles = StyleSheet.create({
   containerLogo: {
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     paddingVertical: 20,
   },
   logo: {
@@ -91,15 +91,15 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 10,
-    color: '#000101',
+    color: designColor('000101'),
   },
   subtitle: {
     fontSize: 18,
     textAlign: 'center',
     marginTop: 5,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     marginBottom: 20,
-    color: '#000101',
+    color: designColor('000101'),
   },
 });
 

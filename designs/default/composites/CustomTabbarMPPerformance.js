@@ -10,13 +10,17 @@
  *     navigationState  — { index, routes: [{ key, title }] }
  *     jumpTo           — (key: string) => void
  *     isSubscriptionActive — boolean — when true, the PORTFOLIO tab is locked (premium gate active = user not subscribed). Keyed by route.key, not index.
+ *     accentColor      — string, optional — active-tab background
+ *                        (default '#29A400'). MPPerformanceScreen passes the
+ *                        plan's own color for moneyman_app so the tab bar
+ *                        matches the opened card's theme (2026-08-13).
  */
 
 import React, { memo } from 'react';
 import { View, TouchableOpacity, StyleSheet, Text } from 'react-native';
 import { Lock } from 'lucide-react-native';
 
-const CustomTabBarMPPerformance = memo(({ navigationState, jumpTo, isSubscriptionActive }) => {
+const CustomTabBarMPPerformance = memo(({ navigationState, jumpTo, isSubscriptionActive, accentColor = '#29A400' }) => {
   return (
     <View style={tabStyles.tabBarWrapper}>
       {navigationState.routes.map((route, idx) => {
@@ -33,7 +37,7 @@ const CustomTabBarMPPerformance = memo(({ navigationState, jumpTo, isSubscriptio
             key={route.key}
             style={[
               tabStyles.tabItem,
-              { backgroundColor: isActive ? '#29A400' : '#F4F4F4' },
+              { backgroundColor: isActive ? accentColor : '#F4F4F4' },
               isDisabled && { opacity: 0.5 },
             ]}
             activeOpacity={isDisabled ? 1 : 0.9}

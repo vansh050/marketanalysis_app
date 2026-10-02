@@ -301,13 +301,13 @@ const brokerDdpiHelp = {
     title: 'Groww — Enable DDPI',
     intro:
       GENERIC_DDPI_INTRO +
-      ' Groww requires DDPI for Trade API orders — without it, sells from this app are blocked on authorization.',
+      ' Groww supports daily CDSL TPIN authorization and permanent DDPI. TPIN authorization never sells a holding; it only permits a later sell order.',
     steps: [
       '1. Open Groww app → Stocks Holdings → three-dot menu → DDPI.',
       '   Or: Account Details → Sell Authorization → Activate DDPI.',
-      '2. Pay ₹100 + 18% GST.',
-      '3. Aadhaar e-Sign.',
-      '4. Activates within 24 hours.',
+      '2. Or open Profile → Account Details → Sell Authorization → Activate DDPI.',
+      '3. Complete the consent and Aadhaar e-Sign shown by Groww.',
+      '4. For today-only TPIN authorization, open https://groww.in/holdings/cdslauth instead.',
     ],
     directLink:
       'https://groww.in/help/stocks,-f&o,-ipo-&-mtf/searchable/how-can-i-opt-for-ddpi--60',

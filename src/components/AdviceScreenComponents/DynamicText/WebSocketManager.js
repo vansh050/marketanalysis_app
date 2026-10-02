@@ -3,6 +3,46 @@ import axios from "axios";
 import useLTPStore from "./useLtpStore";
 import server from "../../../utils/serverConfig";
 import {getAccountEmail} from '../../../utils/accountEmail';
+import auth from '@react-native-firebase/auth';
+import {fetchLTPBatch} from '../../../utils/marketDataLTP';
+import {detectMarketExchange} from '../../../utils/marketDataReconnect';
+
+const STALE_PRICE_MS = 60 * 1000;
+const REST_RECOVERY_INTERVAL_MS = 30 * 1000;
+const INITIAL_RECOVERY_DELAY_MS = 4 * 1000;
+
+const normalizeSymbol = symbol => String(symbol || '').trim().toUpperCase();
+
+const normalizeSymbols = symbols => {
+  const seen = new Set();
+  return (symbols || [])
+    .map(item => {
+      const symbol = normalizeSymbol(
+        item?.symbol || item?.Symbol || item?.orginal_symbol,
+      );
+      const providedExchange = String(item?.exchange || item?.Exchange || '')
+        .trim()
+        .toUpperCase();
+      return {
+        symbol,
+        exchange: detectMarketExchange(symbol, providedExchange || undefined),
+      };
+    })
+    .filter(item => {
+      const key = `${item.exchange}:${item.symbol}`;
+      if (!item.symbol || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
+
+const getFirebaseToken = async () => {
+  try {
+    return (await auth().currentUser?.getIdToken()) || null;
+  } catch (_) {
+    return null;
+  }
+};
 
 const WebSocketManager = (() => {
   let instance = null;
@@ -14,6 +54,9 @@ const WebSocketManager = (() => {
   let userEmail = null;
   let connectingPromise = null; // Guard against concurrent connect() calls
   let connectResolve = null;   // Stored so connect_error can resolve stale Promise
+  let recoveryInterval = null;
+  let fallbackTimers = new Set();
+  let priceUpdatedAt = new Map();
 
   const baseWsUrl = server.websocket.baseUrl;
 
@@ -23,17 +66,75 @@ const WebSocketManager = (() => {
     dbName: configData?.config?.REACT_APP_HEADER_NAME || "prod",
   });
 
+  const applyPriceUpdate = (rawSymbol, rawLtp) => {
+    const symbol = normalizeSymbol(rawSymbol);
+    const ltp = Number(rawLtp);
+    if (!symbol || !Number.isFinite(ltp) || ltp <= 0) return;
+
+    useLTPStore.getState().setLTP(symbol, ltp);
+    latestLTPs.set(symbol, ltp);
+    priceUpdatedAt.set(symbol, Date.now());
+
+    const callbacks = subscribers.get(symbol) || [];
+    callbacks.forEach(cb => cb({symbol, ltp}));
+  };
+
+  const recoverPrices = async symbols => {
+    const now = Date.now();
+    const stale = normalizeSymbols(symbols).filter(({symbol}) => {
+      const current = Number(useLTPStore.getState().getLTP(symbol));
+      const updatedAt = priceUpdatedAt.get(symbol) || 0;
+      return !(current > 0) || now - updatedAt >= STALE_PRICE_MS;
+    });
+    if (stale.length === 0) return;
+
+    const prices = await fetchLTPBatch(stale);
+    Object.entries(prices).forEach(([symbol, ltp]) => {
+      applyPriceUpdate(symbol, ltp);
+    });
+  };
+
+  const scheduleRecovery = symbols => {
+    const timer = setTimeout(() => {
+      fallbackTimers.delete(timer);
+      recoverPrices(symbols);
+    }, INITIAL_RECOVERY_DELAY_MS);
+    fallbackTimers.add(timer);
+  };
+
+  const ensureRecoveryLoop = () => {
+    if (recoveryInterval) return;
+    recoveryInterval = setInterval(() => {
+      recoverPrices(
+        Array.from(subscribedSymbols.entries()).map(([symbol, exchange]) => ({
+          symbol,
+          exchange,
+        })),
+      );
+    }, REST_RECOVERY_INTERVAL_MS);
+  };
+
+  const postSubscriptions = async symbols => {
+    const params = getSubscriptionParams();
+    const token = await getFirebaseToken();
+    await axios.post(
+      `${baseWsUrl}subscribe-array`,
+      {...params, symbolExchange: symbols},
+      token ? {headers: {Authorization: `Bearer ${token}`}} : undefined,
+    );
+    if (socket?.connected) {
+      socket.emit('subscribe_symbols', {symbols});
+    }
+  };
+
   // Re-subscribe all tracked symbols (used on reconnect)
   const resubscribeAll = () => {
     if (subscribedSymbols.size === 0) return;
     const symbolsToResubscribe = Array.from(subscribedSymbols.entries()).map(
       ([symbol, exchange]) => ({ symbol, exchange })
     );
-    const params = getSubscriptionParams();
-    axios.post(`${baseWsUrl}subscribe-array`, {
-      ...params,
-      symbolExchange: symbolsToResubscribe,
-    }).catch(() => {});
+    postSubscriptions(symbolsToResubscribe).catch(() => {});
+    scheduleRecovery(symbolsToResubscribe);
   };
 
   return {
@@ -61,6 +162,11 @@ const WebSocketManager = (() => {
 
               socket = io(`${baseWsUrl}ltp`, {
                 path: "/socket.io",
+                auth: callback => {
+                  getFirebaseToken()
+                    .then(token => callback(token ? {token} : {}))
+                    .catch(() => callback({}));
+                },
                 transports: ["websocket"],
                 reconnection: true,
                 reconnectionAttempts: Infinity,
@@ -94,16 +200,12 @@ const WebSocketManager = (() => {
                 if (r) r();
               });
 
-              socket.on("ltp_update", (data) => {
-                if (!data || !data.symbol || !data.ltp) return;
+              socket.on("ltp_update", data => {
+                applyPriceUpdate(data?.symbol, data?.ltp);
+              });
 
-                const { symbol, ltp } = data;
-
-                useLTPStore.getState().setLTP(symbol, ltp);
-                latestLTPs.set(symbol, ltp);
-
-                const callbacks = subscribers.get(symbol) || [];
-                callbacks.forEach((cb) => cb({ symbol, ltp }));
+              socket.on("market_data", data => {
+                applyPriceUpdate(data?.stockSymbol, data?.last_traded_price);
               });
 
               socket.on("disconnect", () => {
@@ -120,20 +222,9 @@ const WebSocketManager = (() => {
             try {
               await this.connect();
 
-              const cleanSymbols = symbols
-                .map((item) => ({
-                  symbol: item.symbol || item.Symbol || item.orginal_symbol,
-                  exchange: item.exchange || item.Exchange,
-                }))
-                .filter((x) => x.symbol && x.exchange);
+              const cleanSymbols = normalizeSymbols(symbols);
 
               if (cleanSymbols.length === 0) return;
-
-              const params = getSubscriptionParams();
-              await axios.post(`${baseWsUrl}subscribe-array`, {
-                ...params,
-                symbolExchange: cleanSymbols,
-              });
 
               cleanSymbols.forEach(({ symbol, exchange }) => {
                 subscribedSymbols.set(symbol, exchange);
@@ -141,13 +232,19 @@ const WebSocketManager = (() => {
                   subscribers.set(symbol, []);
                 }
               });
+              ensureRecoveryLoop();
+              scheduleRecovery(cleanSymbols);
+              await postSubscriptions(cleanSymbols);
             } catch (error) {
-              // Subscription error - silent
+              // REST recovery remains active even when the room subscription fails.
             }
           },
 
           subscribe(symbol, exchange, callback) {
-            if (!symbol || !exchange || typeof callback !== "function") return;
+            symbol = normalizeSymbol(symbol);
+            const providedExchange = String(exchange || '').trim().toUpperCase();
+            exchange = detectMarketExchange(symbol, providedExchange || undefined);
+            if (!symbol || typeof callback !== "function") return;
 
             if (!subscribers.has(symbol)) {
               subscribers.set(symbol, []);
@@ -173,6 +270,7 @@ const WebSocketManager = (() => {
 
           getLTP(symbol) {
             return new Promise((resolve, reject) => {
+              symbol = normalizeSymbol(symbol);
               const zs = useLTPStore.getState().getLTP(symbol);
               if (zs !== undefined) return resolve(zs);
 
@@ -190,6 +288,11 @@ const WebSocketManager = (() => {
             subscribers.clear();
             subscribedSymbols.clear();
             latestLTPs.clear();
+            priceUpdatedAt.clear();
+            fallbackTimers.forEach(timer => clearTimeout(timer));
+            fallbackTimers.clear();
+            if (recoveryInterval) clearInterval(recoveryInterval);
+            recoveryInterval = null;
             connectingPromise = null;
             socket = null;
           },

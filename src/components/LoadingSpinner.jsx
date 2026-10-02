@@ -1,11 +1,13 @@
 import React from "react";
 
+import { designColor } from '../design/literalTokens';
+
 const LoadingSpinner = ({ dark }) => {
   return (
     <span className="flex flex-row justify-center">
       <svg
         className={`h-[28px] w-[28px]${
-          dark ? `text-[#000000]` : "text-[#ffffff]"
+          dark ? `text-[${designColor('000000')}]` : `text-[${designColor('ffffff')}]`
         }  animate-spin`}
         xmlns="http://www.w3.org/2000/svg"
         fill="none"

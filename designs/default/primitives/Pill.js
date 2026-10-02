@@ -20,6 +20,8 @@ const buildVariantStyles = (tokens) => ({
     neutral: { bg: tokens.colors.surface.muted, fg: tokens.colors.text.muted },
     profit: { bg: tokens.colors.pnl.profitBg, fg: tokens.colors.pnl.profit },
     loss: { bg: tokens.colors.pnl.lossBg, fg: tokens.colors.pnl.loss },
+    // SELL / exit badges — teal, not red (an exit is an action, not a loss).
+    sell: { bg: tokens.colors.pnl.sellBg, fg: tokens.colors.pnl.sell },
     warning: { bg: tokens.colors.status.warningBg, fg: tokens.colors.status.warning },
 });
 

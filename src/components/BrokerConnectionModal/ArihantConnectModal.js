@@ -28,11 +28,21 @@ import { getAuth } from '@react-native-firebase/auth';
 import Config from 'react-native-config';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import { useTrade } from '../../screens/TradeContext';
+import {useConfig} from '../../context/ConfigContext';
+import {authenticator} from '../../utils/totp';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import {getAccountEmail} from '../../utils/accountEmail';
+import {
+  hasDeviceTotp,
+  removeDeviceTotp,
+  saveDeviceTotpSeed,
+  unlockDeviceTotpLogin,
+} from '../../services/DeviceTotpVault';
+
+import { designColor } from '../../design/literalTokens';
 
 const wrapCredential = (value) =>
   CryptoJS.AES.encrypt(String(value || ''), 'ApiKeySecret').toString();
@@ -43,6 +53,7 @@ const ArihantConnectModal = ({
   fetchBrokerStatusModal,
 }) => {
   const { configData } = useTrade();
+  const runtimeConfig = useConfig();
   const showAlert = useModalStore((s) => s.showAlert);
   const auth = getAuth();
   const userEmail = getAccountEmail();
@@ -60,11 +71,26 @@ const ArihantConnectModal = ({
   const [showApiKey, setShowApiKey] = useState(false);
   const [resendCooldown, setResendCooldown] = useState(0);
   const [userDetails, setUserDetails] = useState(null);
+  const [hasSavedTotp, setHasSavedTotp] = useState(false);
+  const [saveTotpOnDevice, setSaveTotpOnDevice] = useState(false);
+  const [deviceTotpSeed, setDeviceTotpSeed] = useState('');
+  const [storedApiKeyWire, setStoredApiKeyWire] = useState('');
+  const deviceReconnectStartedRef = React.useRef(false);
+  const deviceTotpEnabled =
+    runtimeConfig?.deviceTotpEnabled === true ||
+    configData?.config?.deviceTotpEnabled === true;
+  const totpIdentity = React.useMemo(
+    () => ({
+      advisor: getTenantSubdomain(configData),
+      broker: 'Arihant Capital',
+      userEmail,
+    }),
+    [configData, userEmail],
+  );
 
   const headers = () => ({
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain':
-      configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(configData),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,
@@ -78,10 +104,19 @@ const ArihantConnectModal = ({
     setStep('creds');
     setOtp('');
     setTxnId('');
+    setStoredApiKeyWire('');
     setError('');
     setLoading(false);
     setResendCooldown(0);
+    deviceReconnectStartedRef.current = false;
   }, [isVisible]);
+
+  useEffect(() => {
+    if (!isVisible || !deviceTotpEnabled || !userEmail) return;
+    hasDeviceTotp(totpIdentity)
+      .then(setHasSavedTotp)
+      .catch(() => setHasSavedTotp(false));
+  }, [isVisible, deviceTotpEnabled, userEmail, totpIdentity]);
 
   // Fetch user._id once — Node-side Routes/Broker/Arihant.js needs
   // `uid` to look up the user doc when persisting credentials.
@@ -107,18 +142,23 @@ const ArihantConnectModal = ({
 
   const uid = userDetails?._id;
 
-  const initiateLogin = async () => {
+  const initiateLogin = async (overrides = {}) => {
     setError('');
-    if (!userId.trim() || userId.trim().length < 3) {
+    const activeUserId = String(overrides.userId || userId || '').trim();
+    const activePassword = String(overrides.password || password || '');
+    const activeApiKey = String(overrides.apiKey || apiKey || '').trim();
+    if (!overrides.apiKeyWire && !activeApiKey) {
+      setError('API Key is required');
+      return;
+    }
+    const apiKeyWire = overrides.apiKeyWire || wrapCredential(activeApiKey);
+    setStoredApiKeyWire(apiKeyWire);
+    if (!activeUserId || activeUserId.length < 3) {
       setError('User ID must be at least 3 characters');
       return;
     }
-    if (!password || password.length < 4) {
+    if (!activePassword || activePassword.length < 4) {
       setError('Password must be at least 4 characters');
-      return;
-    }
-    if (!apiKey.trim()) {
-      setError('API Key is required');
       return;
     }
     if (!uid) {
@@ -132,9 +172,9 @@ const ArihantConnectModal = ({
         `${server.server.baseUrl}api/arihant/initiate-login`,
         {
           uid,
-          userId: userId.trim(),
-          password,
-          apiKey: wrapCredential(apiKey.trim()),
+          userId: activeUserId,
+          password: activePassword,
+          apiKey: apiKeyWire,
         },
         { headers: headers() },
       );
@@ -146,11 +186,35 @@ const ArihantConnectModal = ({
         setOtpExpiry(data.otpExpiryTime || null);
         setStep('otp');
         setResendCooldown(30);
+        const enrollmentSeed = overrides.totpSeed || (
+          saveTotpOnDevice ? deviceTotpSeed : ''
+        );
+        if (enrollmentSeed) {
+          try {
+            const generatedOtp = authenticator.generate(enrollmentSeed);
+            setOtp(generatedOtp);
+            await connectArihant({
+              otpOverride: generatedOtp,
+              txnIdOverride: data.txnId,
+              userIdOverride: activeUserId,
+              apiKeyWire,
+              deviceReconnect: Boolean(overrides.totpSeed),
+            });
+          } catch (totpError) {
+            setError(
+              totpError?.message ||
+                'Could not generate the saved TOTP. Enter the current code to continue.',
+            );
+          }
+          return;
+        }
         if (showAlert) {
           showAlert(
             'success',
-            'OTP sent',
-            data.message || 'OTP sent to your registered mobile/email.',
+            saveTotpOnDevice ? 'Enter Arihant TOTP' : 'OTP sent',
+            saveTotpOnDevice
+              ? 'Enter the current TOTP from your Arihant authenticator setup to finish and protect quick reconnect.'
+              : data.message || 'OTP sent to your registered mobile/email.',
           );
         }
       }
@@ -165,13 +229,18 @@ const ArihantConnectModal = ({
     }
   };
 
-  const connectArihant = async () => {
+  const connectArihant = async (options = {}) => {
     setError('');
-    if (!/^\d+$/.test(otp) || otp.length < 4 || otp.length > 8) {
+    const activeOtp = String(options.otpOverride || otp || '');
+    const activeTxnId = String(options.txnIdOverride || txnId || '');
+    const activeUserId = String(options.userIdOverride || userId || '').trim();
+    const apiKeyWire =
+      options.apiKeyWire || storedApiKeyWire || wrapCredential(apiKey.trim());
+    if (!/^\d+$/.test(activeOtp) || activeOtp.length < 4 || activeOtp.length > 8) {
       setError('OTP must be 4–8 digits.');
       return;
     }
-    if (!txnId) {
+    if (!activeTxnId) {
       setStep('creds');
       setError('Session lost — please re-enter your credentials.');
       return;
@@ -182,15 +251,37 @@ const ArihantConnectModal = ({
         `${server.server.baseUrl}api/arihant/connect-broker`,
         {
           uid,
-          userId: userId.trim(),
-          txnId,
-          otp,
-          apiKey: wrapCredential(apiKey.trim()),
+          userId: activeUserId,
+          txnId: activeTxnId,
+          otp: activeOtp,
+          apiKey: apiKeyWire,
         },
         { headers: headers() },
       );
       if (showAlert) {
         showAlert('success', 'Connected', 'Arihant Capital connected successfully.');
+      }
+      if (
+        !options.deviceReconnect &&
+        deviceTotpEnabled &&
+        saveTotpOnDevice &&
+        deviceTotpSeed
+      ) {
+        try {
+          await saveDeviceTotpSeed(
+            totpIdentity,
+            deviceTotpSeed,
+            '',
+            {password, userId: activeUserId},
+          );
+          setHasSavedTotp(true);
+        } catch (vaultError) {
+          showAlert?.(
+            'error',
+            'Connected; quick reconnect was not saved',
+            vaultError?.message || 'Check the TOTP key and enable it again.',
+          );
+        }
       }
       eventEmitter.emit('refreshEvent', { source: 'Arihant connect' });
       if (fetchBrokerStatusModal) fetchBrokerStatusModal();
@@ -206,6 +297,50 @@ const ArihantConnectModal = ({
     }
   };
 
+  useEffect(() => {
+    if (
+      !isVisible ||
+      !deviceTotpEnabled ||
+      !uid ||
+      !userDetails ||
+      deviceReconnectStartedRef.current
+    ) return;
+    const stored = (userDetails.connected_brokers || []).find(
+      broker => broker?.broker === 'Arihant Capital',
+    );
+    if (!stored?.apiKey) return;
+    deviceReconnectStartedRef.current = true;
+    (async () => {
+      const saved = await hasDeviceTotp(totpIdentity).catch(() => false);
+      setHasSavedTotp(saved);
+      if (!saved) return;
+      try {
+        const login = await unlockDeviceTotpLogin(totpIdentity);
+        if (!login?.seed || !login?.password || !login?.userId) {
+          throw new Error('The protected Arihant login is incomplete.');
+        }
+        setUserId(login.userId);
+        setPassword(login.password);
+        await initiateLogin({
+          userId: login.userId,
+          password: login.password,
+          apiKeyWire: stored.apiKey,
+          totpSeed: login.seed,
+        });
+      } catch (vaultError) {
+        setError(vaultError?.message || 'Quick reconnect failed. Continue with broker login.');
+      }
+    })();
+    // Deliberately once per modal open; failed broker auth must not loop.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, deviceTotpEnabled, uid, userDetails]);
+
+  const forgetSavedTotp = async () => {
+    await removeDeviceTotp(totpIdentity);
+    setHasSavedTotp(false);
+    setSaveTotpOnDevice(false);
+  };
+
   const resendOtp = async () => {
     if (resendCooldown > 0 || !txnId) return;
     setResendCooldown(30);
@@ -216,7 +351,7 @@ const ArihantConnectModal = ({
           uid,
           userId: userId.trim(),
           txnId,
-          apiKey: wrapCredential(apiKey.trim()),
+          apiKey: storedApiKeyWire || wrapCredential(apiKey.trim()),
         },
         { headers: headers() },
       );
@@ -242,18 +377,19 @@ const ArihantConnectModal = ({
       broker="Arihant Capital"
       config={{
         monogram: 'A',
-        brandFrom: '#ff7a00',
-        brandTo: '#cc5500',
+        brandFrom: designColor('ff7a00'),
+        brandTo: designColor('cc5500'),
         portalUrl: 'https://tradebridge.arihantplus.com',
         portalLabel: 'Open Arihant TradeBridge',
         walkthroughVideoId: 'kE3nviz2T9k',
         guideSteps: [
           'Log in at <b>tradebridge.arihantplus.com</b>',
-          'Open <b>API Keys → New App</b>',
+          'Open <b>My Apps → New App</b> and create an API app',
           'Whitelist the <b>IP</b> below',
           'Set the app name and redirect',
           'Copy your <b>App ID / API Key</b>',
-          'Paste credentials here, then verify OTP',
+          'For phone quick reconnect, enable Arihant External TOTP and copy the <b>manual Base32 setup key</b>. If your account offers only SMS/email OTP, leave quick reconnect off.',
+          'Paste the credentials and setup key here. AlphaQuark generates the current TOTP automatically.',
         ],
         note: 'Arihant sessions expire daily — tap Reconnect from the broker tile if trades fail with "Session Expired".',
       }}
@@ -281,12 +417,35 @@ const ArihantConnectModal = ({
           password: true,
           placeholder: 'Generated at tradebridge.arihantplus.com',
         },
+        ...(deviceTotpEnabled && saveTotpOnDevice && !hasSavedTotp ? [{
+          label: 'TOTP Secret Key (Base32)',
+          value: deviceTotpSeed,
+          onChange: t => setDeviceTotpSeed(String(t || '')),
+          password: true,
+          autoCapitalize: 'none',
+          placeholder: 'Secret shown when enabling Arihant TOTP',
+        }] : []),
       ]}
+      deviceTotp={{
+        enabled: deviceTotpEnabled,
+        hasSaved: hasSavedTotp,
+        saveOnDevice: saveTotpOnDevice,
+        onToggleSave: () => setSaveTotpOnDevice(value => !value),
+        onForget: forgetSavedTotp,
+        protectLabel: 'Enable quick reconnect on this phone',
+        savedLabel:
+          'The TOTP key, User ID and password are protected on this phone. Normal Arihant login remains available.',
+        pendingLabel:
+          'Stores the TOTP key and required login factors in this phone’s protected keychain.',
+        forgetLabel: 'Forget Arihant quick reconnect on this phone',
+      }}
       phase={step === 'otp' ? 'otp' : 'creds'}
       otp={{
         value: otp,
         onChange: (t) => setOtp(t.replace(/\D/g, '').slice(0, 8)),
-        sentToText: 'Enter the OTP Arihant sent to your registered mobile/email.',
+        sentToText: saveTotpOnDevice
+          ? 'Enter the current TOTP from your Arihant authenticator.'
+          : 'Enter the OTP Arihant sent to your registered mobile/email.',
         onResend: resendOtp,
         resendDisabled: resendCooldown > 0,
         resendLabel: resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend OTP',
@@ -296,7 +455,10 @@ const ArihantConnectModal = ({
       canSubmit={
         step === 'otp'
           ? Boolean(otp)
-          : Boolean(userId) && Boolean(password) && Boolean(apiKey)
+          : Boolean(userId) &&
+            Boolean(password) &&
+            Boolean(apiKey) &&
+            (!saveTotpOnDevice || hasSavedTotp || Boolean(deviceTotpSeed))
       }
       submitLabel={step === 'otp' ? 'Verify & Connect' : 'Send OTP'}
       loading={loading}

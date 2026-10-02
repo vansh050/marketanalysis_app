@@ -29,6 +29,7 @@ import eventEmitter from './EventEmitter';
 import IsMarketHours from '../utils/isMarketHours';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
+import {getTenantSubdomain} from '../utils/variantHelper';
 
 import CheckBox from '@react-native-community/checkbox';
 
@@ -36,10 +37,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import Config from 'react-native-config';
 import SliderButton from './SliderButton';
 import LinearGradient from 'react-native-linear-gradient';
+import { designColor, designFont } from '../design/literalTokens';
 const {height: screenHeight} = Dimensions.get('window');
 import { useConfig } from '../context/ConfigContext';
 import useLTPStore from './AdviceScreenComponents/DynamicText/useLtpStore';
 import TotalAmountText from './AdviceScreenComponents/DynamicText/totalAmount';
+import SellModelImpactNotice from './AdviceScreenComponents/SellModelImpactNotice';
+import useSellModelImpact from '../hooks/useSellModelImpact';
+import {canonicalSymbol} from '../utils/sellModelImpact';
 const ReviewTradeModal = ({
   visible,
   onClose,
@@ -63,13 +68,28 @@ const ReviewTradeModal = ({
 
   // Get dynamic config from API
   const config = useConfig();
-  const themeColor = config?.themeColor || '#0056B7';
-  const mainColor = config?.mainColor || '#4CAAA0';
-  const secondaryColor = config?.secondaryColor || '#F0F0F0';
-  const gradient1 = config?.gradient1 || '#F0F0F0';
-  const gradient2 = config?.gradient2 || '#F0F0F0';
+  // SELL legs that would use model-owned shares get a warn-mode notice.
+  const sellImpact = useSellModelImpact({
+    visible: visible && !isBasket,
+    stockDetails,
+    setStockDetails,
+    broker,
+  });
+  const themeColor = config?.themeColor || designColor('0056b7');
+  const mainColor = config?.mainColor || designColor('4caaa0');
+  const secondaryColor = config?.secondaryColor || designColor('f0f0f0');
+  const gradient1 = config?.gradient1 || designColor('f0f0f0');
+  const gradient2 = config?.gradient2 || designColor('f0f0f0');
   const allowAfterHoursOrders = config?.allowAfterHoursOrders;
   const marketGateOpen = IsMarketHours() || allowAfterHoursOrders;
+  const hasStockOrders =
+    Array.isArray(stockDetails) && stockDetails.length > 0;
+  const hasBasketOrders =
+    Array.isArray(basketData) && basketData.length > 0;
+  const hasDerivativeBasket = Array.isArray(basketData) && basketData.some(item =>
+    ['NFO', 'BFO', 'MCX'].includes(String(item?.exchange || '').toUpperCase()) ||
+    Number(item?.Lots || item?.lots || 1) > 1,
+  );
 
   const {width} = useWindowDimensions();
   const [multiplier, setMultiplier] = useState('1');
@@ -98,7 +118,7 @@ const ReviewTradeModal = ({
         data: symbols,
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': Config.REACT_APP_URL,
+          'X-Advisor-Subdomain': getTenantSubdomain(),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -173,43 +193,53 @@ const ReviewTradeModal = ({
   };
 
   const [totalQuantity, setTotalQuantity] = useState(1); // State to track total quantity
+  // Per-leg base quantities (lots) captured on first load. The multiplier
+  // must scale each leg off its OWN advised size — the old handlers set
+  // every leg to the raw multiplier, collapsing a 2-lot CE + 1-lot PE
+  // basket to (2,2) and then (1,1) on the way back to "1".
+  const baseBasketQuantitiesRef = useRef({});
+
+  useEffect(() => {
+    if (Array.isArray(basketData) && basketData.length > 0) {
+      const base = {...baseBasketQuantitiesRef.current};
+      basketData.forEach(stock => {
+        const key = `${stock.tradeId || 'noTradeId'}__${stock.tradingSymbol || stock.Symbol || ''}`;
+        if (!(key in base)) {
+          base[key] = stock.quantity || stock.Quantity || 1;
+        }
+      });
+      baseBasketQuantitiesRef.current = base;
+    }
+  }, [basketData]);
+
+  const applyMultiplierToBasket = multiplier => {
+    const newData = basketData.map(stock => {
+      const key = `${stock.tradeId || 'noTradeId'}__${stock.tradingSymbol || stock.Symbol || ''}`;
+      const baseQty =
+        baseBasketQuantitiesRef.current[key] || stock.quantity || stock.Quantity || 1;
+      return {...stock, quantity: baseQty * multiplier};
+    });
+    setBasketData(newData);
+  };
 
   const handleIncreaseAllStockQty = () => {
     const newQuantity = totalQuantity + 1; // Increase total quantity by 1
     setTotalQuantity(newQuantity); // Update total quantity state
-
-    // Update stock quantities to match the total quantity
-    const newData = basketData.map(stock => ({
-      ...stock,
-      quantity: newQuantity,
-    }));
-    setBasketData(newData);
+    applyMultiplierToBasket(newQuantity);
   };
 
   const handleDecreaseAllStockQty = () => {
     if (totalQuantity > 0) {
       const newQuantity = totalQuantity - 1; // Decrease total quantity by 1
       setTotalQuantity(newQuantity); // Update total quantity state
-
-      // Update stock quantities to match the total quantity
-      const newData = basketData.map(stock => ({
-        ...stock,
-        quantity: newQuantity,
-      }));
-      setBasketData(newData);
+      applyMultiplierToBasket(newQuantity);
     }
   };
 
   const handleQuantityInputChangeAll = value => {
     const newQuantity = parseInt(value) || 0; // If invalid, fallback to 0
     setTotalQuantity(newQuantity); // Update total quantity state
-
-    // Update stock quantities to match the total quantity
-    const newData = basketData.map(stock => ({
-      ...stock,
-      quantity: newQuantity,
-    }));
-    setBasketData(newData);
+    applyMultiplierToBasket(newQuantity);
   };
 
   const [ltp, setLtp] = useState([]);
@@ -479,9 +509,9 @@ const ReviewTradeModal = ({
                 {hasStopLoss && (
                   <View style={styles.detailRow}>
                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                      <Text style={[styles.detailLabelText, {color: '#ff6b6b'}]}>Stop Loss</Text>
+                      <Text style={[styles.detailLabelText, {color: designColor('ff6b6b')}]}>Stop Loss</Text>
                     </View>
-                    <Text style={[styles.detailValue, {color: '#ff6b6b'}]}>
+                    <Text style={[styles.detailValue, {color: designColor('ff6b6b')}]}>
                       ₹{hasStopLoss}
                     </Text>
                   </View>
@@ -490,9 +520,9 @@ const ReviewTradeModal = ({
                 {hasTarget && (
                   <View style={styles.detailRow}>
                     <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                      <Text style={[styles.detailLabelText, {color: '#51cf66'}]}>Target</Text>
+                      <Text style={[styles.detailLabelText, {color: designColor('51cf66')}]}>Target</Text>
                     </View>
-                    <Text style={[styles.detailValue, {color: '#51cf66'}]}>
+                    <Text style={[styles.detailValue, {color: designColor('51cf66')}]}>
                       ₹{hasTarget}
                     </Text>
                   </View>
@@ -545,7 +575,7 @@ const ReviewTradeModal = ({
                   {formattedParts.base}{formattedParts.expiry}
                 </Text>
                 <View style={{flexDirection: 'row', alignItems: 'center', marginTop: 2}}>
-                  <Text style={[styles.symbol, {fontSize: 11, color: '#666'}]}>
+                  <Text style={[styles.symbol, {fontSize: 11, color: designColor('666')}]}>
                     {formattedParts.strike} {formattedParts.type}
                   </Text>
                 </View>
@@ -588,8 +618,8 @@ const ReviewTradeModal = ({
 
                 {hasStopLoss && (
                   <View style={styles.detailRow}>
-                    <Text style={[styles.detailLabelText, {color: '#ff6b6b'}]}>Stop Loss</Text>
-                    <Text style={[styles.detailValue, {color: '#ff6b6b'}]}>
+                    <Text style={[styles.detailLabelText, {color: designColor('ff6b6b')}]}>Stop Loss</Text>
+                    <Text style={[styles.detailValue, {color: designColor('ff6b6b')}]}>
                       ₹{hasStopLoss}
                     </Text>
                   </View>
@@ -597,8 +627,8 @@ const ReviewTradeModal = ({
 
                 {hasTarget && (
                   <View style={styles.detailRow}>
-                    <Text style={[styles.detailLabelText, {color: '#51cf66'}]}>Target</Text>
-                    <Text style={[styles.detailValue, {color: '#51cf66'}]}>
+                    <Text style={[styles.detailLabelText, {color: designColor('51cf66')}]}>Target</Text>
+                    <Text style={[styles.detailValue, {color: designColor('51cf66')}]}>
                       ₹{hasTarget}
                     </Text>
                   </View>
@@ -606,14 +636,13 @@ const ReviewTradeModal = ({
               </View>
             )}
           </View>
-
           <View style={styles.quantitySection}>
         <TouchableOpacity
           onPress={() =>
             handleDecreaseStockQty(item.tradingSymbol, item.tradeId)
           }
           style={styles.iconBtn}>
-          <MinusIcon size={14} color="#222" />
+          <MinusIcon size={14} color={designColor('222')} />
         </TouchableOpacity>
         <TextInput
           value={item?.quantity?.toString()}
@@ -628,10 +657,9 @@ const ReviewTradeModal = ({
             handleIncreaseStockQty(item.tradingSymbol, item.tradeId)
           }
           style={styles.iconBtn}>
-          <PlusIcon size={14} color="#222" />
+          <PlusIcon size={14} color={designColor('222')} />
         </TouchableOpacity>
       </View>
-
           <View style={styles.rightContainer}>
             <ReviewTradeText
               symbol={symbol || ""}
@@ -641,7 +669,6 @@ const ReviewTradeModal = ({
               stockDetails={stockDetails}
             />
           </View>
-
           <View style={{flexDirection: 'row', alignItems: 'center'}}>
             {(isLimitOrder || hasStopLoss || hasTarget) && (
               <TouchableOpacity
@@ -650,7 +677,7 @@ const ReviewTradeModal = ({
               >
                 <ChevronDown
                   size={14}
-                  color={'#000'}
+                  color={designColor('000')}
                   style={{
                     transform: [{ rotate: isExpanded ? '180deg' : '0deg' }],
                   }}
@@ -668,7 +695,7 @@ const ReviewTradeModal = ({
       );
     };
 
-  if (basketData?.length > 0) {
+  if (hasBasketOrders) {
     return (
       <Modal
         transparent={true}
@@ -678,7 +705,7 @@ const ReviewTradeModal = ({
         <SafeAreaView style={styles.modalOverlay} pointerEvents="box-none">
           <View style={[styles.modalContainer, {width: width * 1}]}>
             <LinearGradient
-              colors={['rgba(0, 38, 81, 1)', 'rgba(0, 86, 183, 1)']}
+              colors={[gradient1, gradient2]}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 1}}
               style={{
@@ -695,19 +722,28 @@ const ReviewTradeModal = ({
                   color="white"
                 />
                 <Text style={styles.basketName}>
-                  {fullbasketData[0]?.basketName}
+                  {fullbasketData?.[0]?.basketName ||
+                    basketData?.[0]?.basketName ||
+                    'Basket'}
                   {' \u2022'} BASKET
                 </Text>
               </View>
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <XIcon size={24} color="#fff" />
+                <XIcon size={24} color={designColor('fff')} />
               </TouchableOpacity>
             </LinearGradient>
             <View style={styles.tableContainer}>
               <FlatList
                 data={basketData}
                 renderItem={renderTradeRow}
-                keyExtractor={item => item.tradeId.toString()}
+                keyExtractor={(item, index) =>
+                  String(
+                    item?.tradeId ||
+                      item?.tradingSymbol ||
+                      item?.Symbol ||
+                      `basket-leg-${index}`,
+                  )
+                }
                 ListEmptyComponent={
                   <View
                     style={{
@@ -718,21 +754,21 @@ const ReviewTradeModal = ({
                     <View
                       style={{
                         borderRadius: 50,
-                        backgroundColor: '#EBECEF',
+                        backgroundColor: designColor('ebecef'),
                         padding: 20,
                       }}>
                       <CandlestickChartIcon size={40} color={'black'} />
                     </View>
                     <Text
                       style={{
-                        fontFamily: 'Satoshi-SemiBold',
+                        fontFamily: designFont('Satoshi-SemiBold'),
                         color: 'black',
                         fontSize: 18,
                         marginVertical: 10,
                       }}>
                       No Orders to Place
                     </Text>
-                    <Text style={{fontFamily: 'Satoshi-Medium', color: 'grey'}}>
+                    <Text style={{fontFamily: designFont('Satoshi-Medium'), color: 'grey'}}>
                       Add item to cart to place order.
                     </Text>
                   </View>
@@ -764,11 +800,13 @@ const ReviewTradeModal = ({
               </View>
             </View>
 
-            {basketData?.length > 0 && (
+            {hasBasketOrders && (
               <View style={styles.buttonContainer}>
                 {/* Left Side: Total Amount */}
                 <View>
-                  <Text style={styles.buttonorderlabel}>Total Amount :</Text>
+                  <Text style={styles.buttonorderlabel}>
+                    {hasDerivativeBasket ? 'Indicative Order Value :' : 'Total Amount :'}
+                  </Text>
                   <TotalAmountText
                     stockDetails={basketData}
                     type={'reviewTrade'}
@@ -779,13 +817,14 @@ const ReviewTradeModal = ({
                 <TouchableOpacity
                   style={[
                     styles.buttonPlace,
+                    {backgroundColor: mainColor},
                     (hasZeroQuantityBasket || !marketGateOpen) && styles.buttonDisabled,
                     loading && styles.buttonLoading,
                   ]}
                   disabled={hasZeroQuantityBasket || !marketGateOpen || loading}
                   onPress={() => placeOrder(basketData)}>
                   {loading ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
+                    <ActivityIndicator size="small" color={designColor('ffffff')} />
                   ) : (
                     <Text style={styles.buttonTextPlace}>
                       {!marketGateOpen ? 'Market is Closed' : 'Place Order'}
@@ -811,7 +850,7 @@ const ReviewTradeModal = ({
           <SafeAreaView style={styles.horizontal} />
           <SafeAreaView>
             <LinearGradient
-              colors={['rgba(0, 38, 81, 1)', 'rgba(0, 86, 183, 1)']}
+              colors={[gradient1, gradient2]}
               start={{x: 0, y: 0}}
               end={{x: 1, y: 1}}
               style={{
@@ -823,12 +862,12 @@ const ReviewTradeModal = ({
               }}>
               <Text style={styles.modalHeader1}>Review Trade Details</Text>
               <TouchableOpacity onPress={onClose} style={styles.closeButton}>
-                <XIcon size={24} color="#fff" />
+                <XIcon size={24} color={designColor('fff')} />
               </TouchableOpacity>
             </LinearGradient>
           </SafeAreaView>
 
-          <View style={{borderWidth: 1, borderColor: '#E8E8E8'}}></View>
+          <View style={{borderWidth: 1, borderColor: designColor('e8e8e8')}}></View>
 
           {/* Surveillance Warning for Angel One */}
           {broker === 'Angel One' &&
@@ -846,7 +885,7 @@ const ReviewTradeModal = ({
                 return (
                   <View style={styles.surveillanceWarning}>
                     <View style={styles.surveillanceHeader}>
-                      <AlertTriangleIcon size={18} color="#DC2626" />
+                      <AlertTriangleIcon size={18} color={designColor('dc2626')} />
                       <Text style={styles.surveillanceTitle}>
                         Surveillance Alert
                       </Text>
@@ -857,7 +896,7 @@ const ReviewTradeModal = ({
                     </Text>
                     {surveillanceStocks.map((stock, index) => (
                       <Text key={index} style={styles.surveillanceStock}>
-                        • <Text style={{fontFamily: 'Satoshi-Bold'}}>{stock.symbol}</Text>{' '}
+                        • <Text style={{fontFamily: designFont('Satoshi-Bold')}}>{stock.symbol}</Text>{' '}
                         (Surveillance: {stock.surveillance})
                       </Text>
                     ))}
@@ -875,7 +914,34 @@ const ReviewTradeModal = ({
             data={stockDetails}
             extraData={stockDetails}
             renderItem={renderItem}
-            keyExtractor={item => item.tradeId.toString()}
+            ListHeaderComponent={
+              sellImpact.notices.length ? (
+                <View>
+                  {sellImpact.notices.map(notice => {
+                    const key = canonicalSymbol(notice.symbol);
+                    return (
+                      <SellModelImpactNotice
+                        key={`sell-impact-${key}`}
+                        notice={notice}
+                        choice={sellImpact.choices[key]?.choice}
+                        chosenModel={sellImpact.choices[key]?.modelName}
+                        onChoose={(choice, modelName) =>
+                          sellImpact.choose(notice, choice, modelName)
+                        }
+                      />
+                    );
+                  })}
+                </View>
+              ) : null
+            }
+            keyExtractor={(item, index) =>
+              String(
+                item?.tradeId ||
+                  item?.tradingSymbol ||
+                  item?.Symbol ||
+                  `trade-${index}`,
+              )
+            }
             ListFooterComponent={
               <View style={styles.Notecontainer}>
                 <NoteCard text="Your cart can include both equity and derivatives. Please enter the quantity in shares for equity and in lots for derivatives." />
@@ -894,21 +960,21 @@ const ReviewTradeModal = ({
                 <View
                   style={{
                     borderRadius: 50,
-                    backgroundColor: '#EBECEF',
+                    backgroundColor: designColor('ebecef'),
                     padding: 20,
                   }}>
                   <CandlestickChartIcon size={40} color={'black'} />
                 </View>
                 <Text
                   style={{
-                    fontFamily: 'Satoshi-SemiBold',
+                    fontFamily: designFont('Satoshi-SemiBold'),
                     color: 'black',
                     fontSize: 18,
                     marginVertical: 10,
                   }}>
                   No Orders to Place
                 </Text>
-                <Text style={{fontFamily: 'Satoshi-Medium', color: 'grey'}}>
+                <Text style={{fontFamily: designFont('Satoshi-Medium'), color: 'grey'}}>
                   Add item to cart to place order.
                 </Text>
               </SafeAreaView>
@@ -920,7 +986,7 @@ const ReviewTradeModal = ({
             }}
           />
 
-          {!(stockDetails.length === 0) && (
+          {hasStockOrders && (
             <View
               style={{
                 flexDirection: 'colum',
@@ -958,14 +1024,14 @@ const ReviewTradeModal = ({
                     boxType="square"
                     // ✅ Android styling props
                     tintColors={{
-                      true: '#0056B7', // Checked color
-                      false: '#999999', // Unchecked border color
+                      true: designColor('0056b7'), // Checked color
+                      false: designColor('999999'), // Unchecked border color
                     }}
                     // ✅ iOS styling props (fallback)
-                    onCheckColor="#FFFFFF" // Checkmark color on iOS
-                    onFillColor="#0056B7" // Fill color when checked on iOS
-                    onTintColor="#0056B7" // Border color when checked on iOS
-                    tintColor="#999999" // Border color when unchecked on iOS
+                    onCheckColor={designColor('ffffff')} // Checkmark color on iOS
+                    onFillColor={designColor('0056b7')} // Fill color when checked on iOS
+                    onTintColor={designColor('0056b7')} // Border color when checked on iOS
+                    tintColor={designColor('999999')} // Border color when unchecked on iOS
                     // ✅ Additional props for better visibility
                     animationDuration={0.2}
                     lineWidth={2}
@@ -977,7 +1043,7 @@ const ReviewTradeModal = ({
                     color: 'black',
                     fontSize: 12,
 
-                    fontFamily: 'Satoshi-Medium',
+                    fontFamily: designFont('Satoshi-Medium'),
                   }}>
                   Scale quantities by amount
                 </Text>
@@ -1004,9 +1070,9 @@ const ReviewTradeModal = ({
                       fontSize: 14,
                       padding: 0,
 
-                      fontFamily: 'Satoshi-Medium',
+                      fontFamily: designFont('Satoshi-Medium'),
                       borderWidth: 1,
-                      borderColor: '#ccc',
+                      borderColor: designColor('ccc'),
                       borderRadius: 5,
                       marginRight: 8,
                     }}
@@ -1018,7 +1084,7 @@ const ReviewTradeModal = ({
                         paddingVertical: 6,
                         paddingHorizontal: 12,
                         backgroundColor: inputFixSizeValue
-                          ? 'rgba(0, 86, 183, 1)'
+                          ? mainColor
                           : 'gray',
                         borderRadius: 5,
                         marginRight: 8,
@@ -1036,34 +1102,38 @@ const ReviewTradeModal = ({
             </View>
           )}
 
-          <View style={styles.buttonContainer}>
-            {/* Left Side: Total Amount */}
-            <View>
-              <Text style={styles.buttonorderlabel}>Total Amount :</Text>
-              <TotalAmountText
-                stockDetails={stockDetails}
-                type={'reviewTrade'}
-              />
-            </View>
+          {hasStockOrders && (
+            <View style={styles.buttonContainer}>
+              {/* Left Side: Total Amount */}
+              <View>
+                <Text style={styles.buttonorderlabel}>Total Amount :</Text>
+                <TotalAmountText
+                  stockDetails={stockDetails}
+                  type={'reviewTrade'}
+                />
+              </View>
 
-            {/* Right Side: Button */}
-            <TouchableOpacity
-              style={[
-                styles.buttonPlace,
-                (hasZeroQuantity || !marketGateOpen) && styles.buttonDisabled,
-                loading && styles.buttonLoading,
-              ]}
-              disabled={hasZeroQuantity || !marketGateOpen || loading}
-              onPress={() => placeOrder(stockDetails)}>
-              {loading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text style={styles.buttonTextPlace}>
-                  {!marketGateOpen ? 'Market is Closed' : 'Place Order'}
-                </Text>
+              {/* Right Side: Button */}
+              <TouchableOpacity
+                style={[
+                  styles.buttonPlace,
+                  {backgroundColor: mainColor},
+                  (hasZeroQuantity || !marketGateOpen) &&
+                    styles.buttonDisabled,
+                  loading && styles.buttonLoading,
+                ]}
+                disabled={hasZeroQuantity || !marketGateOpen || loading}
+                onPress={() => placeOrder(stockDetails)}>
+                {loading ? (
+                  <ActivityIndicator size="small" color={designColor('ffffff')} />
+                ) : (
+                  <Text style={styles.buttonTextPlace}>
+                    {!marketGateOpen ? 'Market is Closed' : 'Place Order'}
+                  </Text>
               )}
             </TouchableOpacity>
           </View>
+          )}
         </View>
       </SafeAreaView>
     </Modal>
@@ -1075,7 +1145,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
     backgroundColor: 'white',
     borderWidth: 1.5,
-    borderColor: '#000',
+    borderColor: designColor('000'),
     flexDirection: 'row',
     justifyContent: 'space-between',
     borderRadius: 30,
@@ -1089,23 +1159,23 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   tradeButtonText: {
-    color: '#000',
+    color: designColor('000'),
     fontSize: 12,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
 
   quantityInput2: {
     height: 15,
     padding: 0,
     maxWidth: '50%',
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     textAlign: 'center',
     alignContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 4,
   },
 
@@ -1114,9 +1184,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 7,
     paddingHorizontal: 5,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderBottomWidth: 1,
-    borderBottomColor: '#F1F1F1',
+    borderBottomColor: designColor('f1f1f1'),
     minHeight: 48,
   },
   checkboxContainer: {
@@ -1139,20 +1209,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   symbol: {
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     fontSize: 12,
-    color: '#212121',
+    color: designColor('212121'),
   },
   orderType: {
     fontSize: 11,
-    fontFamily: 'Poppins-Medium',
+    fontFamily: designFont('Poppins-Medium'),
     marginTop: 2,
   },
   buyText: {
-    color: '#21A862',
+    color: designColor('21a862'),
   },
   sellText: {
-    color: '#E22525',
+    color: designColor('e22525'),
   },
   quantitySection: {
     flex: 1,
@@ -1173,16 +1243,16 @@ const styles = StyleSheet.create({
     padding: 0,
     maxWidth: '60%',
     width: 45,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     marginHorizontal: 10,
     borderWidth: 1,
-    borderColor: '#E1E1E1',
+    borderColor: designColor('e1e1e1'),
     borderRadius: 3,
     textAlign: 'center',
     fontSize: 12,
     marginHorizontal: 3,
-    color: '#222',
-    backgroundColor: '#F8F8F8',
+    color: designColor('222'),
+    backgroundColor: designColor('f8f8f8'),
     fontWeight: '600',
   },
   priceSection: {
@@ -1195,13 +1265,13 @@ const styles = StyleSheet.create({
   currency: {
     fontSize: 14,
     fontWeight: '500',
-    color: '#222',
+    color: designColor('222'),
     marginRight: 2,
   },
   priceValue: {
     fontSize: 15,
     fontWeight: '600',
-    color: '#212121',
+    color: designColor('212121'),
   },
   trashSection: {
     padding: 4,
@@ -1224,11 +1294,11 @@ const styles = StyleSheet.create({
     height: 32,
     padding: 2,
     marginHorizontal: 4,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 12,
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 7,
   },
   updateButton: {
@@ -1243,10 +1313,10 @@ const styles = StyleSheet.create({
   },
 
   buttonDisabled: {
-    backgroundColor: '#7f9cbf', // lighter or greyed out
+    backgroundColor: designColor('7f9cbf'), // lighter or greyed out
   },
   buttonTextPlace: {
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
     fontSize: 16,
     fontWeight: '600',
   },
@@ -1278,7 +1348,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     backgroundColor: 'transparent',
     borderWidth: 1,
-    borderColor: '#000',
+    borderColor: designColor('000'),
     borderRadius: 20,
     paddingVertical: 3,
   },
@@ -1289,17 +1359,17 @@ const styles = StyleSheet.create({
   },
   closeButton: {},
   buyOrder: {
-    color: '#fff',
-    fontFamily: 'Satoshi-Regular',
+    color: designColor('fff'),
+    fontFamily: designFont('Satoshi-Regular'),
     paddingHorizontal: 3,
     paddingVertical: 1,
-    backgroundColor: '#12D06C',
+    backgroundColor: designColor('12d06c'),
     alignSelf: 'flex-start',
     borderRadius: 15,
   },
   sellOrder: {
-    color: '#fff',
-    fontFamily: 'Satoshi-Regular',
+    color: designColor('fff'),
+    fontFamily: designFont('Satoshi-Regular'),
     paddingHorizontal: 8,
     paddingVertical: 1,
     borderRadius: 15,
@@ -1317,13 +1387,13 @@ const styles = StyleSheet.create({
     color: 'black',
     fontSize: 9,
     padding: 0,
-    fontFamily: 'Satoshi-Medium',
+    fontFamily: designFont('Satoshi-Medium'),
   },
   cellText1: {},
   cellTextmktprice: {
     alignSelf: 'center',
     color: 'black',
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
   },
 
   quantityInputup: {
@@ -1332,16 +1402,16 @@ const styles = StyleSheet.create({
     padding: 2,
     alignSelf: 'center',
     marginHorizontal: 4,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 14,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 7,
   },
   modalContainer: {
-    backgroundColor: '#EFF0EE',
+    backgroundColor: designColor('eff0ee'),
     borderTopRightRadius: 20,
     borderTopLeftRadius: 20,
 
@@ -1352,7 +1422,7 @@ const styles = StyleSheet.create({
   horizontal: {},
   card: {
     flexDirection: 'row',
-    backgroundColor: '#F4F8FE',
+    backgroundColor: designColor('f4f8fe'),
     borderRadius: 10,
     padding: 12,
     marginBottom: 12,
@@ -1361,18 +1431,18 @@ const styles = StyleSheet.create({
   line: {
     width: 4,
     borderRadius: 2,
-    backgroundColor: '#3B82F6', // blue line
+    backgroundColor: designColor('3b82f6'), // blue line
     marginRight: 8,
   },
   text: {
     flex: 1,
-    color: '#374151',
+    color: designColor('374151'),
     fontSize: 12,
     lineHeight: 20,
-    fontFamily: 'Poppins-small',
+    fontFamily: designFont('Poppins-small'),
   },
   Notecontainer: {
-    backgroundColor: '#F5F5F5', // matches screenshot bg
+    backgroundColor: designColor('f5f5f5'), // matches screenshot bg
     padding: 16,
   },
   bold: {
@@ -1387,20 +1457,20 @@ const styles = StyleSheet.create({
   },
   modalHeader1: {
     fontSize: 18,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     alignSelf: 'flex-start',
     color: 'white',
   },
   orderButton: {
-    backgroundColor: '#000',
+    backgroundColor: designColor('000'),
     paddingVertical: 15,
     marginHorizontal: 0,
     borderRadius: 10,
     alignItems: 'center',
   },
   orderButtonText: {
-    color: '#fff',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('fff'),
+    fontFamily: designFont('Satoshi-Medium'),
     fontSize: 16,
   },
   leftContainer: {
@@ -1433,23 +1503,23 @@ const styles = StyleSheet.create({
   },
   basketName: {
     fontSize: 17,
-    fontFamily: 'Satoshi-Bold',
-    color: '#fff',
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designColor('fff'),
   },
   tableContainer: {
     marginBottom: 20,
   },
   tableHeader: {
     flexDirection: 'row',
-    backgroundColor: '#f5f5f5',
+    backgroundColor: designColor('f5f5f5'),
     paddingVertical: 5,
     paddingHorizontal: 5,
     marginBottom: 5,
   },
   tableHeaderText: {
     fontSize: 13,
-    color: '#D2D1CC',
-    fontFamily: 'Satoshi-Bold',
+    color: designColor('d2d1cc'),
+    fontFamily: designFont('Satoshi-Bold'),
     flex: 1,
     textAlign: 'center',
   },
@@ -1458,7 +1528,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 5,
     borderTopWidth: 1,
-    borderTopColor: '#ddd',
+    borderTopColor: designColor('ddd'),
   },
   tableCell: {},
   tableCellqtylot: {
@@ -1467,8 +1537,8 @@ const styles = StyleSheet.create({
   },
   stockSymbol: {
     fontSize: 14,
-    color: '#000000',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('000000'),
+    fontFamily: designFont('Satoshi-Medium'),
   },
   tradeType: {
     alignContent: 'center',
@@ -1491,21 +1561,21 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
   sell: {
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'red',
   },
   buy: {
-    fontFamily: 'Satoshi-Bold',
-    color: '#16A085',
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designColor('16a085'),
   },
   price: {
     fontSize: 13,
-    color: '#000000',
+    color: designColor('000000'),
   },
   quantity: {
     fontSize: 13,
-    color: '#000000',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('000000'),
+    fontFamily: designFont('Satoshi-Medium'),
   },
   loadingContainer: {
     alignItems: 'center',
@@ -1521,7 +1591,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 14,
-    color: '#000000',
+    color: designColor('000000'),
   },
   multiplierControl: {
     flexDirection: 'row',
@@ -1532,10 +1602,10 @@ const styles = StyleSheet.create({
     height: 25,
     padding: 2,
     marginHorizontal: 4,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 12,
     borderWidth: 1,
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 7,
   },
   button: {
@@ -1548,7 +1618,7 @@ const styles = StyleSheet.create({
   multiplierInput: {
     width: 60,
     height: 25,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     borderWidth: 1,
     borderRadius: 5,
     textAlign: 'center',
@@ -1556,7 +1626,7 @@ const styles = StyleSheet.create({
   },
   note: {
     fontSize: 12,
-    color: '#888',
+    color: designColor('888'),
     marginTop: 10,
   },
   fundInfo: {
@@ -1566,15 +1636,15 @@ const styles = StyleSheet.create({
   },
   fundLabel: {
     fontSize: 12,
-    color: '#000000',
+    color: designColor('000000'),
   },
   fundAmount: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: '#000000',
+    color: designColor('000000'),
   },
   placeOrderButton: {
-    backgroundColor: '#000',
+    backgroundColor: designColor('000'),
     paddingVertical: 10,
     paddingHorizontal: 20,
     borderRadius: 5,
@@ -1582,7 +1652,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   placeOrderText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 14,
     fontWeight: 'bold',
   },
@@ -1592,19 +1662,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopWidth: 1,
-    borderColor: '#E5E7EB', // light border
+    borderColor: designColor('e5e7eb'), // light border
   },
   buttonorderlabel: {
     fontSize: 12,
-    fontFamily: 'Poppins-Small',
-    color: '#374151', // gray-700
+    fontFamily: designFont('Poppins-Small'),
+    color: designColor('374151'), // gray-700
   },
   buttonamount: {
     fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-    color: '#000',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('000'),
     marginTop: 2,
   },
   buttonPlace: {
@@ -1618,8 +1688,8 @@ const styles = StyleSheet.create({
     marginLeft: 100,
   },
   buttonTextPlace: {
-    color: '#fff',
-    fontFamily: 'Poppins-Medium',
+    color: designColor('fff'),
+    fontFamily: designFont('Poppins-Medium'),
     paddingTop: 2,
     fontSize: 13,
   },
@@ -1631,15 +1701,15 @@ const styles = StyleSheet.create({
   marginLeft: 8,
     },
     orderTypeText: {
-      color: '#000',
+      color: designColor('000'),
       fontSize: 9,
-      fontFamily: 'Satoshi-Bold',
+      fontFamily: designFont('Satoshi-Bold'),
     },
     expandedContent: {
       marginTop: 10,
       paddingTop: 10,
       borderTopWidth: 0.5,
-      borderTopColor: '#E8E8E8',
+      borderTopColor: designColor('e8e8e8'),
     },
     detailRow: {
       flexDirection: 'row',
@@ -1649,14 +1719,14 @@ const styles = StyleSheet.create({
       paddingHorizontal: 5,
     },
     detailLabelText: {
-      color: '#666',
+      color: designColor('666'),
       fontSize: 11,
-      fontFamily: 'Satoshi-Regular',
+      fontFamily: designFont('Satoshi-Regular'),
     },
     detailValue: {
-      color: '#000',
+      color: designColor('000'),
       fontSize: 12,
-      fontFamily: 'Satoshi-Bold',
+      fontFamily: designFont('Satoshi-Bold'),
     },
     rowContainer: {
       flexDirection: 'row',
@@ -1665,7 +1735,7 @@ const styles = StyleSheet.create({
       justifyContent: 'space-between',
       paddingVertical: 10,
       borderBottomWidth: 1,
-      borderColor: '#E8E8E8',
+      borderColor: designColor('e8e8e8'),
     },
     leftContainer: {
       flex: 2, // Increased to give more space
@@ -1677,7 +1747,7 @@ const styles = StyleSheet.create({
       alignSelf: 'flex-start',
       color: 'black',
       fontSize: 13, // Slightly increased
-      fontFamily: 'Satoshi-Bold',
+      fontFamily: designFont('Satoshi-Bold'),
       flexWrap: 'wrap',
     },
     orderTypeBadge: {
@@ -1688,15 +1758,15 @@ const styles = StyleSheet.create({
       marginLeft: 5,
     },
     orderTypeText: {
-      color: '#000',
+      color: designColor('000'),
       fontSize: 8,
-      fontFamily: 'Satoshi-Bold',
+      fontFamily: designFont('Satoshi-Bold'),
     },
     expandedContent: {
       marginTop: 8,
       paddingTop: 8,
       borderTopWidth: 0.5,
-      borderTopColor: '#E8E8E8',
+      borderTopColor: designColor('e8e8e8'),
       width: '100%',
     },
     detailRow: {
@@ -1707,23 +1777,23 @@ const styles = StyleSheet.create({
       paddingHorizontal: 2,
     },
     detailLabelText: {
-      color: '#666',
+      color: designColor('666'),
       fontSize: 11,
-      fontFamily: 'Satoshi-Regular',
+      fontFamily: designFont('Satoshi-Regular'),
     },
     detailValue: {
-      color: '#000',
+      color: designColor('000'),
       fontSize: 11,
-      fontFamily: 'Satoshi-Bold',
+      fontFamily: designFont('Satoshi-Bold'),
     },
     // Surveillance Warning Styles
     surveillanceWarning: {
       marginHorizontal: 10,
       marginVertical: 8,
       padding: 12,
-      backgroundColor: '#FEF2F2',
+      backgroundColor: designColor('fef2f2'),
       borderLeftWidth: 4,
-      borderLeftColor: '#DC2626',
+      borderLeftColor: designColor('dc2626'),
       borderRadius: 4,
     },
     surveillanceHeader: {
@@ -1733,27 +1803,27 @@ const styles = StyleSheet.create({
     },
     surveillanceTitle: {
       fontSize: 14,
-      fontFamily: 'Satoshi-Bold',
-      color: '#DC2626',
+      fontFamily: designFont('Satoshi-Bold'),
+      color: designColor('dc2626'),
       marginLeft: 8,
     },
     surveillanceText: {
       fontSize: 12,
-      fontFamily: 'Satoshi-Regular',
-      color: '#991B1B',
+      fontFamily: designFont('Satoshi-Regular'),
+      color: designColor('991b1b'),
       marginBottom: 6,
     },
     surveillanceStock: {
       fontSize: 12,
-      fontFamily: 'Satoshi-Regular',
-      color: '#B91C1C',
+      fontFamily: designFont('Satoshi-Regular'),
+      color: designColor('b91c1c'),
       marginLeft: 8,
       marginBottom: 2,
     },
     surveillanceNote: {
       fontSize: 11,
-      fontFamily: 'Satoshi-Regular',
-      color: '#DC2626',
+      fontFamily: designFont('Satoshi-Regular'),
+      color: designColor('dc2626'),
       marginTop: 6,
       fontStyle: 'italic',
     },

@@ -5,6 +5,8 @@ import { useGstConfig } from '../../context/GstConfigContext';
 import { withGst, gstLabel } from '../../utils/gstHelpers';
 import BrandLogo from '../BrandLogo';
 
+import { designColor } from '../../design/literalTokens';
+
 const { width } = Dimensions.get('window');
 
 const PlanCard = ({ data, type, onSubscribe, onMoreDetails }) => {
@@ -65,7 +67,7 @@ const PlanCard = ({ data, type, onSubscribe, onMoreDetails }) => {
 
   return (
     <LinearGradient
-      colors={isBespoke ? ['#FFFFFF', '#FFFFFF'] : ['#002651', '#0070EF']}
+      colors={isBespoke ? [designColor('ffffff'), designColor('ffffff')] : [designColor('002651'), designColor('0070ef')]}
       start={{ x: 0, y: 1 }}
       end={{ x: 1, y: 1 }}
       style={[styles.container, containerStyle]}
@@ -84,11 +86,7 @@ const PlanCard = ({ data, type, onSubscribe, onMoreDetails }) => {
           <Text style={tagTextStyle}>{data?.planType === 'onetime' ? 'One Time' : 'Recurring'}</Text>
         </View>
       </View>
-
       {/* Middle */}
-      
-   
-
       {/* Footer */}
       <View style={styles.footer}>
         <View style={styles.infoColumn}>
@@ -114,7 +112,6 @@ const PlanCard = ({ data, type, onSubscribe, onMoreDetails }) => {
           <Text style={infoValueStyle}>{validity}</Text>
         </View>
       </View>
-
       {/* Buttons */}
       <View style={styles.buttonsContainer}>
         <TouchableOpacity style={[styles.button, detailsButtonStyle]} onPress={onMoreDetails}>
@@ -136,7 +133,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
     elevation: 2,
     width: width - 50,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.22,
     shadowRadius: 2.22,
@@ -150,32 +147,32 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   logo: { width: 30, height: 30, marginRight: 12 },
-  nameBespoke: { flex: 1, fontSize: 16, fontWeight: 'bold', color: '#000000' },
-  nameMp: { flex: 1, fontSize: 14, fontWeight: 'bold', color: '#FFFFFF' },
+  nameBespoke: { flex: 1, fontSize: 16, fontWeight: 'bold', color: designColor('000000') },
+  nameMp: { flex: 1, fontSize: 14, fontWeight: 'bold', color: designColor('ffffff') },
   tagContainer: { paddingVertical: 4, paddingHorizontal: 12, marginLeft: 20, borderRadius: 4 },
-  tagContainerBespoke: { backgroundColor: '#FFF8E1' },
-  tagContainerMp: { backgroundColor: 'rgba(255, 255, 255, 1)', borderWidth: 1, borderColor: '#25221dff' },
-  tagTextBespoke: { color: '#FFA726', fontWeight: '500', fontSize: 12 },
-  tagTextMp: { color: '#FFA726', fontWeight: '500', fontSize: 10 },
+  tagContainerBespoke: { backgroundColor: designColor('fff8e1') },
+  tagContainerMp: { backgroundColor: 'rgba(255, 255, 255, 1)', borderWidth: 1, borderColor: designColor('25221dff') },
+  tagTextBespoke: { color: designColor('ffa726'), fontWeight: '500', fontSize: 12 },
+  tagTextMp: { color: designColor('ffa726'), fontWeight: '500', fontSize: 10 },
   middle: { alignItems: 'center', marginBottom: 0,alignContent:'center',alignSelf:'center' },
   volatilityTag: { backgroundColor: 'rgba(76, 175, 80, 0.1)', paddingVertical: 6, paddingHorizontal: 16, borderRadius: 20 },
-  volatilityText: { color: '#4CAF50', fontWeight: 'bold', fontSize: 12 },
+  volatilityText: { color: designColor('4caf50'), fontWeight: 'bold', fontSize: 12 },
   footer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 20 },
   infoColumn: { alignItems: 'flex-start' },
-  infoLabelBespoke: { fontSize: 12, color: '#757575' },
-  infoLabelMp: { fontSize: 12, color: '#BDBDBD' },
-  infoValueBespoke: { fontSize: 14, fontWeight: 'bold', color: '#212121' },
-  infoValueMp: { fontSize: 14, fontWeight: 'bold', color: '#FFFFFF' },
+  infoLabelBespoke: { fontSize: 12, color: designColor('757575') },
+  infoLabelMp: { fontSize: 12, color: designColor('bdbdbd') },
+  infoValueBespoke: { fontSize: 14, fontWeight: 'bold', color: designColor('212121') },
+  infoValueMp: { fontSize: 14, fontWeight: 'bold', color: designColor('ffffff') },
   buttonsContainer: { flexDirection: 'row', justifyContent: 'space-between' },
   button: { flex: 1, paddingVertical: 10, borderRadius: 5, alignItems: 'center', marginHorizontal: 4 },
-  detailsButtonBespoke: { backgroundColor: '#F5F5F5' },
+  detailsButtonBespoke: { backgroundColor: designColor('f5f5f5') },
   detailsButtonMp: { backgroundColor: 'rgba(255, 255, 255, 0.2)' },
-  detailsButtonTextBespoke: { color: '#212121', fontWeight: 'bold', fontSize: 12 },
-  detailsButtonTextMp: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 },
-  subscribeButtonBespoke: { backgroundColor: '#1976D2' },
-  subscribeButtonMp: { backgroundColor: '#FFFFFF' },
-  subscribeButtonTextBespoke: { color: '#FFFFFF', fontWeight: 'bold', fontSize: 12 },
-  subscribeButtonTextMp: { color: '#1976D2', fontWeight: 'bold', fontSize: 12 },
+  detailsButtonTextBespoke: { color: designColor('212121'), fontWeight: 'bold', fontSize: 12 },
+  detailsButtonTextMp: { color: designColor('ffffff'), fontWeight: 'bold', fontSize: 12 },
+  subscribeButtonBespoke: { backgroundColor: designColor('1976d2') },
+  subscribeButtonMp: { backgroundColor: designColor('ffffff') },
+  subscribeButtonTextBespoke: { color: designColor('ffffff'), fontWeight: 'bold', fontSize: 12 },
+  subscribeButtonTextMp: { color: designColor('1976d2'), fontWeight: 'bold', fontSize: 12 },
 });
 
 export default PlanCard;

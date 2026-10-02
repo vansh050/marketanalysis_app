@@ -44,6 +44,7 @@ import {
     Platform,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
+import {designColor} from '../../design/literalTokens';
 
 const randomNonce = () => {
     const arr = new Array(16);
@@ -155,7 +156,7 @@ const GoogleWebSignInModal = ({
                         />
                         {loading && (
                             <View style={styles.overlay} pointerEvents="none">
-                                <ActivityIndicator size="large" color="#2056DF" />
+                                <ActivityIndicator size="large" color={designColor('2056DF')} />
                             </View>
                         )}
                     </View>
@@ -172,18 +173,18 @@ const GoogleWebSignInModal = ({
 };
 
 const styles = StyleSheet.create({
-    container: { flex: 1, backgroundColor: '#fff' },
+    container: { flex: 1, backgroundColor: designColor('ffffff') },
     header: {
         flexDirection: 'row',
         alignItems: 'center',
         paddingVertical: 12,
         paddingHorizontal: 16,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: '#e1e1e1',
+        borderBottomColor: designColor('e1e1e1'),
     },
     closeBtn: { paddingVertical: 4, paddingRight: 12 },
-    closeTxt: { fontSize: 15, color: '#2056DF', fontWeight: '500' },
-    title: { fontSize: 16, fontWeight: '600', color: '#0A0F1D', flex: 1, textAlign: 'center' },
+    closeTxt: { fontSize: 15, color: designColor('2056DF'), fontWeight: '500' },
+    title: { fontSize: 16, fontWeight: '600', color: designColor('0A0F1D'), flex: 1, textAlign: 'center' },
     spacer: { width: 60 },
     webContainer: { flex: 1, position: 'relative' },
     overlay: {
@@ -197,7 +198,7 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.6)',
     },
     errorContainer: { flex: 1, justifyContent: 'center', padding: 24 },
-    errorTxt: { fontSize: 14, color: '#c00', textAlign: 'center' },
+    errorTxt: { fontSize: 14, color: designColor('cc0000'), textAlign: 'center' },
 });
 
 export default GoogleWebSignInModal;

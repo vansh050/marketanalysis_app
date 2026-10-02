@@ -34,7 +34,8 @@ import { useTrade } from '../../TradeContext';
 import server from '../../../utils/serverConfig';
 import Config from '../../../utils/safeConfig';
 import { generateToken } from '../../../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../../utils/variantHelper';
+import { fetchLTPBatch } from '../../../utils/marketDataLTP';
 import WebSocketManager from '../../../components/AdviceScreenComponents/DynamicText/WebSocketManager';
 
 // Mirror of `indicesConfig` in MarketIndices.js — kept here to avoid
@@ -102,7 +103,7 @@ const formatChange = (change, prevClose) => {
 
 export default function useHomeMarketSummary() {
     const trade = useTrade() || {};
-    const { configData, allHoldingsData, getAllHoldings, broker, brokerStatus } = trade;
+    const { allHoldingsData, getAllHoldings, broker, brokerStatus } = trade;
 
     // Mirror what `<PortfolioScreen>` does on mount: ensure
     // `allHoldingsData` is populated for the connected broker. The
@@ -159,7 +160,6 @@ export default function useHomeMarketSummary() {
     //     singleton's configData/userEmail and breaks every other subscriber.
     //     `websocketInitializer.js` owns the lifecycle.
     useEffect(() => {
-        if (!configData) return undefined;
         const ws = WebSocketManager.getInstance();
         if (!ws) return undefined;
 
@@ -180,7 +180,45 @@ export default function useHomeMarketSummary() {
         // cheap and only fire setLtps; if the consumer unmounts, React
         // will discard the queued state update with no observable effect.
         return undefined;
-    }, [configData]);
+    }, []);
+
+    // WebSocket delivery is preferred, but it must not be the only way these
+    // public header cards can leave "Loading". Cold-start socket races and a
+    // delayed tenant config previously prevented all three subscriptions from
+    // producing a callback. Hydrate immediately from the existing batched REST
+    // endpoint and refresh it every 30s; live socket ticks still win between
+    // polls. This mirrors the proven fallback in <MarketIndices>.
+    useEffect(() => {
+        let cancelled = false;
+
+        const hydrateIndexLtps = async () => {
+            const fetched = await fetchLTPBatch(
+                INDICES.map(({ symbol, exchange }) => ({ symbol, exchange })),
+            );
+            if (cancelled || !fetched || Object.keys(fetched).length === 0) {
+                return;
+            }
+            setLtps((prev) => {
+                let changed = false;
+                const next = { ...prev };
+                INDICES.forEach(({ symbol }) => {
+                    const value = Number(fetched[symbol]);
+                    if (Number.isFinite(value) && value > 0 && prev[symbol] !== value) {
+                        next[symbol] = value;
+                        changed = true;
+                    }
+                });
+                return changed ? next : prev;
+            });
+        };
+
+        hydrateIndexLtps();
+        const refresh = setInterval(hydrateIndexLtps, 30000);
+        return () => {
+            cancelled = true;
+            clearInterval(refresh);
+        };
+    }, []);
 
     // One-shot fetch of previous-close.
     useEffect(() => {
@@ -207,7 +245,7 @@ export default function useHomeMarketSummary() {
                 };
                 const headers = {
                     'Content-Type': 'application/json',
-                    'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                    'X-Advisor-Subdomain': getTenantSubdomain(),
                     'aq-encrypted-key': generateToken(
                         Config?.REACT_APP_AQ_KEYS,
                         Config?.REACT_APP_AQ_SECRET,

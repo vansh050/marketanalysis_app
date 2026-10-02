@@ -10,7 +10,7 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 import ICICIConnectUI from '../../UIComponents/BrokerConnectionUI/ICICIConnectUI';
 import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import { useTrade } from '../../screens/TradeContext';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 import eventEmitter from '../EventEmitter';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import {
@@ -19,6 +19,8 @@ import {
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
 import {getAccountEmail} from '../../utils/accountEmail';
+
+import { designColor } from '../../design/literalTokens';
 
 const ICICIUPModal = ({
   isVisible,
@@ -63,7 +65,7 @@ const ICICIUPModal = ({
         .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -124,7 +126,7 @@ const ICICIUPModal = ({
         data: JSON.stringify({ user_email: userEmail, user_broker: 'ICICI Direct' }),
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
         },
       });
@@ -192,10 +194,19 @@ const ICICIUPModal = ({
         user_email: userEmail,
         apiKey: apiKey,
         accessToken: apiSession,
+        // ccxt resolves ICICI credentials DB-first by default, so without
+        // this flag the exchange validates with the stored top-level
+        // jwtToken — which belongs to a DIFFERENT broker after the user
+        // switches primary (e.g. DefinEdge) or is yesterday's dead session.
+        // Breeze then replies "Invalid User Details" and the fresh one-shot
+        // apisession is silently discarded → reconnect stuck on
+        // "Session expired" (web twin fixed 2026-08-14; same opt-in the
+        // Node connect-broker probe has used since 2026-07-20).
+        preferBodyCredentials: true,
       }),
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
       },
     })
@@ -226,7 +237,7 @@ const ICICIUPModal = ({
           {
             headers: {
               'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+              'X-Advisor-Subdomain': getTenantSubdomain(configData),
               'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
             },
           },
@@ -286,7 +297,7 @@ const ICICIUPModal = ({
       .put(`${server.server.baseUrl}api/icici/update-key`, data, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -369,11 +380,11 @@ const ICICIUPModal = ({
       broker="ICICI Direct"
       config={{
         monogram: 'I',
-        brandFrom: '#f37e20',
-        brandTo: '#a3231f',
+        brandFrom: designColor('f37e20'),
+        brandTo: designColor('a3231f'),
         portalUrl: 'https://api.icicidirect.com/apiuser/home',
         portalLabel: 'Open ICICI Breeze portal',
-        redirectUrl: `${server.ccxtServer.baseUrl}icici/auth-callback/${getAdvisorSubdomain()}`,
+        redirectUrl: `${server.ccxtServer.baseUrl}icici/auth-callback/${getTenantSubdomain(configData)}`,
         walkthroughVideoId: 'PFiVLkdIhk8',
         guideSteps: [
           'Log in to your <b>ICICI Direct</b> account with OTP',

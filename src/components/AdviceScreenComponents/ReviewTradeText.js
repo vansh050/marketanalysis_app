@@ -3,6 +3,7 @@ import { Text, StyleSheet,View } from "react-native";
 import axios from 'axios';
 import { io } from "socket.io-client";
 import useLTPStore from "./DynamicText/useLtpStore";
+import { designColor, designFont } from '../../design/literalTokens';
 // WebSocket Manager remains the same
 
 const ReviewTradeText = React.memo(({ symbol, orderType, exchange, limitPrice }) => {
@@ -58,8 +59,8 @@ const ReviewTradeText = React.memo(({ symbol, orderType, exchange, limitPrice })
 const styles = StyleSheet.create({
   cellTextmktprice: {
     fontSize: 12,
-    color: "#333333",
-    fontFamily:'Poppins-Small',
+    color: designColor('333333'),
+    fontFamily:designFont('Poppins-Small'),
     textAlign: "right",
   },
   fnostyle : {
@@ -68,12 +69,12 @@ const styles = StyleSheet.create({
     alignContent:'center',
     alignItems:'center',
     alignSelf:'center',
-    color: "#333333",
-    fontFamily:'Satoshi-Medium',
+    color: designColor('333333'),
+    fontFamily:designFont('Satoshi-Medium'),
     textAlign: "right",
   },
   mutedText : {
-    color:'grey',fontSize:10,fontFamily:'Poppins-Small',
+    color:'grey',fontSize:10,fontFamily:designFont('Poppins-Small'),
   }
 });
 

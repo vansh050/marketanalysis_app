@@ -14,6 +14,9 @@ import Icon from 'react-native-vector-icons/Feather';
 import Toast from "react-native-toast-message";
 
 
+import { designColor, designFont } from '../design/literalTokens';
+
+
 const { height: screenHeight } = Dimensions.get('window');
 
 const ProfileModalHelp = ({
@@ -54,7 +57,7 @@ const ProfileModalHelp = ({
   const OpenHelpModal = () => {
     // console.log('modal:',helpVisible)
      setHelpVisible(true);
- 
+
    };
 
 
@@ -72,62 +75,62 @@ const ProfileModalHelp = ({
       swipeDirection={['down']}
       onSwipeComplete={() => setShowModal(false)}
     >
-   <View style={[styles.modalContent, { height: !userTelegram ? screenHeight / 1.5 : screenHeight / 1.8 }]}>
-   <View style={{flexDirection:'row'}}>
-   <ChevronLeft style={{top:2}} onPress={() => setShowModal(false)} size={24} color="grey"/>
-   <Text style={{fontSize: 16,
-    marginHorizontal:10,
-    fontWeight: "Poppins-Bold",
-    color: 'black',
-    marginBottom: 15,}}>Steps to get Telegram Username</Text>
-        <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeButton}>
-        <XIcon size={24} color="grey" />
-        </TouchableOpacity>
-   </View>
-       
-        <View style={{flex:1}}>
-        <ScrollView>
-          <Pressable>
-          {1 && (
-    <View style={styles.telegrambox}>
-      <View style={styles.playerWrapper}>
-        <YoutubePlayer
-          height={200}
-          width={350}
-          play={playing}
-          videoId={"S-F8R3ord3k"}
-          onChangeState={onStateChange}
-        />
+      <View style={[styles.modalContent, { height: !userTelegram ? screenHeight / 1.5 : screenHeight / 1.8 }]}>
+      <View style={{flexDirection:'row'}}>
+      <ChevronLeft style={{top:2}} onPress={() => setShowModal(false)} size={24} color="grey"/>
+      <Text style={{fontSize: 16,
+       marginHorizontal:10,
+       fontWeight: "Poppins-Bold",
+       color: 'black',
+       marginBottom: 15,}}>Steps to get Telegram Username</Text>
+           <TouchableOpacity onPress={() => setShowModal(false)} style={styles.closeButton}>
+           <XIcon size={24} color="grey" />
+           </TouchableOpacity>
       </View>
-      <View style={styles.accordionContainer}>
-        <Collapse isExpanded={1}>
-          <CollapseHeader style={styles.header}>
- 
-          </CollapseHeader>
-          <CollapseBody style={styles.accordionContent}>
-            <Text style={{ fontSize: 16, lineHeight:20, justifyContent:'center', color:'#2b2b2b',fontFamily:'Poppins-Regular' }}>
-              1. Log in to your Telegram account via Desktop or Mobile App.{"\n"}
-              {"\n"}
-              2. Click on the menu icon located at the top left corner and select "Settings."{"\n"}
-              {"\n"}
-              3. In the "My Account" menu, click on "t.me/username."{"\n"}
-              {"\n"}
-              4. Fill in username of your choosing, that is available.{"\n"}
-              {"\n"}
-              5. Click on "Save" to set your username.{"\n"}
-              {"\n"}
-              6. Provide this username in your telegram ID section on this page and save.
-            </Text>
-          </CollapseBody>
-        </Collapse>
-      </View>
-    </View>
-  )}
-         
-          </Pressable>
-        </ScrollView>
-        </View>
-      </View>
+
+           <View style={{flex:1}}>
+           <ScrollView>
+             <Pressable>
+             {1 && (
+       <View style={styles.telegrambox}>
+         <View style={styles.playerWrapper}>
+           <YoutubePlayer
+             height={200}
+             width={350}
+             play={playing}
+             videoId={"S-F8R3ord3k"}
+             onChangeState={onStateChange}
+           />
+         </View>
+         <View style={styles.accordionContainer}>
+           <Collapse isExpanded={1}>
+             <CollapseHeader style={styles.header}>
+
+             </CollapseHeader>
+             <CollapseBody style={styles.accordionContent}>
+               <Text style={{ fontSize: 16, lineHeight:20, justifyContent:'center', color:designColor('2b2b2b'),fontFamily:designFont('Poppins-Regular') }}>
+                 1. Log in to your Telegram account via Desktop or Mobile App.{"\n"}
+                 {"\n"}
+                 2. Click on the menu icon located at the top left corner and select "Settings."{"\n"}
+                 {"\n"}
+                 3. In the "My Account" menu, click on "t.me/username."{"\n"}
+                 {"\n"}
+                 4. Fill in username of your choosing, that is available.{"\n"}
+                 {"\n"}
+                 5. Click on "Save" to set your username.{"\n"}
+                 {"\n"}
+                 6. Provide this username in your telegram ID section on this page and save.
+               </Text>
+             </CollapseBody>
+           </Collapse>
+         </View>
+       </View>
+     )}
+
+             </Pressable>
+           </ScrollView>
+           </View>
+         </View>
     </Modal>
   );
 };
@@ -139,7 +142,7 @@ const styles = StyleSheet.create({
     margin: 0,
   },
   modalContent: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     height: screenHeight / 1.5,
@@ -170,14 +173,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignSelf:'center',
     width: '90%',
-    backgroundColor: '#000101',
+    backgroundColor: designColor('000101'),
     padding: 10,
     borderRadius: 8,
     marginBottom: 1,
   },
   addButtonText: {
     fontSize: 18,
-    color: '#fff',
+    color: designColor('fff'),
     fontWeight: '600',
     alignSelf:'center',
   },
@@ -201,13 +204,13 @@ const styles = StyleSheet.create({
     marginLeft:30,
   },
   headerText: {
-    fontFamily:'Poppins-Bold',
+    fontFamily:designFont('Poppins-Bold'),
     color: 'black',
     fontSize: 17,
 
   },
   accordionContent: {
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
     fontSize: 16,
     marginTop:10,
     paddingHorizontal:10
@@ -218,15 +221,15 @@ const styles = StyleSheet.create({
   },
   profileCompletionText: {
     fontSize: 16,
-    fontFamily:'Poppins-Bold',
+    fontFamily:designFont('Poppins-Bold'),
     color:'black',
     alignSelf: 'flex-start',
     marginLeft: 30,
   },
   instructions: {
     fontSize: 14,
-    color: '#777',
-    fontFamily:'Poppins-Regular',
+    color: designColor('777'),
+    fontFamily:designFont('Poppins-Regular'),
     paddingRight:150,
     marginBottom: 10,
     marginLeft: 30,
@@ -237,15 +240,15 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 250,
     alignSelf: 'center',
-    backgroundColor: '#f1f4f8',
+    backgroundColor: designColor('f1f4f8'),
     marginBottom: 10,
   },
   input: {
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
     width: '90%',
     height: 50,
-    borderColor: '#ccc',
-    color:'#000101',
+    borderColor: designColor('ccc'),
+    color:designColor('000101'),
     borderWidth: 1,
     borderRadius: 5,
     padding: 10,
@@ -253,11 +256,11 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   inputphn: {
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
     width: '67%',
-    color:'#000101',
+    color:designColor('000101'),
     height: 40,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     borderWidth: 1,
     borderRadius: 5,
     padding:8,
@@ -268,8 +271,8 @@ const styles = StyleSheet.create({
     flexDirection:'row',
     width: '20%',
     height: 40,
-    
-    borderColor: '#ccc',
+
+    borderColor: designColor('ccc'),
     borderWidth: 1,
     borderRadius: 5,
     padding: 10,
@@ -277,25 +280,25 @@ const styles = StyleSheet.create({
     marginRight: 10,
   },
   countryCodeText: {
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
     fontSize: 16,
-    color:'#000101',
+    color:designColor('000101'),
   },
   countryCodeList: {
-    fontFamily:'Poppins-Regular',
+    fontFamily:designFont('Poppins-Regular'),
     width: '70%',
     position: 'absolute',
     top: 55,
-    backgroundColor: '#fff',
-    borderColor: '#ccc',
+    backgroundColor: designColor('fff'),
+    borderColor: designColor('ccc'),
     borderWidth: 1,
     borderRadius: 5,
     zIndex: 999,
   },
   searchInput: {
-    fontFamily:'Poppins-Bold',
+    fontFamily:designFont('Poppins-Bold'),
     height: 40,
-    borderBottomColor: '#ccc',
+    borderBottomColor: designColor('ccc'),
     borderBottomWidth: 1,
     padding: 10,
   },
@@ -304,7 +307,7 @@ const styles = StyleSheet.create({
   },
   countryCodeItem: {
     padding: 10,
-    borderBottomColor: '#ccc',
+    borderBottomColor: designColor('ccc'),
     borderBottomWidth: 1,
   },
 });

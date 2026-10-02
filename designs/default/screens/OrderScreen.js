@@ -28,6 +28,8 @@ import LinearGradient from 'react-native-linear-gradient';
 import { ShoppingBasket, ChevronUp, ChevronDown, SearchIcon } from 'lucide-react-native';
 import useTokens from '../../../src/theme/useTokens';
 import { getStatusColors } from '../../../src/utils/orderUtils';
+import { isManagerClosedZeroFill } from '../../../src/utils/orderStatusUtils';
+import { getBasketOrderAggregateStatus } from '../../../src/utils/basketOrderState';
 import Text from '../primitives/Text';
 import Icon from '../primitives/Icon';
 import OrderRow from '../composites/OrderRow';
@@ -81,7 +83,12 @@ const BasketRow = ({ item, onDdpiHelpPress }) => {
                     }}
                 >
                     {item.basket_advice.map((subItem) => {
-                        const { color1, color2 } = getStatusColors(subItem.trade_place_status);
+                        const managerClosed = isManagerClosedZeroFill(subItem);
+                        // A manager-closed zero-fill leg renders as a completed
+                        // (closed) outcome — green pill, not cancellation grey.
+                        const { color1, color2 } = managerClosed
+                            ? getStatusColors('complete')
+                            : getStatusColors(subItem.trade_place_status);
                         return (
                             <OrderRow
                                 key={subItem._id}
@@ -100,8 +107,8 @@ const BasketRow = ({ item, onDdpiHelpPress }) => {
 
 const OrderScreen = ({ viewModel, actions }) => {
     const tokens = useTokens();
-    const { orders = [], isLoading = false, gradient = {} } = viewModel || {};
-    const { openDdpiHelp = () => {} } = actions || {};
+    const { orders = [], isLoading = false, isRefreshing = false, loadError = false, gradient = {} } = viewModel || {};
+    const { openDdpiHelp = () => {}, refreshOrders = () => {} } = actions || {};
 
     const [searchText, setSearchText] = useState('');
     const [selectedBroker, setSelectedBroker] = useState('all');
@@ -128,11 +135,16 @@ const OrderScreen = ({ viewModel, actions }) => {
         return ['NFO', 'BFO'].includes(String(order?.Exchange || '').toUpperCase()) ? 'fno' : 'equity';
     };
     const getOrderStatus = order => {
+        const basketStatus = getBasketOrderAggregateStatus(order);
+        if (basketStatus) return basketStatus;
         const status = String(order?.trade_place_status || '').toLowerCase();
         // Legacy rows without a recorded status are not pending orders. Treating
         // the empty value as pending was what produced a large “Pending” count
         // while each card itself could only say “Unknown”.
         if (!status) return 'unavailable';
+        // A manager-closed zero-fill order is a completed (closed) outcome, not
+        // a rejection — the advisor closed it; do not bucket it under Rejected.
+        if (isManagerClosedZeroFill(order)) return 'completed';
         if (['rejected', 'failure', 'failed', 'cancelled'].includes(status)) return 'rejected';
         if (['complete', 'completed', 'executed', 'placed', 'manually_placed'].includes(status)) return 'completed';
         if (['pending', 'trigger pending', 'trigger_pending', 'requested', 'am', 'after market', 'open', 'transit', 'ordered'].includes(status)) return 'pending';
@@ -241,6 +253,8 @@ const OrderScreen = ({ viewModel, actions }) => {
                     data={dataToShow}
                     keyExtractor={(item) => item._id}
                     renderItem={renderItem}
+                    refreshing={isRefreshing}
+                    onRefresh={refreshOrders}
                     contentContainerStyle={{paddingBottom: 20}}
                     // Keep only the compact screen title fixed. Search and filters
                     // belong to the list, so they scroll away with the first cards
@@ -345,6 +359,15 @@ const OrderScreen = ({ viewModel, actions }) => {
                                 >
                                     Loading your orders...
                                 </Text>
+                            </View>
+                        ) : loadError ? (
+                            <View style={{alignItems: 'center', margin: 20, padding: 24, borderRadius: 16, backgroundColor: '#FFFFFF'}}>
+                                <Text variant="bodyEmphasis" style={{color: tokens.colors.text.primary, textAlign: 'center'}}>
+                                    Orders could not be refreshed
+                                </Text>
+                                <TouchableOpacity onPress={refreshOrders} style={{marginTop: 16, padding: 12}}>
+                                    <Text variant="bodyEmphasis" style={{color: tokens.colors.brand.primary}}>Retry</Text>
+                                </TouchableOpacity>
                             </View>
                         ) : (
                             <LinearGradient

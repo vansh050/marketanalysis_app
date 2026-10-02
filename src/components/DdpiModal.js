@@ -20,6 +20,7 @@ import Config from 'react-native-config';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import axios from 'axios';
 import server from '../utils/serverConfig';
+import {getPlatformDisplayName} from '../utils/advisorContentProfile';
 
 import {generateToken} from '../utils/SecurityTokenManager';
 import {
@@ -35,8 +36,16 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import useModalStore from '../GlobalUIModals/modalStore';
 import {useTrade} from '../screens/TradeContext';
-import {getAdvisorSubdomain} from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 import {getAccountEmail} from '../utils/accountEmail';
+import {tagSellAuthorizationRetryCalculation} from '../utils/rebalanceHelpers';
+import {
+  getDhanSellTrades,
+  isDhanSellAuthorizationReady,
+} from '../utils/dhanEdis';
+import PublisherWebViewOverlay from './PublisherWebViewOverlay';
+import SellAuthGuideCard from './SellAuth/SellAuthGuideCard';
+import { designColor, designFont } from '../design/literalTokens';
 const {height: screenHeight, width: screenWidth} = Dimensions.get('window');
 const checkValidApiAnSecret = data => {
   if (!data) return null;
@@ -48,6 +57,7 @@ const checkValidApiAnSecret = data => {
 };
 
 export default function DdpiModal({
+  sellOrders = [],
   isOpen = false,
   setIsOpen = () => {},
   userDetails,
@@ -75,7 +85,7 @@ export default function DdpiModal({
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -125,7 +135,7 @@ export default function DdpiModal({
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -144,10 +154,25 @@ export default function DdpiModal({
       if (reopenRebalanceModal) reopenRebalanceModal();
     } catch (error) {
       console.error('Error updating EDIS status:', error);
+      // The server confirms a Zerodha claim against Kite holdings before it
+      // stores it. EDIS_NOT_CONFIRMED means CDSL has no authorization for this
+      // demat account — the CDSL window was closed before the TPIN + OTP
+      // completed. Drop back to the "Proceed with Authorization to Sell" sheet
+      // so the customer re-runs the CDSL step instead of leaving with a sell
+      // the exchange will reject.
+      const notConfirmed =
+        error?.response?.data?.code === 'EDIS_NOT_CONFIRMED';
+      if (notConfirmed) {
+        setShowTpinConfirmation(false);
+        setTpinCompleted(false);
+      }
       Toast.show({
         type: 'error',
-        text1: 'Error',
-        text2: 'Failed to update authorization status. Please try again.',
+        text1: notConfirmed ? 'CDSL authorization not confirmed' : 'Error',
+        text2:
+          error?.response?.data?.error ||
+          'Failed to update authorization status. Please try again.',
+        visibilityTime: 7000,
       });
     }
   };
@@ -155,7 +180,10 @@ export default function DdpiModal({
   return (
     <>
       <Modal
-        visible={isOpen}
+        // A native Modal is a separate Android window and otherwise stays
+        // above the app-root CDSL WebView host. Hide only this informational
+        // sheet as soon as authUrl exists so TPIN/OTP remains interactive.
+        visible={isOpen && !authUrl}
         transparent={true}
         style={{
           justifyContent: 'flex-end',
@@ -178,22 +206,13 @@ export default function DdpiModal({
                 />
               </View>
               <View style={styles.textSection}>
-                <View style={styles.alertHeader}>
-                  <Text style={styles.alertIcon}>⚠️</Text>
-                  <Text style={styles.title}>
-                    DDPI Inactive: Proceed with TPIN Mandate
-                  </Text>
-                </View>
-                <View style={styles.list}>
-                  <Text style={styles.listItem}>
-                    • Use TPIN for a temporary authorization to sell selected
-                    stocks while DDPI is inactive
-                  </Text>
-                  <Text style={styles.listItem}>
-                    • This secure, one-time mandate allows smooth transactions
-                    until DDPI is active
-                  </Text>
-                </View>
+                <SellAuthGuideCard
+                  broker="Zerodha"
+                  configData={configData}
+                  variant="inApp"
+                  sellOrders={sellOrders}
+                  testID="sell-auth-guide-zerodha"
+                />
                 <TouchableOpacity
                   style={styles.proceedButton}
                   onPress={proceedWithTpin}>
@@ -206,16 +225,12 @@ export default function DdpiModal({
           </View>
         </View>
       </Modal>
-
-      {/* WebView Modal */}
-      <Modal
-        visible={!!authUrl}
-        animationType="slide"
-        onRequestClose={() => {
-          setAuthUrl(null);
-          setShowTpinConfirmation(true);
-        }}>
-        <WebView
+      {/* Keep CDSL/Kite in the same app-root browser host as Publisher. A
+          nested native Modal creates a second Android window, drops IME focus
+          during redirects and does not reliably share the authenticated Kite
+          cookie with the subsequent buy basket. */}
+      {authUrl ? (
+        <PublisherWebViewOverlay
           source={{uri: authUrl}}
           javaScriptEnabled={true}
           domStorageEnabled={true}
@@ -238,18 +253,13 @@ export default function DdpiModal({
             }
             return true;
           }}
-          renderLoading={() => <ActivityIndicator size="large" color="#000" />}
-        />
-        <TouchableOpacity
-          style={styles.closeButton}
-          onPress={() => {
+          renderLoading={() => <ActivityIndicator size="large" color={designColor('000')} />}
+          onClose={() => {
             setAuthUrl(null);
             setShowTpinConfirmation(true);
-          }}>
-          <Text style={styles.closeIcon}>✕</Text>
-        </TouchableOpacity>
-      </Modal>
-
+          }}
+        />
+      ) : null}
       {/* TPIN Confirmation Modal */}
       <Modal
         visible={showTpinConfirmation}
@@ -273,7 +283,7 @@ export default function DdpiModal({
                 style={styles.checkboxContainer}
                 onPress={() => setTpinCompleted(!tpinCompleted)}>
                 <View style={[styles.checkbox, tpinCompleted ? styles.checked : styles.unchecked]}>
-                  {tpinCompleted && <Check size={14} color="#fff" />}
+                  {tpinCompleted && <Check size={14} color={designColor('fff')} />}
                 </View>
                 <Text style={styles.label}>I've authorized the sell of the stocks</Text>
               </TouchableOpacity>
@@ -310,10 +320,12 @@ const styles = StyleSheet.create({
   ////
 
   actionsContainer: {
-    flexDirection: 'row',
+    // Column (2026-10-01): two buttons side by side clipped on ~360dp phones.
+    flexDirection: 'column',
+    alignItems: 'stretch',
     marginTop: 16,
-    justifyContent: 'space-between',
     paddingBottom: 8,
+    width: '100%',
   },
   button: {
     height: 41,
@@ -325,16 +337,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   enabledButton: {
-    backgroundColor: '#E43D3D',
+    backgroundColor: designColor('e43d3d'),
   },
   disabledButton: {
-    backgroundColor: '#E43D3D',
+    backgroundColor: designColor('e43d3d'),
     opacity: 0.5,
   },
   buttonText: {
     fontSize: 14,
-    fontFamily: 'Poppins', // Use the font family you need
-    color: '#fff',
+    fontFamily: designFont('Poppins'), // Use the font family you need
+    color: designColor('fff'),
   },
   howToButton: {
     height: 41,
@@ -343,12 +355,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#E43D3D',
+    borderColor: designColor('e43d3d'),
   },
   howToButtonText: {
     fontSize: 14,
-    fontFamily: 'Poppins', // Use the font family you need
-    color: '#E43D3D',
+    fontFamily: designFont('Poppins'), // Use the font family you need
+    color: designColor('e43d3d'),
   },
 
   ////
@@ -368,28 +380,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   checked: {
-    backgroundColor: '#10B981', // Tailwind color for success
-    borderColor: '#10B981', // Green border when checked
+    backgroundColor: designColor('10b981'), // Tailwind color for success
+    borderColor: designColor('10b981'), // Green border when checked
   },
   unchecked: {
-    backgroundColor: '#fff',
-    borderColor: '#D1D5DB', // Light gray border when unchecked
+    backgroundColor: designColor('fff'),
+    borderColor: designColor('d1d5db'), // Light gray border when unchecked
   },
   checkmark: {
     width: 12,
     height: 12,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 2,
   },
   label: {
+    // Wrap instead of running off the right edge (shared by every
+    // "I've authorized the sell…" checkbox in this file).
+    flexShrink: 1,
     fontSize: 14,
-    fontFamily: 'Poppins', // Replace with your font if needed
-    color: '#4B5563', // Tailwind equivalent of text-gray-600
+    fontFamily: designFont('Poppins'), // Replace with your font if needed
+    color: designColor('4b5563'), // Tailwind equivalent of text-gray-600
   },
 
   closeIcon: {
     fontSize: 24,
-    color: '#999',
+    color: designColor('999'),
   },
   contentContainer: {
     flexDirection: 'column',
@@ -411,7 +426,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 20,
     fontWeight: '600',
-    color: '#333',
+    color: designColor('333'),
   },
   listContainer: {
     marginBottom: 16,
@@ -419,18 +434,18 @@ const styles = StyleSheet.create({
   },
   listItem: {
     fontSize: 14,
-    color: '#666',
+    color: designColor('666'),
     marginBottom: 8,
   },
   proceedButton: {
-    backgroundColor: '#ef4444',
+    backgroundColor: designColor('ef4444'),
     paddingVertical: 12,
     borderRadius: 6,
     alignItems: 'center',
     marginTop: 16,
   },
   buttonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontWeight: '600',
     fontSize: 14,
   },
@@ -449,7 +464,7 @@ const styles = StyleSheet.create({
   dialogContainer: {
     width: '95%',
     maxHeight: '90%',
-    backgroundColor: '#FFF',
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     overflow: 'hidden',
     position: 'relative',
@@ -458,7 +473,7 @@ const styles = StyleSheet.create({
   listText: {
     fontSize: 13,
     lineHeight: 18,
-    color: '#333',
+    color: designColor('333'),
   },
   // Prominent "Activate DDPI" nudge that opens the shared
   // `BrokerDdpiHelpModal` via the global modal store. See
@@ -467,14 +482,14 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingVertical: 10,
     paddingHorizontal: 12,
-    backgroundColor: '#e5f7f0',
-    borderColor: '#b9e4d2',
+    backgroundColor: designColor('e5f7f0'),
+    borderColor: designColor('b9e4d2'),
     borderWidth: 1,
     borderRadius: 8,
   },
   ddpiNudgeText: {
     fontSize: 13,
-    color: '#0a7a5a',
+    color: designColor('0a7a5a'),
     fontWeight: '600',
   },
   boldText: {
@@ -520,7 +535,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   container: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     width: '90%',
     maxHeight: '90%',
@@ -550,7 +565,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     marginRight: 20,
     fontWeight: '600',
-    color: '#000000B3',
+    color: designColor('000000b3'),
   },
   list: {
     marginVertical: 10,
@@ -585,7 +600,7 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
   },
   noHoldingsModal: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     width: '80%',
     padding: 16,
@@ -605,7 +620,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   tpinModal: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     width: '80%',
     padding: 20,
@@ -628,7 +643,7 @@ const styles = StyleSheet.create({
   },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     borderRadius: 20,
     paddingHorizontal: 12,
     width: '60%',
@@ -640,7 +655,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   verifyButton: {
-    backgroundColor: '#5ACAC9',
+    backgroundColor: designColor('5acac9'),
     padding: 10,
     borderRadius: 20,
     alignItems: 'center',
@@ -677,7 +692,7 @@ const styles = StyleSheet.create({
     padding: 0,
     backgroundColor: 'transparent',
     borderWidth: 0,
-    color: '#6b7280',
+    color: designColor('6b7280'),
     fontSize: 24,
   },
   BackButton: {
@@ -687,7 +702,7 @@ const styles = StyleSheet.create({
     padding: 0,
     backgroundColor: 'transparent',
     borderWidth: 0,
-    color: '#6b7280',
+    color: designColor('6b7280'),
     fontSize: 24,
   },
 
@@ -723,7 +738,7 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     marginTop: 4,
-    color: '#e43d3d',
+    color: designColor('e43d3d'),
   },
 
   /* Title */
@@ -731,7 +746,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: 'black',
-    fontFamily: 'Poppins-Bold',
+    fontFamily: designFont('Poppins-Bold'),
     lineHeight: 26,
     alignContent: 'flex-start',
     alignItems: 'flex-start',
@@ -743,8 +758,8 @@ const styles = StyleSheet.create({
   modalListItem: {
     fontSize: 13,
     fontWeight: '300',
-    fontFamily: 'Poppins',
-    color: '#4b5563',
+    fontFamily: designFont('Poppins'),
+    color: designColor('4b5563'),
     marginBottom: 8,
   },
 
@@ -757,7 +772,7 @@ const styles = StyleSheet.create({
 
   checkboxLabel: {
     fontSize: 14,
-    fontFamily: 'Poppins',
+    fontFamily: designFont('Poppins'),
     marginLeft: 10,
   },
 
@@ -766,12 +781,12 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 41,
     borderRadius: 8,
-    fontFamily: 'Poppins',
+    fontFamily: designFont('Poppins'),
     fontSize: 14,
     color: 'white',
     textAlign: 'center',
     paddingHorizontal: 16,
-    backgroundColor: '#e43d3d',
+    backgroundColor: designColor('e43d3d'),
   },
 
   primaryButtonDisabled: {
@@ -783,10 +798,10 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 41,
     paddingHorizontal: 16,
-    fontFamily: 'Poppins',
+    fontFamily: designFont('Poppins'),
     fontSize: 14,
-    color: '#e43d3d',
-    borderColor: '#e43d3d',
+    color: designColor('e43d3d'),
+    borderColor: designColor('e43d3d'),
     borderWidth: 1,
     borderRadius: 8,
     textAlign: 'center',
@@ -794,9 +809,37 @@ const styles = StyleSheet.create({
 });
 
 const otherBrokerStyles = StyleSheet.create({
+  fullWidthAction: {
+    alignSelf: 'stretch',
+    marginRight: 0,
+  },
+  retryStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  retryStatusText: {
+    marginLeft: 8,
+    fontSize: 14,
+    fontFamily: designFont('Poppins'),
+    color: designColor('374151'),
+  },
+  retryError: {
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: designColor('fef2f2'),
+    borderWidth: 1,
+    borderColor: designColor('fecaca'),
+  },
+  retryErrorText: {
+    fontSize: 13,
+    fontFamily: designFont('Poppins'),
+    color: designColor('991b1b'),
+  },
   ddpiHeroCard: {
-    backgroundColor: '#f0fdf4',
-    borderColor: '#86efac',
+    backgroundColor: designColor('f0fdf4'),
+    borderColor: designColor('86efac'),
     borderWidth: 1.5,
     borderRadius: 12,
     padding: 16,
@@ -804,7 +847,7 @@ const otherBrokerStyles = StyleSheet.create({
     width: '100%',
   },
   ddpiHeroBadge: {
-    backgroundColor: '#16a34a',
+    backgroundColor: designColor('16a34a'),
     borderRadius: 4,
     paddingHorizontal: 8,
     paddingVertical: 3,
@@ -812,37 +855,37 @@ const otherBrokerStyles = StyleSheet.create({
     marginBottom: 8,
   },
   ddpiHeroBadgeText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 10,
     fontWeight: '700',
-    fontFamily: 'Poppins',
+    fontFamily: designFont('Poppins'),
     letterSpacing: 0.5,
   },
   ddpiHeroTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#15803d',
-    fontFamily: 'Poppins',
+    color: designColor('15803d'),
+    fontFamily: designFont('Poppins'),
     marginBottom: 6,
   },
   ddpiHeroBody: {
     fontSize: 13,
     lineHeight: 19,
-    color: '#4b5563',
-    fontFamily: 'Poppins',
+    color: designColor('4b5563'),
+    fontFamily: designFont('Poppins'),
     marginBottom: 12,
   },
   ddpiHeroButton: {
-    backgroundColor: '#16a34a',
+    backgroundColor: designColor('16a34a'),
     borderRadius: 8,
     paddingVertical: 12,
     alignItems: 'center',
   },
   ddpiHeroButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 14,
     fontWeight: '600',
-    fontFamily: 'Poppins',
+    fontFamily: designFont('Poppins'),
   },
   dividerRow: {
     flexDirection: 'row',
@@ -853,13 +896,13 @@ const otherBrokerStyles = StyleSheet.create({
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: designColor('e5e7eb'),
   },
   dividerText: {
     marginHorizontal: 10,
     fontSize: 12,
-    color: '#9CA3AF',
-    fontFamily: 'Poppins',
+    color: designColor('9ca3af'),
+    fontFamily: designFont('Poppins'),
   },
 });
 
@@ -940,7 +983,7 @@ export function ActivateNowModel({
 
             {/* Action Button */}
             <LinearGradient
-              colors={['#D97706', '#F59E0B', '#D97706']}
+              colors={[designColor('d97706'), designColor('f59e0b'), designColor('d97706')]}
               style={styles.buttonGradient}>
               <TouchableOpacity
                 style={styles.activateButton}
@@ -1046,7 +1089,6 @@ export function ActivateTopModel(userDetails) {
           <Text style={styles.buttonText}>Activate DDPI &gt;&gt;</Text>
         </TouchableOpacity>
       </View>
-
       {/* Modal Section */}
       <Modal transparent={true} animationType="slide" visible={showModal}>
         <View style={styles.modalOverlay}>
@@ -1100,6 +1142,7 @@ export function ActivateTopModel(userDetails) {
 }
 
 export function AngleOneTpinModal({
+  sellOrders = [],
   isOpen,
   setIsOpen,
   userDetails,
@@ -1193,7 +1236,7 @@ export function AngleOneTpinModal({
           {
             headers: {
               'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+              'X-Advisor-Subdomain': getTenantSubdomain(configData),
               'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
             },
           },
@@ -1322,7 +1365,7 @@ export function AngleOneTpinModal({
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -1365,22 +1408,13 @@ export function AngleOneTpinModal({
                 />
               </View>
               <View style={styles.textSection}>
-                <View style={styles.alertHeader}>
-                  <Text style={styles.alertIcon}>⚠️</Text>
-                  <Text style={styles.title}>
-                    DDPI Inactive: Proceed with TPIN Mandate
-                  </Text>
-                </View>
-                <View style={styles.list}>
-                  <Text style={styles.listItem}>
-                    • Use TPIN for a temporary authorization to sell selected
-                    stocks while DDPI is inactive
-                  </Text>
-                  <Text style={styles.listItem}>
-                    • This secure, one-time mandate allows smooth transactions
-                    until DDPI is active
-                  </Text>
-                </View>
+                <SellAuthGuideCard
+                  broker="Angel One"
+                  configData={configData}
+                  variant="inApp"
+                  sellOrders={sellOrders}
+                  testID="sell-auth-guide-angel-one"
+                />
                 {/* 2026-05-07: button enable previously checked
                  * `!edisStatus?.data` — but `data: {}` (empty object,
                  * what the backend returns when getHolding is rate-
@@ -1394,7 +1428,7 @@ export function AngleOneTpinModal({
                   onPress={proceedWithTpin}
                   disabled={loading || !hasUsableEdisData}>
                   {loading ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={designColor('fff')} />
                   ) : (
                     <Text style={styles.buttonText}>
                       Proceed with Angel One Authorization to Sell
@@ -1405,8 +1439,8 @@ export function AngleOneTpinModal({
             </View>
           </View>
         </View>
+        <Toast />
       </Modal>
-
       {/* WebView Modal */}
       {isWebViewOpen && (
         <Modal visible={isWebViewOpen} transparent animationType="slide"
@@ -1420,7 +1454,7 @@ export function AngleOneTpinModal({
             domStorageEnabled={true}
             source={{html: formHtml}}
             startInLoadingState
-            renderLoading={() => <ActivityIndicator size="large" color="#0000ff" />}
+            renderLoading={() => <ActivityIndicator size="large" color={designColor('0000ff')} />}
             onNavigationStateChange={navState => {
               if (navState.url.includes('stock-recommendation')) {
                 setIsWebViewOpen(false);
@@ -1444,9 +1478,9 @@ export function AngleOneTpinModal({
             }}>
             <Text style={styles.closeIcon}>X</Text>
           </TouchableOpacity>
+          <Toast />
         </Modal>
       )}
-
       {/* TPIN Confirmation Modal */}
       <Modal
         visible={showTpinConfirmation}
@@ -1470,7 +1504,7 @@ export function AngleOneTpinModal({
                 style={styles.checkboxContainer}
                 onPress={() => setTpinCompleted(!tpinCompleted)}>
                 <View style={[styles.checkbox, tpinCompleted ? styles.checked : styles.unchecked]}>
-                  {tpinCompleted && <Check size={14} color="#fff" />}
+                  {tpinCompleted && <Check size={14} color={designColor('fff')} />}
                 </View>
                 <Text style={styles.label}>I've authorized the sell of the stocks</Text>
               </TouchableOpacity>
@@ -1483,12 +1517,14 @@ export function AngleOneTpinModal({
             </View>
           </View>
         </View>
+        <Toast />
       </Modal>
     </>
   );
 }
 
 export function DhanTpinModal({
+  sellOrders = [],
   isOpen,
   setIsOpen,
   userDetails,
@@ -1497,6 +1533,7 @@ export function DhanTpinModal({
   singleStockTypeAndSymbol,
   reopenRebalanceModal,
   getUserDetails,
+  onEdisStatusRefresh,
 }) {
   const [loading, setLoading] = useState(false);
   const [localDhanEdisStatus, setLocalDhanEdisStatus] = useState(null);
@@ -1509,48 +1546,75 @@ export function DhanTpinModal({
   const [tpinCompleted, setTpinCompleted] = useState(false);
   const { configData } = useTrade();
 
-  // Use prop if available, otherwise use locally fetched status (matches production)
-  const dhanEdisStatus = dhanEdisStatusProp || localDhanEdisStatus;
+  // A freshly fetched value must win over the parent prop. The parent value is
+  // commonly the pre-authorization snapshot and caused the TPIN sheet to loop.
+  const dhanEdisStatus = localDhanEdisStatus || dhanEdisStatusProp;
 
-  // Auto-fetch Dhan EDIS status if not provided as prop
+  const selectedSellTrades = getDhanSellTrades(
+    stockTypeAndSymbol,
+    singleStockTypeAndSymbol,
+  );
+
+  const fetchDhanEdisStatus = async () => {
+    const response = await axios.post(
+      `${server.ccxtServer.baseUrl}dhan/edis-status`,
+      {
+        clientId: userDetails?.clientCode,
+        accessToken: userDetails?.jwtToken,
+      },
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
+          'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+        },
+      },
+    );
+    setLocalDhanEdisStatus(response.data);
+    if (onEdisStatusRefresh) onEdisStatusRefresh(response.data);
+    return response.data;
+  };
+
+  // Always refresh on open. A provided prop can be stale after returning from
+  // Dhan/CDSL, so its presence must not suppress the live broker check.
   useEffect(() => {
-    if (isOpen && !dhanEdisStatusProp && userDetails?.jwtToken && userDetails?.clientCode) {
-      const fetchDhanEdisStatus = async () => {
-        try {
-          setLoading(true);
-          const response = await axios.post(
-            `${server.ccxtServer.baseUrl}dhan/edis-status`,
-            {
-              clientId: userDetails.clientCode,
-              accessToken: userDetails.jwtToken,
-            },
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
-                'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
-              },
-            },
-          );
-          console.log('Dhan local EDIS fetch:', response.data);
-          setLocalDhanEdisStatus(response.data);
-        } catch (error) {
-          console.error('Error fetching Dhan EDIS status:', error);
-          Toast.show({
-            type: 'error',
-            text1: 'Error',
-            text2: 'Failed to fetch holdings data. Please try again.',
-          });
-        } finally {
-          setLoading(false);
-        }
-      };
-      fetchDhanEdisStatus();
+    if (isOpen && userDetails?.jwtToken && userDetails?.clientCode) {
+      setLoading(true);
+      fetchDhanEdisStatus()
+        .catch(error => console.error('Error fetching Dhan EDIS status:', error))
+        .finally(() => setLoading(false));
     }
-  }, [isOpen, dhanEdisStatusProp, userDetails]);
+  }, [isOpen, userDetails?.jwtToken, userDetails?.clientCode]);
 
   const handleProceed = async () => {
     try {
+      setLoading(true);
+      let refreshedStatus = null;
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        refreshedStatus = await fetchDhanEdisStatus();
+        const ready = selectedSellTrades.length > 0
+          ? isDhanSellAuthorizationReady(refreshedStatus, selectedSellTrades)
+          : refreshedStatus?.data?.some(holding => holding?.edis === true);
+        if (ready) break;
+        if (attempt < 4) {
+          await new Promise(resolve => setTimeout(resolve, 1200));
+        }
+      }
+
+      const authorizationReady = selectedSellTrades.length > 0
+        ? isDhanSellAuthorizationReady(refreshedStatus, selectedSellTrades)
+        : refreshedStatus?.data?.some(holding => holding?.edis === true);
+
+      if (!authorizationReady) {
+        Toast.show({
+          type: 'error',
+          text1: 'Dhan authorization is still processing',
+          text2: 'The selected sell holdings are not authorized yet. Complete the Dhan/CDSL page, then verify again.',
+          visibilityTime: 7000,
+        });
+        return;
+      }
+
       await axios.put(
         `${server.server.baseUrl}api/update-edis-status`,
         {
@@ -1561,7 +1625,7 @@ export function DhanTpinModal({
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -1585,6 +1649,8 @@ export function DhanTpinModal({
         text1: 'Error',
         text2: 'Failed to update authorization status.',
       });
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1738,7 +1804,7 @@ export function DhanTpinModal({
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+              'X-Advisor-Subdomain': getTenantSubdomain(configData),
               'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
             },
             body: JSON.stringify({
@@ -1763,7 +1829,7 @@ export function DhanTpinModal({
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+                'X-Advisor-Subdomain': getTenantSubdomain(configData),
                 'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
               },
               body: JSON.stringify({
@@ -1854,7 +1920,7 @@ export function DhanTpinModal({
       <Modal visible={isOpen} transparent animationType="fade">
         {showNoHoldingModal ? (
           // No Holdings Modal
-          <View style={styles.modalOverlay}>
+          (<View style={styles.modalOverlay}>
             <View style={styles.modalContainer}>
               <Text style={styles.modalTitle}>No Holdings</Text>
               <TouchableOpacity
@@ -1867,10 +1933,10 @@ export function DhanTpinModal({
                 to proceed.
               </Text>
             </View>
-          </View>
+          </View>)
         ) : !isPopupOpen ? (
           // DDPI Inactive Modal
-          <View style={styles.modalOverlay}>
+          (<View style={styles.modalOverlay}>
             <View style={styles.modalContainer}>
               <TouchableOpacity style={styles.closeButton} onPress={closeModal}>
                 <XIcon size={20} color={'grey'} />
@@ -1883,28 +1949,19 @@ export function DhanTpinModal({
               </View>
               <View style={styles.contentWrapper}>
                 <View style={styles.textSection}>
-                  <View style={styles.alertHeader}>
-                    <Text style={styles.alertIcon}>⚠️</Text>
-                    <Text style={styles.title}>
-                      DDPI Inactive: Proceed with TPIN Mandate
-                    </Text>
-                  </View>
-                  <View style={styles.list}>
-                    <Text style={styles.listItem}>
-                      • Use TPIN for a temporary authorization to sell selected
-                      stocks while DDPI is inactive
-                    </Text>
-                    <Text style={styles.listItem}>
-                      • This secure, one-time mandate allows smooth transactions
-                      until DDPI is active
-                    </Text>
-                  </View>
+                  <SellAuthGuideCard
+                    broker="Dhan"
+                    configData={configData}
+                    variant="inApp"
+                    sellOrders={sellOrders}
+                    testID="sell-auth-guide-dhan"
+                  />
                   <TouchableOpacity
                     style={[styles.proceedButton, loading && { opacity: 0.5 }]}
                     onPress={proceedWithDhanTpin}
                     disabled={loading}>
                     {loading ? (
-                      <ActivityIndicator color="#fff" />
+                      <ActivityIndicator color={designColor('fff')} />
                     ) : (
                       <Text style={styles.buttonText}>
                         Proceed with Dhan Authorization to Sell
@@ -1914,10 +1971,10 @@ export function DhanTpinModal({
                 </View>
               </View>
             </View>
-          </View>
+          </View>)
         ) : null}
+        <Toast />
       </Modal>
-
       {/* WebView Modal */}
       {isWebViewOpen && (
         <Modal visible={isWebViewOpen} animationType="slide"
@@ -1946,7 +2003,7 @@ export function DhanTpinModal({
             }}
             startInLoadingState
             renderLoading={() => (
-              <ActivityIndicator size="large" color="#0000ff" />
+              <ActivityIndicator size="large" color={designColor('0000ff')} />
             )}
           />
           <TouchableOpacity
@@ -1957,9 +2014,9 @@ export function DhanTpinModal({
             }}>
             <XIcon size={20} color={'grey'} />
           </TouchableOpacity>
+          <Toast />
         </Modal>
       )}
-
       {/* TPIN Confirmation Modal */}
       <Modal
         visible={showTpinConfirmation}
@@ -1983,25 +2040,31 @@ export function DhanTpinModal({
                 style={styles.checkboxContainer}
                 onPress={() => setTpinCompleted(!tpinCompleted)}>
                 <View style={[styles.checkbox, tpinCompleted ? styles.checked : styles.unchecked]}>
-                  {tpinCompleted && <Check size={14} color="#fff" />}
+                  {tpinCompleted && <Check size={14} color={designColor('fff')} />}
                 </View>
                 <Text style={styles.label}>I've authorized the sell of the stocks</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.proceedButton, !tpinCompleted && { opacity: 0.5 }]}
                 onPress={handleProceed}
-                disabled={!tpinCompleted}>
-                <Text style={styles.buttonText}>Retry Order</Text>
+                disabled={!tpinCompleted || loading}>
+                {loading ? (
+                  <ActivityIndicator color={designColor('fff')} />
+                ) : (
+                  <Text style={styles.buttonText}>Verify authorization and review orders</Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
         </View>
+        <Toast />
       </Modal>
     </>
   );
 }
 
 export function OtherBrokerModel({
+  sellOrders = [],
   userDetails,
   onContinue,
   setShowOtherBrokerModel,
@@ -2072,7 +2135,7 @@ export function OtherBrokerModel({
         '3. Select Authorize with T-PIN.',
         '4. Click Continue to CDSL.',
         '5. Enter your T-PIN (or generate a new one if needed) and verify it, then enter the OTP.',
-        `6. Once verified, return to the ${Config?.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark'} platform and retry the sell order.`,
+        `6. Once verified, return to the ${Config?.REACT_APP_WHITE_LABEL_TEXT || getPlatformDisplayName()} platform and retry the sell order.`,
       ],
     },
     'ICICI Direct': {
@@ -2159,11 +2222,11 @@ export function OtherBrokerModel({
     Groww: {
       title: 'Groww: How to Authorize Stocks for Selling',
       steps: [
-        '1. Open the Groww app → go to Portfolio → Holdings.',
-        '2. Tap the stock you want to sell → tap Sell.',
-        '3. If prompted for CDSL authorization, enter your TPIN and OTP to complete it.',
-        '4. Return here and retry the sell order.',
-        '5. For a permanent fix, activate DDPI — tap "Show me how to activate DDPI on Groww" above.',
+        '1. Open https://groww.in/holdings/cdslauth and sign in to Groww.',
+        '2. Select the holdings you want to authorize for today.',
+        '3. Enter your CDSL TPIN and OTP. This authorizes holdings; it does not sell them.',
+        '4. Return here and recalculate before placing the order again.',
+        '5. For a permanent fix, activate DDPI from Stocks Holdings → three-dot menu → DDPI.',
       ],
     },
     'Axis Securities': {
@@ -2182,6 +2245,9 @@ export function OtherBrokerModel({
 
   const [showOtherBroker, setShowOtherBroker] = useState(false);
   const [loadingRebalance, setLoadingRebalance] = useState(false);
+  // Progress of the authorized-recalculate step: 'saving' | 'recalculating' | null.
+  const [retryStage, setRetryStage] = useState(null);
+  const [retryError, setRetryError] = useState(null);
   const handleContinue = async () => {
     try {
       await axios.put(
@@ -2194,7 +2260,7 @@ export function OtherBrokerModel({
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -2209,11 +2275,17 @@ export function OtherBrokerModel({
       if (getUserDetails) await getUserDetails();
     } catch (error) {
       console.error('Error updating EDIS status:', error);
+      Toast.show({
+        type: 'error',
+        text1: 'Authorization was not saved',
+        text2: 'Please try again. No order was placed.',
+      });
+      return;
     }
     setIsOpen(false);
     setShowOtherBrokerModel(false);
-    openReviewModal();
-    onContinue();
+    if (onContinue) await onContinue();
+    if (openReviewModal) openReviewModal();
   };
 
   const handleClose = () => {
@@ -2246,7 +2318,19 @@ export function OtherBrokerModel({
 
   const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
   const advisorName = configData?.config?.REACT_APP_ADVISOR_TAG;
+  // "I've authorized — recalculate": save the sell authorization, recalculate
+  // the plan, then hand back to the review screen. The sheet stays OPEN with
+  // visible progress until the recalculation returns (2026-10-01): it used to
+  // close first, so the customer sat on the home screen during the request,
+  // then the review reappeared with no explanation, and both failure paths
+  // were silent. Orders are never placed here — the customer reviews the
+  // recalculated plan and taps Place Order.
   const handleAcceptRebalance = async () => {
+    if (retryStage) return; // double-tap guard
+    setRetryError(null);
+    setLoadingRebalance(true);
+    setRetryStage('saving');
+    let authorizationSaved = true;
     try {
       await axios.put(
         `${server.server.baseUrl}api/update-edis-status`,
@@ -2258,7 +2342,7 @@ export function OtherBrokerModel({
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -2272,14 +2356,17 @@ export function OtherBrokerModel({
       // rebalance modal re-triggers this DDPI prompt (web e73bd81).
       if (getUserDetails) await getUserDetails();
     } catch (error) {
+      // Not a reason to stop: the customer says they authorized at the broker,
+      // and the broker itself enforces authorization at placement (a guard on
+      // a money path blocks only on positive evidence). Continue, but say so.
+      authorizationSaved = false;
       console.error('Error updating EDIS status:', error);
     }
-    onContinue();
-    setLoadingRebalance(true);
 
+    setRetryStage('recalculating');
     // Simplified payload - backend fetches credentials server-side
     // Only send accessToken for authentication
-    let payload = {
+    const payload = {
       userEmail: userEmail,
       userBroker: broker,
       modelName: storeModalName,
@@ -2288,37 +2375,60 @@ export function OtherBrokerModel({
       userFund: funds?.data?.availablecash,
       accessToken: jwtToken,
     };
-    let config = {
-      method: 'post',
-      url: `${server.ccxtServer.baseUrl}rebalance/calculate`,
-
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
-        'aq-encrypted-key': generateToken(
-          Config.REACT_APP_AQ_KEYS,
-          Config.REACT_APP_AQ_SECRET,
-        ),
-      },
-
-      data: JSON.stringify(payload),
-    };
-
-    axios
-      .request(config)
-      .then(response => {
-        console.log('res', response);
-        setLoadingRebalance(false);
-        setCaluculatedPortfolioData(response.data);
-        setOpenRebalanceModal(true);
-        setModelPortfolioModelId(modelPortfolioModelId);
-        // setStoreModalName(modelName);
-        setShowOtherBrokerModel(false);
-      })
-      .catch(error => {
-        console.log(error);
-        setLoadingRebalance(false);
+    try {
+      const response = await axios.request({
+        method: 'post',
+        url: `${server.ccxtServer.baseUrl}rebalance/calculate`,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
+          'aq-encrypted-key': generateToken(
+            Config.REACT_APP_AQ_KEYS,
+            Config.REACT_APP_AQ_SECRET,
+          ),
+        },
+        data: JSON.stringify(payload),
       });
+      setCaluculatedPortfolioData(
+        tagSellAuthorizationRetryCalculation(response.data, {
+          broker,
+          modelName: storeModalName,
+          modelId: modelPortfolioModelId,
+        }),
+      );
+      setModelPortfolioModelId(modelPortfolioModelId);
+      setRetryStage(null);
+      setLoadingRebalance(false);
+      // Close this sheet only now, then reopen the review.
+      onContinue();
+      setShowOtherBrokerModel(false);
+      setOpenRebalanceModal(true);
+      // Shown after the review modal (and its own toast host) has mounted.
+      setTimeout(() => {
+        Toast.show({
+          type: authorizationSaved ? 'success' : 'info',
+          text1: authorizationSaved
+            ? 'Sell authorization saved'
+            : 'Orders recalculated',
+          text2:
+            'No orders placed yet. Review the updated orders and tap Place Order.',
+          visibilityTime: 7000,
+        });
+      }, 600);
+    } catch (error) {
+      console.log(error);
+      setRetryStage(null);
+      setLoadingRebalance(false);
+      const detail =
+        error?.response?.data?.message ||
+        error?.response?.data?.error ||
+        (error?.code === 'ERR_NETWORK' || error?.code === 'ECONNABORTED'
+          ? 'Network problem.'
+          : '');
+      setRetryError(
+        `Could not recalculate your orders. ${detail ? `${detail} ` : ''}No orders were placed. Tap retry.`,
+      );
+    }
   };
 
   const toggleCheckbox = () => {
@@ -2359,26 +2469,20 @@ export function OtherBrokerModel({
                   </View>
                 ) : null}
 
-                {brokerInstructions[broker]?.title && (
-                  <Text style={styles.title}>
-                    {brokerInstructions[broker].title}
-                  </Text>
-                )}
-
-                {brokerInstructions[broker]?.steps?.length > 0 && (
-                  <View style={styles.stepsContainer}>
-                    {brokerInstructions[broker].steps.map((step, index) => (
-                      <Text key={index} style={styles.listItem}>
-                        {step}
-                      </Text>
-                    ))}
-                  </View>
-                )}
+                {/* Copy comes from the server guide (DDPI_EDIS §10); the local
+                    brokerInstructions object only supplies walkthrough videos. */}
+                <SellAuthGuideCard
+                  broker={broker}
+                  configData={configData}
+                  variant="portal"
+                  sellOrders={sellOrders}
+                  testID="sell-auth-guide-howto"
+                />
               </>
             ) : (
               <View style={{width: '100%'}}>
                 <View style={{flexDirection: 'row', alignItems: 'center', alignSelf: 'center', marginBottom: 12}}>
-                  <AlertTriangle size={22} color="#E43D3D" />
+                  <AlertTriangle size={22} color={designColor('e43d3d')} />
                   <Text style={[styles.title, {marginLeft: 8, fontSize: 18}]}>
                     Sell Authorization Required
                   </Text>
@@ -2410,10 +2514,13 @@ export function OtherBrokerModel({
                   <View style={otherBrokerStyles.dividerLine} />
                 </View>
 
-                <Text style={[styles.listText, {textAlign: 'center', color: '#6B7280'}]}>
-                  If you've already authorized your stocks for selling today via
-                  your broker's app or portal, tick the box below and retry.
-                </Text>
+                <SellAuthGuideCard
+                  broker={broker}
+                  configData={configData}
+                  variant="portal"
+                  sellOrders={sellOrders}
+                  testID="sell-auth-guide-other-broker"
+                />
               </View>
             )}
 
@@ -2424,47 +2531,71 @@ export function OtherBrokerModel({
                   styles.checkbox,
                   isSellAllowed ? styles.checked : styles.unchecked,
                 ]}>
-                {isSellAllowed && <Check size={20} color={'#fff'} />}
+                {isSellAllowed && <Check size={20} color={designColor('fff')} />}
               </TouchableOpacity>
               <Text style={styles.label}>
                 I've authorized the sell of the above stocks
               </Text>
             </View>
 
+            {/* Progress + outcome of "Authorized — recalculate". */}
+            {retryStage ? (
+              <View style={otherBrokerStyles.retryStatus}>
+                <ActivityIndicator size="small" color={designColor('0056b7')} />
+                <Text style={otherBrokerStyles.retryStatusText}>
+                  {retryStage === 'saving'
+                    ? 'Saving your authorization…'
+                    : 'Recalculating your orders…'}
+                </Text>
+              </View>
+            ) : null}
+            {retryError ? (
+              <View style={otherBrokerStyles.retryError}>
+                <Text style={otherBrokerStyles.retryErrorText}>{retryError}</Text>
+              </View>
+            ) : null}
+
+            {/* Stacked, full-width actions so both fit any phone width (the
+                side-by-side row clipped on ~360dp screens once the labels
+                grew on 2026-09-30). */}
             <View style={styles.actionsContainer}>
               {modelPortfolioModelId ? (
                 <TouchableOpacity
                   style={[
                     styles.button,
-                    isSellAllowed
+                    otherBrokerStyles.fullWidthAction,
+                    isSellAllowed && !retryStage
                       ? styles.enabledButton
                       : styles.disabledButton,
                   ]}
-                  disabled={!isSellAllowed}
+                  disabled={!isSellAllowed || Boolean(retryStage)}
                   onPress={handleAcceptRebalance}>
                   {loadingRebalance ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={designColor('fff')} />
                   ) : (
-                    <Text style={styles.buttonText}>Retry sell order</Text>
+                    <Text style={styles.buttonText}>
+                      {retryError ? 'Try again' : 'Authorized — recalculate'}
+                    </Text>
                   )}
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
                   style={[
                     styles.button,
+                    otherBrokerStyles.fullWidthAction,
                     isSellAllowed
                       ? styles.enabledButton
                       : styles.disabledButton,
                   ]}
                   disabled={!isSellAllowed}
                   onPress={handleContinue}>
-                  <Text style={styles.buttonText}>Retry sell order</Text>
+                  <Text style={styles.buttonText}>Authorized — review again</Text>
                 </TouchableOpacity>
               )}
 
               {!showHowToAuthorize && (
                 <TouchableOpacity
-                  style={styles.howToButton}
+                  style={[styles.howToButton, otherBrokerStyles.fullWidthAction]}
                   onPress={openHowToAuthorize}>
                   <Text style={styles.howToButtonText}>
                     How to Authorize {'>'}
@@ -2475,6 +2606,9 @@ export function OtherBrokerModel({
           </ScrollView>
         </View>
       </View>
+      {/* Toast host inside this native Modal (the app-level host renders
+          underneath an open Modal; see RebalanceModal). */}
+      <Toast />
     </Modal>
   );
 }
@@ -2739,7 +2873,7 @@ export function AfterPlaceOrderDdpiModal({onClose, userDetails, visible = true})
   );
 }
 
-export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceModal, getUserDetails}) {
+export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceModal, getUserDetails, sellOrders = []}) {
   const [loading, setLoading] = useState(false);
   const [webViewHtml, setWebViewHtml] = useState('');
   const [isWebViewOpen, setIsWebViewOpen] = useState(false);
@@ -2753,14 +2887,57 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
       const broker = userDetails.user_broker;
 
       if (broker === 'Fyers') {
-        console.log('Generating TPIN...');
-        const generateTpinResponse = await fetch(
-          `${server.ccxtServer.baseUrl}fyers/tpin`,
+        // `fyers/tpin` only asks CDSL to SEND the customer their TPIN. The
+        // authorization itself is `submit-holdings` -> the CDSL page, where the
+        // customer types the TPIN they already hold. Chaining the two meant a
+        // slow/failed resend killed the whole sell for a customer who never
+        // needed it (2026-09-21: Fyers /api/v2/tpin read-timeout at 12s -> ccxt
+        // 500 -> 'Failed to generate TPIN for Fyers', with a valid TPIN in
+        // hand). The resend is best-effort and never blocks. See
+        // prod-alphaquark-github docs/DDPI_EDIS_SELL_AUTH_ARCHITECTURE.md 6.11.
+        let tpinResendFailed = false;
+        try {
+          const generateTpinResponse = await fetch(
+            `${server.ccxtServer.baseUrl}fyers/tpin`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Advisor-Subdomain': getTenantSubdomain(configData),
+                'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+              },
+              body: JSON.stringify({
+                clientId: userDetails?.clientCode,
+                accessToken: userDetails?.jwtToken,
+              }),
+            },
+          );
+          const generateTpinData = await generateTpinResponse.json();
+          if (generateTpinData?.status !== 0) tpinResendFailed = true;
+        } catch (resendError) {
+          tpinResendFailed = true;
+        }
+        Toast.show(
+          tpinResendFailed
+            ? {
+                type: 'info',
+                text1: 'Use your existing TPIN',
+                text2: "We couldn't send a fresh TPIN. CDSL will ask for the one you already have.",
+              }
+            : {
+                type: 'success',
+                text1: 'Success',
+                text2: 'TPIN sent for Fyers.',
+              },
+        );
+
+        const submitHoldingsResponse = await fetch(
+          `${server.ccxtServer.baseUrl}fyers/submit-holdings`,
           {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+              'X-Advisor-Subdomain': getTenantSubdomain(configData),
               'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
             },
             body: JSON.stringify({
@@ -2770,47 +2947,16 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
           },
         );
 
-        const generateTpinData = await generateTpinResponse.json();
+        const submitHoldingsData = await submitHoldingsResponse.json();
 
-        if (generateTpinData.status === 0) {
-          Toast.show({
-            type: 'success',
-            text1: 'Success',
-            text2: 'TPIN generated successfully for Fyers.',
-          });
-
-          console.log('Submitting holdings for Fyers...');
-          const submitHoldingsResponse = await fetch(
-            `${server.ccxtServer.baseUrl}fyers/submit-holdings`,
-            {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
-                'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
-              },
-              body: JSON.stringify({
-                clientId: userDetails?.clientCode,
-                accessToken: userDetails?.jwtToken,
-              }),
-            },
-          );
-
-          const submitHoldingsData = await submitHoldingsResponse.json();
-
-          if (submitHoldingsData.status === 0) {
-            // Open the CDSL form in a WebView modal
-            setWebViewHtml(submitHoldingsData.data);
-            setIsWebViewOpen(true);
-          } else {
-            throw new Error(
-              submitHoldingsData.message ||
-                'Failed to submit holdings for Fyers.',
-            );
-          }
+        if (submitHoldingsData.status === 0) {
+          // Open the CDSL form in a WebView modal
+          setWebViewHtml(submitHoldingsData.data);
+          setIsWebViewOpen(true);
         } else {
           throw new Error(
-            generateTpinData.message || 'Failed to generate TPIN for Fyers.',
+            submitHoldingsData.message ||
+              'Fyers could not open the CDSL authorization page. Please try again in a moment.',
           );
         }
       } else {
@@ -2852,7 +2998,7 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -2885,7 +3031,13 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
 
   return (
     <>
-      <Modal visible={isOpen} transparent animationType="fade">
+      {/* Hide the native sheet while the app-root CDSL browser is mounted.
+          Keeping two Android Modal windows open puts the TPIN form behind the
+          informational sheet and prevents keyboard/touch input. */}
+      <Modal
+        visible={isOpen && !isWebViewOpen && !showTpinConfirmation}
+        transparent
+        animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContainer}>
             <TouchableOpacity style={styles.closeButton} onPress={handleCancel}>
@@ -2899,23 +3051,19 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
             </View>
             <View style={styles.contentWrapper}>
               <View style={styles.textSection}>
-                <Text style={styles.title}>
-                  DDPI Inactive: Proceed with TPIN Mandate
-                </Text>
-                <Text style={styles.listItem}>
-                  • Use TPIN for a temporary authorization to sell selected
-                  stocks while DDPI is inactive.
-                </Text>
-                <Text style={styles.listItem}>
-                  • This secure, one-time mandate allows smooth transactions
-                  until DDPI is active.
-                </Text>
+                <SellAuthGuideCard
+                  broker="Fyers"
+                  configData={configData}
+                  variant="inApp"
+                  sellOrders={sellOrders}
+                  testID="sell-auth-guide-fyers"
+                />
                 <TouchableOpacity
                   style={styles.proceedButton}
                   onPress={proceedWithFyersTpin}
                   disabled={loading}>
                   {loading ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={designColor('fff')} />
                   ) : (
                     <Text style={styles.buttonText}>
                       Proceed with Authorization
@@ -2926,50 +3074,40 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
             </View>
           </View>
         </View>
+        <Toast />
       </Modal>
-
-      {/* WebView Modal */}
+      {/* Use the single app-root WebView host. This keeps the Fyers CDSL form
+          visible, focusable and keyboard-safe on Android. */}
       {isWebViewOpen && (
-        <Modal visible={isWebViewOpen} animationType="slide"
-          onRequestClose={() => {
+        <PublisherWebViewOverlay
+          source={{html: webViewHtml}}
+          originWhitelist={['*']}
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          onClose={() => {
             setIsWebViewOpen(false);
             setShowTpinConfirmation(true);
-          }}>
-          <WebView
-            originWhitelist={['*']}
-            javaScriptEnabled={true}
-            domStorageEnabled={true}
-            source={{html: webViewHtml}}
-            onNavigationStateChange={handleWebViewNavigation}
-            onShouldStartLoadWithRequest={request => {
-              if (request.url.includes('success')) {
-                setIsWebViewOpen(false);
-                setShowTpinConfirmation(true);
-                Toast.show({
-                  type: 'success',
-                  text1: 'Success',
-                  text2: 'CDSL authorization completed successfully.',
-                });
-                return false;
-              }
-              return true;
-            }}
-            startInLoadingState
-            renderLoading={() => (
-              <ActivityIndicator size="large" color="#0000ff" />
-            )}
-          />
-          <TouchableOpacity
-            style={styles.closeButton}
-            onPress={() => {
+          }}
+          onNavigationStateChange={handleWebViewNavigation}
+          onShouldStartLoadWithRequest={request => {
+            if (request.url.includes('success')) {
               setIsWebViewOpen(false);
               setShowTpinConfirmation(true);
-            }}>
-            <XIcon size={20} color={'grey'} />
-          </TouchableOpacity>
-        </Modal>
+              Toast.show({
+                type: 'success',
+                text1: 'Success',
+                text2: 'CDSL authorization completed successfully.',
+              });
+              return false;
+            }
+            return true;
+          }}
+          startInLoadingState
+          renderLoading={() => (
+            <ActivityIndicator size="large" color={designColor('0000ff')} />
+          )}
+        />
       )}
-
       {/* TPIN Confirmation Modal */}
       <Modal
         visible={showTpinConfirmation}
@@ -2993,7 +3131,7 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
                 style={styles.checkboxContainer}
                 onPress={() => setTpinCompleted(!tpinCompleted)}>
                 <View style={[styles.checkbox, tpinCompleted ? styles.checked : styles.unchecked]}>
-                  {tpinCompleted && <Check size={14} color="#fff" />}
+                  {tpinCompleted && <Check size={14} color={designColor('fff')} />}
                 </View>
                 <Text style={styles.label}>I've authorized the sell of the stocks</Text>
               </TouchableOpacity>
@@ -3006,6 +3144,7 @@ export function FyersTpinModal({isOpen, setIsOpen, userDetails, reopenRebalanceM
             </View>
           </View>
         </View>
+        <Toast />
       </Modal>
     </>
   );

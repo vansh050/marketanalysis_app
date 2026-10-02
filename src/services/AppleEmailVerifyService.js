@@ -22,7 +22,7 @@ import Config from 'react-native-config';
 import { getAuth } from '@react-native-firebase/auth';
 import server from '../utils/serverConfig';
 import { generateToken } from '../utils/SecurityTokenManager';
-import { getAdvisorSubdomain } from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 
 const NODE_BASE = server.server.baseUrl;
 
@@ -34,7 +34,7 @@ const authHeaders = async () => {
   const idToken = await user.getIdToken();
   return {
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain': getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,

@@ -1,32 +1,33 @@
 /**
  * ============================================================================
- * whitelabel/appVariants — TENANT CONFIG ROOT (fork: marketanalysis)
+ * whitelabel/appVariants — TENANT CONFIG ROOT (upstream)
  * ============================================================================
  *
  * 🔴 PER-FORK FILE. NOT BYTE-IDENTICAL ACROSS REPOS. 🔴
  *
- * This is the marketanalysis fork's overlay of the upstream Alphab2bapp
- * `whitelabel/appVariants.js`. `src/utils/Config.js` is the upstream-managed
- * re-exporter (byte-identical across forks); this file holds the actual
- * values per repo.
+ * The `APP_VARIANTS` map for tenants this repo ships. `src/utils/Config.js`
+ * is the upstream-managed re-exporter (byte-identical across forks); this
+ * file holds the actual values per repo.
  *
- * To keep `src/` byte-identical for future upstream syncs, all
- * marketanalysis-specific theme / RA code / Firebase OAuth client values
- * live HERE — never inside `src/`.
- *
- * See `docs/WHITELABEL_RECIPE.md` (upstream).
+ * To add a new tenant, add an entry below. To create a fork (whitelabel
+ * overlay), copy this file into the fork's `whitelabel/appVariants.js`
+ * and edit. See `docs/WHITELABEL_RECIPE.md`.
  * ============================================================================
  */
 
-// SharedDefaultLogo is the fallback logo applied to every variant that
-// doesn't explicitly override `logo`. See upstream's comment for the
-// historical context (variant previously called `ZamzamLogo`).
+// SharedDefaultLogo is the fallback logo applied to every variant
+// that doesn't explicitly override `logo`. The file at
+// `src/assets/AppLogo/logo.png` is the ZamZam-branded logo (the
+// asset is byte-identical to `src/assets/AppLogo/Zamzam.png`) — so
+// any variant that inherits `sharedUIConfig` without overriding
+// `logo` will display ZamZam branding. Variants which need their
+// own brand MUST set `logo` and `toolbarlogo` explicitly (see
+// `alphaquark` below). The variable was previously named
+// `ZamzamLogo`, which made the leak path visually obvious in code
+// review but was misleading: this is the SHARED-CONFIG fallback
+// logo, not a ZamZam-specific asset.
 import SharedDefaultLogo from '../src/assets/AppLogo/logo.png';
 import AlphaQuarkLogo from '../src/assets/logo.png';
-// Marketanalysis brand assets live under the variant overlay, NOT under
-// src/assets/. That keeps src/assets/ byte-identical to upstream on every
-// sync. See designs/marketanalysis/tokens/assets.js for the asset-token
-// override that surfaces this through useTokens().assets.logoPng.
 import MarketAnalysisLogo from '../designs/marketanalysis/assets/logo.png';
 
 // Shared UI config — theme, colors, layout
@@ -52,18 +53,24 @@ const sharedUIConfig = {
   basketcolor: '#600CC0',
   basketsymbolbg: '#6D0DD6',
   googleWebClientId: '892331696104-e26pu9iotqrjk1o6jq4ifd4e95fasil1.apps.googleusercontent.com',
+  googleIosClientId: '892331696104-3ga6a5c9ell75turpt6th0bbpc8ftvjl.apps.googleusercontent.com',
 };
 
+// Per-advisor config: subdomain + advisorRaCode
+// When copying the app for a new advisor, just add a new entry here.
 const APP_VARIANTS = {
   alphaquark: {
-    themeColor: '#0000ff',
+    // These values must be a production-safe first-paint fallback. The remote
+    // config normally replaces them, but a slow/offline launch must still look
+    // like AlphaQuark rather than rendering the near-white placeholder theme.
+    themeColor: '#0056B7',
     logo: AlphaQuarkLogo,
     toolbarlogo: AlphaQuarkLogo,
     homeScreenLayout: 'layout2',
-    mainColor: '#4CAAA0',
-    secondaryColor: '#F0F0F0',
-    gradient1: '#F0F0F0',
-    gradient2: '#F0F0F0',
+    mainColor: '#0056B7',
+    secondaryColor: '#413E3E',
+    gradient1: '#0056B7',
+    gradient2: '#002651',
     placeholderText: '#FFFFFF',
     CardborderWidth: 0,
     cardElevation: 3,
@@ -77,6 +84,12 @@ const APP_VARIANTS = {
     basket1: '#9D2115',
     basket2: '#6B1207',
     googleWebClientId: '892331696104-e26pu9iotqrjk1o6jq4ifd4e95fasil1.apps.googleusercontent.com',
+    // iOS-only Google Sign-In client ID. LoginScreen requires this on iOS —
+    // without it GIDSignIn raises an uncaught NSException on signIn() and
+    // SIGABRTs the app (same crash class as the markup App Store rejection,
+    // submission 6401f4b2, 2026-07-23). Value from ios/GoogleService-Info.plist's
+    // CLIENT_ID.
+    googleIosClientId: '892331696104-3ga6a5c9ell75turpt6th0bbpc8ftvjl.apps.googleusercontent.com',
     subdomain: 'prod',
     advisorRaCode: 'ALPHAQUARK',
     paymentModal: {
@@ -96,15 +109,6 @@ const APP_VARIANTS = {
   arfs:          {...sharedUIConfig, subdomain: 'arfs',            advisorRaCode: 'ARFS'},
   magnus:        {...sharedUIConfig, subdomain: 'zamzamcapital',   advisorRaCode: 'ZAMZAMCAPITAL'},
 
-  // ──────────────────────────────────────────────────────────────────────
-  // marketanalysis — the active tenant this fork ships.
-  // googleWebClientId migrated 2026-06-06 from the decommissioned
-  // 'marketanalysisacademy-4e595' (sender id 794163196580) to
-  // 'marketanalysis-3a279' (sender id 675041319268). Must match the new
-  // project's Web OAuth client, otherwise the ID token GoogleSignin
-  // returns is signed for the wrong project and Firebase rejects
-  // signInWithCredential with auth/invalid-credential.
-  // ──────────────────────────────────────────────────────────────────────
   marketanalysis: {
     themeColor: '#2056DF',
     logo: MarketAnalysisLogo,

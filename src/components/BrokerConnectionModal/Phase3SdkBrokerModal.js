@@ -58,10 +58,13 @@
  */
 
 import React, {useState, useMemo, useEffect, useRef} from 'react';
+import Toast from 'react-native-toast-message';
+import eventEmitter from '../EventEmitter';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, ActivityIndicator} from 'react-native';
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
 import Config from 'react-native-config';
+import crashlytics from '@react-native-firebase/crashlytics';
 import {
   BrokerCredentialForm,
   WebViewBrokerAuthFlow,
@@ -75,9 +78,19 @@ import BrokerGuideCard, {getBrokerGuideConfig} from './brokerGuideConfigs';
 import BrokerWalkthroughPlayer from './BrokerWalkthroughPlayer';
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {getTenantSubdomain} from '../../utils/variantHelper';
 import {getStoredBrokerCreds} from '../../utils/brokerCredentials';
 import {humanizeSdkError} from '../../utils/sdkErrorHumanize';
+import {
+  findPersistedBrokerEntry,
+  hasPersistedBrokerCredentials,
+  removePersistedBrokerCredentials,
+  savePersistedBrokerCredentials,
+  supportsDeviceBrokerCredentialVault,
+  unlockPersistedBrokerCredentials,
+} from '../../services/DeviceBrokerCredentialVault';
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 // Brokers that the broker's API requires to call from a whitelisted
 // static IP. Same set EgressIpCallout's internal dispatch uses, but
@@ -321,9 +334,9 @@ const buildOauthReauthExtras = (brokerName, stored, configData) => {
  * Axis Securities) — no fields to override; SDK uses the default
  * empty-fields schema.
  */
-const buildSchemaOverride = (brokerName, userDetails) => {
+const buildSchemaOverride = (brokerName, userDetails, storedOverride = null) => {
   if (!userDetails) return null;
-  const stored = getStoredBrokerCreds(userDetails, brokerName);
+  const stored = storedOverride || getStoredBrokerCreds(userDetails, brokerName);
 
   // OAuth-only brokers — empty fields schema, nothing to pre-fill.
   if (
@@ -333,6 +346,26 @@ const buildSchemaOverride = (brokerName, userDetails) => {
     brokerName === 'Axis Securities'
   ) {
     return null;
+  }
+
+  if (brokerName === 'Arihant Capital') {
+    return {
+      fields: [
+        {name: 'apiKey', initialValue: stored?.apiKey || ''},
+        {name: 'userId', initialValue: stored?.clientCode || ''},
+        // Password is deliberately never returned by the backend or vaulted.
+        {name: 'password'},
+      ],
+    };
+  }
+
+  if (brokerName === 'DefinEdge Securities') {
+    return {
+      fields: [
+        {name: 'apiKey', initialValue: stored?.apiKey || ''},
+        {name: 'secretKey', initialValue: stored?.secretKey || ''},
+      ],
+    };
   }
 
   // Kotak NEO — 5 fields, 3 pre-fillable (apiKey, ucc, mobileNumber).
@@ -443,9 +476,14 @@ const buildSchemaOverride = (brokerName, userDetails) => {
     return {
       fields: [
         {name: 'apiKey', initialValue: stored?.apiKey || ''},
-        {name: 'secretKey', initialValue: stored?.secretKey || ''},
         {name: 'clientCode', initialValue: stored?.clientCode || ''},
       ],
+      // BrokerGuideCard above is the host's single source of truth for app
+      // creation, static IP and the environment-specific redirect URL.
+      // Suppress the SDK's standalone prerequisite card here so AlphaB2B
+      // never shows duplicate or conflicting setup instructions.
+      prerequisites: [],
+      intro: 'Enter the API Key from your SmartAPI Trading APIs app and your Angel One Client Code.',
     };
   }
 
@@ -502,6 +540,8 @@ const Phase3SdkBrokerModal = ({
   isVisible,
   onClose,
   brokerName: brokerNameProp,
+  initialCredentials,
+  initialEgressReady = false,
   // ModalManager passes these via commonProps
   setShowBrokerModal,
   fetchBrokerStatusModal,
@@ -518,15 +558,24 @@ const Phase3SdkBrokerModal = ({
     runtimeConfig?.mainColor ||
     runtimeConfig?.gradient2 ||
     runtimeConfig?.buttonColor ||
-    '#0056B7';
+    designColor('0056b7');
   const guideConfig = getBrokerGuideConfig(brokerName, {
     whiteLabelText: Config?.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark',
     brokerConnectRedirectURL:
       configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL || '',
-    iciciRedirectUrl: `${server.ccxtServer.baseUrl}icici/auth-callback/${getAdvisorSubdomain()}`,
+    iciciRedirectUrl: `${server.ccxtServer.baseUrl}icici/auth-callback/${getTenantSubdomain(configData)}`,
     ccxtBaseUrl: server.ccxtServer.baseUrl,
   });
   const [oauthExtraBody, setOauthExtraBody] = useState(null);
+
+  // Leave a credential-free breadcrumb immediately before the native WebView
+  // hand-off. This distinguishes FYERS OTP/WebView failures from crashes in
+  // the credential form without ever recording OAuth fields or secrets.
+  useEffect(() => {
+    if (oauthExtraBody) {
+      crashlytics().log(`Broker OAuth WebView opened: ${brokerName}`);
+    }
+  }, [brokerName, oauthExtraBody]);
   const [walkthroughVideoId, setWalkthroughVideoId] = useState(null);
   useEffect(() => {
     if (!isVisible) {
@@ -563,6 +612,53 @@ const Phase3SdkBrokerModal = ({
   const [userDetails, setUserDetails] = useState(null);
   const [schemaOverride, setSchemaOverride] = useState(null);
   const [schemaOverridePending, setSchemaOverridePending] = useState(true);
+  const [credentialVaultState, setCredentialVaultState] = useState('checking');
+  const [credentialVaultBusy, setCredentialVaultBusy] = useState(false);
+  const [saveReusableOnDevice, setSaveReusableOnDevice] = useState(false);
+  const unlockedCredentialsRef = useRef(null);
+  const credentialVaultSupported = supportsDeviceBrokerCredentialVault(brokerName);
+  // API keys/secrets are already encrypted and persisted server-side. The
+  // deviceTotpEnabled flag now controls only phone-owned broker login factors
+  // (TOTP seed/PIN/password) in the native broker flows. Do not make a second
+  // phone copy of server credentials a reconnect prerequisite. Existing local
+  // credential records are left untouched and can be removed by a future
+  // migration; they are no longer read unless an independently reviewed flag
+  // is introduced explicitly for that purpose.
+  const credentialVaultEnabled =
+    runtimeConfig?.deviceBrokerCredentialVaultEnabled === true &&
+    credentialVaultSupported;
+  const credentialVaultIdentity = useMemo(
+    () => ({
+      advisor:
+        getTenantSubdomain(configData),
+      broker: brokerName,
+      userEmail: emailFromCtx,
+    }),
+    [brokerName, emailFromCtx, configData?.config?.REACT_APP_HEADER_NAME],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    unlockedCredentialsRef.current = null;
+    setSaveReusableOnDevice(false);
+    if (!credentialVaultEnabled || !emailFromCtx) {
+      setCredentialVaultState('disabled');
+      return () => {
+        cancelled = true;
+      };
+    }
+    setCredentialVaultState('checking');
+    hasPersistedBrokerCredentials(credentialVaultIdentity)
+      .then(hasSaved => {
+        if (!cancelled) setCredentialVaultState(hasSaved ? 'locked' : 'none');
+      })
+      .catch(() => {
+        if (!cancelled) setCredentialVaultState('none');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [credentialVaultEnabled, emailFromCtx, credentialVaultIdentity]);
 
   useEffect(() => {
     let cancelled = false;
@@ -576,8 +672,7 @@ const Phase3SdkBrokerModal = ({
     }
     const headers = {
       'Content-Type': 'application/json',
-      'X-Advisor-Subdomain':
-        configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+      'X-Advisor-Subdomain': getTenantSubdomain(configData),
       'aq-encrypted-key': generateToken(
         Config.REACT_APP_AQ_KEYS,
         Config.REACT_APP_AQ_SECRET,
@@ -591,11 +686,18 @@ const Phase3SdkBrokerModal = ({
         if (cancelled) return;
         const u = res?.data?.User || null;
         setUserDetails(u);
+        // Only the independent legacy credential-vault experiment suppresses
+        // server-side prefill. deviceTotpEnabled does not: API credentials
+        // remain canonical on the encrypted server record while the phone owns
+        // only the TOTP seed and any broker PIN/password needed for login.
         setSchemaOverride(
-          buildSchemaOverride(
-            brokerName,
-            u,
-          ),
+          credentialVaultEnabled
+            ? null
+            : buildSchemaOverride(
+                brokerName,
+                u,
+                initialCredentials || null,
+              ),
         );
         setSchemaOverridePending(false);
       })
@@ -612,7 +714,114 @@ const Phase3SdkBrokerModal = ({
     return () => {
       cancelled = true;
     };
-  }, [emailFromCtx, brokerName, configData]);
+  }, [
+    emailFromCtx,
+    brokerName,
+    configData,
+    credentialVaultEnabled,
+    initialCredentials,
+  ]);
+
+  const unlockCredentialVault = async () => {
+    if (!credentialVaultEnabled) return;
+    setCredentialVaultBusy(true);
+    try {
+      const encryptedEntry = await unlockPersistedBrokerCredentials(
+        credentialVaultIdentity,
+      );
+      if (!encryptedEntry) return;
+      const stored = getStoredBrokerCreds(
+        {connected_brokers: [encryptedEntry]},
+        brokerName,
+      );
+      if (!stored) throw new Error('No reusable API credentials were found.');
+      unlockedCredentialsRef.current = stored;
+      setSchemaOverride(buildSchemaOverride(brokerName, userDetails || {}, stored));
+      setCredentialVaultState('unlocked');
+      setErrorInfo(null);
+    } catch (error) {
+      setErrorInfo({
+        title: 'Could not unlock credentials',
+        body: error?.message || 'Device authentication failed.',
+        technical: null,
+      });
+    } finally {
+      setCredentialVaultBusy(false);
+    }
+  };
+
+  const enrolPersistedCredentialVault = async () => {
+    const persistedEntry = findPersistedBrokerEntry(userDetails, brokerName);
+    if (!persistedEntry) {
+      setSaveReusableOnDevice(true);
+      return;
+    }
+    setCredentialVaultBusy(true);
+    try {
+      await savePersistedBrokerCredentials(
+        credentialVaultIdentity,
+        persistedEntry,
+      );
+      setCredentialVaultState('locked');
+      await unlockCredentialVault();
+    } catch (error) {
+      setErrorInfo({
+        title: 'Could not protect credentials',
+        body: error?.message || 'Secure device storage is unavailable.',
+        technical: null,
+      });
+      setCredentialVaultBusy(false);
+    }
+  };
+
+  const forgetCredentialVault = async () => {
+    setCredentialVaultBusy(true);
+    try {
+      await removePersistedBrokerCredentials(credentialVaultIdentity);
+      unlockedCredentialsRef.current = null;
+      setSchemaOverride(null);
+      setCredentialVaultState('none');
+      setSaveReusableOnDevice(false);
+      setErrorInfo(null);
+    } catch (error) {
+      setErrorInfo({
+        title: 'Could not forget credentials',
+        body: error?.message || 'Secure device storage is unavailable.',
+        technical: null,
+      });
+    } finally {
+      setCredentialVaultBusy(false);
+    }
+  };
+
+  const protectLatestPersistedCredentials = async () => {
+    if (!credentialVaultEnabled || !saveReusableOnDevice || !emailFromCtx) {
+      return;
+    }
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Advisor-Subdomain': getTenantSubdomain(configData),
+      'aq-encrypted-key': generateToken(
+        Config.REACT_APP_AQ_KEYS,
+        Config.REACT_APP_AQ_SECRET,
+      ),
+    };
+    const response = await axios.get(
+      `${server.server.baseUrl}api/user/getUser/${emailFromCtx}`,
+      {headers},
+    );
+    const latestUser = response?.data?.User || null;
+    const persistedEntry = findPersistedBrokerEntry(latestUser, brokerName);
+    if (!persistedEntry) {
+      throw new Error('The validated broker credentials were not persisted.');
+    }
+    await savePersistedBrokerCredentials(
+      credentialVaultIdentity,
+      persistedEntry,
+    );
+    setCredentialVaultState('locked');
+    setSaveReusableOnDevice(false);
+  };
 
   // Re-auth direct-to-OAuth jump. Once userDetails resolves, if the user
   // already has a connected_brokers entry for this broker AND the broker
@@ -636,7 +845,10 @@ const Phase3SdkBrokerModal = ({
     if (oauthExtraBody) return; // already in OAuth phase
     if (errorInfo) return; // user is reading an error; don't yank them
     if (!OAUTH_REAUTH_AUTOJUMP_BROKERS.has(brokerName)) return;
-    const stored = getStoredBrokerCreds(userDetails, brokerName);
+    if (credentialVaultEnabled && credentialVaultState !== 'unlocked') return;
+    const stored = credentialVaultEnabled
+      ? unlockedCredentialsRef.current
+      : getStoredBrokerCreds(userDetails, brokerName);
     if (!stored) return;
     // Treat any non-empty entry as re-auth. brokerCredentials returns
     // null when connected_brokers[broker] doesn't exist, so a present
@@ -651,6 +863,8 @@ const Phase3SdkBrokerModal = ({
     configData,
     oauthExtraBody,
     errorInfo,
+    credentialVaultEnabled,
+    credentialVaultState,
   ]);
 
   // IP-whitelist gate state. EgressIpCallout fires
@@ -659,7 +873,9 @@ const Phase3SdkBrokerModal = ({
   // (b) the user has claimed an IP and ticked the acknowledgment.
   // We block the SDK form submit (via IgnorePointer + opacity) until
   // ready. Mirror of legacy modals' egressReady gate.
-  const [egressReady, setEgressReady] = useState(!showEgressCallout);
+  const [egressReady, setEgressReady] = useState(
+    Boolean(initialEgressReady) || !showEgressCallout,
+  );
 
   // When the user interacts with the still-locked form, flash the
   // EgressIpCallout acknowledgment checkbox (showUnmetAck) and scroll
@@ -677,12 +893,45 @@ const Phase3SdkBrokerModal = ({
   if (!isVisible) return null;
 
   const onSuccess = async () => {
+    let result = null;
     try {
-      await fetchBrokerStatusModal?.();
-    } catch (e) {
-      // Refresh failure shouldn't block the success flow — modal
-      // dismisses regardless and user sees the new connection on
-      // the next portfolio refresh.
+      result = await fetchBrokerStatusModal?.();
+    } catch (error) {
+      setErrorInfo({
+        title: 'Connection could not be verified',
+        body:
+          error?.message ||
+          `We could not confirm that ${brokerName} was saved. Please retry now or reconnect later.`,
+        technical: error?.code || 'BROKER_PERSISTENCE_NOT_VERIFIED',
+      });
+      setOauthExtraBody(null);
+      return;
+    }
+    try {
+      await protectLatestPersistedCredentials();
+    } catch (error) {
+      // Broker connection already succeeded. Never roll it back or retry the
+      // broker operation because optional device-vault enrolment failed.
+      console.warn(
+        '[Phase3SdkBrokerModal] connection succeeded; device credential protection failed:',
+        error?.message,
+      );
+    }
+    // Parity with the legacy modals, which announce the result and tell the
+    // rest of the app to refresh. This lane used to close silently, so the
+    // customer landed on Home with no idea whether the broker had connected
+    // (2026-09-17). The toast is skipped when the migration sheet is about to
+    // appear, exactly as the legacy modals do, to avoid stacking two success
+    // surfaces.
+    eventEmitter.emit('refreshEvent', {source: `${brokerName} broker connection`});
+    if (!result?.migrationWillShow) {
+      Toast.show({
+        type: 'success',
+        text1: `${brokerName} connected`,
+        text2: 'Your broker is connected and ready to use.',
+        visibilityTime: 3500,
+        position: 'bottom',
+      });
     }
     setShowBrokerModal?.(false);
     onClose?.();
@@ -768,6 +1017,9 @@ const Phase3SdkBrokerModal = ({
       </View>
     );
   }
+  const hasBackendReusableCredentials = Boolean(
+    findPersistedBrokerEntry(userDetails, brokerName),
+  );
 
   // OAuth phase — render WebView round-trip after form collected creds.
   if (oauthExtraBody) {
@@ -848,12 +1100,13 @@ const Phase3SdkBrokerModal = ({
       />
       <View style={styles.panel}>
         <Header title={`Connect ${brokerName}`} />
-        {schemaOverridePending ? (
+        {schemaOverridePending ||
+        (credentialVaultEnabled && credentialVaultState === 'checking') ? (
           // Pre-fill in flight — render a small loader inside the
           // outer scroll so a fast user can't submit against the SDK
           // default before the smart-prefill kicks in. Resolves in
           // <500ms typical (one cached /api/user/getUser GET).
-          <ScrollView contentContainerStyle={styles.scrollPad}>
+          (<ScrollView contentContainerStyle={styles.scrollPad}>
             {errorInfo ? (
               <View style={styles.errorBox}>
                 <Text style={styles.errorTitle}>{errorInfo.title}</Text>
@@ -871,128 +1124,184 @@ const Phase3SdkBrokerModal = ({
                 Loading saved credentials…
               </Text>
             </View>
-          </ScrollView>
+          </ScrollView>)
         ) : (
           // Form phase — outer ScrollView wrapping everything so the
           // full page scrolls as one unit. The SDK form's own
           // internal ScrollView is disabled via nestedScrollEnabled.
-          <ScrollView
+          (<ScrollView
             ref={scrollRef}
             style={styles.formScroll}
             contentContainerStyle={styles.scrollPad}
             nestedScrollEnabled={true}
             keyboardShouldPersistTaps="handled">
-          {errorInfo ? (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorTitle}>{errorInfo.title}</Text>
-              <Text style={styles.errorBody}>{errorInfo.body}</Text>
-              {errorInfo.technical ? (
-                <Text style={styles.errorTechnical}>
-                  {errorInfo.technical}
-                </Text>
-              ) : null}
-            </View>
-          ) : null}
-
-          {guideConfig ? (
-            <BrokerGuideCard
-              config={guideConfig}
-              accent={guideAccent}
-              brokerName={brokerName}
-              onWatchWalkthrough={setWalkthroughVideoId}
-            />
-          ) : null}
-
-          {showEgressCallout ? (
-            <View style={styles.calloutWrap}>
-              <EgressIpCallout
-                broker={
-                  EGRESS_BROKER_KEY[brokerName] ||
-                  String(brokerName).toLowerCase()
-                }
-                customerEmail={emailFromCtx || ''}
-                showSetupGuide={false}
-                onAcknowledgeChange={(ready) => setEgressReady(!!ready)}
-                showUnmetAck={unmetAck}
-                onUnmetAckHandled={() => setUnmetAck(false)}
-              />
-            </View>
-          ) : null}
-
-          {!guideConfig && brokerName !== 'Zerodha' ? (
-            <Phase3BrokerHelp brokerName={brokerName} />
-          ) : null}
-
-          {!egressReady && showEgressCallout ? (
-            <TouchableOpacity
-              activeOpacity={0.85}
-              onPress={nudgeEgressAck}
-              accessibilityRole="button"
-              accessibilityLabel="Whitelist your IP to unlock the connect form"
-              style={styles.lockNotice}>
-              <Text style={styles.lockNoticeText}>
-                🔒 One step left — tick the “I’ve added … to my{' '}
-                {brokerName} developer portal whitelist” box above to unlock the
-                form below. Tap here to jump back to it.
-              </Text>
-            </TouchableOpacity>
-          ) : null}
-
-          <View style={styles.formSectionHeading}>
-            <View
-              style={[styles.formStepBadge, {backgroundColor: guideAccent}]}>
-              <Text style={styles.formStepBadgeText}>
-                {showEgressCallout ? '3' : '2'}
-              </Text>
-            </View>
-            <View style={styles.formSectionCopy}>
-              <Text style={[styles.formSectionEyebrow, {color: guideAccent}]}>
-                SECURE DETAILS
-              </Text>
-              <Text style={styles.formSectionTitle}>
-                Enter your {brokerName} credentials
-              </Text>
-            </View>
-          </View>
-
-          <View
-            style={[styles.formWrap, !egressReady && styles.formWrapLocked]}
-            pointerEvents={
-              !egressReady && showEgressCallout ? 'none' : 'auto'
-            }>
-            {brokerName === 'Zerodha' ? (
-              <View style={styles.kiteSessionNotice}>
-                <Text style={[styles.kiteSessionNoticeTitle, {color: guideAccent}]}>KEEP YOUR KITE SESSION ACTIVE</Text>
-                <Text style={styles.kiteSessionNoticeBody}>
-                  On the next screen, select “Login to Kite web”. This keeps your
-                  Kite session active for the next few hours, so you should not
-                  need to sign in again during that time.
-                </Text>
+            {errorInfo ? (
+              <View style={styles.errorBox}>
+                <Text style={styles.errorTitle}>{errorInfo.title}</Text>
+                <Text style={styles.errorBody}>{errorInfo.body}</Text>
+                {errorInfo.technical ? (
+                  <Text style={styles.errorTechnical}>
+                    {errorInfo.technical}
+                  </Text>
+                ) : null}
               </View>
             ) : null}
-            <BrokerCredentialForm
-              broker={brokerName}
-              title="Account details"
-              schemaOverride={schemaOverride || undefined}
-              key={`${brokerName}-${schemaOverride ? 'pre' : 'fresh'}`}
-              encrypt={encryptField}
-              onContinueToOauth={(collected) => {
-                const extras = {...collected};
-                if (brokerName === 'Zerodha') {
-                  extras.apiKey =
-                    extras.apiKey ||
-                    Config?.REACT_APP_ZERODHA_API_KEY ||
-                    configData?.config?.REACT_APP_ZERODHA_API_KEY ||
-                    '';
-                }
-                setOauthExtraBody(extras);
-                setErrorInfo(null);
-              }}
-              onSuccess={onSuccess}
-              onError={onError}
-            />
-          </View>
-        </ScrollView>
+            {guideConfig && !initialEgressReady ? (
+              <BrokerGuideCard
+                config={guideConfig}
+                accent={guideAccent}
+                brokerName={brokerName}
+                onWatchWalkthrough={setWalkthroughVideoId}
+              />
+            ) : null}
+            {showEgressCallout && !initialEgressReady ? (
+              <View style={styles.calloutWrap}>
+                <EgressIpCallout
+                  broker={
+                    EGRESS_BROKER_KEY[brokerName] ||
+                    String(brokerName).toLowerCase()
+                  }
+                  customerEmail={emailFromCtx || ''}
+                  showSetupGuide={false}
+                  onAcknowledgeChange={(ready) => setEgressReady(!!ready)}
+                  showUnmetAck={unmetAck}
+                  onUnmetAckHandled={() => setUnmetAck(false)}
+                />
+              </View>
+            ) : null}
+            {!guideConfig && brokerName !== 'Zerodha' ? (
+              <Phase3BrokerHelp brokerName={brokerName} />
+            ) : null}
+            {!egressReady && showEgressCallout ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={nudgeEgressAck}
+                accessibilityRole="button"
+                accessibilityLabel="Whitelist your IP to unlock the connect form"
+                style={styles.lockNotice}>
+                <Text style={styles.lockNoticeText}>
+                  🔒 One step left — tick the “I’ve added … to my{' '}
+                  {brokerName} developer portal whitelist” box above to unlock the
+                  form below. Tap here to jump back to it.
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+            {credentialVaultEnabled ? (
+              <View style={styles.credentialVaultCard}>
+                <Text style={styles.credentialVaultTitle}>
+                  Biometric reconnect protection
+                </Text>
+                <Text style={styles.credentialVaultBody}>
+                  Protects validated reusable API credentials on this phone.
+                  Passwords, MPINs, OTP/TOTP codes, OAuth codes and broker
+                  sessions are never saved here.
+                </Text>
+                {credentialVaultState === 'locked' ? (
+                  <View style={styles.credentialVaultActions}>
+                    <TouchableOpacity
+                      disabled={credentialVaultBusy}
+                      onPress={unlockCredentialVault}
+                      style={styles.credentialVaultPrimary}>
+                      <Text style={styles.credentialVaultPrimaryText}>
+                        {credentialVaultBusy ? 'Unlocking…' : 'Unlock saved API credentials'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      disabled={credentialVaultBusy}
+                      onPress={forgetCredentialVault}>
+                      <Text style={styles.credentialVaultForget}>Forget</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : credentialVaultState === 'unlocked' ? (
+                  <View style={styles.credentialVaultActions}>
+                    <Text style={styles.credentialVaultUnlocked}>
+                      ✓ Unlocked for this connection
+                    </Text>
+                    <TouchableOpacity
+                      disabled={credentialVaultBusy}
+                      onPress={forgetCredentialVault}>
+                      <Text style={styles.credentialVaultForget}>Forget</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : hasBackendReusableCredentials ? (
+                  <TouchableOpacity
+                    disabled={credentialVaultBusy}
+                    onPress={enrolPersistedCredentialVault}
+                    style={styles.credentialVaultPrimary}>
+                    <Text style={styles.credentialVaultPrimaryText}>
+                      {credentialVaultBusy
+                        ? 'Protecting…'
+                        : 'Protect and unlock saved API credentials'}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => setSaveReusableOnDevice(value => !value)}
+                    style={styles.credentialVaultToggle}>
+                    <Text style={styles.credentialVaultToggleMark}>
+                      {saveReusableOnDevice ? '☑' : '☐'}
+                    </Text>
+                    <Text style={styles.credentialVaultToggleText}>
+                      Protect reusable API credentials after successful connection
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : null}
+            <View style={styles.formSectionHeading}>
+              <View
+                style={[styles.formStepBadge, {backgroundColor: guideAccent}]}>
+                <Text style={styles.formStepBadgeText}>
+                  {showEgressCallout ? '3' : '2'}
+                </Text>
+              </View>
+              <View style={styles.formSectionCopy}>
+                <Text style={[styles.formSectionEyebrow, {color: guideAccent}]}>
+                  SECURE DETAILS
+                </Text>
+                <Text style={styles.formSectionTitle}>
+                  Enter your {brokerName} credentials
+                </Text>
+              </View>
+            </View>
+            <View
+              style={[styles.formWrap, !egressReady && styles.formWrapLocked]}
+              pointerEvents={
+                !egressReady && showEgressCallout ? 'none' : 'auto'
+              }>
+              {brokerName === 'Zerodha' ? (
+                <View style={styles.kiteSessionNotice}>
+                  <Text style={[styles.kiteSessionNoticeTitle, {color: guideAccent}]}>KEEP YOUR KITE SESSION ACTIVE</Text>
+                  <Text style={styles.kiteSessionNoticeBody}>
+                    On the next screen, select “Login to Kite web”. This keeps your
+                    Kite session active for the next few hours, so you should not
+                    need to sign in again during that time.
+                  </Text>
+                </View>
+              ) : null}
+              <BrokerCredentialForm
+                broker={brokerName}
+                title="Account details"
+                schemaOverride={schemaOverride || undefined}
+                key={`${brokerName}-${schemaOverride ? 'pre' : 'fresh'}`}
+                encrypt={encryptField}
+                onContinueToOauth={(collected) => {
+                  const extras = {...collected};
+                  if (brokerName === 'Zerodha') {
+                    extras.apiKey =
+                      extras.apiKey ||
+                      Config?.REACT_APP_ZERODHA_API_KEY ||
+                      configData?.config?.REACT_APP_ZERODHA_API_KEY ||
+                      '';
+                  }
+                  setOauthExtraBody(extras);
+                  setErrorInfo(null);
+                }}
+                onSuccess={onSuccess}
+                onError={onError}
+              />
+            </View>
+          </ScrollView>)
         )}
       </View>
       <BrokerWalkthroughPlayer
@@ -1017,7 +1326,7 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   panel: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     // Take nearly the full screen — the SDK widgets render rich content
@@ -1034,17 +1343,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: designColor('e0e0e0'),
   },
   headerTitle: {
     flex: 1,
     fontSize: 16,
     fontWeight: '700',
-    color: '#1F2937',
+    color: designColor('1f2937'),
   },
   closeIcon: {
     fontSize: 20,
-    color: '#6B7280',
+    color: designColor('6b7280'),
     paddingHorizontal: 8,
   },
   // formScroll fills the panel's remaining height (below the Header) so
@@ -1054,7 +1363,7 @@ const styles = StyleSheet.create({
   // with no callout/help (Dhan, AliceBlue) showing a blank body (bug 78).
   formScroll: {
     flex: 1,
-    backgroundColor: '#F4F7FB',
+    backgroundColor: designColor('f4f7fb'),
   },
   scrollPad: {
     paddingTop: 12,
@@ -1073,10 +1382,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: designColor('ffffff'),
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    shadowColor: '#0F172A',
+    borderColor: designColor('e2e8f0'),
+    shadowColor: designColor('0f172a'),
     shadowOpacity: 0.06,
     shadowRadius: 10,
     shadowOffset: {width: 0, height: 3},
@@ -1088,9 +1397,9 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     padding: 13,
     borderRadius: 12,
-    backgroundColor: '#eff6ff',
+    backgroundColor: designColor('eff6ff'),
     borderWidth: 1,
-    borderColor: '#bfdbfe',
+    borderColor: designColor('bfdbfe'),
   },
   kiteSessionNoticeTitle: {
     fontSize: 11,
@@ -1099,7 +1408,7 @@ const styles = StyleSheet.create({
   },
   kiteSessionNoticeBody: {
     marginTop: 5,
-    color: '#334155',
+    color: designColor('334155'),
     fontSize: 13,
     lineHeight: 19,
   },
@@ -1118,10 +1427,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginRight: 9,
   },
-  formStepBadgeText: {color: '#FFFFFF', fontSize: 13, fontWeight: '800'},
+  formStepBadgeText: {color: designColor('ffffff'), fontSize: 13, fontWeight: '800'},
   formSectionCopy: {flex: 1},
   formSectionEyebrow: {fontSize: 10, fontWeight: '800', letterSpacing: 0.7},
-  formSectionTitle: {fontSize: 15, fontWeight: '800', color: '#172033', marginTop: 2},
+  formSectionTitle: {fontSize: 15, fontWeight: '800', color: designColor('172033'), marginTop: 2},
   // Disabled-pending-IP-whitelist state. A gentle dim (not the old
   // unexplained 0.45) PAIRED with the lockNotice banner above so the
   // form reads as "intentionally locked until you finish a step",
@@ -1133,62 +1442,128 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 12,
     padding: 12,
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FCD34D',
+    backgroundColor: designColor('fef3c7'),
+    borderColor: designColor('fcd34d'),
     borderWidth: 1,
     borderRadius: 10,
   },
   lockNoticeText: {
-    color: '#92400E',
+    color: designColor('92400e'),
     fontSize: 13,
     lineHeight: 19,
+    fontWeight: '600',
+  },
+  credentialVaultCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: designColor('eff6ff'),
+    borderWidth: 1,
+    borderColor: designColor('bfdbfe'),
+  },
+  credentialVaultTitle: {
+    color: designColor('1e3a8a'),
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  credentialVaultBody: {
+    color: designColor('334155'),
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 5,
+    marginBottom: 10,
+  },
+  credentialVaultActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  credentialVaultPrimary: {
+    alignSelf: 'flex-start',
+    borderRadius: 9,
+    backgroundColor: designColor('1d4ed8'),
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+  },
+  credentialVaultPrimaryText: {
+    color: designColor('ffffff'),
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  credentialVaultForget: {
+    color: designColor('b91c1c'),
+    fontSize: 12,
+    fontWeight: '700',
+    padding: 8,
+  },
+  credentialVaultUnlocked: {
+    color: designColor('166534'),
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  credentialVaultToggle: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  credentialVaultToggleMark: {
+    color: designColor('1d4ed8'),
+    fontSize: 18,
+    lineHeight: 20,
+    marginRight: 8,
+  },
+  credentialVaultToggleText: {
+    flex: 1,
+    color: designColor('1e3a8a'),
+    fontSize: 12,
+    lineHeight: 18,
     fontWeight: '600',
   },
   cautionaryBox: {
     margin: 16,
     padding: 14,
-    backgroundColor: '#FEF3C7',
-    borderColor: '#FDE68A',
+    backgroundColor: designColor('fef3c7'),
+    borderColor: designColor('fde68a'),
     borderWidth: 1,
     borderRadius: 10,
   },
   cautionaryTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: '#92400E',
+    color: designColor('92400e'),
     marginBottom: 6,
   },
   cautionaryBody: {
     fontSize: 13,
-    color: '#78350F',
+    color: designColor('78350f'),
     lineHeight: 19,
   },
   errorBox: {
     margin: 16,
     padding: 12,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: designColor('fee2e2'),
     borderRadius: 8,
   },
   errorText: {
-    color: '#991B1B',
+    color: designColor('991b1b'),
     fontSize: 13,
   },
   errorTitle: {
-    color: '#991B1B',
+    color: designColor('991b1b'),
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 4,
   },
   errorBody: {
-    color: '#991B1B',
+    color: designColor('991b1b'),
     fontSize: 13,
     lineHeight: 18,
   },
   errorTechnical: {
-    color: '#7F1D1D',
+    color: designColor('7f1d1d'),
     fontSize: 11,
     marginTop: 8,
-    fontFamily: 'monospace',
+    fontFamily: designFont('monospace'),
     opacity: 0.75,
   },
   prefillLoader: {
@@ -1199,7 +1574,7 @@ const styles = StyleSheet.create({
   prefillLoaderText: {
     marginTop: 8,
     fontSize: 13,
-    color: '#6B7280',
+    color: designColor('6b7280'),
   },
 });
 

@@ -29,6 +29,8 @@ import {useTrade} from '../TradeContext';
 import {useConfig} from '../../context/ConfigContext';
 import {useComponent} from '../../design/useDesign';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 // WatchlistRow uses useLTPStore (Zustand) for live prices — must stay in container
 const WatchlistRow = ({item}) => {
   const livePriceRaw = useLTPStore(state => state.ltps[item.symbol]);
@@ -45,15 +47,15 @@ const WatchlistRow = ({item}) => {
         paddingVertical: 14,
         paddingHorizontal: 16,
         borderBottomWidth: 1,
-        borderColor: '#c8c8c8',
-        borderBottomColor: '#ECECEC',
+        borderColor: designColor('c8c8c8'),
+        borderBottomColor: designColor('ececec'),
       }}>
       <View>
         <Text
           style={{
-            color: '#222',
+            color: designColor('222'),
             fontSize: 14,
-            fontFamily: 'Poppins-Medium',
+            fontFamily: designFont('Poppins-Medium'),
             marginBottom: 2,
           }}
           numberOfLines={1}
@@ -63,8 +65,8 @@ const WatchlistRow = ({item}) => {
         <Text
           style={{
             fontSize: 10,
-            color: '#888',
-            fontFamily: 'HelveticaNeue',
+            color: designColor('888'),
+            fontFamily: designFont('HelveticaNeue'),
             marginTop: 2,
             maxWidth: 170,
           }}>
@@ -72,8 +74,8 @@ const WatchlistRow = ({item}) => {
           <Text
             style={{
               fontSize: 8,
-              color: '#888',
-              fontFamily: 'HelveticaNeue',
+              color: designColor('888'),
+              fontFamily: designFont('HelveticaNeue'),
               marginHorizontal: 4,
               marginTop: -2,
             }}>
@@ -85,9 +87,9 @@ const WatchlistRow = ({item}) => {
       <View style={{flex: 1, alignItems: 'flex-end'}}>
         <Text
           style={{
-            color: '#222',
+            color: designColor('222'),
             fontSize: 14,
-            fontFamily: 'Poppins-Medium',
+            fontFamily: designFont('Poppins-Medium'),
             letterSpacing: 0.25,
             marginBottom: 10,
           }}>
@@ -101,7 +103,7 @@ const WatchlistRow = ({item}) => {
 const WatchlistScreen = props => {
   // Get dynamic config from API
   const config = useConfig();
-  const themeColor = config?.themeColor || '#0056B7';
+  const themeColor = config?.themeColor || designColor('0056b7');
   const gradient1 = config?.gradient1 || 'rgba(0, 38, 81, 1)';
   const gradient2 = config?.gradient2 || 'rgba(0, 86, 183, 1)';
   const {configData} = useTrade();
@@ -176,12 +178,12 @@ const WatchlistScreen = props => {
       text1Style: {
         color: 'black',
         fontSize: 14,
-        fontFamily: 'Poppins-Medium',
+        fontFamily: designFont('Poppins-Medium'),
       },
       text2Style: {
         color: 'black',
         fontSize: 13,
-        fontFamily: 'Poppins-Regular',
+        fontFamily: designFont('Poppins-Regular'),
       },
     });
   };

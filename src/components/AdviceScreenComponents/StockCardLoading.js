@@ -14,6 +14,7 @@ import server from '../../utils/serverConfig';
 import axios from 'axios';
 import { FadeLoading } from 'react-native-fade-loading';
 import { orderTypeDisplay } from '../../utils/adviceDisplay';
+import { designColor, designFont } from '../../design/literalTokens';
 const screenWidth = Dimensions.get('window').width;
 import { useModal } from '../../components/ModalContext';
 
@@ -53,19 +54,19 @@ const StockCardLoading = ({
   setOpenIgnoreTradeModel = () => {},
   setStockIgnoreId = () => {},
   tradeId = '',
-  
+
 }) => {
 
-  
+
   const isBuyAction = action.toLowerCase() === 'buy';
   const [inputPrice, setInputPrice] = useState(Price);
   const [market, setMarket] = useState(orderTypeDisplay(OrderType));
-  const [isExpanded, setIsExpanded] = useState(false); 
+  const [isExpanded, setIsExpanded] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const shouldShowReadMore = rationale.length > 60;
   const [showFullSymbol, setShowFullSymbol] = useState(false);
 
-  const [ltp, setLtp] = useState([]); 
+  const [ltp, setLtp] = useState([]);
   const [socket, setSocket] = useState(null);
   const [loadingcart,setloadingcart]=useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -88,7 +89,7 @@ const StockCardLoading = ({
 
   const handleInputChange = (text) => {
     setInputPrice(text);
-    handleLimitOrderInputChange(text); 
+    handleLimitOrderInputChange(text);
   };
 
   const toggleExpanded = () => {
@@ -114,7 +115,7 @@ const StockCardLoading = ({
   const handleCloseSymbolCard = () => {
     setShowFullSymbol(false);
   };
-  
+
   const handleTouchOutside = () => {
     setShowFullSymbol(false);
     Keyboard.dismiss(); // Dismiss keyboard if it is open
@@ -129,270 +130,269 @@ const StockCardLoading = ({
   };
 
   return (
-    
     <TouchableWithoutFeedback onPress={handleTouchOutside}>
-    <View style={styles.card}>
-      {/* {isLoading ? (
-        <FadeLoading
-          style={styles.loading}
-          primaryColor="#f0f0f0"
-          secondaryColor="#e0e0e0"
-          duration={500}
-        />
-      ) : (
-        <> */}
-      <View style={styles.header}>
-        <View style={styles.stockInfo}>
-     
-            <View onPress={() => handleSymbolClick(symbol)} style={{ flexDirection: 'row', alignItems: 'center' }}>
-              {isLoading ? (
-                <FadeLoading
-                  style={{ width: 60, height: 10 }} // Adjust width for symbol loading
-                  primaryColor="#f0f0f0"
-                  secondaryColor="#e0e0e0"
-                  duration={500}
-                />
-              ) : (
-                <>
-                  <Text style={styles.symbol}>
-                    {symbol.length > 15 ? `${symbol.substring(0, )}...` : symbol}
-                  </Text>
-                  <Text style={{fontSize:11,alignSelf:'bottom',marginLeft:3,marginTop:3}}>{Exchange}</Text>
-                </>
-              )}
-            </View>
-        
-          {isLoading ? (
-  <FadeLoading
-    style={{ width: 50, height: 10, marginTop: 5 }} // Adjust width for price loading
-    primaryColor="#f0f0f0"
-    secondaryColor="#e0e0e0"
-    duration={500}
-  />
-) : (
-  <>
-    {showFullSymbol ? (
-      <View style={styles.symbolCard}>
-        <TouchableOpacity onPress={handleCloseSymbolCard} style={{backgroundColor:'white',elevation:4,padding:5,borderRadius:5,}}>
-          <Text style={{fontFamily:'Poppins-Regular',marginTop:2,color:'black'}}>{symbol}</Text>
-        </TouchableOpacity>
-      </View>
-    ) : (
-      <>
- 
-        <Text style={styles.ltp}>{getLTPForSymbol(symbol) ? `₹${getLTPForSymbol(symbol)}` : '₹--'}</Text>
-      </>
-    )}
-  </>
-)}
+      <View style={styles.card}>
+        {/* {isLoading ? (
+          <FadeLoading
+            style={styles.loading}
+            primaryColor="#f0f0f0"
+            secondaryColor="#e0e0e0"
+            duration={500}
+          />
+        ) : (
+          <> */}
+        <View style={styles.header}>
+          <View style={styles.stockInfo}>
 
-        </View>
-
-        <View style={{flexDirection:'column',justifyContent:'space-between'}}>
-        {isLoading ? (
-            <FadeLoading
-              style={{ width: 50, height: 10,marginTop:5,}} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
-              duration={500}
-            />
-          ) : (
-          
-        <View style={styles.actionContainer}>
-        <View style={[styles.action, isBuyAction ? styles.buyAction : styles.sellAction]}>
-          <Text style={[styles.actionText, isBuyAction ? styles.buyActiontext : styles.sellActiontext]}>
-            {action}
-          </Text>
-        </View>
-      </View>
-          )}
-
-{isLoading ? (
-            <FadeLoading
-              style={{ width: 100, height: 10,marginTop:5,}} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
-              duration={500}
-            />
-          ) : (
- 
-            <Text style={[{fontSize: 11}, isBuyAction ? { color: '#73BE4A' } : { color: '#ff0000' }]}>
-          
-          </Text>
-          )} 
-        </View> 
-      </View>
-      {isLoading ? (
-            <FadeLoading
-              style={{ width: 200, height: 10,marginTop:5, marginLeft:15}} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
-              duration={500}
-            />
-          ) : (
- 
-            <View style={{ flexDirection: 'column', }}>
-            <Text style={{ paddingHorizontal:15,marginTop:5,textAlign:'left', fontFamily: 'Poppins-Light', fontSize: 12, color: '#858585' }}>
-              <Text style={{color:'#4C4C4C',fontFamily:'Poppins-Regular'}}>Rationale : </Text>
-              {isExpanded
-                ? rationale
-                : `${rationale.substring(0, 60)}...`}
-              <Text onPress={openModal} style={{ fontFamily: 'Poppins-Regular',color: '#4B8CEE', padding: 1 }}>
-                {isExpanded ? ' Read Less' : ' Read More'}
-              </Text>
-            </Text>
-          </View>
-          )} 
-
-      
-{isLoading ? (
-            <FadeLoading
-              style={{ justifyContent:'center', width: screenWidth*0.70, height: 55,marginTop:10, marginLeft:15}} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
-              duration={500}
-            />
-          ) : (
-            <View style={styles.details}>
-            <View style={styles.detailColumn}>
-              <View style={{flexDirection:'row' ,alignContent:'flex-start',alignSelf:'flex-start',justifyContent:'space-between'}}>
-              <Text style={styles.labelMarket}>{market}</Text>
-              </View>
-              {OrderType === 'LIMIT' ? (
-                <View style={styles.inputContainer}> 
-                  <Text style={styles.currencySymbol}>₹ </Text>
-                  <TextInput
-                    value={inputPrice ? `${inputPrice.toString()}` : ''}
-                    onChangeText={handleInputChange}
-                    style={styles.quantityInputLimit}
-                    keyboardType="numeric"
+              <View onPress={() => handleSymbolClick(symbol)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+                {isLoading ? (
+                  <FadeLoading
+                    style={{ width: 60, height: 10 }} // Adjust width for symbol loading
+                    primaryColor={designColor('f0f0f0')}
+                    secondaryColor={designColor('e0e0e0')}
+                    duration={500}
                   />
-                </View>
-              ) : (
-                <Text style={styles.valueMarket}>{OrderType === 'MARKET' && Exchange === -1 ? Exchange : '----'}</Text>
-              )}
-    
-            </View>
-            <View style={styles.quantitySection}>
-              <View style={styles.detailColumn}>
-                <Text style={styles.labelQuant}>Quantity</Text>
-                <View style={styles.quantityContainer}>
-                  <TouchableOpacity
-                    onPress={() => handleDecreaseStockQty(symbol, tradeId)}
-                    disabled={quantity <= 1}
-                  >
-                    <Icon1 name="minus" size={14} color="#000" />
-                  </TouchableOpacity>
-                  <TextInput
-                    value={quantity.toString()}
-                    onChangeText={(value) => handleQuantityInputChange(symbol, value, tradeId)}
-                    style={styles.quantityInput}
-                    keyboardType="numeric"
-                  />
-                  <TouchableOpacity onPress={() => handleIncreaseStockQty(symbol, tradeId)}>
-                    <Icon1 name="plus" size={14} color="#000" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-            <View style={styles.advisedRangeContainer}>
-              <Text style={styles.label2}>Advised Range</Text>
-              <Text style={styles.value2}>
-                {advisedRangeLower && advisedRangeHigher ? (
-                  `₹${advisedRangeLower}- ₹${advisedRangeHigher}`
-                ) : advisedRangeLower ? (
-                  `₹${advisedRangeLower}`
-                ) : advisedRangeHigher ? (
-                  `₹${advisedRangeHigher}`
-                ) : (
-                  `-`
-                )}
-              </Text>
-            </View>
-          </View>
-          )}   
-      {isLoading ? (
-            <FadeLoading
-              style={{ width: screenWidth*0.30, height: 10,marginTop:5, marginLeft:15}} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
-              duration={500}
-            />
-          ) : (
-            <View style={styles.footer}>
-            <CalendarDays size={18} color='#49484c' style={styles.iconSpacing}/>
-            <Text style={styles.dateText}>{moment(date).format('Do MMM YYYY')} | </Text>
-            <Text style={styles.dateText}>{moment(date).format('h:mm A')}</Text>
-          </View>
-          )}
-      {isLoading ? (
-            <FadeLoading
-              style={{ width: screenWidth-110, height: 30,marginVertical:10, marginLeft:15}} // Adjust width for price loading
-              primaryColor="#f0f0f0"
-              secondaryColor="#e0e0e0"
-              duration={500}
-            />
-          ) : (
-            <View style={styles.buttonsContainer}>
-            <TouchableOpacity
-              style={styles.discardBtn}
-              onPress={() => handleIgnoreTradePress(id)} 
-            >
-            <BanIcon color={'#49484c'} size={26} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.tradeBtn}
-              onPress={() => handleTradePress(symbol, tradeId, action)}
-            >
-              <Text style={styles.tradeBtnText}>Trade Now</Text>
-    
-            </TouchableOpacity>
-            <TouchableOpacity
-            activeOpacity={0.8}
-            onPress={() => { handleAddToCart(symbol, tradeId, isSelected ? "remove" : "add") }}
-      style={[styles.addButton, isSelected && styles.undoButton]} // Apply the undoButton style conditionally
-    >
-    {loadingcart ? (
-                  <ActivityIndicator size="small" color="#fff" /> // Show loading indicator
                 ) : (
                   <>
-    {isSelected ? (
-            <MinusIcon size={16} color={'white'} /> // Show minus icon when isSelected is true
-          ) : (
-            <PlusIcon size={16} color={'white'} /> // Show plus icon when isSelected is false
-          )}
-      <Text style={styles.addButtonText}>
-        {isSelected ? 'Undo Add' : 'Add to Cart'} 
-      </Text>
+                    <Text style={styles.symbol}>
+                      {symbol.length > 15 ? `${symbol.substring(0, )}...` : symbol}
+                    </Text>
+                    <Text style={{fontSize:11,alignSelf:'bottom',marginLeft:3,marginTop:3}}>{Exchange}</Text>
                   </>
-                )}  
-    
-    </TouchableOpacity>
-       
+                )}
+              </View>
+
+            {isLoading ? (
+    <FadeLoading
+      style={{ width: 50, height: 10, marginTop: 5 }} // Adjust width for price loading
+      primaryColor={designColor('f0f0f0')}
+      secondaryColor={designColor('e0e0e0')}
+      duration={500}
+    />
+  ) : (
+    <>
+      {showFullSymbol ? (
+        <View style={styles.symbolCard}>
+          <TouchableOpacity onPress={handleCloseSymbolCard} style={{backgroundColor:'white',elevation:4,padding:5,borderRadius:5,}}>
+            <Text style={{fontFamily:designFont('Poppins-Regular'),marginTop:2,color:'black'}}>{symbol}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <>
+
+          <Text style={styles.ltp}>{getLTPForSymbol(symbol) ? `₹${getLTPForSymbol(symbol)}` : '₹--'}</Text>
+        </>
+      )}
+    </>
+  )}
+
           </View>
-          )}
 
+          <View style={{flexDirection:'column',justifyContent:'space-between'}}>
+          {isLoading ? (
+              <FadeLoading
+                style={{ width: 50, height: 10,marginTop:5,}} // Adjust width for price loading
+                primaryColor={designColor('f0f0f0')}
+                secondaryColor={designColor('e0e0e0')}
+                duration={500}
+              />
+            ) : (
 
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="fade"
-        onRequestClose={closeModal}
-      >
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <View style={{flexDirection:'row',justifyContent:'space-between'}}>
-            <Text style={styles.modalTitle}>{'Rationale for '+symbol}</Text>
-            <XIcon onPress={closeModal} size={20} color={'black'}/>
-            </View>
-            <Text style={styles.modalRationale}>
-            {rationale}
+          <View style={styles.actionContainer}>
+          <View style={[styles.action, isBuyAction ? styles.buyAction : styles.sellAction]}>
+            <Text style={[styles.actionText, isBuyAction ? styles.buyActiontext : styles.sellActiontext]}>
+              {action}
             </Text>
           </View>
         </View>
-      </Modal>
- 
-      </View>
+            )}
+
+  {isLoading ? (
+              <FadeLoading
+                style={{ width: 100, height: 10,marginTop:5,}} // Adjust width for price loading
+                primaryColor={designColor('f0f0f0')}
+                secondaryColor={designColor('e0e0e0')}
+                duration={500}
+              />
+            ) : (
+
+              <Text style={[{fontSize: 11}, isBuyAction ? { color: designColor('73be4a') } : { color: designColor('ff0000') }]}>
+
+            </Text>
+            )}
+          </View>
+        </View>
+        {isLoading ? (
+              <FadeLoading
+                style={{ width: 200, height: 10,marginTop:5, marginLeft:15}} // Adjust width for price loading
+                primaryColor={designColor('f0f0f0')}
+                secondaryColor={designColor('e0e0e0')}
+                duration={500}
+              />
+            ) : (
+
+              <View style={{ flexDirection: 'column', }}>
+              <Text style={{ paddingHorizontal:15,marginTop:5,textAlign:'left', fontFamily: designFont('Poppins-Light'), fontSize: 12, color: designColor('858585') }}>
+                <Text style={{color:designColor('4c4c4c'),fontFamily:designFont('Poppins-Regular')}}>Rationale : </Text>
+                {isExpanded
+                  ? rationale
+                  : `${rationale.substring(0, 60)}...`}
+                <Text onPress={openModal} style={{ fontFamily: designFont('Poppins-Regular'),color: designColor('4b8cee'), padding: 1 }}>
+                  {isExpanded ? ' Read Less' : ' Read More'}
+                </Text>
+              </Text>
+            </View>
+            )}
+
+
+  {isLoading ? (
+              <FadeLoading
+                style={{ justifyContent:'center', width: screenWidth*0.70, height: 55,marginTop:10, marginLeft:15}} // Adjust width for price loading
+                primaryColor={designColor('f0f0f0')}
+                secondaryColor={designColor('e0e0e0')}
+                duration={500}
+              />
+            ) : (
+              <View style={styles.details}>
+              <View style={styles.detailColumn}>
+                <View style={{flexDirection:'row' ,alignContent:'flex-start',alignSelf:'flex-start',justifyContent:'space-between'}}>
+                <Text style={styles.labelMarket}>{market}</Text>
+                </View>
+                {OrderType === 'LIMIT' ? (
+                  <View style={styles.inputContainer}>
+                    <Text style={styles.currencySymbol}>₹ </Text>
+                    <TextInput
+                      value={inputPrice ? `${inputPrice.toString()}` : ''}
+                      onChangeText={handleInputChange}
+                      style={styles.quantityInputLimit}
+                      keyboardType="numeric"
+                    />
+                  </View>
+                ) : (
+                  <Text style={styles.valueMarket}>{OrderType === 'MARKET' && Exchange === -1 ? Exchange : '----'}</Text>
+                )}
+
+              </View>
+              <View style={styles.quantitySection}>
+                <View style={styles.detailColumn}>
+                  <Text style={styles.labelQuant}>Quantity</Text>
+                  <View style={styles.quantityContainer}>
+                    <TouchableOpacity
+                      onPress={() => handleDecreaseStockQty(symbol, tradeId)}
+                      disabled={quantity <= 1}
+                    >
+                      <Icon1 name="minus" size={14} color={designColor('000')} />
+                    </TouchableOpacity>
+                    <TextInput
+                      value={quantity.toString()}
+                      onChangeText={(value) => handleQuantityInputChange(symbol, value, tradeId)}
+                      style={styles.quantityInput}
+                      keyboardType="numeric"
+                    />
+                    <TouchableOpacity onPress={() => handleIncreaseStockQty(symbol, tradeId)}>
+                      <Icon1 name="plus" size={14} color={designColor('000')} />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+              <View style={styles.advisedRangeContainer}>
+                <Text style={styles.label2}>Recommended Range</Text>
+                <Text style={styles.value2}>
+                  {advisedRangeLower && advisedRangeHigher ? (
+                    `₹${advisedRangeLower}- ₹${advisedRangeHigher}`
+                  ) : advisedRangeLower ? (
+                    `₹${advisedRangeLower}`
+                  ) : advisedRangeHigher ? (
+                    `₹${advisedRangeHigher}`
+                  ) : (
+                    `-`
+                  )}
+                </Text>
+              </View>
+            </View>
+            )}
+        {isLoading ? (
+              <FadeLoading
+                style={{ width: screenWidth*0.30, height: 10,marginTop:5, marginLeft:15}} // Adjust width for price loading
+                primaryColor={designColor('f0f0f0')}
+                secondaryColor={designColor('e0e0e0')}
+                duration={500}
+              />
+            ) : (
+              <View style={styles.footer}>
+              <CalendarDays size={18} color={designColor('49484c')} style={styles.iconSpacing}/>
+              <Text style={styles.dateText}>{moment(date).format('Do MMM YYYY')} | </Text>
+              <Text style={styles.dateText}>{moment(date).format('h:mm A')}</Text>
+            </View>
+            )}
+        {isLoading ? (
+              <FadeLoading
+                style={{ width: screenWidth-110, height: 30,marginVertical:10, marginLeft:15}} // Adjust width for price loading
+                primaryColor={designColor('f0f0f0')}
+                secondaryColor={designColor('e0e0e0')}
+                duration={500}
+              />
+            ) : (
+              <View style={styles.buttonsContainer}>
+              <TouchableOpacity
+                style={styles.discardBtn}
+                onPress={() => handleIgnoreTradePress(id)}
+              >
+              <BanIcon color={designColor('49484c')} size={26} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.tradeBtn}
+                onPress={() => handleTradePress(symbol, tradeId, action)}
+              >
+                <Text style={styles.tradeBtnText}>Trade Now</Text>
+
+              </TouchableOpacity>
+              <TouchableOpacity
+              activeOpacity={0.8}
+              onPress={() => { handleAddToCart(symbol, tradeId, isSelected ? "remove" : "add") }}
+        style={[styles.addButton, isSelected && styles.undoButton]} // Apply the undoButton style conditionally
+      >
+      {loadingcart ? (
+                    (<ActivityIndicator size="small" color={designColor('fff')} />) // Show loading indicator
+                  ) : (
+                    <>
+      {isSelected ? (
+              (<MinusIcon size={16} color={'white'} />) // Show minus icon when isSelected is true
+            ) : (
+              (<PlusIcon size={16} color={'white'} />) // Show plus icon when isSelected is false
+            )}
+        <Text style={styles.addButtonText}>
+          {isSelected ? 'Undo Add' : 'Add to Cart'}
+        </Text>
+                    </>
+                  )}
+
+      </TouchableOpacity>
+
+            </View>
+            )}
+
+
+        <Modal
+          visible={modalVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={closeModal}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <View style={{flexDirection:'row',justifyContent:'space-between'}}>
+              <Text style={styles.modalTitle}>{'Rationale for '+symbol}</Text>
+              <XIcon onPress={closeModal} size={20} color={'black'}/>
+              </View>
+              <Text style={styles.modalRationale}>
+              {rationale}
+              </Text>
+            </View>
+          </View>
+        </Modal>
+
+        </View>
     </TouchableWithoutFeedback>
   );
 };
@@ -403,7 +403,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#00000010',
+    borderColor: designColor('00000010'),
     shadowOffset: { width: 1, height: 1 },
     shadowOpacity: 0.06,
     padding:3,
@@ -413,29 +413,29 @@ const styles = StyleSheet.create({
     marginHorizontal:5,
     width: screenWidth * 0.87,// Use percentage for responsiveness
     maxWidth: screenWidth-10,
- 
+
   },
   loadingaddcart: {
     flexDirection: 'row',
 
-    backgroundColor: '#f8f8f8',
+    backgroundColor: designColor('f8f8f8'),
     padding: 4,
     marginHorizontal:10,
     height:40,
     width:50,
- 
+
   },
   loadingtradenow: {
     flexDirection: 'row',
-    backgroundColor: '#f8f8f8',
+    backgroundColor: designColor('f8f8f8'),
     padding: 4,
     marginHorizontal:10,
     height:40,
     width:50,
-   
+
   },
   undoButton: {
-    backgroundColor: '#E6626F', // red background for undo button
+    backgroundColor: designColor('e6626f'), // red background for undo button
   },
   quantityContainer: {
     alignSelf:'center',
@@ -455,12 +455,12 @@ const styles = StyleSheet.create({
   symbol: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#262727',
+    color: designColor('262727'),
   },
   ltp: {
-    color: '#262727',
+    color: designColor('262727'),
     fontSize: 18,
- 
+
     fontWeight: 'bold',
   },
   actionContainer: {
@@ -474,24 +474,24 @@ const styles = StyleSheet.create({
     padding: 1,
   },
   symbolCard: {
-    
+
   },
   buyAction: {
-    backgroundColor: '#16A085',
+    backgroundColor: designColor('16a085'),
   },
   sellAction: {
-    backgroundColor: '#FDEAEC',
+    backgroundColor: designColor('fdeaec'),
   },
   buyActiontext: {
     padding: 5,
-    color: '#fff',
-    fontFamily:'Poppins-Regular',
+    color: designColor('fff'),
+    fontFamily:designFont('Poppins-Regular'),
     fontSize: 16,
   },
   sellActiontext: {
     padding: 5,
-    color: '#cf3a49',
-    fontFamily:'Poppins-Regular',
+    color: designColor('cf3a49'),
+    fontFamily:designFont('Poppins-Regular'),
     fontSize: 16,
     marginBottom: 1,
   },
@@ -499,13 +499,13 @@ const styles = StyleSheet.create({
     fontSize: 20,
     padding: 0,
     fontWeight: 'bold',
-    color: '#010001',
+    color: designColor('010001'),
   },
   details: {
     flexDirection: 'row',
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#00000010',
+    borderColor: designColor('00000010'),
     marginTop: 6,
     paddingHorizontal: 14,
   },
@@ -524,7 +524,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 4,
     fontSize: 14,
-    color: '#000',
+    color: designColor('000'),
   },
   quantityInputLimit: {
     height: 22,
@@ -532,11 +532,11 @@ const styles = StyleSheet.create({
     padding: 2,
     marginTop: 8,
     marginBottom: 8,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 14,
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 4,
   },
   quantityInput: {
@@ -544,17 +544,17 @@ const styles = StyleSheet.create({
     height: 22,
     padding: 2,
     marginHorizontal: 4,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 12,
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 4,
   },
   quantitySection: {
     borderLeftWidth: 0.5,
     borderRightWidth: 0.5,
-    borderColor: '#cbcacb',
+    borderColor: designColor('cbcacb'),
     width: '40%',
     alignSelf: 'center',
     justifyContent: 'center',
@@ -564,19 +564,19 @@ const styles = StyleSheet.create({
     fontSize: 12,
     alignSelf: 'center',
     marginVertical: 6,
-    color: '#262727',
+    color: designColor('262727'),
   },
   labelMarket: {
     fontSize: 12,
     alignSelf: 'flex-start',
-    color: '#262727',
+    color: designColor('262727'),
     marginTop: 6,
   },
   valueMarket: {
     fontSize: 14,
     fontWeight: 'bold',
     marginBottom: 10,
-    color: '#5a5a5a',
+    color: designColor('5a5a5a'),
     marginTop: 8,
   },
   advisedRangeContainer: {
@@ -589,25 +589,25 @@ const styles = StyleSheet.create({
   },
   label2: {
     fontSize: 12,
-    color: '#00000070',
-    fontFamily: 'Poppins-Regular',
+    color: designColor('00000070'),
+    fontFamily: designFont('Poppins-Regular'),
     fontWeight: '400',
-    color: '#262727',
+    color: designColor('262727'),
   },
   label3: {
     fontSize: 12,
-    color: '#00000070',
-    fontFamily: 'Poppins-Regular',
+    color: designColor('00000070'),
+    fontFamily: designFont('Poppins-Regular'),
     fontWeight: '400',
     alignSelf:'flex-start',
- 
-    color: '#262727',
+
+    color: designColor('262727'),
   },
   value2: {
     fontSize: 12,
-    color: '#000000',
+    color: designColor('000000'),
     marginTop: 6,
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
     fontWeight: '800',
   },
   footer: {
@@ -621,7 +621,7 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 12,
-    color: '#49484c',
+    color: designColor('49484c'),
     fontWeight: '600',
   },
   buttonsContainer: {
@@ -637,41 +637,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     alignContent:'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     padding: 8,
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: '#cbcacb',
+    borderColor: designColor('cbcacb'),
     marginHorizontal: 6,
     flex: 1,
   },
   tradeBtnText: {
-    fontFamily:'Poppins-Medium',
+    fontFamily:designFont('Poppins-Medium'),
     fontSize: 14,
-    color: '#000000',
+    color: designColor('000000'),
   },
   addButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#002a5c',
+    backgroundColor: designColor('002a5c'),
     padding: 8,
     borderRadius: 5,
     flex: 1,
   },
   addButtonText: {
-    fontFamily:'Poppins-Medium',
+    fontFamily:designFont('Poppins-Medium'),
     fontSize: 14,
     alignSelf: 'center',
     marginTop:1,
-    color: '#FFFFFF',
+    color: designColor('ffffff'),
   },
   discardBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     alignContent:'center',
     justifyContent: 'center',
-    backgroundColor: '#e5e7eb',
+    backgroundColor: designColor('e5e7eb'),
     padding: 8,
     flex:0.25,
     borderRadius: 5,
@@ -693,14 +693,14 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginBottom: 10,
     color:'black',
-    fontFamily:'Poppins-Bold'
+    fontFamily:designFont('Poppins-Bold')
   },
   modalRationale: {
     fontSize: 12,
     textAlign:'left',
-    color: '#858585',
+    color: designColor('858585'),
     marginBottom: 20,
-    fontFamily:'Poppins-Regular'
+    fontFamily:designFont('Poppins-Regular')
   },
   closeButton: {
     backgroundColor: 'transparent',

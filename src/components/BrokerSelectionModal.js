@@ -15,7 +15,7 @@
  *     handleBrokerConnectedContinue }
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { getAuth } from '@react-native-firebase/auth';
 import Config from 'react-native-config';
@@ -24,7 +24,7 @@ import { generateToken } from '../utils/SecurityTokenManager';
 import useModalStore from '../GlobalUIModals/modalStore';
 import { useTrade } from '../screens/TradeContext';
 import { useConfig } from '../context/ConfigContext';
-import { getAdvisorSubdomain } from '../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 import { registerCallback } from '../utils/brokerAuth';
 import { brokerDisplayConfig } from '../config/brokerDisplayConfig';
 import { handleSmartReauth, flipPrimaryBroker } from '../utils/reauthHelpers';
@@ -33,6 +33,23 @@ import eventEmitter from './EventEmitter';
 import AngelOneCautionaryWarning from './AngelOneCautionaryWarning';
 import { useComponent } from '../design/useDesign';
 import {getAccountEmail} from '../utils/accountEmail';
+import {hasDeviceTotp} from '../services/DeviceTotpVault';
+import {hasAliceBlueDeviceLogin} from '../services/DeviceBrokerLoginVault';
+
+const DEVICE_TOTP_AUTO_RECONNECT = Object.freeze({
+    'Angel One': {broker: 'Angel One', modalKey: 'Angel One'},
+    AngelOne: {broker: 'Angel One', modalKey: 'Angel One'},
+    Zerodha: {broker: 'Zerodha', modalKey: 'Zerodha'},
+    Fyers: {broker: 'Fyers', modalKey: 'Fyers'},
+    Motilal: {broker: 'Motilal Oswal', modalKey: 'Motilal'},
+    'Motilal Oswal': {broker: 'Motilal Oswal', modalKey: 'Motilal'},
+    // Dhan Direct API: DhanConnectModal auto-unlocks a saved PIN+TOTP when
+    // the account is on direct_api. AliceBlue keeps its partner-login vault
+    // in DeviceBrokerLoginVault, not the TOTP vault (2026-10-02).
+    Dhan: {broker: 'Dhan', modalKey: 'Dhan'},
+    AliceBlue: {broker: 'AliceBlue', modalKey: 'AliceBlue', vault: 'aliceblue'},
+    'Alice Blue': {broker: 'AliceBlue', modalKey: 'AliceBlue', vault: 'aliceblue'},
+});
 
 const BrokerSelectionModal = ({
     showBrokerModal,
@@ -41,6 +58,7 @@ const BrokerSelectionModal = ({
     setOpenTokenExpireModel,
     handleAcceptRebalanceWithoutBroker,
     handleBrokerConnectedContinue,
+    onReconnectCancel,
 }) => {
     const Presentation = useComponent('composites.BrokerSelectionModal');
     const {
@@ -66,6 +84,7 @@ const BrokerSelectionModal = ({
     const user = auth.currentUser;
     const userEmail = getAccountEmail();
     const [loginLoading, setLoginLoading] = useState(false);
+    const [continueWithoutBrokerLoading, setContinueWithoutBrokerLoading] = useState(false);
     const [brokerStatus, setBrokerStatus] = useState(
         userDetails ? userDetails.connect_broker_status : null,
     );
@@ -77,6 +96,7 @@ const BrokerSelectionModal = ({
     const [brokerConnected, setBrokerConnected] = useState(false);
     const [connectingBroker, setConnectingBroker] = useState(false);
     const [pendingAngelOneBroker, setPendingAngelOneBroker] = useState(null);
+    const autoReconnectAttemptRef = useRef(null);
 
     useEffect(() => {
         if (globalBrokerStatus === 'connected' && showBrokerModal) {
@@ -90,7 +110,7 @@ const BrokerSelectionModal = ({
             .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
                 headers: {
                     'Content-Type': 'application/json',
-                    'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                    'X-Advisor-Subdomain': getTenantSubdomain(),
                     'aq-encrypted-key': generateToken(
                         Config.REACT_APP_AQ_KEYS,
                         Config.REACT_APP_AQ_SECRET,
@@ -111,6 +131,19 @@ const BrokerSelectionModal = ({
     }, [userEmail]);
 
     useEffect(() => {
+        const dismissVerifiedReconnect = () => {
+            setOpenTokenExpireModel(false);
+        };
+        eventEmitter.on('brokerConnectionVerified', dismissVerifiedReconnect);
+        return () => {
+            eventEmitter.removeListener(
+                'brokerConnectionVerified',
+                dismissVerifiedReconnect,
+            );
+        };
+    }, [setOpenTokenExpireModel]);
+
+    useEffect(() => {
         const timer = setTimeout(() => {
             setShowMessage(true);
         }, 1000);
@@ -124,7 +157,7 @@ const BrokerSelectionModal = ({
                 {
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                        'X-Advisor-Subdomain': getTenantSubdomain(),
                         'aq-encrypted-key': generateToken(
                             Config.REACT_APP_AQ_KEYS,
                             Config.REACT_APP_AQ_SECRET,
@@ -154,7 +187,7 @@ const BrokerSelectionModal = ({
                 {
                     headers: {
                         'Content-Type': 'application/json',
-                        'X-Advisor-Subdomain': getAdvisorSubdomain(),
+                        'X-Advisor-Subdomain': getTenantSubdomain(),
                         'aq-encrypted-key': generateToken(
                             Config.REACT_APP_AQ_KEYS,
                             Config.REACT_APP_AQ_SECRET,
@@ -266,11 +299,97 @@ const BrokerSelectionModal = ({
         }
     };
 
-    const brokerForExpire = userDetails?.user_broker;
+    const brokerForExpire =
+        tradeUserDetails?.user_broker || userDetails?.user_broker;
+    const deviceTotpEnabled =
+        freshConfig?.deviceTotpEnabled === true ||
+        configData?.config?.deviceTotpEnabled === true;
+    const aliceBlueDeviceLoginEnabled =
+        freshConfig?.aliceBlueDeviceLoginEnabled === true ||
+        configData?.config?.aliceBlueDeviceLoginEnabled === true;
+
+    // An Execute tap already expresses the customer's intent to continue.
+    // When this phone has an enrolled vault for the expired broker, skip the
+    // redundant "Reconnect broker" button and open the broker dispatcher
+    // immediately. DeviceTotpReconnectGate then owns the biometric prompt,
+    // session refresh, and normal-login fallback. Customers without a local
+    // vault keep the existing token-expiry UI unchanged.
+    useEffect(() => {
+        if (!OpenTokenExpireModel) {
+            autoReconnectAttemptRef.current = null;
+            return;
+        }
+        if (showBrokerModal || !userEmail) return;
+
+        const target = DEVICE_TOTP_AUTO_RECONNECT[brokerForExpire];
+        if (!target) return;
+        const quickReconnectEnabled = target.vault === 'aliceblue'
+            ? deviceTotpEnabled || aliceBlueDeviceLoginEnabled
+            : deviceTotpEnabled;
+        if (!quickReconnectEnabled) return;
+
+        const attemptKey = `${getTenantSubdomain(configData)}:${target.broker}:${userEmail}`;
+        if (autoReconnectAttemptRef.current === attemptKey) return;
+        autoReconnectAttemptRef.current = attemptKey;
+
+        let active = true;
+        const identity = {
+            advisor: getTenantSubdomain(configData),
+            broker: target.broker,
+            userEmail,
+        };
+        (target.vault === 'aliceblue'
+            ? hasAliceBlueDeviceLogin(identity)
+            : hasDeviceTotp(identity))
+            .then(saved => {
+                if (!active || !saved) return;
+                const modalStore = useModalStore.getState();
+                setLoginLoading(true);
+                setShowBrokerModal(false);
+                setOpenTokenExpireModel(false);
+                modalStore.closeModal();
+                setTimeout(() => modalStore.openModal(target.modalKey), 100);
+            })
+            .catch(error => {
+                console.warn(
+                    '[BrokerSelection] device reconnect lookup failed:',
+                    error?.message,
+                );
+            })
+            .finally(() => {
+                if (active) setLoginLoading(false);
+            });
+
+        return () => {
+            active = false;
+        };
+    }, [
+        OpenTokenExpireModel,
+        brokerForExpire,
+        configData,
+        deviceTotpEnabled,
+        aliceBlueDeviceLoginEnabled,
+        setOpenTokenExpireModel,
+        setShowBrokerModal,
+        showBrokerModal,
+        userEmail,
+    ]);
 
     const onClose = () => {
+        if (continueWithoutBrokerLoading) return;
+        if (OpenTokenExpireModel) onReconnectCancel?.();
         setShowBrokerModal(false);
         setOpenTokenExpireModel(false);
+    };
+
+    const continueWithoutBroker = async () => {
+        if (continueWithoutBrokerLoading || !handleAcceptRebalanceWithoutBroker) return;
+        setContinueWithoutBrokerLoading(true);
+        try {
+            await handleAcceptRebalanceWithoutBroker();
+        } finally {
+            setContinueWithoutBrokerLoading(false);
+        }
     };
 
     // Create rows of brokers (4 per row)
@@ -302,6 +421,7 @@ const BrokerSelectionModal = ({
         broker: brokerForExpire,
         showMessage,
         loginLoading,
+        continueWithoutBrokerLoading,
     };
 
     const actions = {
@@ -310,7 +430,7 @@ const BrokerSelectionModal = ({
         onBrokerSelect: handleBrokerSelect,
         onPressIn: (key) => setPressedBroker(key),
         onPressOut: () => setPressedBroker(null),
-        onContinueWithoutBroker: handleAcceptRebalanceWithoutBroker,
+        onContinueWithoutBroker: continueWithoutBroker,
         onBrokerConnectedContinue:
             handleBrokerConnectedContinue || handleAcceptRebalanceWithoutBroker,
         onLetUsKnow: handleLetUsKnowPress,

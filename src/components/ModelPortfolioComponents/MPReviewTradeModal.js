@@ -1,4 +1,7 @@
-import React, {useState, useRef, useEffect, useCallback} from 'react';
+import {availableFundsOptions, getFundingReview, insufficientFundsAttemptOptions} from '../../utils/fundingContinuation';
+import { isPublisherExecutionComplete, includeUnconfirmedPublisherLegs } from '../../utils/publisherCompletionAuthority';
+import {createPublisherBatchDispatcher} from '../../utils/publisherBatchDispatch';
+import React, {useState, useRef, useEffect, useCallback, useMemo} from 'react';
 import {
   Modal,
   View,
@@ -11,38 +14,66 @@ import {
   Pressable,
   FlatList,
   ActivityIndicator,
+  Alert,
 } from 'react-native';
 import {useWindowDimensions} from 'react-native';
 import {XIcon, Trash2Icon, CandlestickChartIcon, AlertTriangleIcon} from 'lucide-react-native';
 import Icon1 from 'react-native-vector-icons/Feather';
 import server from '../../utils/serverConfig';
 import axios from 'axios';
+import {PUBLISHER_ACK_TIMEOUT_MS, isPublisherActivationAcknowledged} from '../../utils/publisherAcknowledgement';
 import {WebView} from 'react-native-webview';
 import KitePublisherModal from './KitePublisherModal';
 import CryptoJS from 'react-native-crypto-js';
 import useWebSocketCurrentPrice from '../../FunctionCall/useWebSocketCurrentPrice';
-import {io} from 'socket.io-client';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
 import Config from 'react-native-config';
+import { designColor, designFont } from '../../design/literalTokens';
 const {height: screenHeight} = Dimensions.get('window');
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useTrade} from '../../screens/TradeContext';
 import { isOrderSuccess, isOrderRejected } from '../../utils/orderStatusUtils';
-import { detectTransientOrderWindowError } from '../../utils/rebalanceHelpers';
+import { detectTransientOrderWindowError, isBrokerAuthError } from '../../utils/rebalanceHelpers';
 import { validateBrokerSession } from '../../utils/brokerSessionUtils';
-import { validateStockExchanges, getPublisherWebViewBaseUrl, resolveZerodhaSymbol, applyKiteMarketProtection } from '../../utils/brokerPublisher';
+import { validateStockExchanges, fetchFreshKiteProtectionPrices, getPublisherWebViewBaseUrl, resolveZerodhaSymbol, convertToBasketItem, createModelPortfolioPublisherBatches, voidUnsentPublisherRecos } from '../../utils/brokerPublisher';
 import useZerodhaSymbolMap from '../../hooks/useZerodhaSymbolMap';
 import useKitePublisherPolling from '../../hooks/useKitePublisherPolling';
+import useKiteHandoffGuard from '../../hooks/useKiteHandoffGuard';
+import {executionBundleHeaders, handleStaleExecutionBundle} from '../../utils/executionBundleSafety';
+import {accountRecoveryMetadata} from '../../utils/accountRecoveryUx';
+import {
+  createZerodhaPublisherAttempt,
+  parseKiteRedirectStatus,
+  resolvePublisherSettlement,
+} from '../../utils/publisherOutcome';
 import { convertResponse } from '../../utils/tradeUtils';
-import { getAdvisorSubdomain } from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import moment from 'moment';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import { useConfig } from '../../context/ConfigContext';
 import { computeTradeVariant } from '../../utils/tradeVariant';
 import useSdkClient from '../../sdk/useSdkClient';
+import PublisherWebViewOverlay from '../PublisherWebViewOverlay';
 import portfolioEvents, { PORTFOLIO_EVENTS } from '../../utils/portfolioEvents';
 import { isZerodhaSellAuthorized } from '../../utils/zerodhaDdpiGate';
+import {hasExplicitSellAuthRejection} from '../../utils/sellAuthMessage';
+import {isDhanSellAuthorizationReady} from '../../utils/dhanEdis';
+import {fetchFunds} from '../../FunctionCall/fetchFunds';
+import {
+  SELL_GATE_POLL_INTERVAL_MS,
+  SELL_GATE_TIMEOUT_MS,
+  annotateSettlementRiskResults,
+  canOfferSettlementProceed,
+  estimateProtectedBuyCost,
+  evaluateSellBatchOrders,
+  extractAvailableCash,
+} from '../../utils/zerodhaSellFundingGate';
+import {
+  canExecuteRebalance,
+  getRebalanceContract,
+  getRebalanceBlockReason,
+} from '../../utils/rebalanceContract';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -88,9 +119,61 @@ const MPReviewTradeModal = ({
   const openBrokerModal = useModalStore(state => state.openModal);
   // For trade `variant` computation at submit. See
   // docs/APP_ARCHITECTURE.md § 4.5.2 Trade variant field.
-  const { allowAfterHoursOrders } = useConfig() || {};
+  const { allowAfterHoursOrders, rebalanceFreezePlan } = useConfig() || {};
   const sdkClient = useSdkClient();
   const sdkExecuteAdviceEnabled = isSdkExecuteAdviceEnabled() && !!sdkClient;
+  const rebalanceContract = getRebalanceContract(calculatedPortfolioData);
+  const fundingConsent = getFundingReview(rebalanceContract, calculatedPortfolioData);
+
+  // Phase 1 plan freeze (prod-alphaquark-github docs/REBALANCE_PLAN_FREEZE_PLAN.md
+  // §4.4/§4.5; this repo's docs/WEB_TO_APP_PORT_PLAN_2026-07.md rebalance-freeze
+  // entry): forward the frozen plan_id/plan_version rebalance/calculate
+  // returned so ccxt executes the server-frozen, re-validated plan instead of
+  // the client-posted `trades`. This modal has no repair-mode branch (no
+  // `modelPortfolioRepairTrades` prop) — every plan_id it ever holds came from
+  // THIS calculate, so there is no repair-vs-fresh ambiguity to guard. Flag
+  // off / no plan_id ⇒ fields absent ⇒ byte-identical legacy payload.
+  const frozenPlanFields = rebalanceContract?.plan?.id || (rebalanceFreezePlan === true && calculatedPortfolioData?.plan_id)
+    ? {
+        plan_id: rebalanceContract?.plan?.id || calculatedPortfolioData.plan_id,
+        plan_version: rebalanceContract?.plan?.version || calculatedPortfolioData.plan_version,
+        plan_hash: rebalanceContract?.plan?.hash,
+      }
+    : {};
+
+  // Frozen-plan 409 (PLAN_DRIFTED / expired / ALREADY_CONSUMED — see
+  // REBALANCE_PLAN_FREEZE_PLAN.md §4.4): the plan_id we hold is dead, so
+  // re-submitting would 409 forever. Close the review step and re-run
+  // calculateRebalance (mints a fresh plan) — mirrors web's recompute
+  // handling. Returns true if it handled the error (caller should stop).
+  const handleFrozenPlanRecompute = (error) => {
+    const recovery = accountRecoveryMetadata(error);
+    if (error?.response?.status === 409 &&
+        (error?.response?.data?.recompute || recovery.running)) {
+      const verificationPending =
+        error?.response?.data?.code === 'RECHECK_UNAVAILABLE' || recovery.running;
+      if (recovery.operationId) {
+        console.info('[AccountRecovery] Waiting for operation', recovery.operationId);
+      }
+      Toast.show({
+        type: 'info',
+        text1: verificationPending ? 'Checking your broker' : 'Portfolio refreshed',
+        text2: verificationPending
+          ? 'Nothing was sent. We will refresh this automatically.'
+          : (error?.response?.data?.message || 'Please review the updated trades.'),
+        visibilityTime: 6000,
+      });
+      onCloseReviewTrade();
+      if (typeof calculateRebalance === 'function') {
+        const delay = verificationPending
+          ? recovery.retryAfterSeconds * 1000
+          : 0;
+        setTimeout(() => calculateRebalance(), delay);
+      }
+      return true;
+    }
+    return false;
+  };
   console.log('MPBROKER:', broker);
   const {width} = useWindowDimensions();
 
@@ -161,101 +244,11 @@ const MPReviewTradeModal = ({
     }
   }, [visible, broker]);
 
-  const [ltp, setLtp] = useState([]);
-  const socketRef = useRef(null);
-  const subscribedSymbolsRef = useRef(new Set());
-  const failedSubscriptionsRef = useRef({});
-
-  // WebSocket connection for market data
-  useEffect(() => {
-    socketRef.current = io(server.ccxtWs.baseUrl, {
-      transports: ['websocket'],
-      query: {EIO: '4'},
-    });
-
-    const handleMarketData = data => {
-      setLtp(prev => {
-        const index = prev.findIndex(
-          item => item.tradingSymbol === data.stockSymbol,
-        );
-
-        if (index !== -1) {
-          const existingItem = prev[index];
-
-          // Update state only if the price has changed
-          if (existingItem.lastPrice !== data.last_traded_price) {
-            const newLtp = [...prev];
-            newLtp[index] = {
-              ...existingItem,
-              lastPrice: data.last_traded_price,
-            };
-            return newLtp;
-          } else {
-            return prev; // No change, return previous state
-          }
-        } else {
-          // Add new stock price if not present in the state
-          return [
-            ...prev,
-            {
-              tradingSymbol: data.stockSymbol,
-              lastPrice: data.last_traded_price,
-            },
-          ];
-        }
-      });
-    };
-
-    socketRef.current.on('market_data', handleMarketData);
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.off('market_data', handleMarketData);
-        socketRef.current.disconnect();
-      }
-    };
-  }, []);
-
-  // Subscribe to symbols via API
-  const getCurrentPrice = useCallback(() => {
-    if (!totalArray || totalArray.length === 0) return;
-
-    const symbolsToSubscribe = totalArray.filter(
-      trade =>
-        !subscribedSymbolsRef.current.has(trade.symbol) &&
-        (!failedSubscriptionsRef.current[trade.symbol] ||
-          failedSubscriptionsRef.current[trade.symbol] < 3),
-    );
-
-    symbolsToSubscribe.forEach(trade => {
-      const data = {symbol: trade.symbol, exchange: trade.exchange};
-
-      axios
-        .post(`${server.ccxtWs.httpUrl}/websocket/subscribe`, data)
-        .then(() => {
-          subscribedSymbolsRef.current.add(trade.symbol);
-          delete failedSubscriptionsRef.current[trade.symbol];
-        })
-        .catch(error => {
-          console.error(`Error subscribing to ${trade.symbol}:`, error);
-          failedSubscriptionsRef.current[trade.symbol] =
-            (failedSubscriptionsRef.current[trade.symbol] || 0) + 1;
-        });
-    });
-  }, [totalArray]);
-
-  // Fetch current price when dataArray changes
-
-  // Utility to get the last traded price for a symbol
-  const getLTPForSymbol = useCallback(
-    symbol => {
-      // console.log('Tt',ltp);
-      const ltpItem = ltp.find(item => item.tradingSymbol === symbol);
-      //console.log("ltp ",ltpItem);
-      return ltpItem ? ltpItem.lastPrice : null;
-    },
-    [ltp],
-  );
+  // The old local socket never subscribed this model's symbols: getCurrentPrice
+  // was declared but never called, and it targeted the unrelated per-symbol
+  // endpoint. Reuse the authenticated /ltp + /subscribe-array hook, which now
+  // also performs missing/stale REST recovery and preserves exchange on reconnect.
+  const {ltp, getLTPForSymbol} = useWebSocketCurrentPrice(totalArray);
 
   const totalInvestmentValue = totalArray
     .filter(item => item.orderType === 'BUY')
@@ -291,6 +284,7 @@ const MPReviewTradeModal = ({
   // ccxt-india scripmaster map — see brokerPublisher.resolveZerodhaSymbol.
   const symbolMap = useZerodhaSymbolMap(stockDetails, visible);
   const [loading, setLoading] = useState(false);
+  const [reducingFunding, setReducingFunding] = useState(false);
   const clientCode = userDetails && userDetails?.clientCode;
   const apiKey = userDetails && userDetails?.apiKey;
   const jwtToken = userDetails && userDetails?.jwtToken;
@@ -313,7 +307,109 @@ const MPReviewTradeModal = ({
       return Key;
     }
   };
+  // Refresh only this calculation; the saved capital instruction stays unchanged.
+  const [fundingPlanToReplace, setFundingPlanToReplace] = useState(null);
+
+  const continueWithAvailableFunds = async () => {
+    if (reducingFunding) return;
+    try {
+      setReducingFunding(true);
+      setFundingPlanToReplace(rebalanceContract?.plan?.id || null);
+      await calculateRebalance(availableFundsOptions());
+    } catch (error) {
+      Alert.alert('Could not refresh calculation', 'Your investment target is unchanged. Please try again.');
+    } finally {
+      setReducingFunding(false);
+    }
+  };
+
+  const attemptWithInsufficientFunds = async () => {
+    if (reducingFunding) return;
+    try {
+      setReducingFunding(true);
+      setFundingPlanToReplace(rebalanceContract?.plan?.id || null);
+      await calculateRebalance(insufficientFundsAttemptOptions());
+    } catch (error) {
+      Alert.alert('Could not prepare orders', 'No orders were placed. Your investment target is unchanged. Please try again.');
+    } finally {
+      setReducingFunding(false);
+    }
+  };
+
+  const retryAfterAddingFunds = async () => {
+    if (typeof calculateRebalance !== 'function') {
+      return;
+    }
+    try {
+      setLoading(true);
+      await calculateRebalance({forceRefresh: true});
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const showAddFundsInstructions = () => {
+    Alert.alert(
+      `Add balance to ${broker || 'your broker'}`,
+      `Add at least ₹${Number(fundingConsent?.shortfall || 0).toLocaleString('en-IN')} to your ${broker || 'broker'} account. Once the balance is available, return here and retry the rebalance.\n\nYour investment amount will remain unchanged.`,
+      [
+        {text: 'Not now', style: 'cancel'},
+        {text: "I've added funds — Retry", onPress: retryAfterAddingFunds},
+      ],
+    );
+  };
+
+  const showFundingDecision = () => {
+    const canContinue = fundingConsent?.canContinueWithAvailableFunds === true;
+    const canAttempt = fundingConsent?.canAttemptWithInsufficientFunds === true;
+    Alert.alert(
+      rebalanceContract?.presentation?.title || 'Investment amount needs review',
+      `Your full plan needs ₹${Number(fundingConsent?.desiredAmount || 0).toLocaleString('en-IN')} but only ₹${Number(fundingConsent?.fundedAmount || 0).toLocaleString('en-IN')} is available today (cash + sale proceeds). Add ₹${Number(fundingConsent?.shortfall || 0).toLocaleString('en-IN')}${canContinue ? ' to include everything, or continue with available funds for this calculation' : canAttempt ? ', or review the target stocks and attempt the buy. The broker may reject orders that exceed your buying power' : ' to your broker, then calculate again'}. Your investment target stays unchanged.`,
+      canContinue
+        ? [
+            {text: 'Not now', style: 'cancel'},
+            {text: 'Add funds instead', onPress: showAddFundsInstructions},
+            {text: 'Continue with available funds', onPress: continueWithAvailableFunds},
+          ]
+        : canAttempt
+          ? [
+              {text: 'Not now', style: 'cancel'},
+              {text: 'How to add funds', onPress: showAddFundsInstructions},
+              {text: 'Review stocks and attempt buy', onPress: attemptWithInsufficientFunds},
+            ]
+          : [
+            {text: 'Not now', style: 'cancel'},
+            {text: 'How to add funds', onPress: showAddFundsInstructions},
+          ],
+    );
+  };
+
+  const ensureRebalanceExecutable = () => {
+    if (reducingFunding || (fundingPlanToReplace && fundingPlanToReplace === rebalanceContract?.plan?.id)) {
+      Alert.alert('Refresh calculation', 'Please retry Calculate and review the new basket before accepting.');
+      return false;
+    }
+    if (canExecuteRebalance(calculatedPortfolioData)) {
+      return true;
+    }
+    if (fundingConsent?.required) {
+      showFundingDecision();
+    } else {
+      Toast.show({
+        type: 'info',
+        text1: rebalanceContract?.presentation?.title || 'Rebalance needs attention',
+        text2:
+          rebalanceContract?.customerAction?.label ||
+          getRebalanceBlockReason(calculatedPortfolioData),
+      });
+    }
+    return false;
+  };
+
   const placeOrder = async () => {
+    if (!ensureRebalanceExecutable()) {
+      return;
+    }
     const sessionValid = await validateBrokerSession(broker, jwtToken, { checkFreshness: true });
     if (!sessionValid) return;
 
@@ -342,7 +438,7 @@ const MPReviewTradeModal = ({
     if (
       broker === 'Dhan' &&
       (allSellPreCheck || isMixedPreCheck) &&
-      (!dhanEdisStatus || !dhanEdisStatus?.data || dhanEdisStatus?.data?.length === 0 || dhanEdisStatus?.data?.some((h) => h.edis === false))
+      !isDhanSellAuthorizationReady(dhanEdisStatus, stockDetails)
     ) {
       setShowDhanTpinModel(true);
       onCloseReviewTrade();
@@ -360,6 +456,7 @@ const MPReviewTradeModal = ({
       advisor: strategyDetails?.advisor,
       model_id: latestRebalance?.model_Id,
       unique_id: calculatedPortfolioData?.uniqueId,
+      ...frozenPlanFields,
       user_broker: broker,
       user_email: userEmail,
       trades: tradesWithVariant,
@@ -383,7 +480,7 @@ const MPReviewTradeModal = ({
 
       headers: {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -406,7 +503,7 @@ const MPReviewTradeModal = ({
 
     const statusCheckHeaders = {
       'Content-Type': 'application/json',
-      'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+      'X-Advisor-Subdomain': getTenantSubdomain(configData),
       'aq-encrypted-key': generateToken(
         Config.REACT_APP_AQ_KEYS,
         Config.REACT_APP_AQ_SECRET,
@@ -438,11 +535,14 @@ const MPReviewTradeModal = ({
         try {
           const sdkResult = await sdkClient.executeAdvice({
             kind: 'mpRebalance',
-            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            clientAdviceId: `mp-rebalance:${broker}:${rebalanceContract?.plan?.id || calculatedPortfolioData?.uniqueId || latestRebalance?.model_Id}:${rebalanceContract?.plan?.version || 0}`,
             brokerName: broker,
             modelId: latestRebalance?.model_Id,
             modelName: strategyDetails?.model_name,
             uniqueId: calculatedPortfolioData?.uniqueId,
+            planId: rebalanceContract?.plan?.id,
+            planVersion: rebalanceContract?.plan?.version,
+            planHash: rebalanceContract?.plan?.hash,
             trades: payload.trades,
           });
           const mappedRows = (sdkResult?.rows || []).map(row => ({
@@ -453,8 +553,8 @@ const MPReviewTradeModal = ({
           response = { data: { results: mappedRows } };
           console.log('[MPReviewTradeModal] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
         } catch (sdkErr) {
-          console.error('[MPReviewTradeModal] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
-          response = null;
+          console.error('[MPReviewTradeModal] SDK owns this attempt; legacy fallback blocked:', sdkErr?.message);
+          throw sdkErr;
         }
       }
       if (!response) {
@@ -484,16 +584,14 @@ const MPReviewTradeModal = ({
       if (!checkData || !Array.isArray(checkData) || checkData.length === 0) {
         console.error('[OrderPlacement] API returned empty or invalid response:', response?.data);
 
-        // Show TPIN modal for all brokers when sell orders get empty response
-        if (allSellPreCheck || isMixedPreCheck) {
+        // Empty results are not sell-authorization evidence for Fyers.
+        if ((allSellPreCheck || isMixedPreCheck) && broker !== 'Fyers') {
           if (broker === 'Dhan') {
             setShowDhanTpinModel(true);
           } else if (broker === 'Angel One') {
             setShowAngleOneTpinModel(true);
           } else if (broker === 'Zerodha') {
             setShowDdpiModal && setShowDdpiModal(true);
-          } else if (broker === 'Fyers') {
-            setShowFyersTpinModal(true);
           } else {
             setShowOtherBrokerModel(true);
           }
@@ -545,6 +643,7 @@ const MPReviewTradeModal = ({
         const s = (order?.orderStatus || '').toUpperCase();
         return s === 'REJECTED' || s === 'CANCELLED' || s === 'FAILURE' || s === 'FAILED';
       });
+      const sellAuthRejected = hasExplicitSellAuthRejection(response?.data);
 
       // Transient service-window short-circuit: if every failed row is a
       // documented broker maintenance-window error (e.g. Upstox
@@ -567,7 +666,7 @@ const MPReviewTradeModal = ({
         return;
       }
 
-      if (allOrdersFailed) {
+      if (!(broker === 'Fyers' && sellAuthRejected) && allOrdersFailed) {
         // All orders rejected — show results modal with rejection details, skip EDIS checks
         await enrollStatusCheckQueue();
         setLoading(false);
@@ -611,7 +710,8 @@ const MPReviewTradeModal = ({
           }
         } else if (
           (allSell || isMixed) &&
-          rejectedSellCount >= 1
+          rejectedSellCount >= 1 &&
+          (broker !== 'Fyers' || sellAuthRejected)
         ) {
           // Always show broker-specific TPIN modal for rejected sell orders
           setOpenSucessModal(false);
@@ -648,12 +748,12 @@ const MPReviewTradeModal = ({
       //    that an MP rebalance just executed so they re-fetch holdings/order-book.
       //    Mirrors the bespoke RebalanceModal emit pattern (RebalanceModal.js:949-957).
       const mpModelName = strategyDetails?.model_name || strategyDetails?.modelName;
-      portfolioEvents.emit(PORTFOLIO_EVENTS.HOLDINGS_REFRESH, {
+      portfolioEvents.emit(PORTFOLIO_EVENTS.REBALANCE_EXECUTED, {
         userEmail,
         modelName: mpModelName,
         broker,
       });
-      portfolioEvents.emit(PORTFOLIO_EVENTS.REBALANCE_EXECUTED, {
+      portfolioEvents.emit(PORTFOLIO_EVENTS.HOLDINGS_REFRESH, {
         userEmail,
         modelName: mpModelName,
         broker,
@@ -666,6 +766,10 @@ const MPReviewTradeModal = ({
     } catch (error) {
       console.log('[OrderPlacement] Error:', error?.response?.data || error.message);
       setLoading(false);
+
+      if (handleFrozenPlanRecompute(error)) {
+        return;
+      }
 
       const responseData = error?.response?.data;
       const orderErrors = responseData?.orderErrors || [];
@@ -680,8 +784,12 @@ const MPReviewTradeModal = ({
         errorMessage = responseData?.error || responseData?.message || error?.message || 'Order placement failed';
       }
 
-      // Show TPIN modal for all brokers when sell orders fail
-      if (allSellPreCheck || isMixedPreCheck) {
+      // Fyers recovery requires a stable backend classification; transport and
+      // generic broker failures retain their original result.
+      if (
+        (allSellPreCheck || isMixedPreCheck) &&
+        (broker !== 'Fyers' || hasExplicitSellAuthRejection(responseData))
+      ) {
         if (broker === 'Dhan') {
           setShowDhanTpinModel(true);
         } else if (broker === 'Angel One') {
@@ -745,6 +853,7 @@ const MPReviewTradeModal = ({
     advisor: strategyDetails?.advisor,
     model_id: latestRebalance.model_Id,
     unique_id: calculatedPortfolioData?.uniqueId,
+    ...frozenPlanFields,
     broker: broker,
   });
 
@@ -753,10 +862,143 @@ const MPReviewTradeModal = ({
   const [isWebView, setWebView] = useState(false);
   const webViewRef = useRef(null);
   const [htmlContentfinal, setHtmlContent] = useState('');
+  // Live prices keep updating while Kite is open. A fresh `source` object on
+  // each render makes Android reconnect the page input and dismiss the IME.
+  const publisherWebViewBaseUrl = getPublisherWebViewBaseUrl(configData);
+  const publisherWebViewSource = useMemo(
+    () => ({html: htmlContentfinal, baseUrl: publisherWebViewBaseUrl}),
+    [htmlContentfinal, publisherWebViewBaseUrl],
+  );
 
   const [zerodhaStatus, setZerodhaStatus] = useState(null);
   const [zerodhaRequestToken, setZerodhaRequestToken] = useState(null);
   const [zerodhaRequestType, setZerodhaRequestType] = useState(null);
+
+  // Two-phase publisher batch queue (sells → buys) — mirrors web's Fix C
+  // (prod brokerPublisher.js `separateSellsFromBuys`, 2026-06-24) + the
+  // terminal-batch polling gate (web §16.ac, 2026-08-06 moneyman/vgangan).
+  // SELL quantities must broker-complete before BUY baskets are exposed.
+  // Refreshed margin is checked next; a verified settlement shortfall is an
+  // explicit customer choice, and record-back preserves any rejected buys for
+  // Repair. Only the TERMINAL batch can settle the publisher run.
+  const pendingKiteBatchesRef = useRef([]);
+  const currentKiteBatchIndexRef = useRef(0);
+  const publisherLaunchPendingRef = useRef(false);
+  const publisherIntentFiredRef = useRef(false);
+  const publisherFullLegsRef = useRef([]);
+  const publisherBatchDispatcherRef = useRef(createPublisherBatchDispatcher());
+  const publisherAttemptRef = useRef(null);
+  const kiteHandoff = useKiteHandoffGuard({
+    visible: isWebView,
+    webViewRef,
+    configData,
+    flow: 'model_initial_allocation_review',
+    attemptId: publisherAttemptRef.current?.attemptId,
+  });
+
+  useEffect(() => {
+    publisherIntentFiredRef.current = false;
+    publisherAttemptRef.current = null;
+  }, [calculatedPortfolioData?.uniqueId, frozenPlanFields.plan_id]);
+
+  const recordPublisherIntent = async (publisherLegs, attempt, activationLegs, activationId) => {
+    if (
+      !calculatedPortfolioData?.uniqueId ||
+      !userEmail
+    ) {
+      throw new Error('Refresh the portfolio to restore the execution identity.');
+    }
+    publisherIntentFiredRef.current = true;
+    const headers = {
+      'Content-Type': 'application/json',
+      'X-Advisor-Subdomain': getTenantSubdomain(configData),
+      'aq-encrypted-key': generateToken(
+        Config.REACT_APP_AQ_KEYS,
+        Config.REACT_APP_AQ_SECRET,
+      ),
+      ...executionBundleHeaders(),
+    };
+    try {
+      const context = {
+        source: 'mobile-model-portfolio-rebalance',
+        attemptId: attempt.attemptId,
+        modelId: latestRebalance?.model_Id,
+        modelName: strategyDetails?.model_name,
+        advisor: strategyDetails?.advisor,
+        uniqueId: calculatedPortfolioData?.uniqueId,
+        planId: frozenPlanFields.plan_id || null,
+      };
+      const nodeIntentResponse = await axios.post(
+        `${server.server.baseUrl}api/process-trades/execution-intent`,
+        {
+          userEmail,
+          broker: 'Zerodha',
+          flow: 'rebalance',
+          lifecycle: 'popup_opened',
+          attemptId: attempt.attemptId,
+          context,
+          legs: publisherLegs,
+        },
+        {timeout: PUBLISHER_ACK_TIMEOUT_MS, headers},
+      );
+      if (
+        !nodeIntentResponse?.data?.intentId ||
+        nodeIntentResponse?.data?.attemptId !== attempt.attemptId ||
+        nodeIntentResponse?.data?.payloadMismatch
+      ) {
+        throw new Error('Execution session acknowledgement was incomplete');
+      }
+
+      const response = await axios.post(
+        `${server.ccxtServer.baseUrl}rebalance/publisher/intent`,
+        {
+          unique_id: calculatedPortfolioData.uniqueId,
+          user_email: userEmail,
+          user_broker: 'Zerodha',
+          modelName: strategyDetails?.model_name,
+          model_id: latestRebalance?.model_Id,
+          advisor: strategyDetails?.advisor,
+          legs: publisherLegs,
+          kind: 'rebalance',
+          attempt_id: attempt.attemptId,
+          plan_id: frozenPlanFields.plan_id || null,
+          plan_version: frozenPlanFields.plan_version ?? null,
+          prepare_only: false,
+          activation_legs: activationLegs,
+          activation_id: activationId,
+        },
+        {
+          timeout: PUBLISHER_ACK_TIMEOUT_MS,
+          headers,
+        },
+      );
+      if (!isPublisherActivationAcknowledged(response?.data) ||
+          response?.data?.dispatchReserved !== true || response?.data?.activationId !== activationId) {
+        throw new Error('Publisher reconciliation was not durably enrolled');
+      }
+      return true;
+    } catch (error) {
+      publisherIntentFiredRef.current = false;
+      // Refused before the dispatch boundary — nothing reached the broker, so
+      // the reco rows this attempt just wrote must not reach the Orders screen.
+      await voidUnsentPublisherRecos({
+        legs: activationLegs,
+        email: userEmail,
+        headers,
+        error,
+      });
+      await handleStaleExecutionBundle(error);
+      throw error;
+    }
+  };
+  const batchAdvancingRef = useRef(false);
+  const advanceKiteBatchRef = useRef(null);
+  const publisherGateCancelledRef = useRef(false);
+  const settlementRiskAcceptedRef = useRef(false);
+
+  useEffect(() => {
+    if (!visible) publisherGateCancelledRef.current = true;
+  }, [visible]);
 
   // Kite Publisher Modal state
   const [showKitePublisher, setShowKitePublisher] = useState(false);
@@ -770,32 +1012,99 @@ const MPReviewTradeModal = ({
   // cross-domain 302 loss on some Android WebView versions, OS-suspended
   // WebView when the user backgrounds to complete authentication in the
   // Kite app, and AsyncStorage hydration races. When the hook detects
-  // new orders OR times out, it drives the same state transition that
-  // the WebView navigation handler below would drive, so the downstream
-  // `checkZerodhaStatus` runs identically through both channels.
-  const { start: startKitePolling, stop: stopKitePolling } = useKitePublisherPolling({
+  // new orders OR times out, it preserves that outcome for the downstream
+  // order-book verification. Only detected orders are promoted to success.
+  const {
+    start: startKitePolling,
+    stop: stopKitePolling,
+    getNewOrders: getNewPublisherOrders,
+  } = useKitePublisherPolling({
     broker,
     brokerCreds: { clientCode, apiKey, jwtToken, secretKey, sid, serverId },
     configData,
-    onPublisherSettled: () => {
+    onPublisherSettled: async settlement => {
+      const publisherStatus = resolvePublisherSettlement(settlement);
+      // TWO-PHASE GATE (2026-08-06, moneyman/vgangan web incident ported to
+      // mobile): while more Kite baskets remain in the queue, a detected order
+      // for a PREVIOUS side must NOT settle the whole run — that stamped
+      // never-placed buys as "sent". Only `orders-detected` (success) may
+      // advance; a timeout is "unconfirmed" and must never advance.
+      if (publisherStatus === 'success') {
+        const advanced =
+          advanceKiteBatchRef.current &&
+          (await advanceKiteBatchRef.current({newOrders: settlement?.newOrders || []}));
+        if (advanced) return;
+      }
+      if (publisherStatus !== 'success') {
+        Toast.show({
+          type: 'info',
+          text1: 'Waiting for Zerodha confirmation',
+          text2: 'Complete login and review in Kite, or close to cancel.',
+          visibilityTime: 6000,
+        });
+        return;
+      }
       setWebView(false);
-      setZerodhaStatus('success');
+      setZerodhaStatus(publisherStatus);
       setZerodhaRequestType('basket');
     },
   });
 
-  const handleWebViewNavigationStateChange = newNavState => {
+  const handlePublisherClose = () => {
+    stopKitePolling();
+    publisherGateCancelledRef.current = true;
+    // Two-phase: wipe the queued baskets so a stale queue can't replay a
+    // partially-completed run on the next open.
+    pendingKiteBatchesRef.current = [];
+    currentKiteBatchIndexRef.current = 0;
+    setWebView(false);
+    setLoading(false);
+    setZerodhaStatus(null);
+    setZerodhaRequestType(null);
+    Toast.show({
+      type: 'info',
+      text1: 'Order placement cancelled',
+      text2: 'No order is marked placed until Zerodha confirms it.',
+      visibilityTime: 4000,
+    });
+  };
+
+  const handleModalRequestClose = () => {
+    stopKitePolling();
+    publisherGateCancelledRef.current = true;
+    setZerodhaStatus(null);
+    setZerodhaRequestType(null);
+    if (isWebView) {
+      setWebView(false);
+      setLoading(false);
+      return;
+    }
+    onCloseReviewTrade();
+  };
+
+  const handleWebViewNavigationStateChange = async newNavState => {
     // Handle navigation state changes, e.g., success/failure redirects
     const {url} = newNavState;
     console.log('[ZerodhaPublisher] Navigation URL:', url);
 
-    // Check for Kite redirect patterns after successful order placement
-    if (url.includes('success') || url.includes('completed') || url.includes('basket/success')) {
-      console.log('[ZerodhaPublisher] Success redirect detected - orders placed in Kite');
+    const redirectStatus = parseKiteRedirectStatus(url);
+    if (redirectStatus === 'cancelled') {
+      console.log('[ZerodhaPublisher] Cancel redirect detected');
+      handlePublisherClose();
+      return false;
+    }
+    if (redirectStatus === 'success') {
+      console.log('[ZerodhaPublisher] Success redirect detected');
       // Stop polling here too so it doesn't double-fire. The hook's
       // stop() flips its internal processed flag — any in-flight poll
       // tick will short-circuit instead of running onPublisherSettled.
       stopKitePolling();
+      // Submission is not execution. The shared advance function waits for
+      // full SELL fills and refreshed live margin before exposing BUY baskets.
+      const advanced =
+        advanceKiteBatchRef.current &&
+        (await advanceKiteBatchRef.current({newOrders: []}));
+      if (advanced) return false;
       setZerodhaStatus('success');
       setZerodhaRequestType('basket');
       setWebView(false); // Close WebView
@@ -803,17 +1112,16 @@ const MPReviewTradeModal = ({
       return false; // Prevent navigation
     }
 
-    // Check for cancel
-    if (url.includes('cancelled') || url.includes('cancel')) {
-      console.log('[ZerodhaPublisher] User cancelled basket order');
-      setZerodhaStatus('cancelled');
-      setWebView(false);
-      setLoading(false);
-      return false;
-    }
-
     return true; // Allow navigation
   };
+
+  // The Kite run returns before record-back and the order-book check finish.
+  // Re-showing a placeable review in that window reads as "nothing happened,
+  // place them again" while the orders are already sitting with the broker
+  // (prod/arulthakur, 2026-09-17: a second launch minted the orphan rows).
+  // Closing the modal still ends the wait.
+  const awaitingOrderStatus = zerodhaStatus === 'success' && !isWebView;
+
   // Use configData first, fallback to Config env variable
   // Debug: Log all possible sources for API key
   console.log('[ZerodhaPublisher] ===== API KEY DEBUG =====');
@@ -842,28 +1150,271 @@ const MPReviewTradeModal = ({
     return price !== null ? price : '-';
   };
 
-  // Helper function to map product type to Kite product type
-  const mapKiteProductType = (productType) => {
-    if (!productType) return "CNC";
-    const upper = productType.toUpperCase();
-    if (upper === "DELIVERY" || upper === "CNC") return "CNC";
-    if (upper === "INTRADAY" || upper === "MIS") return "MIS";
-    if (upper === "BO") return "BO";
-    if (upper === "CO") return "CO";
-    return "CNC";
+  // Build a Kite basket item array for a batch of legs (symbol resolution,
+  // LTP enrichment, MARKET→LIMIT protection). Extracted from the single-basket
+  // handleZerodhaRedirect so the two-phase queue can rebuild per batch.
+  const buildKiteBasket = (batch, freshProtectionPrices) => {
+    return batch.map(stock => {
+      const resolved = resolveZerodhaSymbol(stock, symbolMap);
+      const freshLtp = Number(
+        freshProtectionPrices?.[String(resolved.tradingsymbol || '').toUpperCase()],
+      );
+      const isMarket = String(stock.orderType || '').toUpperCase() === 'MARKET';
+      const displayLtp = [
+        getLastKnownPrice(resolved.tradingsymbol),
+        getLastKnownPrice(stock.tradingSymbol),
+        Number(stock.referencePrice),
+      ].find(value => value !== '-' && Number(value) > 0);
+      const ltp = isMarket ? freshLtp : (displayLtp || resolved.cachedLtp || 0);
+      let orderPrice = 0;
+
+      if (stock.orderType === 'LIMIT') {
+        orderPrice = parseFloat(stock.price || 0);
+      } else if (stock.orderType === 'MARKET' || stock.orderType === 'SL') {
+        orderPrice = ltp && ltp !== '-' ? parseFloat(ltp) : 0;
+      }
+
+      const basketItem = convertToBasketItem('Zerodha', stock, symbolMap, {
+        tradingsymbol: resolved.tradingsymbol,
+        exchange: resolved.exchange,
+        ltp,
+        price: orderPrice,
+        quantity: parseInt(stock.quantity, 10) || 1,
+      });
+      console.log('[ZerodhaPublisher] Basket item:', JSON.stringify(basketItem));
+      return basketItem;
+    });
   };
 
-  // Helper function to map order type to Kite order type
-  const mapKiteOrderType = (orderType) => {
-    if (!orderType) return "MARKET";
-    const upper = orderType.toUpperCase();
-    if (upper === "MARKET") return "MARKET";
-    if (upper === "LIMIT") return "LIMIT";
-    if (upper === "SL" || upper === "SL_M" || upper === "STOP") return "SL";
-    return "MARKET";
+  // Submit one Kite basket from the queue: build its order items, render the
+  // WebView form, restart order-book polling (fresh baseline per basket so a
+  // previous side's orders are absorbed, never re-detected), open the WebView.
+  const submitKiteBatch = async index => {
+    const batch = pendingKiteBatchesRef.current[index];
+    if (!batch) return;
+    const freshProtectionPrices = await fetchFreshKiteProtectionPrices(
+      batch,
+      symbolMap,
+    );
+    await publisherBatchDispatcherRef.current.run({
+      attemptId: publisherAttemptRef.current?.attemptId, index, legs: batch,
+      authorize: activationId => recordPublisherIntent(
+        publisherFullLegsRef.current, publisherAttemptRef.current, batch, activationId,
+      ),
+      open: async () => {
+        const basket = buildKiteBasket(batch, freshProtectionPrices);
+        const htmlContent = generateHtmlForm(basket, zerodhaApiKey);
+        // Whole-basket polling: settling on the first visible order closed
+        // the Kite page mid-basket and silently dropped the remaining legs.
+        await startKitePolling({ expectedOrderCount: batch.length });
+        currentKiteBatchIndexRef.current = index;
+        setHtmlContent(htmlContent);
+        setWebView(true);
+        setLoading(false);
+      },
+    });
   };
+
+  const finishKitePublisherRun = () => {
+    setWebView(false);
+    setLoading(false);
+    setZerodhaStatus('success');
+    setZerodhaRequestType('basket');
+  };
+
+  const waitForSellBatchAndMargin = async ({
+    batches,
+    currentIndex,
+    nextIndex,
+    initialNewOrders = [],
+  }) => {
+    const currentSellOrders = buildKiteBasket(batches[currentIndex] || []);
+    let newOrders = initialNewOrders;
+    let firstPass = true;
+    const sellDeadline = Date.now() + SELL_GATE_TIMEOUT_MS;
+
+    while (!publisherGateCancelledRef.current && Date.now() <= sellDeadline) {
+      try {
+        if (!firstPass || newOrders.length === 0) {
+          newOrders = await getNewPublisherOrders();
+        }
+      } catch (error) {
+        console.warn('[ZerodhaSellGate] Order-book refresh failed:', error?.message);
+      }
+      firstPass = false;
+      const readiness = evaluateSellBatchOrders(currentSellOrders, newOrders);
+      if (readiness.state === 'failed') return {status: 'failed', readiness};
+      if (readiness.ready) break;
+      await new Promise(resolve => setTimeout(resolve, SELL_GATE_POLL_INTERVAL_MS));
+    }
+
+    if (publisherGateCancelledRef.current) return {status: 'cancelled'};
+    const sellReadiness = evaluateSellBatchOrders(currentSellOrders, newOrders);
+    if (!sellReadiness.ready) return {status: 'sell-timeout', readiness: sellReadiness};
+
+    const nextBatch = batches[nextIndex] || [];
+    const nextIsBuy = nextBatch.some(
+      leg => String(leg?.transactionType || '').toUpperCase() === 'BUY',
+    );
+    if (!nextIsBuy) return {status: 'ready'};
+
+    const protectedBuyBaskets = batches
+      .slice(nextIndex)
+      .map(batch => buildKiteBasket(batch));
+    const protectedBuyOrders = protectedBuyBaskets
+      .flat()
+      .filter(
+        order => String(order?.transaction_type || '').toUpperCase() === 'BUY',
+      );
+    const allBuyLimitsPriced =
+      protectedBuyOrders.length > 0 &&
+      protectedBuyOrders.every(
+        order => Number(order?.price) > 0 && Number(order?.quantity) > 0,
+      );
+    const protectedBuyCost = estimateProtectedBuyCost(protectedBuyBaskets);
+    const requiredBuyingPower = allBuyLimitsPriced ? protectedBuyCost : 0;
+    if (!(requiredBuyingPower > 0)) {
+      return {status: 'funds-unverified', requiredBuyingPower: null, availableCash: null};
+    }
+
+    const marginDeadline = Date.now() + SELL_GATE_TIMEOUT_MS;
+    let availableCash = null;
+    while (!publisherGateCancelledRef.current && Date.now() <= marginDeadline) {
+      const fundsResponse = await fetchFunds(
+        'Zerodha',
+        clientCode,
+        apiKey,
+        jwtToken,
+        secretKey,
+        sid,
+        serverId,
+        userEmail,
+      );
+      availableCash = extractAvailableCash(fundsResponse);
+      if (availableCash !== null && availableCash + 1 >= requiredBuyingPower) {
+        return {status: 'ready', requiredBuyingPower, availableCash};
+      }
+      if (isBrokerAuthError(JSON.stringify(fundsResponse || {}))) {
+        return {status: 'broker-session', requiredBuyingPower, availableCash};
+      }
+      await new Promise(resolve => setTimeout(resolve, SELL_GATE_POLL_INTERVAL_MS));
+    }
+
+    if (publisherGateCancelledRef.current) return {status: 'cancelled'};
+    return {status: 'margin-timeout', requiredBuyingPower, availableCash};
+  };
+
+  const showSellGatePausedAlert = (gateResult, retry, proceedWithBuys) => {
+    const settlementShortfall = canOfferSettlementProceed(gateResult);
+    const marginProblem = ['margin-timeout', 'funds-unverified', 'broker-session']
+      .includes(gateResult?.status);
+    const availableText = Number.isFinite(gateResult?.availableCash)
+      ? ` Zerodha currently shows ₹${Math.round(gateResult.availableCash).toLocaleString('en-IN')} available.`
+      : '';
+    const requiredText = Number.isFinite(gateResult?.requiredBuyingPower)
+      ? ` The protected buy baskets need about ₹${Math.ceil(gateResult.requiredBuyingPower).toLocaleString('en-IN')}.`
+      : '';
+    const message = settlementShortfall
+      ? `All sells are complete, but Zerodha currently shows less buying power than the protected buy baskets need.${availableText}${requiredText} The difference may be temporarily unavailable because of settlement. You can continue, but Zerodha may reject the unfunded buys; any rejected quantity will remain for Repair after funds settle.`
+      : marginProblem
+        ? `All sells are complete, but the app could not verify usable Zerodha margin.${availableText}${requiredText} Reconnect or check again before opening buys.`
+        : 'Zerodha has not confirmed the full SELL quantity yet. BUY baskets will remain locked to prevent insufficient-funds rejections.';
+    const actions = [
+      {text: 'Stop and review', style: 'cancel', onPress: finishKitePublisherRun},
+      {text: 'Check again', onPress: retry},
+    ];
+    if (settlementShortfall) {
+      actions.push({text: 'Continue with buys', onPress: proceedWithBuys});
+    }
+    Alert.alert(
+      settlementShortfall
+        ? 'Buying power may still be settling'
+        : marginProblem
+          ? 'Buying power could not be verified'
+          : 'Sell orders are still pending',
+      message,
+      actions,
+      {cancelable: false},
+    );
+  };
+
+  const advanceKiteBatch = async ({newOrders = []} = {}) => {
+    const batches = pendingKiteBatchesRef.current;
+    const next = currentKiteBatchIndexRef.current + 1;
+    if (!batches || next >= batches.length) return false;
+    if (batchAdvancingRef.current) return true; // already moving — treat as consumed
+    batchAdvancingRef.current = true;
+    setWebView(false);
+    try {
+      const currentIndex = currentKiteBatchIndexRef.current;
+      const currentBatch = batches[currentIndex] || [];
+      const currentIsSell = currentBatch.some(
+        leg => String(leg?.transactionType || '').toUpperCase() === 'SELL',
+      );
+
+      if (currentIsSell) {
+        setLoading(true);
+        Toast.show({
+          type: 'info',
+          text1: 'Waiting for confirmed sells',
+          text2: 'Buy baskets wait for Zerodha to fill the sells; buying power is checked next.',
+          visibilityTime: 5000,
+        });
+        const gateResult = await waitForSellBatchAndMargin({
+          batches,
+          currentIndex,
+          nextIndex: next,
+          initialNewOrders: newOrders,
+        });
+        if (gateResult.status === 'cancelled') return true;
+        if (gateResult.status === 'failed') {
+          Toast.show({
+            type: 'error',
+            text1: 'A sell order did not complete',
+            text2: 'Buy baskets were not opened. Review the broker results before repairing.',
+            visibilityTime: 7000,
+          });
+          finishKitePublisherRun();
+          return true;
+        }
+        if (gateResult.status !== 'ready') {
+          setLoading(false);
+          showSellGatePausedAlert(
+            gateResult,
+            () => advanceKiteBatchRef.current?.({newOrders: []}),
+            async () => {
+              settlementRiskAcceptedRef.current = true;
+              await submitKiteBatch(next);
+            },
+          );
+          return true;
+        }
+      }
+
+      await submitKiteBatch(next);
+      return true;
+    } catch (error) {
+      setLoading(false);
+      Alert.alert('Order batch not opened',
+        error?.response?.data?.message || error?.message || 'Refresh order status and try the remaining batch.',
+        [{text: 'Close', style: 'cancel'},
+         {text: 'Check again', onPress: () => advanceKiteBatchRef.current?.({newOrders: []})}]);
+      return true;
+    } finally {
+      batchAdvancingRef.current = false;
+    }
+  };
+  advanceKiteBatchRef.current = advanceKiteBatch;
 
   const handleZerodhaRedirect = async () => {
+    if (publisherLaunchPendingRef.current) return;
+    publisherLaunchPendingRef.current = true;
+    try {
+    if (!ensureRebalanceExecutable()) {
+      return;
+    }
+    publisherGateCancelledRef.current = false;
+    settlementRiskAcceptedRef.current = false;
     setLoading(true);
     const storageKey = 'stockDetailsZerodhaOrder';
 
@@ -969,46 +1520,6 @@ const MPReviewTradeModal = ({
       console.error('[ZerodhaPublisher] Error storing stock details:', error);
     }
     const apiKey = zerodhaApiKey;
-    const basket = stockDetails.map(stock => {
-      // Scripmaster-resolved symbol/exchange (-EQ strip, BE→BSE, etc).
-      const resolved = resolveZerodhaSymbol(stock, symbolMap);
-      // LTP: live ws → live raw → server-cached from /zerodha/convert-symbol.
-      const liveLtp = getLastKnownPrice(resolved.tradingsymbol) || getLastKnownPrice(stock.tradingSymbol);
-      const ltp = liveLtp && liveLtp !== '-' && parseFloat(liveLtp) > 0
-        ? liveLtp
-        : resolved.cachedLtp || 0;
-      let orderPrice = 0;
-
-      if (stock.orderType === 'LIMIT') {
-        orderPrice = parseFloat(stock.price || 0);
-      } else if (stock.orderType === 'MARKET' || stock.orderType === 'SL') {
-        orderPrice = ltp && ltp !== '-' ? parseFloat(ltp) : 0;
-      }
-
-      let baseOrder = {
-        variety: 'regular',
-        tradingsymbol: resolved.tradingsymbol,
-        // exchange from scripmaster; validateStockExchanges() above
-        // guarantees stock.exchange was non-empty as a fallback.
-        exchange: resolved.exchange,
-        transaction_type: (stock.transactionType || 'BUY').toUpperCase(),
-        order_type: mapKiteOrderType(stock.orderType),
-        quantity: parseInt(stock.quantity, 10) || 1,
-        product: mapKiteProductType(stock.productType),
-        readonly: false,
-        price: orderPrice,
-      };
-
-      // Set readonly for large quantities (over 100 shares)
-      if (stock.quantity > 100) {
-        baseOrder.readonly = true;
-      }
-
-      // MARKET → LIMIT-IOC with 1% market-protection buffer (GSM/T2T/BE stocks).
-      const protectedOrder = applyKiteMarketProtection(baseOrder, ltp, stock.transactionType);
-      console.log('[ZerodhaPublisher] Basket item:', JSON.stringify(protectedOrder));
-      return protectedOrder;
-    });
 
     const currentISTDateTime = new Date();
 
@@ -1029,7 +1540,7 @@ const MPReviewTradeModal = ({
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+            'X-Advisor-Subdomain': getTenantSubdomain(configData),
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,
@@ -1052,31 +1563,61 @@ const MPReviewTradeModal = ({
         quantity: detail.Quantity,
         priority: detail.Priority,
         tradeId: detail.tradeId,
+        // This is the exact tag written into the Kite basket. Dropping it
+        // forced record-back to guess from symbol/side/qty, which is unsafe
+        // when the same demat account executes multiple models.
+        zerodhaTradeId: detail.zerodhaTradeId,
+        publisherTag: detail.zerodhaTradeId,
+        modelId: latestRebalance?.model_Id,
+        modelName: strategyDetails?.model_name,
+        advisor: strategyDetails?.advisor,
+        uniqueId: calculatedPortfolioData?.uniqueId,
         user_broker: 'Zerodha',
       }));
 
+      const publisherAttempt = createZerodhaPublisherAttempt({
+        stockDetails: filteredStockDetails,
+        userEmail,
+        flow: 'rebalance',
+      });
+      publisherAttemptRef.current = publisherAttempt;
+      publisherFullLegsRef.current = JSON.parse(JSON.stringify(filteredStockDetails));
+
       // Store updated stock details for post-order processing
-      await AsyncStorage.setItem(
-        'stockDetailsZerodhaOrder',
-        JSON.stringify(filteredStockDetails),
-      );
+      await AsyncStorage.multiSet([
+        ['stockDetailsZerodhaOrder', JSON.stringify(filteredStockDetails)],
+        ['additionalPayload', JSON.stringify({
+          ...additionalPayload,
+          attemptId: publisherAttempt.attemptId,
+        })],
+      ]);
 
       console.log('[ZerodhaPublisher] Using form submission flow...');
-      console.log('[ZerodhaPublisher] Basket data:', JSON.stringify(basket, null, 2));
       console.log('[ZerodhaPublisher] API Key being used:', apiKey);
 
-      // Use form submission approach (more reliable in WebView than SDK)
-      const htmlContent = generateHtmlForm(basket, apiKey);
-      setHtmlContent(htmlContent);
-      setWebView(true);
-      // Start client-side order-book polling as the WebView-callback-missed
-      // fallback. See docs/REBALANCING.md § Kite Publisher polling fallback.
-      startKitePolling();
-      setLoading(false);
+      // TWO-PHASE PUBLISHER (2026-08-06, mirrors web Fix C): split the legs
+      // into [sellBaskets..., buyBaskets...]. Submit sells first; a publisher
+      // redirect only starts broker fill verification. After full fills, live
+      // margin either opens buys or shows the explicit settlement-risk choice.
+      pendingKiteBatchesRef.current = createModelPortfolioPublisherBatches(
+        filteredStockDetails,
+        'Zerodha',
+      );
+      currentKiteBatchIndexRef.current = 0;
+      // Mobile WebView submission does not depend on a browser popup gesture,
+      // so wait for durable intent + reconciliation acknowledgement and fail
+      // closed before Kite can receive the basket.
+      await submitKiteBatch(0);
     } catch (error) {
       console.error('[ZerodhaPublisher] Failed to update trade recommendation:', error);
       setLoading(false);
       const errorMsg = error?.response?.data?.message || error?.message || 'Failed to prepare basket order. Please try again.';
+      // A batch refused AFTER the dispatch boundary may already be with the
+      // broker. Reporting every leg "rejected" there is a claim we cannot
+      // support, and it invites the retry that double-places — so an uncertain
+      // outcome is reported as pending, with the broker named as the source of
+      // truth. Ordinary preparation failures still report as rejected.
+      const dispatchUncertain = error?.dispatchUncertain === true;
       const syntheticResponse = stockDetails.map(stock => ({
         symbol: stock.tradingSymbol,
         tradingSymbol: stock.tradingSymbol,
@@ -1084,8 +1625,8 @@ const MPReviewTradeModal = ({
         quantity: stock.quantity,
         orderType: stock.orderType || 'MARKET',
         exchange: stock.exchange || 'NSE',
-        orderStatus: 'rejected',
-        orderPlacement: 'failed',
+        orderStatus: dispatchUncertain ? 'pending' : 'rejected',
+        orderPlacement: dispatchUncertain ? 'pending' : 'failed',
         orderStatusMessage: errorMsg,
         message_aq: errorMsg,
       }));
@@ -1093,6 +1634,8 @@ const MPReviewTradeModal = ({
       setOpenSucessModal(true);
       onCloseReviewTrade();
     }
+
+    } finally { publisherLaunchPendingRef.current = false; }
   };
 
   // Redirect URL for Kite to return after order placement
@@ -1130,28 +1673,34 @@ const MPReviewTradeModal = ({
     `;
   };
 
-  const [zerodhaStockDetails, setZerodhaStockDetails] = useState(null);
-  const [zerodhaAdditionalPayload, setZerodhaAdditionalPayload] =
-    useState(null);
-
   const fetchData = async () => {
     try {
       // Fetch pending order data
       const pendingOrderData = await AsyncStorage.getItem(
         'stockDetailsZerodhaOrder',
       );
-      if (pendingOrderData) {
-        console.log('Pending Order Zerodha:', JSON.parse(pendingOrderData));
-        setZerodhaStockDetails(JSON.parse(pendingOrderData));
+      const storedStockDetails = pendingOrderData
+        ? JSON.parse(pendingOrderData)
+        : null;
+      if (storedStockDetails) {
+        console.log('Pending Order Zerodha:', storedStockDetails);
       }
 
       // Fetch additional payload data
       const payloadData = await AsyncStorage.getItem('additionalPayload');
-      if (payloadData) {
-        setZerodhaAdditionalPayload(JSON.parse(payloadData));
-      }
+      const storedAdditionalPayload = payloadData
+        ? JSON.parse(payloadData)
+        : null;
+      return {
+        zerodhaStockDetails: storedStockDetails,
+        zerodhaAdditionalPayload: storedAdditionalPayload,
+      };
     } catch (error) {
       console.error('Error fetching data from AsyncStorage:', error);
+      return {
+        zerodhaStockDetails: null,
+        zerodhaAdditionalPayload: null,
+      };
     }
   };
 
@@ -1161,17 +1710,26 @@ const MPReviewTradeModal = ({
     // this is a no-op.
     stopKitePolling();
 
-    await fetchData();
+    const {zerodhaStockDetails, zerodhaAdditionalPayload} = await fetchData();
+    const publisherStockDetails =
+      (Array.isArray(zerodhaStockDetails) && zerodhaStockDetails.length > 0
+        ? zerodhaStockDetails
+        : null) ||
+      (Array.isArray(stockDetails) ? stockDetails : []);
 
     console.log('[ZerodhaPublisher] checkZerodhaStatus - Status:', zerodhaStatus, 'Type:', zerodhaRequestType);
-    console.log('[ZerodhaPublisher] Stock Details:', zerodhaStockDetails);
+    console.log('[ZerodhaPublisher] Stock Details:', publisherStockDetails);
 
-    if (zerodhaStatus === 'success' && zerodhaRequestType === 'basket') {
+    if (
+      zerodhaStatus !== null &&
+      zerodhaStatus !== 'cancelled' &&
+      zerodhaRequestType === 'basket'
+    ) {
       setLoading(true);
 
       const requestHeaders = {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -1179,23 +1737,41 @@ const MPReviewTradeModal = ({
       };
 
       let orderResponse;
+      let hasConfirmedExecution = false;
+      let backendRecordBody;
 
       try {
+        if (publisherStockDetails.length === 0 || !userEmail) {
+          throw new Error(
+            'Order was sent to Kite, but its details could not be loaded for status verification.',
+          );
+        }
+
         // Step 1: Record orders and fetch actual statuses from Zerodha
         console.log('[ZerodhaPublisher] Step 1: Recording publisher orders...');
         const recordResponse = await axios.post(
           `${server.server.baseUrl}api/zerodha/publisher/record-orders`,
           {
-            stockDetails: zerodhaStockDetails,
-            publisherResults: [{ status: 'success', batchIndex: 0 }],
+            stockDetails: publisherStockDetails,
+            publisherResults: [{ status: zerodhaStatus, batchIndex: 0 }],
             userEmail: userEmail,
             broker: 'Zerodha',
+            attemptId:
+              publisherAttemptRef.current?.attemptId ||
+              zerodhaAdditionalPayload?.attemptId,
+            model_id: latestRebalance?.model_Id,
+            modelName: strategyDetails?.model_name,
+            advisor: strategyDetails?.advisor,
+            unique_id: calculatedPortfolioData?.uniqueId,
           },
           { headers: requestHeaders }
         );
 
         console.log('[ZerodhaPublisher] Record orders response:', recordResponse.data);
-        orderResponse = recordResponse.data.response || recordResponse.data.results || [];
+        orderResponse = annotateSettlementRiskResults(
+          recordResponse.data.response || recordResponse.data.results || [],
+          settlementRiskAcceptedRef.current,
+        );
 
         // Step 2: Update model portfolio database with order results
         console.log('[ZerodhaPublisher] Step 2: Updating model portfolio DB...');
@@ -1229,37 +1805,11 @@ const MPReviewTradeModal = ({
 
         // Step 4: Update subscriber execution status
         if (orderResponse && orderResponse.length > 0) {
-          const successStatuses = ['complete', 'executed', 'traded'];
-          const pubSuccessCount = orderResponse.filter(r =>
-            successStatuses.includes((r.orderStatus || '').toLowerCase())
-          ).length;
-
-          let executionStatus;
-          if (pubSuccessCount === orderResponse.length) {
-            executionStatus = 'executed';
-          } else if (pubSuccessCount > 0) {
-            executionStatus = 'partial';
-          }
-
-          try {
-            await axios.put(
-              `${server.ccxtServer.baseUrl}rebalance/update/subscriber-execution`,
-              {
-                userEmail: userEmail,
-                modelName: strategyDetails?.model_name,
-                model_id: latestRebalance?.model_Id,
-                executionStatus: executionStatus || 'pending',
-                user_broker: 'Zerodha',
-              },
-              { headers: requestHeaders }
-            );
-          } catch (statusErr) {
-            console.error('[ZerodhaPublisher] Error updating subscriber execution status:', statusErr);
-          }
+        let backendExecutionComplete = false;
 
           // Step 5: Record order results in model_portfolio_user
           try {
-            await axios.post(
+            const canonicalRecord = await axios.post(
               `${server.ccxtServer.baseUrl}rebalance/record-publisher-results`,
               {
                 modelName: strategyDetails?.model_name,
@@ -1269,10 +1819,14 @@ const MPReviewTradeModal = ({
                 order_results: orderResponse,
                 user_email: userEmail,
                 user_broker: 'Zerodha',
+                ...frozenPlanFields,
               },
               { headers: requestHeaders }
             );
-            console.log('[ZerodhaPublisher] Successfully recorded order results in model_portfolio_user');
+            backendRecordBody = canonicalRecord.data;
+          backendExecutionComplete = isPublisherExecutionComplete(backendRecordBody);
+
+            hasConfirmedExecution = backendExecutionComplete;
           } catch (recordErr) {
             console.error('[ZerodhaPublisher] Error recording publisher results:', recordErr);
           }
@@ -1284,7 +1838,7 @@ const MPReviewTradeModal = ({
 
         // On error: show as "Unknown" — orders may have been placed in Kite,
         // we just can't confirm status (matching web frontend)
-        orderResponse = (zerodhaStockDetails || stockDetails || []).map(stock => ({
+        orderResponse = publisherStockDetails.map(stock => ({
           tradingSymbol: stock.tradingSymbol,
           symbol: stock.tradingSymbol,
           transactionType: stock.transactionType || 'BUY',
@@ -1296,22 +1850,8 @@ const MPReviewTradeModal = ({
           message_aq: 'Order sent via Kite. Please check your Kite app for actual status.',
         }));
 
-        // Mark as pending so the async poller knows to check broker order book
-        try {
-          await axios.put(
-            `${server.ccxtServer.baseUrl}rebalance/update/subscriber-execution`,
-            {
-              userEmail: userEmail,
-              modelName: strategyDetails?.model_name,
-              model_id: latestRebalance?.model_Id,
-              executionStatus: 'pending',
-              user_broker: 'Zerodha',
-            },
-            { headers: requestHeaders }
-          );
-        } catch (statusErr) {
-          console.error('[ZerodhaPublisher] Error updating subscriber execution status:', statusErr);
-        }
+        // Queue enrollment below triggers backend verification; do not overwrite status on a client error.
+
       }
 
       // Always enroll in status-check-queue regardless of record-orders success/failure
@@ -1332,7 +1872,7 @@ const MPReviewTradeModal = ({
       }
 
       // Always show results modal (matching web frontend pattern)
-      setOrderPlacementResponse(orderResponse);
+      setOrderPlacementResponse(includeUnconfirmedPublisherLegs(orderResponse, publisherStockDetails, backendRecordBody));
       setOpenSucessModal(true);
       onCloseReviewTrade();
       setLoading(false);
@@ -1353,11 +1893,13 @@ const MPReviewTradeModal = ({
         modelName: mpModelNameZerodha,
         broker: 'Zerodha',
       });
-      portfolioEvents.emit(PORTFOLIO_EVENTS.REBALANCE_EXECUTED, {
-        userEmail,
-        modelName: mpModelNameZerodha,
-        broker: 'Zerodha',
-      });
+      if (hasConfirmedExecution) {
+        portfolioEvents.emit(PORTFOLIO_EVENTS.REBALANCE_EXECUTED, {
+          userEmail,
+          modelName: mpModelNameZerodha,
+          broker: 'Zerodha',
+        });
+      }
 
       // Refresh rebalance data to reflect current DB state
       if (typeof calculateRebalance === 'function') {
@@ -1376,7 +1918,8 @@ const MPReviewTradeModal = ({
 
   useEffect(() => {
     if (
-      zerodhaStatus === 'success' &&
+      zerodhaStatus !== null &&
+      zerodhaStatus !== 'cancelled' &&
       zerodhaRequestType === 'basket' &&
       jwtToken !== undefined
     ) {
@@ -1387,6 +1930,9 @@ const MPReviewTradeModal = ({
   // --- Fyers Publisher Flow ---
 
   const handleFyersRedirect = async () => {
+    if (!ensureRebalanceExecutable()) {
+      return;
+    }
     const sessionValid = await validateBrokerSession(broker, jwtToken, { checkFreshness: true });
     if (!sessionValid) return;
 
@@ -1414,7 +1960,7 @@ const MPReviewTradeModal = ({
 
       const requestHeaders = {
         'Content-Type': 'application/json',
-        'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME || configData?.subdomain || getAdvisorSubdomain(),
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
         'aq-encrypted-key': generateToken(
           Config.REACT_APP_AQ_KEYS,
           Config.REACT_APP_AQ_SECRET,
@@ -1450,6 +1996,7 @@ const MPReviewTradeModal = ({
         advisor: strategyDetails?.advisor,
         model_id: latestRebalance?.model_Id,
         unique_id: calculatedPortfolioData?.uniqueId,
+        ...frozenPlanFields,
         returnDateTime: istDatetime,
         trades: fyersTrades,
       };
@@ -1460,13 +2007,16 @@ const MPReviewTradeModal = ({
         try {
           const sdkResult = await sdkClient.executeAdvice({
             kind: 'mpRebalance',
-            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            clientAdviceId: `mp-rebalance:Fyers:${rebalanceContract?.plan?.id || calculatedPortfolioData?.uniqueId || latestRebalance?.model_Id}:${rebalanceContract?.plan?.version || 0}`,
             brokerName: 'Fyers',
             modelId: latestRebalance?.model_Id,
             modelName: strategyDetails?.model_name,
             uniqueId: calculatedPortfolioData?.uniqueId,
+            planId: rebalanceContract?.plan?.id,
+            planVersion: rebalanceContract?.plan?.version,
+            planHash: rebalanceContract?.plan?.hash,
             trades: fyersTrades,
-          });
+          })
           const mappedRows = (sdkResult?.rows || []).map(row => ({
             ...row,
             orderStatus: row.status,
@@ -1475,8 +2025,8 @@ const MPReviewTradeModal = ({
           response = { data: { results: mappedRows } };
           console.log('[MPReviewTradeModal] SDK executeAdvice (Fyers) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
         } catch (sdkErr) {
-          console.error('[MPReviewTradeModal] SDK executeAdvice (Fyers) failed, falling back to legacy:', sdkErr?.message);
-          response = null;
+          console.error('[MPReviewTradeModal] SDK owns this Fyers attempt; legacy fallback blocked:', sdkErr?.message);
+          throw sdkErr;
         }
       }
       if (!response) {
@@ -1534,7 +2084,7 @@ const MPReviewTradeModal = ({
         return;
       }
 
-      setOrderPlacementResponse(checkData);
+      setOrderPlacementResponse(includeUnconfirmedPublisherLegs(checkData, stockDetails));
 
       // 2. Always update model portfolio DB first (before EDIS checks)
       try {
@@ -1553,42 +2103,9 @@ const MPReviewTradeModal = ({
         console.warn('[FyersPublisher] model-portfolio-db-update error (non-fatal):', dbErr?.message);
       }
 
-      // 3. Check if ALL orders failed — show results modal directly, skip EDIS
-      const allOrdersFailed = checkData.every((order) => {
-        const s = (order?.orderStatus || '').toUpperCase();
-        return s === 'REJECTED' || s === 'CANCELLED' || s === 'FAILURE' || s === 'FAILED';
-      });
-
-      // 4. Update subscriber execution status
+      // 3. Update subscriber execution status
       if (checkData.length > 0) {
-        const successStatuses = ['complete', 'executed', 'traded'];
-        const pubSuccessCount = checkData.filter(r =>
-          successStatuses.includes((r.orderStatus || '').toLowerCase()),
-        ).length;
-        let executionStatus;
-        if (pubSuccessCount === checkData.length) {
-          executionStatus = 'executed';
-        } else if (pubSuccessCount > 0) {
-          executionStatus = 'partial';
-        } else {
-          executionStatus = 'pending';
-        }
-
-        try {
-          await axios.put(
-            `${server.ccxtServer.baseUrl}rebalance/update/subscriber-execution`,
-            {
-              userEmail: userEmail,
-              modelName: strategyDetails?.model_name,
-              model_id: latestRebalance?.model_Id,
-              executionStatus: executionStatus,
-              user_broker: 'Fyers',
-            },
-            { headers: requestHeaders },
-          );
-        } catch (err) {
-          console.warn('[FyersPublisher] subscriber-execution update failed:', err);
-        }
+        // Backend record-back publishes the authoritative status.
 
         // Record publisher results
         try {
@@ -1602,18 +2119,18 @@ const MPReviewTradeModal = ({
               order_results: checkData,
               user_email: userEmail,
               user_broker: 'Fyers',
+              ...frozenPlanFields,
             },
             { headers: requestHeaders },
           );
-          console.log('[FyersPublisher] Successfully recorded publisher results');
         } catch (err) {
           console.warn('[FyersPublisher] record-publisher-results failed:', err);
         }
       }
 
-      // 5. EDIS/TPIN check — only if NOT allOrdersFailed (set flag instead of returning)
+      // 4. EDIS/TPIN check — only explicit backend evidence may interrupt.
       let edisTriggered = false;
-      if (!allOrdersFailed && checkData.length > 0) {
+      if (checkData.length > 0) {
         const allSell = checkData.every(s => s.transactionType === 'SELL');
         const isMixed =
           checkData.some(s => s.transactionType === 'BUY') &&
@@ -1635,6 +2152,7 @@ const MPReviewTradeModal = ({
           (allSell || isMixed) &&
           rejectedSellCount >= 1 &&
           successCount === 0 &&
+          hasExplicitSellAuthRejection(response?.data) &&
           setShowFyersTpinModal
         ) {
           setShowFyersTpinModal(true);
@@ -1643,7 +2161,7 @@ const MPReviewTradeModal = ({
         }
       }
 
-      // 6. Always enroll in status-check-queue
+      // 5. Always enroll in status-check-queue
       try {
         await axios.post(
           `${server.ccxtServer.baseUrl}rebalance/add-user/status-check-queue`,
@@ -1659,7 +2177,7 @@ const MPReviewTradeModal = ({
         console.warn('[FyersPublisher] status-check-queue failed:', queueErr);
       }
 
-      // 7. Only show success modal if no EDIS modal was triggered
+      // 6. Only show success modal if no EDIS modal was triggered
       if (!edisTriggered) {
         openSucess();
       }
@@ -1672,11 +2190,11 @@ const MPReviewTradeModal = ({
         modelName: mpModelNameFyers,
         broker: 'Fyers',
       });
-      portfolioEvents.emit(PORTFOLIO_EVENTS.REBALANCE_EXECUTED, {
+      portfolioEvents.emit(PORTFOLIO_EVENTS.HOLDINGS_REFRESH, {
         userEmail,
         modelName: mpModelNameFyers,
         broker: 'Fyers',
-      });
+      })
 
       // 9. Refresh rebalance data to reflect current DB state
       if (typeof calculateRebalance === 'function') {
@@ -1685,6 +2203,10 @@ const MPReviewTradeModal = ({
     } catch (error) {
       setLoading(false);
       console.error('[FyersPublisher] Error:', error);
+
+      if (handleFrozenPlanRecompute(error)) {
+        return;
+      }
 
       const responseData = error?.response?.data;
       const orderErrors = responseData?.orderErrors || [];
@@ -1769,7 +2291,7 @@ const MPReviewTradeModal = ({
           <Text
             style={{
               color: 'black',
-              fontFamily: 'Poppins-Regular',
+              fontFamily: designFont('Poppins-Regular'),
               alignContent: 'center',
               alignItems: 'center',
               alignSelf: 'center',
@@ -1792,12 +2314,37 @@ const MPReviewTradeModal = ({
     );
   };
 
+  if (visible && isWebView) {
+    return (
+      <PublisherWebViewOverlay
+        source={publisherWebViewSource}
+        webViewRef={webViewRef}
+        onClose={handlePublisherClose}
+        onLoadStart={event => {
+          setIsLoading(true);
+          kiteHandoff.onLoadStart(event);
+        }}
+        onLoadEnd={event => {
+          setIsLoading(false);
+          kiteHandoff.onLoadEnd(event);
+        }}
+        onNavigationStateChange={state => {
+          kiteHandoff.onNavigationStateChange(state);
+          handleWebViewNavigationStateChange(state);
+        }}
+        onError={kiteHandoff.onError}
+        onHttpError={kiteHandoff.onHttpError}
+      />
+    );
+  }
+
   return (
     <Modal
       transparent={true}
       visible={visible}
-      onRequestClose={onCloseReviewTrade}
-      animationType="slide">
+      onRequestClose={handleModalRequestClose}
+      animationType="slide"
+      hardwareAccelerated={true}>
       <View style={styles.modalOverlay}>
         <View style={[styles.modalContainer, {width: width * 1}]}>
           {isWebView ? (
@@ -1811,12 +2358,7 @@ const MPReviewTradeModal = ({
                 padding: 10,
               }}>
               <View style={{alignContent: 'flex-end', alignItems: 'flex-end'}}>
-                <TouchableOpacity onPress={() => {
-                  setWebView(false);
-                  setLoading(false);
-                  setZerodhaStatus(null);
-                  setZerodhaRequestType(null);
-                }}>
+                <TouchableOpacity onPress={handlePublisherClose}>
                   <XIcon size={16} color={'black'} />
                 </TouchableOpacity>
               </View>
@@ -1827,22 +2369,30 @@ const MPReviewTradeModal = ({
                   borderTopRightRadius: 10,
                   borderTopLeftRadius: 10,
                 }}
-                source={{
-                  html: htmlContentfinal,
-                  baseUrl: getPublisherWebViewBaseUrl(configData),
-                }}
+                source={publisherWebViewSource}
                 onLoadStart={() => setIsLoading(true)}
                 onLoadEnd={() => setIsLoading(false)}
-                onNavigationStateChange={handleWebViewNavigationStateChange}
+                onLoadStart={kiteHandoff.onLoadStart}
+                onLoadEnd={kiteHandoff.onLoadEnd}
+                onNavigationStateChange={state => {
+                  kiteHandoff.onNavigationStateChange(state);
+                  handleWebViewNavigationStateChange(state);
+                }}
                 javaScriptEnabled={true}
                 domStorageEnabled={true}
-                onError={e => console.error('WebView error:', e.nativeEvent)}
+                androidLayerType="hardware"
+                setSupportMultipleWindows={false}
+                thirdPartyCookiesEnabled={true}
+                sharedCookiesEnabled={true}
+                keyboardDisplayRequiresUserAction={false}
+                onError={kiteHandoff.onError}
+                onHttpError={kiteHandoff.onHttpError}
               />
             </View>
           ) : (
             <>
               {/* Loading Overlay */}
-              {(calculatedLoading || loading || isLoading) && (
+              {(calculatedLoading || loading || isLoading || reducingFunding) && (
                 <View style={{
                   position: 'absolute',
                   top: 0,
@@ -1856,20 +2406,24 @@ const MPReviewTradeModal = ({
                   borderTopLeftRadius: 20,
                   borderTopRightRadius: 20,
                 }}>
-                  <ActivityIndicator size="large" color="#000" />
+                  <ActivityIndicator size="large" color={designColor('000')} />
                   <Text style={{
                     marginTop: 15,
                     fontSize: 16,
-                    fontFamily: 'Satoshi-Medium',
-                    color: '#333',
+                    fontFamily: designFont('Satoshi-Medium'),
+                    color: designColor('333'),
                   }}>
-                    {loading ? 'Placing Order...' : 'Calculating Rebalance...'}
+                    {reducingFunding
+                      ? 'Refreshing calculation...'
+                      : loading
+                        ? 'Placing Order...'
+                        : 'Calculating Rebalance...'}
                   </Text>
                   <Text style={{
                     marginTop: 8,
                     fontSize: 12,
-                    fontFamily: 'Satoshi-Regular',
-                    color: '#666',
+                    fontFamily: designFont('Satoshi-Regular'),
+                    color: designColor('666'),
                   }}>
                     Please wait while we process your request
                   </Text>
@@ -1888,11 +2442,11 @@ const MPReviewTradeModal = ({
                 <TouchableOpacity
                   style={{marginRight: 20}}
                   onPress={onCloseReviewTrade}>
-                  <XIcon size={24} color="#000" />
+                  <XIcon size={24} color={designColor('000')} />
                 </TouchableOpacity>
               </View>
 
-              <View style={{backgroundColor: '#f8f8f8'}}></View>
+              <View style={{backgroundColor: designColor('f8f8f8')}}></View>
               <View
                 style={{
                   borderWidth: 0.5,
@@ -1916,7 +2470,7 @@ const MPReviewTradeModal = ({
                     return (
                       <View style={styles.surveillanceWarning}>
                         <View style={styles.surveillanceHeader}>
-                          <AlertTriangleIcon size={18} color="#DC2626" />
+                          <AlertTriangleIcon size={18} color={designColor('dc2626')} />
                           <Text style={styles.surveillanceTitle}>
                             Surveillance Alert
                           </Text>
@@ -1927,7 +2481,7 @@ const MPReviewTradeModal = ({
                         </Text>
                         {surveillanceStocks.map((stock, index) => (
                           <Text key={index} style={styles.surveillanceStock}>
-                            • <Text style={{fontFamily: 'Poppins-Bold'}}>{stock.symbol}</Text>{' '}
+                            • <Text style={{fontFamily: designFont('Poppins-Bold')}}>{stock.symbol}</Text>{' '}
                             (Surveillance: {stock.surveillance})
                           </Text>
                         ))}
@@ -1955,22 +2509,28 @@ const MPReviewTradeModal = ({
                     <View
                       style={{
                         borderRadius: 50,
-                        backgroundColor: '#EBECEF',
+                        backgroundColor: designColor('ebecef'),
                         padding: 20,
                       }}>
                       <CandlestickChartIcon size={40} color={'black'} />
                     </View>
                     <Text
                       style={{
-                        fontFamily: 'Poppins-SemiBold',
+                        fontFamily: designFont('Poppins-SemiBold'),
                         color: 'black',
                         fontSize: 18,
                         marginVertical: 10,
                       }}>
-                      No Orders to Place
+                      {fundingConsent?.required ? 'Choose how to fund your full plan' : 'No Orders to Place'}
                     </Text>
-                    <Text style={{fontFamily: 'Poppins-Medium', color: 'grey'}}>
-                      Add item to cart to place order.
+                    <Text style={{fontFamily: designFont('Poppins-Medium'), color: 'grey'}}>
+                      {fundingConsent?.required
+                        ? fundingConsent.canContinueWithAvailableFunds
+                          ? `Add ₹${Number(fundingConsent.shortfall || 0).toLocaleString('en-IN')} or continue with available funds. Your investment target stays unchanged.`
+                          : fundingConsent.canAttemptWithInsufficientFunds
+                            ? `Add ₹${Number(fundingConsent.shortfall || 0).toLocaleString('en-IN')}, or review the target stocks and attempt the buy. Your broker may reject the orders.`
+                            : `Add ₹${Number(fundingConsent.shortfall || 0).toLocaleString('en-IN')} to your broker, then calculate again. Your investment target stays unchanged.`
+                        : 'Add item to cart to place order.'}
                     </Text>
                   </View>
                 }
@@ -1980,10 +2540,60 @@ const MPReviewTradeModal = ({
                 }}
               />
 
-              {confirmOrder ? (
+              {fundingConsent?.show && (
+                <View style={{
+                  marginHorizontal: 10,
+                  marginBottom: 12,
+                  padding: 12,
+                  borderWidth: 1,
+                  borderColor: designColor('cbd5e1'),
+                  borderRadius: 8,
+                  backgroundColor: designColor('f8fafc'),
+                }}>
+                  <Text style={{fontFamily: designFont('Poppins-SemiBold'), color: designColor('0f172a'), fontSize: 13, lineHeight: 20}}>
+                    Investment target: ₹{Number(fundingConsent.desiredAmount || 0).toLocaleString('en-IN')}. This calculation: ₹{Number(fundingConsent.fundedAmount || 0).toLocaleString('en-IN')}. Remaining funding: ₹{Number(fundingConsent.shortfall || 0).toLocaleString('en-IN')}.
+                  </Text>
+                  <Text style={{fontFamily: designFont('Poppins-Regular'), color: designColor('475569'), fontSize: 11, lineHeight: 18, marginTop: 4, marginBottom: 10}}>
+                    Closing makes no change. {fundingConsent.canContinueWithAvailableFunds ? 'Add funds and retry, or continue with available funds for this calculation.' : fundingConsent.canAttemptWithInsufficientFunds ? 'Add funds, or review the target stocks and attempt the buy. The broker may reject the orders.' : 'Add funds to your broker, then calculate again.'} Your investment target stays unchanged.
+                  </Text>
+                  {fundingConsent.canContinueWithAvailableFunds && (
+                    <TouchableOpacity onPress={continueWithAvailableFunds} disabled={reducingFunding || loading} style={{backgroundColor: designColor('0f172a'), padding: 10, borderRadius: 8, alignItems: 'center'}}>
+                      <Text style={{color: designColor('fff'), fontFamily: designFont('Poppins-SemiBold'), fontSize: 12, textAlign: 'center'}}>
+                        Continue with available funds
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  {fundingConsent.canAttemptWithInsufficientFunds && (
+                    <TouchableOpacity onPress={attemptWithInsufficientFunds} disabled={reducingFunding || loading} style={{backgroundColor: designColor('0f172a'), padding: 10, borderRadius: 8, alignItems: 'center'}}>
+                      <Text style={{color: designColor('fff'), fontFamily: designFont('Poppins-SemiBold'), fontSize: 12, textAlign: 'center'}}>
+                        Review stocks and attempt buy
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity onPress={showAddFundsInstructions} disabled={reducingFunding || loading} style={{backgroundColor: designColor('fff'), padding: 10, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: designColor('cbd5e1'), marginTop: 8}}>
+                    <Text style={{color: designColor('334155'), fontFamily: designFont('Poppins-SemiBold'), fontSize: 12}}>{fundingConsent.canContinueWithAvailableFunds || fundingConsent.canAttemptWithInsufficientFunds ? 'Add funds instead' : 'How to add funds'}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+
+              {awaitingOrderStatus && (
+                <View style={styles.notecontainer}>
+                  <Text style={styles.noteTitle}>Checking your order status</Text>
+                  <Text style={styles.noteText}>
+                    Your orders have been submitted to your broker. We are
+                    confirming them now — this screen updates on its own. Please
+                    do not place them again.
+                  </Text>
+                </View>
+              )}
+
+              {confirmOrder && !fundingConsent?.required ? (
                 <TouchableOpacity
-                  disabled={calculatedLoading || loading}
+                  disabled={calculatedLoading || loading || awaitingOrderStatus}
                   onPress={() => {
+                    if (!ensureRebalanceExecutable()) {
+                      return;
+                    }
                     // Pre-order EDIS checks
                     const hasSellOrders = stockDetails?.some(s => s.transactionType === 'SELL');
                     if (hasSellOrders) {
@@ -2004,7 +2614,7 @@ const MPReviewTradeModal = ({
                         return;
                       }
                       // Dhan EDIS check
-                      if (broker === 'Dhan' && (!dhanEdisStatus || !dhanEdisStatus?.data || dhanEdisStatus?.data?.length === 0 || dhanEdisStatus?.data?.some((h) => h.edis === false)) && setShowDhanTpinModel) {
+                      if (broker === 'Dhan' && !isDhanSellAuthorizationReady(dhanEdisStatus, stockDetails) && setShowDhanTpinModel) {
                         setShowDhanTpinModel(true);
                         onCloseReviewTrade();
                         return;
@@ -2024,7 +2634,10 @@ const MPReviewTradeModal = ({
                       placeOrder();
                     }
                   }}
-                  style={styles.orderButton}>
+                  style={[
+                    styles.orderButton,
+                    awaitingOrderStatus && styles.buttonDisabled,
+                  ]}>
                   {0 > 1 ? (
                     <View>
                       <Text>
@@ -2035,7 +2648,7 @@ const MPReviewTradeModal = ({
                     </View>
                   ) : null}
 
-                  {loading ? (
+                  {loading || awaitingOrderStatus ? (
                     <View style={styles.loadingContainer}>
                       <ActivityIndicator size="small" color="white" />
                     </View>
@@ -2046,7 +2659,7 @@ const MPReviewTradeModal = ({
                     </Text>
                   )}
                 </TouchableOpacity>
-              ) : (
+              ) : !fundingConsent?.required ? (
                 <TouchableOpacity
                   disabled={calculatedLoading}
                   onPress={() => {
@@ -2071,12 +2684,11 @@ const MPReviewTradeModal = ({
                     <Text style={styles.orderButtonText}>Confirm Details</Text>
                   )}
                 </TouchableOpacity>
-              )}
+              ) : null}
             </>
           )}
         </View>
       </View>
-
       {/* Kite Publisher Modal (Publisher SDK flow) */}
       <KitePublisherModal
         visible={showKitePublisher}
@@ -2168,28 +2780,28 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     color: 'black',
     flexDirection: 'column',
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   cellText: {
     alignSelf: 'flex-start',
     color: 'black',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   cellTextmktprice: {
     alignSelf: 'flex-end',
     color: 'black',
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
   },
   quantityInput: {
     width: 50,
     height: 30,
     padding: 2,
     marginHorizontal: 4,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 12,
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 7,
   },
   quantityInputup: {
@@ -2198,19 +2810,19 @@ const styles = StyleSheet.create({
     padding: 2,
     alignSelf: 'center',
     marginHorizontal: 4,
-    color: '#0d0c22',
+    color: designColor('0d0c22'),
     fontSize: 14,
-    fontFamily: 'Poppins-Bold',
+    fontFamily: designFont('Poppins-Bold'),
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: '#e9e8e8',
+    borderColor: designColor('e9e8e8'),
     borderRadius: 7,
   },
   modalContainer: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     height: screenHeight / 1.8,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.18,
     shadowRadius: 5,
@@ -2222,7 +2834,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderRadius: 250,
     alignSelf: 'center',
-    backgroundColor: '#f1f4f8',
+    backgroundColor: designColor('f1f4f8'),
   },
   modalHeader: {
     fontSize: 18,
@@ -2233,23 +2845,47 @@ const styles = StyleSheet.create({
   },
   modalHeader1: {
     fontSize: 17,
-    fontFamily: 'Poppins-Bold',
+    fontFamily: designFont('Poppins-Bold'),
     alignSelf: 'flex-start',
     marginHorizontal: 20,
     color: 'black',
     marginBottom: 10,
   },
   orderButton: {
-    backgroundColor: '#002a5c',
+    backgroundColor: designColor('002a5c'),
     paddingVertical: 15,
     marginHorizontal: 0,
     borderRadius: 10,
     alignItems: 'center',
   },
   orderButtonText: {
-    color: '#fff',
-    fontFamily: 'Poppins-Medium',
+    color: designColor('fff'),
+    fontFamily: designFont('Poppins-Medium'),
     fontSize: 16,
+  },
+  buttonDisabled: {
+    backgroundColor: designColor('7f9cbf'),
+  },
+  notecontainer: {
+    borderWidth: 1,
+    borderColor: designColor('f9a825'),
+    borderRadius: 8,
+    padding: 12,
+    marginHorizontal: 10,
+    marginBottom: 12,
+    backgroundColor: designColor('fff'),
+  },
+  noteTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: designColor('f9a825'),
+    marginBottom: 4,
+  },
+  noteText: {
+    fontSize: 11,
+    color: designColor('333'),
+    fontFamily: designFont('Poppins-Regular'),
+    lineHeight: 20,
   },
   leftContainer: {
     flex: 1,
@@ -2270,16 +2906,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderColor: '#E8E8E8',
+    borderColor: designColor('e8e8e8'),
   },
   // Surveillance Warning Styles
   surveillanceWarning: {
     marginHorizontal: 10,
     marginVertical: 8,
     padding: 12,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: designColor('fef2f2'),
     borderLeftWidth: 4,
-    borderLeftColor: '#DC2626',
+    borderLeftColor: designColor('dc2626'),
     borderRadius: 4,
   },
   surveillanceHeader: {
@@ -2289,27 +2925,27 @@ const styles = StyleSheet.create({
   },
   surveillanceTitle: {
     fontSize: 14,
-    fontFamily: 'Poppins-Bold',
-    color: '#DC2626',
+    fontFamily: designFont('Poppins-Bold'),
+    color: designColor('dc2626'),
     marginLeft: 8,
   },
   surveillanceText: {
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: '#991B1B',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('991b1b'),
     marginBottom: 6,
   },
   surveillanceStock: {
     fontSize: 12,
-    fontFamily: 'Poppins-Regular',
-    color: '#B91C1C',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('b91c1c'),
     marginLeft: 8,
     marginBottom: 2,
   },
   surveillanceNote: {
     fontSize: 11,
-    fontFamily: 'Poppins-Regular',
-    color: '#DC2626',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('dc2626'),
     marginTop: 6,
     fontStyle: 'italic',
   },

@@ -42,7 +42,7 @@
 
 import React from 'react';
 import { View, Text, Image, StyleSheet, TouchableOpacity } from 'react-native';
-import { ChevronRightIcon } from 'lucide-react-native';
+import { ChevronRightIcon, InfoIcon } from 'lucide-react-native';
 import formatCurrency from '../../../src/utils/formatCurrency';
 
 const formatRebalanceDate = (d) => {
@@ -66,8 +66,9 @@ const ModelPFCard = ({ viewModel, actions, slots }) => {
     cardColor = null,
     holdingsCount = 0,
     lastRebalanceDate = null,
+    corporateActionNotices = [],
   } = viewModel || {};
-  const { onCardPress = () => {}, onInvestPress } = actions || {};
+  const { onCardPress = () => {}, onInvestPress, onCorporateActionPress } = actions || {};
   const { PortfolioPercentageSlot = null } = slots || {};
 
   const invested = Number(totalInvested) > 0;
@@ -131,6 +132,23 @@ const ModelPFCard = ({ viewModel, actions, slots }) => {
             <Text style={styles.metricLabel}>Returns</Text>
             <View style={styles.returnsSlotWrap}>{PortfolioPercentageSlot}</View>
           </View>
+          {corporateActionNotices.map(notice => (
+            <TouchableOpacity
+              key={notice.actionId}
+              activeOpacity={0.75}
+              onPress={() => onCorporateActionPress?.(notice)}
+              style={styles.corporateActionRow}>
+              <InfoIcon style={styles.corporateActionIcon} />
+              <View style={styles.corporateActionTextWrap}>
+                <Text style={styles.corporateActionTitle}>
+                  {notice.symbol} {notice.type === 'BONUS' ? 'bonus shares pending' : 'split adjustment pending'}
+                </Text>
+                <Text style={styles.corporateActionBody} numberOfLines={2}>
+                  Broker quantity and day P&amp;L may look temporarily wrong. Tap for details.
+                </Text>
+              </View>
+            </TouchableOpacity>
+          ))}
         </>
       ) : (
         /* Subscribed but nothing executed yet — explain instead of "₹0/-" */
@@ -254,6 +272,38 @@ const styles = StyleSheet.create({
   },
   returnsSlotWrap: {
     alignItems: 'flex-end',
+  },
+  corporateActionRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#FCD34D',
+    backgroundColor: '#FFFBEB',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  corporateActionIcon: {
+    width: 16,
+    height: 16,
+    color: '#B45309',
+    marginTop: 1,
+  },
+  corporateActionTextWrap: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  corporateActionTitle: {
+    color: '#92400E',
+    fontSize: 11,
+    fontFamily: 'Poppins-SemiBold',
+  },
+  corporateActionBody: {
+    color: '#92400E',
+    fontSize: 10,
+    fontFamily: 'Poppins-Regular',
+    marginTop: 1,
   },
   pendingRow: {
     flexDirection: 'row',

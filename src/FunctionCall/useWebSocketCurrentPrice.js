@@ -21,28 +21,14 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
 import Config from 'react-native-config';
-import { getAuth } from '@react-native-firebase/auth';
 import server from '../utils/serverConfig';
 import {getAccountEmail} from '../utils/accountEmail';
-
-/**
- * Detect the correct exchange for a symbol.
- * Derivative symbols (ending with CE, PE, FUT preceded by digit) belong to NFO
- * or BFO. Equity suffixes (-EQ, -BE, etc.) stay on NSE/BSE.
- */
-function detectExchange(symbol, providedExchange) {
-  if (!symbol) return providedExchange || 'NSE';
-  const s = symbol.toUpperCase();
-  if (s.endsWith('-EQ') || s.endsWith('-BE') || s.endsWith('-SM') || s.endsWith('-ST'))
-    return providedExchange || 'NSE';
-  const isDerivative = /\d(CE|PE|FUT)$/.test(s);
-  if (isDerivative) {
-    if (providedExchange === 'BSE') return 'BFO';
-    if (providedExchange === 'NFO' || providedExchange === 'BFO') return providedExchange;
-    return 'NFO';
-  }
-  return providedExchange || 'NSE';
-}
+import {fetchLTPBatch} from '../utils/marketDataLTP';
+import {
+  buildReconnectSubscriptions,
+  detectMarketExchange,
+  needsPriceRefresh,
+} from '../utils/marketDataReconnect';
 
 // Web hits https://websocket.alphaquark.in (NOT ccxtprod) for both the
 // socket.io /ltp namespace and the /subscribe-array REST call. The app
@@ -50,14 +36,17 @@ function detectExchange(symbol, providedExchange) {
 // it just wasn't being used. Strip trailing slash so the path joins work.
 const rawBase = server.websocket.baseUrl || '';
 const ccxtUrl = rawBase.replace(/\/+$/, '');
+const REST_RECOVERY_INTERVAL_MS = 30 * 1000;
 
 const useWebSocketCurrentPrice = (symbols) => {
   const [ltp, setLtp] = useState([]);
   const socketRef = useRef(null);
   const subscribedSymbolsRef = useRef(new Set());
+  const symbolExchangesRef = useRef(new Map());
   const pendingSubscriptionsRef = useRef([]); // symbols queued while socket connects
+  const ltpRef = useRef([]);
+  const fallbackTimersRef = useRef(new Set());
 
-  const auth = getAuth();
   const userEmail = getAccountEmail();
   const dbName =
     Config.REACT_APP_HEADER_NAME ||
@@ -74,13 +63,17 @@ const useWebSocketCurrentPrice = (symbols) => {
       if (!sym || seen.has(sym)) continue;
       seen.add(sym);
       const rawExchange = item?.exchange || item?.Exchange;
-      out.push({ symbol: sym, exchange: detectExchange(sym, rawExchange) });
+      out.push({ symbol: sym, exchange: detectMarketExchange(sym, rawExchange) });
     }
     return out;
   }, [symbols]);
 
   // --- Price update handler (shared by ltp_update and market_data) ---
-  const applyPriceUpdate = useCallback((rawSymbol, rawLtp) => {
+  useEffect(() => {
+    ltpRef.current = ltp;
+  }, [ltp]);
+
+  const applyPriceUpdate = useCallback((rawSymbol, rawLtp, source = 'websocket') => {
     if (!rawSymbol || rawLtp === undefined || rawLtp === null) return;
     const symbol = rawSymbol.toString().toUpperCase();
     const lastPrice = parseFloat(rawLtp);
@@ -90,12 +83,50 @@ const useWebSocketCurrentPrice = (symbols) => {
       if (index !== -1) {
         if (prev[index].lastPrice === lastPrice) return prev;
         const next = [...prev];
-        next[index] = { ...next[index], lastPrice };
+        next[index] = {
+          ...next[index],
+          lastPrice,
+          timestamp: Date.now(),
+          source,
+        };
         return next;
       }
-      return [...prev, { tradingSymbol: symbol, lastPrice }];
+      return [
+        ...prev,
+        {tradingSymbol: symbol, lastPrice, timestamp: Date.now(), source},
+      ];
     });
   }, []);
+
+  const refreshMissingOrStalePrices = useCallback(
+    async list => {
+      const now = Date.now();
+      const refresh = (list || []).filter(item => {
+        const symbol = item.symbol.toUpperCase();
+        const entry = ltpRef.current.find(
+          price => price.tradingSymbol === symbol,
+        );
+        return needsPriceRefresh(entry, now);
+      });
+      if (refresh.length === 0) return;
+      const prices = await fetchLTPBatch(refresh);
+      Object.entries(prices).forEach(([symbol, price]) => {
+        applyPriceUpdate(symbol, price, 'rest');
+      });
+    },
+    [applyPriceUpdate],
+  );
+
+  const schedulePriceRecovery = useCallback(
+    list => {
+      const timer = setTimeout(() => {
+        fallbackTimersRef.current.delete(timer);
+        refreshMissingOrStalePrices(list);
+      }, 4000);
+      fallbackTimersRef.current.add(timer);
+    },
+    [refreshMissingOrStalePrices],
+  );
 
   // --- Batched REST subscribe ---
   const subscribeViaAPI = useCallback(
@@ -112,23 +143,35 @@ const useWebSocketCurrentPrice = (symbols) => {
           userEmail,
           dbName,
         });
-        list.forEach((s) => subscribedSymbolsRef.current.add(s.symbol.toUpperCase()));
+        list.forEach(s => {
+          const symbol = s.symbol.toUpperCase();
+          subscribedSymbolsRef.current.add(symbol);
+          symbolExchangesRef.current.set(
+            symbol,
+            detectMarketExchange(symbol, s.exchange),
+          );
+        });
       } catch (err) {
         console.warn('[useWebSocketCurrentPrice] /subscribe-array failed:', err?.message);
+      } finally {
+        // Price recovery must not depend on the subscription request succeeding.
+        // A REST quote still unblocks basket preparation during a socket/API outage.
+        schedulePriceRecovery(list);
       }
     },
-    [userEmail, dbName],
+    [userEmail, dbName, schedulePriceRecovery],
   );
 
   // --- Socket lifecycle ---
   useEffect(() => {
     if (!userEmail) return; // wait for auth
+    const fallbackTimers = fallbackTimersRef.current;
 
     const socket = io(`${ccxtUrl}/ltp`, {
       transports: ['websocket'],
       upgrade: false,
       reconnection: true,
-      reconnectionAttempts: 10,
+      reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
       timeout: 20000,
@@ -143,7 +186,9 @@ const useWebSocketCurrentPrice = (symbols) => {
       // Re-subscribe any symbols we already knew about (reconnect case).
       const all = Array.from(subscribedSymbolsRef.current);
       if (all.length > 0) {
-        subscribeViaAPI(all.map((s) => ({ symbol: s, exchange: 'NSE' })));
+        subscribeViaAPI(
+          buildReconnectSubscriptions(all, symbolExchangesRef.current),
+        );
       }
       // Drain queued pending subscriptions.
       if (pendingSubscriptionsRef.current.length > 0) {
@@ -169,12 +214,20 @@ const useWebSocketCurrentPrice = (symbols) => {
       socket.off('market_data');
       socket.disconnect();
       socketRef.current = null;
+      fallbackTimers.forEach(timer => clearTimeout(timer));
+      fallbackTimers.clear();
     };
   }, [userEmail, dbName, applyPriceUpdate, subscribeViaAPI]);
 
   // --- Subscribe the symbols this caller asked for ---
   useEffect(() => {
     if (memoizedSymbols.length === 0) return;
+    // Also schedule recovery before the socket connects; otherwise a connection
+    // outage leaves the list queued forever with no usable price fallback.
+    schedulePriceRecovery(memoizedSymbols);
+    memoizedSymbols.forEach(item => {
+      symbolExchangesRef.current.set(item.symbol, item.exchange);
+    });
     const fresh = memoizedSymbols.filter(
       (s) => !subscribedSymbolsRef.current.has(s.symbol),
     );
@@ -185,7 +238,19 @@ const useWebSocketCurrentPrice = (symbols) => {
       return;
     }
     subscribeViaAPI(fresh);
-  }, [memoizedSymbols, subscribeViaAPI]);
+  }, [memoizedSymbols, schedulePriceRecovery, subscribeViaAPI]);
+
+  // A Socket.IO connection can remain "connected" while symbol-room delivery
+  // has silently stalled. Re-check every subscribed symbol independently of
+  // socket state and heal missing/stale quotes through the batched REST API.
+  useEffect(() => {
+    if (memoizedSymbols.length === 0) return undefined;
+    const interval = setInterval(
+      () => refreshMissingOrStalePrices(memoizedSymbols),
+      REST_RECOVERY_INTERVAL_MS,
+    );
+    return () => clearInterval(interval);
+  }, [memoizedSymbols, refreshMissingOrStalePrices]);
 
   const getLTPForSymbol = useCallback(
     (symbol) => {

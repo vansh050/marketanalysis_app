@@ -8,6 +8,7 @@ import {
   isOrderSuccess,
   isOrderRejected,
   isOrderPending,
+  summarizeOrderStatuses,
   getOrderStatusDisplay,
 } from '../../utils/orderStatusUtils';
 
@@ -16,21 +17,29 @@ describe('orderStatusUtils', () => {
 
   describe('normalizeOrderStatus', () => {
     test('normalizes success statuses', () => {
-      const successInputs = ['complete', 'COMPLETE', 'completed', 'traded', 'filled', 'executed', 'placed', 'ordered', 'open', 'transit'];
+      const successInputs = ['complete', 'COMPLETE', 'completed', 'traded', 'filled', 'executed'];
       successInputs.forEach(s => {
         expect(normalizeOrderStatus(s)).toBe('complete');
       });
     });
 
     test('normalizes pending statuses', () => {
-      const pendingInputs = ['pending', 'PENDING', 'trigger pending', 'trigger_pending', 'requested', 'am', 'after market'];
+      const pendingInputs = [
+        'pending', 'PENDING', 'trigger pending', 'trigger_pending',
+        'requested', 'am', 'after market', 'placed', 'ordered', 'open',
+        'transit', 'after market order req received',
+        'WAITING_FOR_SELLS', 'AWAITING_BROKER',
+      ];
       pendingInputs.forEach(s => {
         expect(normalizeOrderStatus(s)).toBe('pending');
       });
     });
 
     test('normalizes rejected statuses', () => {
-      const rejectedInputs = ['rejected', 'REJECTED', 'failed', 'failure', 'error', 'declined'];
+      const rejectedInputs = [
+        'rejected', 'REJECTED', 'failed', 'failure', 'error', 'declined',
+        'order_not_found', 'order not found',
+      ];
       rejectedInputs.forEach(s => {
         expect(normalizeOrderStatus(s)).toBe('rejected');
       });
@@ -136,8 +145,55 @@ describe('orderStatusUtils', () => {
       expect(getOrderStatusDisplay('CUSTOM_STATUS')).toBe('CUSTOM_STATUS');
     });
 
-    test('returns "Unknown" for null', () => {
-      expect(getOrderStatusDisplay(null)).toBe('Unknown');
+    test('renders an empty status as "Not sent", not "Unknown"', () => {
+      // A status-less row is one nothing has stamped, so the Orders screen must
+      // not call it "Unknown" (prod/arulthakur, 2026-09-17: five such rows).
+      expect(getOrderStatusDisplay(null)).toBe('Not sent');
+      expect(getOrderStatusDisplay(undefined)).toBe('Not sent');
+      expect(getOrderStatusDisplay('')).toBe('Not sent');
+    });
+
+    test('renders the sweeper verdict as "Awaiting broker confirmation"', () => {
+      expect(normalizeOrderStatus('needs_reconciliation')).toBe('needs_reconciliation');
+      expect(getOrderStatusDisplay('needs_reconciliation')).toBe(
+        'Awaiting broker confirmation',
+      );
+    });
+  });
+
+  describe('summarizeOrderStatuses', () => {
+    test('does not count pending/open/placed orders as executed or successful', () => {
+      expect(summarizeOrderStatuses([
+        {orderStatus: 'PENDING'},
+        {orderStatus: 'OPEN'},
+        {orderStatus: 'PLACED'},
+      ])).toEqual({
+        totalCount: 3,
+        executedCount: 0,
+        manualPlacedCount: 0,
+        successCount: 0,
+        pendingCount: 3,
+        failureCount: 0,
+        unknownCount: 0,
+      });
+    });
+
+    test('keeps executed, manual, pending, and failed counts separate', () => {
+      expect(summarizeOrderStatuses([
+        {orderStatus: 'COMPLETE'},
+        {orderStatus: 'manually_placed'},
+        {orderStatus: 'PENDING'},
+        {orderStatus: 'CANCELLED'},
+        {orderStatus: 'something-new'},
+      ])).toEqual({
+        totalCount: 5,
+        executedCount: 1,
+        manualPlacedCount: 1,
+        successCount: 2,
+        pendingCount: 1,
+        failureCount: 1,
+        unknownCount: 1,
+      });
     });
   });
 });

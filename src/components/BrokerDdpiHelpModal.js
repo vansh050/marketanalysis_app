@@ -46,6 +46,8 @@ import {
 import CrossPlatformOverlay from './CrossPlatformOverlay';
 import {getBrokerDdpiHelp, EDIS_ALTERNATIVE_NUDGE} from '../config/brokerDdpiHelp';
 
+import { designColor } from '../design/literalTokens';
+
 const {height: screenHeight} = Dimensions.get('window');
 
 // mailto:/tel:/whatsapp: URLs can't render in an in-app WebView — fall back
@@ -116,7 +118,7 @@ const BrokerDdpiHelpModal = ({broker, visible, onClose}) => {
           <View style={styles.headerRow}>
             <View style={styles.titleBlock}>
               <View style={styles.titleIconWrap}>
-                <ShieldCheck size={20} color="#0a7a5a" />
+                <ShieldCheck size={20} color={designColor('0a7a5a')} />
               </View>
               <Text style={styles.title}>{help.title}</Text>
             </View>
@@ -124,7 +126,7 @@ const BrokerDdpiHelpModal = ({broker, visible, onClose}) => {
               onPress={onClose}
               hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
               style={styles.closeButton}>
-              <XIcon size={22} color="#555" />
+              <XIcon size={22} color={designColor('555')} />
             </TouchableOpacity>
           </View>
 
@@ -136,7 +138,7 @@ const BrokerDdpiHelpModal = ({broker, visible, onClose}) => {
 
             {help.hasOnlineEdis && (
               <View style={styles.edisCallout}>
-                <Info size={16} color="#b66900" style={styles.edisIcon} />
+                <Info size={16} color={designColor('b66900')} style={styles.edisIcon} />
                 <View style={styles.edisTextBlock}>
                   <Text style={styles.edisCalloutTitle}>
                     Why DDPI even though {broker} has online EDIS?
@@ -209,7 +211,7 @@ const BrokerDdpiHelpModal = ({broker, visible, onClose}) => {
                 activeOpacity={0.8}
                 onPress={handleCtaPress}>
                 <Text style={styles.primaryCtaText}>{ctaLabel}</Text>
-                <ExternalLink size={16} color="#fff" />
+                <ExternalLink size={16} color={designColor('fff')} />
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryCta} onPress={onClose}>
                 <Text style={styles.secondaryCtaText}>I&apos;ll do this later</Text>
@@ -232,7 +234,7 @@ const BrokerDdpiHelpModal = ({broker, visible, onClose}) => {
                 onPress={closeWebView}
                 hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
                 style={styles.webViewBack}>
-                <ArrowLeft size={22} color="#111" />
+                <ArrowLeft size={22} color={designColor('111')} />
               </TouchableOpacity>
               <Text style={styles.webViewTitle} numberOfLines={1}>
                 {broker} — DDPI
@@ -241,7 +243,7 @@ const BrokerDdpiHelpModal = ({broker, visible, onClose}) => {
                 onPress={() => openLinkSafely(webViewUrl)}
                 hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
                 style={styles.webViewIconButton}>
-                <ExternalLink size={20} color="#0a7a5a" />
+                <ExternalLink size={20} color={designColor('0a7a5a')} />
               </TouchableOpacity>
               <TouchableOpacity
                 onPress={() => {
@@ -250,7 +252,7 @@ const BrokerDdpiHelpModal = ({broker, visible, onClose}) => {
                 }}
                 hitSlop={{top: 8, bottom: 8, left: 8, right: 8}}
                 style={styles.webViewIconButton}>
-                <XIcon size={22} color="#111" />
+                <XIcon size={22} color={designColor('111')} />
               </TouchableOpacity>
             </View>
             <View style={styles.webViewBody}>
@@ -270,13 +272,13 @@ const BrokerDdpiHelpModal = ({broker, visible, onClose}) => {
                 }
                 renderLoading={() => (
                   <View style={styles.webViewLoader}>
-                    <ActivityIndicator size="large" color="#0a7a5a" />
+                    <ActivityIndicator size="large" color={designColor('0a7a5a')} />
                   </View>
                 )}
               />
               {webLoading && (
                 <View style={styles.webViewLoaderOverlay} pointerEvents="none">
-                  <ActivityIndicator size="small" color="#0a7a5a" />
+                  <ActivityIndicator size="small" color={designColor('0a7a5a')} />
                 </View>
               )}
             </View>
@@ -296,7 +298,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   sheet: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 16,
     maxHeight: screenHeight * 0.85,
     width: '100%',
@@ -304,7 +306,7 @@ const styles = StyleSheet.create({
     paddingTop: 14,
     // Android needs elevation for shadow + Pressable backdrop hit order to be right.
     elevation: 12,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: {width: 0, height: 6},
     shadowOpacity: 0.18,
     shadowRadius: 18,
@@ -317,7 +319,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#eaeaea',
+    borderBottomColor: designColor('eaeaea'),
   },
   titleBlock: {
     flex: 1,
@@ -328,7 +330,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: '#e5f7f0',
+    backgroundColor: designColor('e5f7f0'),
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
@@ -336,7 +338,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#111',
+    color: designColor('111'),
     flexShrink: 1,
   },
   closeButton: {
@@ -351,14 +353,14 @@ const styles = StyleSheet.create({
   },
   intro: {
     fontSize: 14,
-    color: '#333',
+    color: designColor('333'),
     lineHeight: 20,
     marginBottom: 14,
   },
   edisCallout: {
     flexDirection: 'row',
-    backgroundColor: '#fff7e6',
-    borderColor: '#f0c36d',
+    backgroundColor: designColor('fff7e6'),
+    borderColor: designColor('f0c36d'),
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
@@ -374,18 +376,18 @@ const styles = StyleSheet.create({
   edisCalloutTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#85571a',
+    color: designColor('85571a'),
     marginBottom: 4,
   },
   edisCalloutBody: {
     fontSize: 13,
-    color: '#704614',
+    color: designColor('704614'),
     lineHeight: 18,
   },
   sectionHeader: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#222',
+    color: designColor('222'),
     marginTop: 4,
     marginBottom: 8,
   },
@@ -397,18 +399,18 @@ const styles = StyleSheet.create({
   },
   stepText: {
     fontSize: 13.5,
-    color: '#333',
+    color: designColor('333'),
     lineHeight: 19,
   },
   customerCareBlock: {
     marginTop: 8,
     paddingTop: 12,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#eaeaea',
+    borderTopColor: designColor('eaeaea'),
   },
   careLink: {
     fontSize: 13,
-    color: '#1d6be8',
+    color: designColor('1d6be8'),
     textDecorationLine: 'underline',
     marginBottom: 4,
   },
@@ -417,12 +419,12 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: Platform.OS === 'ios' ? 24 : 16,
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: '#eaeaea',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('eaeaea'),
+    backgroundColor: designColor('fff'),
   },
   primaryCta: {
     flexDirection: 'row',
-    backgroundColor: '#0a7a5a',
+    backgroundColor: designColor('0a7a5a'),
     paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
@@ -430,7 +432,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   primaryCtaText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 15,
     fontWeight: '600',
   },
@@ -439,12 +441,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryCtaText: {
-    color: '#666',
+    color: designColor('666'),
     fontSize: 13,
   },
   webViewOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     overflow: 'hidden',
@@ -456,8 +458,8 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === 'ios' ? 14 : 12,
     paddingBottom: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: '#e5e5e5',
-    backgroundColor: '#fafafa',
+    borderBottomColor: designColor('e5e5e5'),
+    backgroundColor: designColor('fafafa'),
   },
   webViewBack: {
     padding: 4,
@@ -467,7 +469,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 15,
     fontWeight: '700',
-    color: '#111',
+    color: designColor('111'),
   },
   webViewExternal: {
     padding: 4,
@@ -488,7 +490,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   webViewLoaderOverlay: {
     position: 'absolute',

@@ -39,6 +39,34 @@ const TRANSIENT_NON_AUTH_BROKER_ERROR_CODES = {
  * and trade-placement result rows — both shapes carry
  * ``error_code`` / ``errorCode`` and ``message``.
  */
+
+/**
+ * Latest execution entry that actually carries holdings, or null.
+ *
+ * `user_net_pf_model` / `user_net_pf_updated` can contain two very different
+ * empty rows: legacy user-edit placeholders with no valid execDate, and dated
+ * snapshots proving that the model now holds nothing. The first must be
+ * ignored when a real execution exists. The second must win over an older
+ * non-empty execution. Filtering every empty row made a completed exit
+ * reappear in the app (hsouvik/POLYSPIN, 2026-09-30).
+ *
+ * Prefer the newest dated snapshot, including an empty one; only use a legacy
+ * non-empty row when no dated snapshot exists.
+ */
+export function latestHeldExec(execs) {
+  if (!Array.isArray(execs) || !execs.length) return null;
+  const ts = e => {
+    const t = new Date(e && e.execDate).getTime();
+    return Number.isNaN(t) ? null : t;
+  };
+  const snapshots = execs.filter(e => Array.isArray(e && e.order_results));
+  const datedSnapshots = snapshots.filter(e => ts(e) !== null);
+  if (datedSnapshots.length) {
+    return [...datedSnapshots].sort((a, b) => ts(b) - ts(a))[0];
+  }
+  return snapshots.find(e => e.order_results.length > 0) || null;
+}
+
 export function isTransientFundsError(resp, broker) {
   if (!resp) return false;
   // ccxt emits `errorcode` (lowercase, no separator) on AliceBlue
@@ -150,6 +178,45 @@ export function isFundsErrorOrMissing(currentFunds, brokerStatus, broker) {
 export function isRebalanceErrorResponse(responseData) {
   if (!responseData) return false;
   return responseData.status === 1 || responseData.status === 2;
+}
+
+/**
+ * Tag the fresh calculation opened after a manual broker sell-authorization
+ * acknowledgement. The tag is UI-only metadata: it lets the review screen
+ * distinguish an unexplained empty retry from a normal, authoritative
+ * zero-trade calculation.
+ */
+export function tagSellAuthorizationRetryCalculation(
+  responseData,
+  {broker, modelName, modelId} = {},
+) {
+  if (!responseData || Array.isArray(responseData)) return responseData;
+  return {
+    ...responseData,
+    _rebalanceModelName: modelName,
+    _rebalanceModelId: modelId,
+    _sellAuthorizationRetry: true,
+    _sellAuthorizationBroker: broker,
+  };
+}
+
+/**
+ * An empty calculation immediately after manual sell authorization is not
+ * proof that the reviewed SELLs completed. It must remain incomplete until
+ * broker execution/reconciliation provides that evidence.
+ */
+export function isPendingSellAuthorizationCalculation(responseData) {
+  return Boolean(
+    responseData &&
+      !Array.isArray(responseData) &&
+      responseData._sellAuthorizationRetry === true &&
+      responseData.status !== 1 &&
+      responseData.status !== 2 &&
+      Array.isArray(responseData.buy) &&
+      responseData.buy.length === 0 &&
+      Array.isArray(responseData.sell) &&
+      responseData.sell.length === 0,
+  );
 }
 
 /**
@@ -287,7 +354,13 @@ export function isBrokerAuthError(message) {
     msg.includes('please re-login') ||
     msg.includes('login required') ||
     msg.includes('error: 401') ||
-    msg.includes('401 unauthorized')
+    msg.includes('401 unauthorized') ||
+    // Incomplete/broken connection — reconnect is the same action as a dead
+    // token. Catches Dhan's "dhanclientid is required" (clientId only lived in
+    // the JWT, not stored as clientCode) so the reconnect modal opens instead
+    // of a dead-end error.
+    msg.includes('clientid is required') ||
+    msg.includes('client id is required')
   );
 }
 
@@ -352,14 +425,17 @@ export function buildBrokerPayloadFields(
       };
 
     case 'Kotak':
-      // Kotak NEO UUID flow (2026-04-22): consumerKey is the UUID access
-      // token; no consumer secret exists on the new developer portal.
+      // Kotak NEO UUID flow: ccxt calls this UUID `apiAccessToken`/`apiKey`.
+      // `consumerKey` belonged to the retired portal flow and causes the
+      // backend fallback to report that credentials are missing.
       return {
-        consumerKey: decrypt(credentials.apiKey),
+        apiKey: decrypt(credentials.apiKey),
+        apiAccessToken: decrypt(credentials.apiKey),
+        jwtToken: credentials.jwtToken,
         accessToken: credentials.jwtToken,
         sid: credentials.sid,
         serverId: credentials.serverId,
-        viewToken: credentials.viewToken,
+        baseUrl: credentials.baseUrl,
       };
 
     case 'Hdfc Securities':

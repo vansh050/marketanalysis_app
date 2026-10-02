@@ -1,14 +1,28 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.google.firebase.crashlytics"
 apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
+
+def designVisualTestBuild = project.hasProperty("designVisualTest") &&
+    project.property("designVisualTest").toString().toBoolean()
 
 react {
     autolinkLibrariesWithApp()
+    // Normal debug APKs load JavaScript from Metro. The Maestro job runs on a
+    // clean hosted emulator with no Metro process, so its explicitly opted-in
+    // debug APK must contain the JS bundle. This does not affect developer or
+    // release builds.
+    if (designVisualTestBuild) {
+        debuggableVariants = []
+    }
 }
 
 def enableProguardInReleaseBuilds = false
 def jscFlavor = 'org.webkit:android-jsc:+'
+// OTA plumbing is shared, but this fork intentionally has no baked-in
+// deployment. Supply a MarketAnalysis-specific key at build time if enabled.
+def codePushDeploymentKey = project.findProperty("CODEPUSH_DEPLOYMENT_KEY") ?: System.getenv("CODEPUSH_DEPLOYMENT_KEY") ?: ""
 
 android {
     namespace "com.aq.marketanalysis"
@@ -41,10 +55,16 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 9
         versionName "1.0.8"
+        resValue "string", "CodePushDeploymentKey", codePushDeploymentKey
+        buildConfigField "String", "B2B_DESIGN_VISUAL_BUILD", designVisualTestBuild ? '"true"' : '"false"'
 
         missingDimensionStrategy "store", "play"
         ndk {
-            abiFilters "arm64-v8a", "armeabi-v7a"
+            if (designVisualTestBuild) {
+                abiFilters "x86_64"
+            } else {
+                abiFilters "arm64-v8a", "armeabi-v7a"
+            }
         }
     }
 
@@ -83,11 +103,15 @@ android {
         }
 
         release {
-            if (project.hasProperty("MYAPP_UPLOAD_STORE_FILE")) {
-                storeFile file(MYAPP_UPLOAD_STORE_FILE)
-                storePassword MYAPP_UPLOAD_STORE_PASSWORD
-                keyAlias MYAPP_UPLOAD_KEY_ALIAS
-                keyPassword MYAPP_UPLOAD_KEY_PASSWORD
+            def releaseStoreFile = project.findProperty("MYAPP_UPLOAD_STORE_FILE")
+            def releaseStorePassword = project.findProperty("MYAPP_UPLOAD_STORE_PASSWORD")
+            def releaseKeyAlias = project.findProperty("MYAPP_UPLOAD_KEY_ALIAS")
+            def releaseKeyPassword = project.findProperty("MYAPP_UPLOAD_KEY_PASSWORD")
+            if (releaseStoreFile && releaseStorePassword && releaseKeyAlias && releaseKeyPassword) {
+                storeFile file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
                 v1SigningEnabled true
                 v2SigningEnabled true
             }
@@ -147,3 +171,4 @@ dependencies {
 
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
 apply plugin: "com.google.gms.google-services"
+apply from: "../../node_modules/@revopush/react-native-code-push/android/codepush.gradle"

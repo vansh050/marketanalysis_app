@@ -20,30 +20,21 @@ import {isSdkIntegrationEnabled} from '../sdk/SdkProviderRoot';
 // of this file — re-use that one for SDK env vars.
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {createNativeStackNavigator} from '@react-navigation/native-stack';
-import {
-  createBottomTabNavigator,
-  BottomTabBar,
-} from '@react-navigation/bottom-tabs';
+import {createBottomTabNavigator} from '@react-navigation/bottom-tabs';
 import {
   FolderClock,
   LogOut,
   Shield,
-  FileText,
   DollarSign,
   Activity,
   History,
-  Newspaper,
-  Briefcase,
   XIcon,
   CreditCard,
   Ban,
   BanIcon,
   GitFork,
-  Home,
   ChevronRight,
   AlignEndHorizontal,
-  Clipboard,
-  User,
   Video,
   BookOpen,
   MessageSquare,
@@ -60,6 +51,8 @@ import Icon2 from 'react-native-vector-icons/Ionicons';
 import SignupScreen from '../screens/Authentication/SignupScreen';
 import WebViewScreen from './WebViewScreen';
 import LoginScreen from '../screens/Authentication/LoginScreen';
+import OnboardingScreen from '../screens/Authentication/OnboardingScreen';
+import PhoneLoginScreen from '../screens/Authentication/PhoneLoginScreen';
 import LogOutScreen from '../screens/Authentication/LogOutScreen';
 import ProfileScreen from '../screens/Home/ProfileScreen';
 import ResetPasswordScreen from '../screens/Authentication/ResetPassword';
@@ -71,12 +64,10 @@ import WishSearch from '../screens/Home/WishSearch';
 import CustomToolbar from './CustomToolbar';
 import NatificationServiceNav from './NatificationServiceNav';
 import {useConfig} from '../context/ConfigContext';
-import HistoryScreen from '../screens/Home/HistoryScreen';
 import AdviceScreen from '../screens/Home/HomeScreen';
 import PaymentHistoryScreen from '../screens/Drawer/PaymentHistoryScreen';
 import AdviceCartScreen from './AdviceScreenComponents/AdviceCartScreen';
 import PortfolioScreen from '../screens/PortfolioScreen/PortfolioScreen';
-import IgnoreTradesScreen from '../screens/Drawer/IgnoreTradesScreen';
 import ProductCatalogScreen from '../screens/Drawer/ProductCatalogScreen';
 import PrivacyPolicyScreen from '../screens/Drawer/PrivacyPolicyScreen'; // New screen
 import {
@@ -105,6 +96,7 @@ import ReviewScreen from '../screens/Drawer/ReviewScreen';
 import AfterSubscriptionScreen from '../screens/Home/AfterSubscriptionScreen';
 import MySubscriptionsScreen from '../screens/Home/MySubscriptionsScreen';
 import NewsScreen from '../screens/Home/NewsScreen/NewsScreen';
+import {useNavigationLayout} from '../navigation/useNavigationLayout';
 import SplashScreen from './SplashScreen';
 import {useTrade} from '../screens/TradeContext';
 import Config from '../utils/safeConfig';
@@ -118,6 +110,7 @@ import SignUpRADetails from '../screens/Authentication/SignUpRADetails';
 import EmailScreenAppleLogin from '../screens/Authentication/EmailScreenAppleLogin';
 import UpdateEmailScreen from '../screens/Home/UpdateEmailScreen';
 import AccountSettingsScreen from '../screens/Home/AccountSettingsScreen';
+import DeleteAccountScreen from '../screens/Home/DeleteAccountScreen';
 import KnowledgeHub from './HomeScreenComponents/KnowledgeHub';
 import BespokePerformanceScreen from '../screens/Drawer/BespokePerformanceScreen';
 import ChangeAdvisor from '../screens/AccountSettingScreen/ChangeAdvisor';
@@ -134,12 +127,73 @@ import RebalanceReviewScreen from '../screens/Rebalance/RebalanceReviewScreen';
 import ExecutionStatusScreen from '../screens/Rebalance/ExecutionStatusScreen';
 import {getAdvisorSubdomain} from '../utils/variantHelper';
 import { useWebSocketInitializer } from '../utils/websocketInitializer';
+import {getAccountEmail} from '../utils/accountEmail';
+import {useComponent} from '../design/useDesign';
+
+
+import { designColor } from '../design/literalTokens';
 
 
 const auth = getAuth();
 const user = auth.currentUser;
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
+
+const DesignVisualLauncher = ({navigation}) => {
+  const surfaces = [
+    ['Open Home', 'Home'],
+    ['Open News', 'DesignVisualNews'],
+    ['Open Portfolio', 'DesignVisualPortfolio'],
+    ['Open Subscriptions', 'DesignVisualSubscriptions'],
+    ['Open Model Portfolio', 'Model Portfolio'],
+  ];
+
+  return (
+    <SafeAreaView accessibilityLabel="Design visual surfaces">
+      <Text>Design visual surfaces</Text>
+      {surfaces.map(([label, route]) => (
+        <TouchableOpacity key={route} onPress={() => navigation.navigate(route)}>
+          <Text>{label}</Text>
+        </TouchableOpacity>
+      ))}
+    </SafeAreaView>
+  );
+};
+
+// A stable, presentation-only fixture keeps screenshot CI independent of the
+// subscriptions API. The launcher that reaches it is itself protected by both
+// visual-build gates below, so production startup can never enter this path.
+const DesignVisualSubscriptions = () => {
+  const Presentation = useComponent('screens.MySubscriptionsScreen');
+
+  return (
+    <Presentation
+      viewModel={{
+        gradient1: designColor('002651'),
+        gradient2: designColor('0076fb'),
+        mainColor: designColor('0056b7'),
+        activeColor: designColor('29a400'),
+        cardElevation: 3,
+        cardBorderWidth: 0,
+        cardVerticalMargin: 12,
+        bespokePlanLabel: 'Bespoke Plans',
+        activeSubTab: 'mp',
+        mpCount: 0,
+        bespokeCount: 0,
+        loading: false,
+        refreshing: false,
+        planCards: [],
+      }}
+      actions={{
+        onBack: () => {},
+        onOpenPlan: () => {},
+        onTabChange: () => {},
+        onBrowsePlans: () => {},
+        onRefresh: () => {},
+      }}
+    />
+  );
+};
 const {height: screenHeight} = Dimensions.get('window');
 
 // Cart bottom-sheet geometry — place the sheet FULLY above the tab bar so
@@ -147,14 +201,15 @@ const {height: screenHeight} = Dimensions.get('window');
 // bar height (60 + safe-area), leaving ~70px of the 100px sheet tucked
 // behind the tab bar's zIndex:99 — the sheet was "opening" but almost
 // entirely obscured, which read as "cart not opening" to the user.
-const TAB_BAR_HEIGHT = 60;
+// Tab-bar height now comes from the navigation manifest (`chrome.tabBarHeight`,
+// default 60) so a variant with a taller bar keeps the sheet clear of it.
 const CART_SHEET_HEIGHT = 100;
 const BOTTOM_SHEET_PADDING = 10;
-const getBottomSheetPosition = (insets) => {
+const getBottomSheetPosition = (insets, tabBarHeight = 60) => {
   const safeBottom = insets?.bottom || 0;
   return (
     screenHeight -
-    TAB_BAR_HEIGHT -
+    tabBarHeight -
     safeBottom -
     CART_SHEET_HEIGHT -
     BOTTOM_SHEET_PADDING
@@ -179,63 +234,71 @@ const {
   placeholderText,
   tabIconColor,
 } = APP_VARIANTS[validVariant];
-const CustomTabBarIcon = ({name, focused}) => {
-  // Bottom-nav icons mirror the alphanomy-improved.html mockup's app
-  // chrome: house / file / briefcase / clipboard / user. The legacy
-  // mapping (Notebook / BookmarkPlus / Newspaper) predates the rebrand.
-  let IconComponent;
-  if (name === 'Home') {
-    IconComponent = Home;
-  } else if (name === 'More') {
-    IconComponent = User;
-  } else if (name === 'Orders') {
-    IconComponent = FileText;
-  } else if (name === 'Portfolio') {
-    IconComponent = Briefcase;
-  } else if (name === 'News') {
-    IconComponent = Newspaper;
-  } else if (name === 'Plans') {
-    IconComponent = Clipboard;
-  }
-  return (
-    <View
-      style={{
-        alignItems: 'center', // Centers children horizontally
-        flexDirection: 'column', // Stacks the icon and text vertically
-        height: '100%', // Takes full height of parent
-        alignContent: 'center',
-        alignSelf: 'center',
-        paddingTop: 8,
-      }}>
-      <View>
-        <IconComponent size={22} color={focused ? tabIconColor : 'gray'} />
-      </View>
+const PlansTabWrapper = () => <ModelPortfolioScreen type="tab" />;
 
-      <View
-        style={{
-          alignContent: 'center',
-          alignItems: 'center',
-          alignSelf: 'center',
-          justifyContent: 'center',
-        }}>
-        <Text
-          style={{
-            color: focused ? tabIconColor : 'gray', // Changes color based on focus
-            fontSize: 10, // Sets font size for text
-            marginTop: 2,
-            textAlign: 'center',
-            width: '100%', // Adds space between icon and text
-            fontFamily: 'Satoshi-Medium', // Sets font style
-            // Allows the text to wrap if needed
-          }}>
-          {name}
-        </Text>
-      </View>
-    </View>
-  );
+// Tab key → screen component. Keys + route names live in the pure catalog
+// (src/navigation/screenCatalog.js); variants choose tabs by key in
+// designs/<variant>/navigation.js. `more` is an action tab (see below).
+const TAB_COMPONENTS = {
+  advice: AdviceScreen,
+  orders: OrderScreen,
+  portfolio: PortfolioScreen,
+  plans: PlansTabWrapper,
+  news: NewsScreen,
+  watchlist: WatchlistScreen,
+  more: View, // placeholder — tabPress is intercepted and opens the More stack screen
 };
 
-const PlansTabWrapper = () => <ModelPortfolioScreen type="tab" />;
+const DesignTabBar = ({state, descriptors, navigation, insets, height}) => {
+  const Presentation = useComponent('shell.MainTabBar');
+  const items = state.routes.map((route, index) => {
+    const options = descriptors[route.key]?.options || {};
+    const label = typeof options.tabBarLabel === 'string'
+      ? options.tabBarLabel
+      : typeof options.title === 'string'
+        ? options.title
+        : route.name;
+    return {
+      key: route.key,
+      name: route.name,
+      label,
+      focused: state.index === index,
+      params: route.params,
+      accessibilityLabel: options.tabBarAccessibilityLabel,
+      testID: options.tabBarButtonTestID,
+      icon: options.aqIcon,
+    };
+  });
+
+  const onSelect = item => {
+    const event = navigation.emit({
+      type: 'tabPress',
+      target: item.key,
+      canPreventDefault: true,
+    });
+    if (!item.focused && !event.defaultPrevented) {
+      navigation.navigate(item.name, item.params);
+    }
+  };
+  const onLongPress = item => navigation.emit({
+    type: 'tabLongPress',
+    target: item.key,
+  });
+
+  return (
+    <Presentation
+      viewModel={{
+        items,
+        activeColor: tabIconColor,
+        backgroundColor: bottomTabbg,
+        borderTopWidth: bottomTabBorderTopWidth,
+        bottomInset: insets?.bottom || 0,
+        height,
+      }}
+      actions={{onSelect, onLongPress}}
+    />
+  );
+};
 
 const MainTabNavigator = () => {
   const {
@@ -251,12 +314,17 @@ const MainTabNavigator = () => {
     configData,
     userDetails,
   } = useTrade();
-  const migrationUserEmail = userDetails?.email;
+  const migrationUserEmail = getAccountEmail();
   const insets = useSafeAreaInsets();
-  const bottomSheetPosition = getBottomSheetPosition(insets);
+  const navLayout = useNavigationLayout();
+  const bottomSheetPosition = getBottomSheetPosition(
+    insets,
+    navLayout.chrome.tabBarHeight,
+  );
   const translateY = useRef(new Animated.Value(screenHeight)).current;
   const [cartCount, setCartCount1] = useState(0);
   const navigation = useNavigation();
+  const AppHeader = useComponent('shell.AppHeader');
   // console.log('cartOpentdd');
   // Load cart items and count from AsyncStorage when the modal is opened
   useEffect(() => {
@@ -363,84 +431,68 @@ const currentName = currentTabRoute?.name || "";
   // avatar + ticker strip) wraps every tab screen in the default variant.
   // Variants that ship their own in-screen header (e.g. alphanomy's _AppHeader
   // helper used by HomeScreen / OrderScreen / ModelPortfolioScreen) suppress
-  // it to avoid the duplicate-header look. Tenants who want the legacy
-  // chrome simply leave DESIGN_VARIANT unset (or set it to "default").
+  // it to avoid the duplicate-header look. Variants that only theme the
+  // legacy chrome (moneyman_app — green paint, no bespoke header) opt into
+  // showing it. Default keeps showing it.
+  //
+  // The manifest's `chrome.legacyToolbar` is the variant-facing switch. The
+  // DESIGN_VARIANT allow-list is kept as a transitional gate so a fork that
+  // sets DESIGN_VARIANT to a variant not registered here (it resolves to
+  // default) keeps today's hidden toolbar. Remove once every fork declares
+  // `chrome.legacyToolbar` in its own manifest (P4).
+  const HEADER_VARIANTS = new Set(['default', 'moneyman_app']);
   const showLegacyToolbar =
-    !Config?.DESIGN_VARIANT || Config.DESIGN_VARIANT === 'default';
+    navLayout.chrome.legacyToolbar &&
+    (!Config?.DESIGN_VARIANT || HEADER_VARIANTS.has(Config.DESIGN_VARIANT));
 
   return (
     <SafeAreaView style={{flex: 1}}>
-      {showLegacyToolbar && <CustomToolbar currentRoute={currentName} />}
+      <AppHeader
+        viewModel={{visible: showLegacyToolbar, currentRoute: currentName}}
+        slots={{Toolbar: CustomToolbar}}
+      />
       <Tab.Navigator
-        initialRouteName="Home"
-        screenOptions={({route}) => ({
-          tabBarIcon: ({focused}) => (
-            <CustomTabBarIcon name={route.name} focused={focused} />
-          ),
-          tabBarStyle: {
-            borderTopLeftRadius: 15,
-            borderTopRightRadius: 15,
-            backgroundColor: bottomTabbg,
-            height: 60 + insets.bottom,
-            zIndex: 99,
-            elevation: 99,
-            marginBottom: 0,
-            paddingBottom: insets.bottom,
-            borderTopColor: '#e9e9e9',
-            borderTopWidth: bottomTabBorderTopWidth,
-          },
-          tabBarItemStyle: {
-            padding: 0,
-            margin: 0,
-          },
-          tabBarShowLabel: false,
-        })}>
-        <Tab.Screen
-          key="home-screen"
-          name="Home"
-          options={{headerShown: false}}
-          component={AdviceScreen}
-        />
-        <Tab.Screen
-          key="orders-screen"
-          name="Orders"
-          component={OrderScreen}
-          options={{headerShown: false}}
-        />
-        <Tab.Screen
-          key="portfolio-screen"
-          name="Portfolio"
-          component={PortfolioScreen}
-          options={{headerShown: false}}
-        />
-        {selectedVariant === 'arfs' ? (
-          <Tab.Screen
-            key="news-screen"
-            name="News"
-            component={NewsScreen}
-            options={{headerShown: false}}
-          />
-        ) : (
-          <Tab.Screen
-            key="plans-screen"
-            name="Plans"
-            options={{headerShown: false}}
-            component={PlansTabWrapper}
-          />
+        initialRouteName={navLayout.initialRouteName}
+        tabBar={props => (
+          <DesignTabBar {...props} height={navLayout.chrome.tabBarHeight} />
         )}
-        <Tab.Screen
-          name="More"
-          component={View} // just a placeholder
-          listeners={{
-            tabPress: e => {
-              e.preventDefault(); // prevent default tab behavior
-              navigation.navigate('More'); // navigate to stack screen
-            },
-          }}
-          options={{headerShown: false}}
-        />
+        screenOptions={() => ({
+          // Keep the tab bar visible and avoid installing an irrelevant
+          // keyboard listener while broker OTP inputs are active on a stack
+          // screen above this still-mounted tab navigator.
+          tabBarHideOnKeyboard: false,
+          // Account-wide context responses should not rerender every hidden
+          // tab scene while the user is navigating on a slower device.
+          freezeOnBlur: true,
+        })}>
+        {/* Tabs come from the variant's navigation manifest
+            (designs/<variant>/navigation.js, resolved against
+            src/navigation/screenCatalog.js). Route names stay the legacy
+            ones (Home/Orders/Portfolio/Plans/News/More). */}
+        {navLayout.tabs.map(tab =>
+          tab.kind === 'action' ? (
+            <Tab.Screen
+              key={`${tab.key}-tab`}
+              name={tab.routeName}
+              component={TAB_COMPONENTS[tab.key] || View}
+              listeners={{
+                tabPress: e => {
+                  e.preventDefault(); // prevent default tab behavior
+                  navigation.navigate(tab.routeName); // navigate to stack screen
+                },
+              }}
+              options={{headerShown: false, title: tab.label, aqIcon: tab.icon}}
+            />
+          ) : (
+            <Tab.Screen
+              key={`${tab.key}-screen`}
+              name={tab.routeName}
+              component={TAB_COMPONENTS[tab.key]}
+              options={{headerShown: false, title: tab.label, aqIcon: tab.icon}}
+            />
+          ),
+        )}
       </Tab.Navigator>
-
       {isModalVisible && (
         <Animated.View
           style={{
@@ -451,7 +503,7 @@ const currentName = currentTabRoute?.name || "";
             height: 100,
             elevation: 98,
             shadowColor: 'black',
-            borderColor: '#eee',
+            borderColor: designColor('eee'),
             borderWidth: 1.6,
             borderTopLeftRadius: 20,
             borderTopRightRadius: 20,
@@ -514,9 +566,20 @@ const Navigation = ({userEmail, isAuthenticated}) => {
   const sdkBrokerTestFirst =
     isSdkIntegrationEnabled() &&
     String(Config?.REACT_APP_SDK_BROKER_TEST_FIRST || '').toLowerCase() === 'true';
+  // Screenshot CI must not depend on a live Firebase customer account. Both
+  // values are required: one comes from the safe visual env file and the other
+  // is injected only by Gradle's explicitly opted-in designVisualTest build.
+  // A normal release .env cannot enable this route by itself.
+  const designVisualTestFirst =
+    String(Config?.B2B_DESIGN_VISUAL_BUILD || '').toLowerCase() === 'true' &&
+    String(Config?.REACT_APP_DESIGN_VISUAL_TEST_FIRST || '').toLowerCase() === 'true';
 
   return (
     <NavigationContainer
+      linking={{
+        prefixes: ['alphaquark://'],
+        config: {screens: {NotificationScreen: 'recommendation/status'}},
+      }}
       ref={(nav) => {
         // Expose the imperative navigator to index.js so notification-tap
         // handlers (FCM background + cold-start + notifee tap events) can
@@ -526,11 +589,37 @@ const Navigation = ({userEmail, isAuthenticated}) => {
       }}
     >
       <Stack.Navigator
-        initialRouteName={sdkBrokerTestFirst ? 'SdkBrokerTest' : 'Splash'}
+        initialRouteName={
+          designVisualTestFirst
+            ? 'DesignVisualLauncher'
+            : sdkBrokerTestFirst
+              ? 'SdkBrokerTest'
+              : 'Splash'
+        }
         screenOptions={{headerShown: false, animation: 'none'}}>
         <Stack.Screen
           name="Splash"
           component={SplashScreen}
+          options={{headerShown: false}}
+        />
+        <Stack.Screen
+          name="DesignVisualLauncher"
+          component={DesignVisualLauncher}
+          options={{headerShown: false}}
+        />
+        <Stack.Screen
+          name="DesignVisualNews"
+          component={NewsScreen}
+          options={{headerShown: false}}
+        />
+        <Stack.Screen
+          name="DesignVisualPortfolio"
+          component={PortfolioScreen}
+          options={{headerShown: false}}
+        />
+        <Stack.Screen
+          name="DesignVisualSubscriptions"
+          component={DesignVisualSubscriptions}
           options={{headerShown: false}}
         />
         {isSdkIntegrationEnabled() ? (
@@ -550,6 +639,24 @@ const Navigation = ({userEmail, isAuthenticated}) => {
         <Stack.Screen
           name="Login"
           component={LoginScreen}
+          options={{headerShown: false}}
+        />
+        {/*
+          Phone-first login flow (Onboarding video carousel → PhoneLogin
+          capture), gated by config.phoneFirstLoginEnabled (default OFF).
+          Registration here is inert — SplashScreen only navigation.replace()s
+          to 'Onboarding' when the advisor has opted in; otherwise these
+          screens are simply never routed to. See SplashScreen.js +
+          ConfigContext.js.
+        */}
+        <Stack.Screen
+          name="Onboarding"
+          component={OnboardingScreen}
+          options={{headerShown: false}}
+        />
+        <Stack.Screen
+          name="PhoneLogin"
+          component={PhoneLoginScreen}
           options={{headerShown: false}}
         />
         <Stack.Screen
@@ -615,11 +722,6 @@ const Navigation = ({userEmail, isAuthenticated}) => {
         <Stack.Screen
           name="MySubscriptionsScreen"
           component={MySubscriptionsScreen}
-          options={{headerShown: false}}
-        />
-        <Stack.Screen
-          name="HistoryScreen"
-          component={HistoryScreen}
           options={{headerShown: false}}
         />
         <Stack.Screen
@@ -698,6 +800,11 @@ const Navigation = ({userEmail, isAuthenticated}) => {
           options={{headerShown: false}}
         />
         <Stack.Screen
+          name="DeleteAccountScreen"
+          component={DeleteAccountScreen}
+          options={{headerShown: false}}
+        />
+        <Stack.Screen
           name="UpdateEmailScreen"
           component={UpdateEmailScreen}
           options={{headerShown: false}}
@@ -715,11 +822,6 @@ const Navigation = ({userEmail, isAuthenticated}) => {
         <Stack.Screen
           name="Model Portfolio"
           component={ModelPortfolioScreen}
-          options={{headerShown: false}}
-        />
-        <Stack.Screen
-          name="Ignored Trades"
-          component={IgnoreTradesScreen}
           options={{headerShown: false}}
         />
         <Stack.Screen

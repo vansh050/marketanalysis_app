@@ -30,6 +30,8 @@ import Toast from 'react-native-toast-message';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import CrossPlatformOverlay from '../../components/CrossPlatformOverlay';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 const commonHeight = 40;
 
@@ -231,7 +233,7 @@ const MotilalWebViewWithRetry = ({authUrl, handleWebViewNavigationStateChange, o
           renderLoading={() => (
             <ActivityIndicator
               size="large"
-              color="#0056B7"
+              color={designColor('0056b7')}
               style={{marginTop: 20}}
             />
           )}
@@ -345,13 +347,13 @@ const MotilalConnectUI = ({
         <View style={{flex: 1, paddingTop: insets.top}}>
           {/* Header */}
           <LinearGradient
-            colors={['#0B3D91', '#0056B7']}
+            colors={[designColor('0b3d91'), designColor('0056b7')]}
             start={{x: 0, y: 0}}
             end={{x: 1, y: 1}}
             style={styles.headerRow}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
               <TouchableOpacity onPress={onClose} style={styles.backButton}>
-                <ChevronLeft size={24} color="#000" />
+                <ChevronLeft size={24} color={designColor('000')} />
               </TouchableOpacity>
               <Text style={styles.headerTitle}>Connect to Motilal Oswal</Text>
             </View>
@@ -369,7 +371,7 @@ const MotilalConnectUI = ({
             </View>
           ) : expanded ? (
             /* Full Screen Help when expanded */
-            <View style={styles.fullScreenHelp}>
+            (<View style={styles.fullScreenHelp}>
               <ScrollView
                 ref={scrollViewRef}
                 style={{flex: 1}}
@@ -382,12 +384,12 @@ const MotilalConnectUI = ({
                     onPress={() => setExpanded(false)}>
                     <Text style={styles.toggleText}>See Less</Text>
                     <View style={styles.toggleIconContainer}>
-                      <ChevronUp size={14} color="#000" />
+                      <ChevronUp size={14} color={designColor('000')} />
                     </View>
                   </TouchableOpacity>
                 </View>
               </ScrollView>
-            </View>
+            </View>)
           ) : (
             <KeyboardAvoidingView
               style={{flex: 1}}
@@ -410,7 +412,7 @@ const MotilalConnectUI = ({
                   onPress={() => setExpanded(true)}>
                   <Text style={styles.toggleText}>Read More</Text>
                   <View style={styles.toggleIconContainer}>
-                    <ChevronDown size={14} color="#000" />
+                    <ChevronDown size={14} color={designColor('000')} />
                   </View>
                 </TouchableOpacity>
 
@@ -544,13 +546,13 @@ const MotilalConnectUI = ({
                           backgroundColor:
                             apiKey && clientCode && egressReady
                               ? 'rgba(0, 86, 183, 1)'
-                              : '#d3d3d3',
+                              : designColor('d3d3d3'),
                         },
                       ]}
                       onPress={handleConnect}
                       disabled={!(apiKey && clientCode && egressReady)}>
                       {loading ? (
-                        <ActivityIndicator size={27} color="#fff" />
+                        <ActivityIndicator size={27} color={designColor('fff')} />
                       ) : (
                         <Text style={styles.proceedButtonText}>Connect</Text>
                       )}
@@ -576,48 +578,48 @@ const styles = StyleSheet.create({
   fullScreen: {
     width: SCREEN_WIDTH,
     height: SCREEN_HEIGHT,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   wvErrorContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 24,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   wvErrorTitle: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#111827',
+    color: designColor('111827'),
     marginBottom: 8,
     textAlign: 'center',
   },
   wvErrorBody: {
     fontSize: 13,
-    color: '#DC2626',
+    color: designColor('dc2626'),
     textAlign: 'center',
     marginBottom: 12,
   },
   wvErrorHint: {
     fontSize: 12,
-    color: '#6B7280',
+    color: designColor('6b7280'),
     textAlign: 'center',
     marginBottom: 20,
     lineHeight: 18,
   },
   wvRetryBtn: {
-    backgroundColor: '#0056B7',
+    backgroundColor: designColor('0056b7'),
     paddingVertical: 12,
     paddingHorizontal: 32,
     borderRadius: 8,
   },
-  wvRetryText: {color: '#fff', fontSize: 14, fontWeight: '600'},
-  headerIcon: {width: 35, height: 35, borderRadius: 3, backgroundColor: '#fff'},
+  wvRetryText: {color: designColor('fff'), fontSize: 14, fontWeight: '600'},
+  headerIcon: {width: 35, height: 35, borderRadius: 3, backgroundColor: designColor('fff')},
   backButton: {
     padding: 4,
     borderRadius: 5,
-    backgroundColor: '#fff',
-    shadowColor: '#000',
+    backgroundColor: designColor('fff'),
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.15,
     shadowRadius: 4,
@@ -631,21 +633,21 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontFamily: 'Poppins-SemiBold',
-    color: '#fff',
+    fontFamily: designFont('Poppins-SemiBold'),
+    color: designColor('fff'),
     marginLeft: 10,
   },
   guideBox: {
     borderWidth: 1,
-    borderColor: '#E8E9EC',
+    borderColor: designColor('e8e9ec'),
     borderRadius: 8,
     padding: 10,
   },
-  fullScreenHelp: {flex: 1, backgroundColor: '#fff'},
+  fullScreenHelp: {flex: 1, backgroundColor: designColor('fff')},
   toggleWrapper: {
     borderTopWidth: 1,
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
     paddingVertical: 5,
   },
   toggleContainer: {
@@ -654,13 +656,13 @@ const styles = StyleSheet.create({
     padding: 10,
     paddingHorizontal: 20,
   },
-  toggleText: {fontSize: 14, fontFamily: 'Poppins-SemiBold', color: '#0056B7'},
+  toggleText: {fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), color: designColor('0056b7')},
   toggleIconContainer: {
     marginLeft: 5,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 20,
     padding: 3,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.12,
     shadowRadius: 3,
@@ -670,7 +672,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 20,
     borderWidth: 0.3,
     borderRadius: 8,
-    borderColor: '#c8c8c8',
+    borderColor: designColor('c8c8c8'),
     marginBottom: 20,
   },
   connectRow: {
@@ -678,48 +680,48 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    backgroundColor: designColor('f5f5f5'),
     padding: 10,
     borderRadius: 3,
     marginBottom: 10,
   },
   connectLabel: {
     fontSize: 16,
-    color: '#000',
-    fontFamily: 'Poppins-SemiBold',
+    color: designColor('000'),
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   connectIcon: {
     width: 30,
     height: 30,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 3,
   },
   bottomContainer: {
-    borderTopColor: '#E8E9EC',
-    backgroundColor: '#fff',
+    borderTopColor: designColor('e8e9ec'),
+    backgroundColor: designColor('fff'),
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
   inputWrapper: {marginBottom: 10},
   headerLabel: {
     fontSize: 14,
-    fontFamily: 'Poppins-Medium',
-    color: '#000',
+    fontFamily: designFont('Poppins-Medium'),
+    color: designColor('000'),
     marginBottom: 5,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: designColor('ccc'),
     borderRadius: 8,
     paddingHorizontal: 10,
     height: commonHeight,
   },
   inputStyles: {
     fontSize: 14,
-    fontFamily: 'Poppins-Regular',
-    color: '#000',
+    fontFamily: designFont('Poppins-Regular'),
+    color: designColor('000'),
     paddingVertical: 5,
   },
   proceedButton: {
@@ -729,13 +731,13 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginTop: 10,
   },
-  proceedButtonText: {color: '#fff', fontSize: 16, fontWeight: '600'},
+  proceedButtonText: {color: designColor('fff'), fontSize: 16, fontWeight: '600'},
 
   // Motilal static server-IPv4 callout (replaces EgressIpCallout for
   // this broker only — see web 156589e).
   motilalIpCallout: {
-    backgroundColor: '#fffbeb',
-    borderColor: '#fde68a',
+    backgroundColor: designColor('fffbeb'),
+    borderColor: designColor('fde68a'),
     borderWidth: 1,
     borderRadius: 10,
     padding: 12,
@@ -745,7 +747,7 @@ const styles = StyleSheet.create({
   motilalIpTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#92400e',
+    color: designColor('92400e'),
     marginBottom: 6,
   },
   motilalIpRow: {
@@ -757,7 +759,7 @@ const styles = StyleSheet.create({
   motilalIpValue: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0f172a',
+    color: designColor('0f172a'),
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     letterSpacing: 0.5,
   },
@@ -765,10 +767,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
-    backgroundColor: '#fde68a',
+    backgroundColor: designColor('fde68a'),
   },
-  motilalIpCopyText: {fontSize: 12, fontWeight: '600', color: '#78350f'},
-  motilalIpHint: {fontSize: 12, color: '#92400e', lineHeight: 17, marginBottom: 10},
+  motilalIpCopyText: {fontSize: 12, fontWeight: '600', color: designColor('78350f')},
+  motilalIpHint: {fontSize: 12, color: designColor('92400e'), lineHeight: 17, marginBottom: 10},
   motilalIpAckRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -777,26 +779,26 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   motilalIpAckRowFlash: {
-    backgroundColor: '#fee2e2',
+    backgroundColor: designColor('fee2e2'),
     borderWidth: 1,
-    borderColor: '#fca5a5',
+    borderColor: designColor('fca5a5'),
   },
   motilalIpAckBox: {
     width: 18,
     height: 18,
     borderRadius: 3,
     borderWidth: 1.5,
-    borderColor: '#92400e',
+    borderColor: designColor('92400e'),
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 2,
   },
   motilalIpAckBoxChecked: {
-    backgroundColor: '#059669',
-    borderColor: '#059669',
+    backgroundColor: designColor('059669'),
+    borderColor: designColor('059669'),
   },
-  motilalIpAckCheck: {color: '#fff', fontSize: 12, fontWeight: '700'},
-  motilalIpAckLabel: {flex: 1, fontSize: 12, color: '#0f172a', lineHeight: 17},
+  motilalIpAckCheck: {color: designColor('fff'), fontSize: 12, fontWeight: '700'},
+  motilalIpAckLabel: {flex: 1, fontSize: 12, color: designColor('0f172a'), lineHeight: 17},
 });
 
 export default MotilalConnectUI;

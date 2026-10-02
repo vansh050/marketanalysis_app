@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList,ActivityIndicator } from 'react-native';
 import axios from 'axios';
 import server from '../../utils/serverConfig';
 import CustomToolbar from '../../components/CustomToolbar';
 import StockCard from '../../UIComponents/StockAdvicesUI/StockCard';
 import { getAuth } from '@react-native-firebase/auth';
 import {getAccountEmail} from '../../utils/accountEmail';
+import {useComponent} from '../../design/useDesign';
 
 const AdviceCartScreen = ({ broker }) => {
+  const Presentation = useComponent('screens.AdviceCartScreen');
   const [stockDetails, setStockDetails] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -50,56 +51,12 @@ const AdviceCartScreen = ({ broker }) => {
         setLoading(false);
   }
 };
-  const renderItem = ({ item }) => (
-    console.log(item),
-    <StockCard
-      symbol={item.tradingSymbol}
-      tradeId={item.tradeId}
-      orderType={item.orderType}
-      action={item.transactionType}
-      // Add other props based on StockCard requirements
+  return (
+    <Presentation
+      viewModel={{loading, error, stockDetails}}
+      slots={{Toolbar: CustomToolbar, StockCard}}
     />
   );
-
-  if (loading) {
-    return (
-      <View style={{flex:1, justifyContent:'center',alignItems: 'center', flexDirection:'column'}}>
-      
-    <Text style={{color:'black',fontSize:18,fontFamily:'Poppins-Regular'}}>Loading...</Text>
-    <ActivityIndicator size={20} color={'#002a5c'}/>
-    </View>
-    )
-  }
-
-  if (error) {
-    return <Text style={{ color: 'red' }}>Error: {error}</Text>;
-  }
-
-  return (
-    <View style={{ flex: 1, backgroundColor: '#fafafa' }}>
-      <CustomToolbar title="Cart" />
-      <View style={styles.container}>
-        {stockDetails.length === 0 ? (
-          <Text style={{ color: 'gray' }}>Your cart is empty</Text>
-        ) : (
-          <FlatList
-            data={stockDetails}
-            renderItem={renderItem}
-            keyExtractor={(item) => item.tradeId.toString()} // Assuming tradeId is unique
-          />
-        )}
-      </View>
-    </View>
-  );
 };
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 10,
-  },
-});
 
 export default AdviceCartScreen;

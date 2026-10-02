@@ -1,5 +1,4 @@
-"use client"
-
+"use client";
 import { useState } from "react"
 import {
   View,
@@ -26,6 +25,8 @@ import Config from "react-native-config"
 import { useTrade } from "../../screens/TradeContext"
 import { generateToken } from "../../utils/SecurityTokenManager"
 import APP_VARIANTS from "../../utils/Config"
+
+import { designColor, designFont } from '../../design/literalTokens';
 
 const pdfcicon = require("../../assets/pdf.png")
 const screenWidth = Dimensions.get("window").width
@@ -55,12 +56,12 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
         color: "black",
         fontSize: 11,
         fontWeight: 0,
-        fontFamily: "Poppins-Medium", // Customize your font
+        fontFamily: designFont('Poppins-Medium'), // Customize your font
       },
       text2Style: {
         color: "black",
         fontSize: 12,
-        fontFamily: "Poppins-Regular", // Customize your font
+        fontFamily: designFont('Poppins-Regular'), // Customize your font
       },
     })
   }
@@ -206,10 +207,10 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
           </View>
         </TouchableOpacity>
         <TouchableOpacity style={styles.downloadButton} onPress={() => handleDownload(item._id)} disabled={isLoading}>
-          <Download size={25} color={isLoading ? "#ccc" : "black"} />
+          <Download size={25} color={isLoading ? designColor('ccc') : "black"} />
         </TouchableOpacity>
       </View>
-    )
+    );
   }
 
   return (
@@ -223,7 +224,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
               alignItems: "center",
               paddingHorizontal: 20,
               borderBottomWidth: 1,
-              borderColor: "#ccc",
+              borderColor: designColor('ccc'),
               marginBottom: 10,
               paddingVertical: 15,
             }}
@@ -231,7 +232,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
             <View style={styles.header}>
               <Text style={styles.headerTitle}>Educational PDF</Text>
             </View>
-            <XIcon onPress={() => setOpenpdf(false)} size={15} color={"#000"} />
+            <XIcon onPress={() => setOpenpdf(false)} size={15} color={designColor('000')} />
           </View>
 
           <View style={styles.container}>
@@ -241,8 +242,8 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
               {isLoading ? (
                 <FadeLoading
                   style={{ width: screenWidth * 0.5, height: 10, marginTop: 5 }}
-                  primaryColor="#f0f0f0"
-                  secondaryColor="#e0e0e0"
+                  primaryColor={designColor('f0f0f0')}
+                  secondaryColor={designColor('e0e0e0')}
                   duration={500}
                 />
               ) : type === "homepdf" ? (
@@ -306,7 +307,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
                       width: 70,
                       height: 70,
                       borderRadius: 35,
-                      backgroundColor: "#fff",
+                      backgroundColor: designColor('fff'),
                       justifyContent: "center",
                       alignItems: "center",
                       marginBottom: 20,
@@ -322,7 +323,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
 
                   <Text
                     style={{
-                      fontFamily: "Satoshi-Bold",
+                      fontFamily: designFont('Satoshi-Bold'),
                       fontSize: 18,
                       color: APP_VARIANTS.EmptyStateUi.darkerColor, // Darker shade of reference color
                       textAlign: "center",
@@ -334,7 +335,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
 
                   <Text
                     style={{
-                      fontFamily: "Satoshi-Medium",
+                      fontFamily: designFont('Satoshi-Medium'),
                       fontSize: 14,
                       color: APP_VARIANTS.EmptyStateUi.mediumColor, // Medium shade of reference color
                       textAlign: "center",
@@ -379,7 +380,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
                       style={{
                         width: 40,
                         height: 50,
-                        backgroundColor: "#FFFFFF",
+                        backgroundColor: designColor('ffffff'),
                         borderRadius: 4,
                         borderWidth: 1,
                         borderColor: APP_VARIANTS.EmptyStateUi.mutedColor, // Muted shade of reference color
@@ -388,7 +389,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
                         justifyContent: "center",
                       }}
                     >
-                      <Text style={{ fontSize: 16, color: "#6B1400" }}>PDF</Text>
+                      <Text style={{ fontSize: 16, color: designColor('6b1400') }}>PDF</Text>
                     </View>
                   </View>
                 </View>
@@ -398,7 +399,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
         </View>
       </View>
     </Modal>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -408,7 +409,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
   },
   modalContainer: {
-    backgroundColor: "#FFFEF7",
+    backgroundColor: designColor('fffef7'),
     borderTopRightRadius: 20,
     borderTopLeftRadius: 20,
     maxHeight: screenHeight - 100,
@@ -421,7 +422,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontFamily: "Satoshi-Bold",
+    fontFamily: designFont('Satoshi-Bold'),
     color: "black",
   },
   header: {
@@ -431,15 +432,15 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 14,
-    fontFamily: "Satoshi-Medium",
-    color: "#666",
+    fontFamily: designFont('Satoshi-Medium'),
+    color: designColor('666'),
     marginBottom: 0,
     textAlign: "center",
   },
   subtitle: {
     fontSize: 14,
-    color: "#666",
-    fontFamily: "Satoshi-Medium",
+    color: designColor('666'),
+    fontFamily: designFont('Satoshi-Medium'),
     textAlign: "center",
   },
   containerEmpty: {
@@ -448,11 +449,11 @@ const styles = StyleSheet.create({
     justifyContent: "center", // Centers content vertically
     alignItems: "center", // Centers content horizontally
     alignContent: "center",
-    backgroundColor: "#fDfDfD",
+    backgroundColor: designColor('fdfdfd'),
   },
   sectionTitle: {
     fontSize: 20,
-    fontFamily: "Satoshi-Bold",
+    fontFamily: designFont('Satoshi-Bold'),
     marginBottom: 10,
     color: "black",
   },
@@ -463,17 +464,17 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: designColor('fff'),
     padding: 10,
     borderRadius: 10,
     marginVertical: 5,
     marginHorizontal: 10,
-    shadowColor: "#000",
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     borderBottomWidth: 1,
-    borderBottomColor: "#E6E6E6",
+    borderBottomColor: designColor('e6e6e6'),
   },
   pdfContent: {
     flexDirection: "row",
@@ -491,14 +492,14 @@ const styles = StyleSheet.create({
   },
   pdfCardTitle: {
     fontSize: 16,
-    fontFamily: "Satoshi-Medium",
-    color: "#333",
+    fontFamily: designFont('Satoshi-Medium'),
+    color: designColor('333'),
     flexShrink: 1, // Ensures it doesn't overflow
   },
   pdfCardDescription: {
     fontSize: 12,
-    fontFamily: "Satoshi-Light",
-    color: "#858585",
+    fontFamily: designFont('Satoshi-Light'),
+    color: designColor('858585'),
     marginTop: 5,
   },
   downloadButton: {

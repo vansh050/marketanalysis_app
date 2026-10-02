@@ -4,9 +4,10 @@
  * AppAdvisor.digioConfig.digioEnabled is authoritative. Missing, stale, or
  * malformed values do not enable Digio; tenant policy must be explicit in the
  * backend. Payment-create routes independently enforce pre-payment signing.
- * See docs/MODEL_PORTFOLIO.md.
+ *
+ * See docs/MODEL_PORTFOLIO_ARCHITECTURE.md §4c.
  */
-export const isDigioEnabledFromBackend = digioEnabled =>
+export const isDigioEnabledFromBackend = (digioEnabled) =>
   digioEnabled === true;
 
 export default isDigioEnabledFromBackend;

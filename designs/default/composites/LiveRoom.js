@@ -39,7 +39,6 @@ import {
   Modal,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
-import liveKitService from '../../../src/FunctionCall/services/LiveKitService';
 
 const JOIN_GATE_MS = 10 * 60 * 1000; // T-10min
 
@@ -69,7 +68,8 @@ function useCountdown(targetIso) {
   return { msToStart: diff, label: `${s}s` };
 }
 
-export default function LiveRoom({ lesson, courseId, host = false, joinToken = null }) {
+export default function LiveRoom({ lesson, courseId, host = false, joinToken = null, actions }) {
+  const { onRequestJoinUrl = async () => null } = actions || {};
   const [joinUrl, setJoinUrl] = useState(null);
   const [tokenError, setTokenError] = useState(null);
   const [joining, setJoining] = useState(false);
@@ -93,7 +93,7 @@ export default function LiveRoom({ lesson, courseId, host = false, joinToken = n
       // Ask the backend for the web join URL (server mints a magic
       // joinToken for the signed-in enrolled user + builds the per-advisor
       // URL). The WebView then renders the LiveKit room via browser WebRTC.
-      const url = await liveKitService.getJoinUrl(lesson._id, courseId);
+      const url = await onRequestJoinUrl(lesson._id, courseId);
       if (!url) throw new Error('Could not get a join link');
       setJoinUrl(url);
     } catch (e) {

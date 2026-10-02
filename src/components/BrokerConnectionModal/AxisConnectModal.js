@@ -19,7 +19,7 @@ import Config from 'react-native-config';
 import {getAuth} from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
-import {getAdvisorSubdomain} from '../../utils/variantHelper';
+import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import Toast from 'react-native-toast-message';
 import eventEmitter from '../EventEmitter';
 import {useTrade} from '../../screens/TradeContext';
@@ -30,6 +30,8 @@ import {
   sdkDualWriteSafely,
 } from '../../sdk/brokerSdkBridge';
 import {getAccountEmail} from '../../utils/accountEmail';
+
+import { designColor } from '../../design/literalTokens';
 
 const AxisConnectModal = ({
   isVisible,
@@ -53,8 +55,7 @@ const AxisConnectModal = ({
       .get(`${server.server.baseUrl}api/user/getUser/${userEmail}`, {
         headers: {
           'Content-Type': 'application/json',
-          'X-Advisor-Subdomain':
-            configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+          'X-Advisor-Subdomain': getTenantSubdomain(configData),
           'aq-encrypted-key': generateToken(
             Config.REACT_APP_AQ_KEYS,
             Config.REACT_APP_AQ_SECRET,
@@ -67,8 +68,7 @@ const AxisConnectModal = ({
 
   const requestHeaders = {
     'Content-Type': 'application/json',
-    'X-Advisor-Subdomain':
-      configData?.config?.REACT_APP_HEADER_NAME || getAdvisorSubdomain(),
+    'X-Advisor-Subdomain': getTenantSubdomain(configData),
     'aq-encrypted-key': generateToken(
       Config.REACT_APP_AQ_KEYS,
       Config.REACT_APP_AQ_SECRET,
@@ -451,7 +451,7 @@ const AxisConnectModal = ({
           <SafeAreaView style={{flex: 1}}>
             <View style={styles.webViewHeader}>
               <TouchableOpacity onPress={() => setShowWebView(false)}>
-                <X size={22} color="#374151" />
+                <X size={22} color={designColor('374151')} />
               </TouchableOpacity>
               <Text style={styles.webViewTitle}>Axis Securities Login</Text>
               <View style={{width: 22}} />
@@ -471,7 +471,7 @@ const AxisConnectModal = ({
               originWhitelist={['*']}
               renderLoading={() => (
                 <View style={{flex: 1, justifyContent: 'center', alignItems: 'center'}}>
-                  <ActivityIndicator size="large" color="#059669" />
+                  <ActivityIndicator size="large" color={designColor('059669')} />
                 </View>
               )}
             />
@@ -487,7 +487,7 @@ const AxisConnectModal = ({
         <SafeAreaView style={styles.overlayInner}>
           <View style={styles.modalContainer}>
             <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <X size={22} color="#6B7280" />
+              <X size={22} color={designColor('6b7280')} />
             </TouchableOpacity>
 
             <View style={styles.content}>
@@ -502,17 +502,17 @@ const AxisConnectModal = ({
                 onPress={handleAxisLogin}
                 disabled={loading}>
                 {loading ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                  <ActivityIndicator color={designColor('fff')} size="small" />
                 ) : (
                   <>
-                    <ExternalLink size={18} color="#fff" />
+                    <ExternalLink size={18} color={designColor('fff')} />
                     <Text style={styles.loginBtnText}>Login with Axis Direct</Text>
                   </>
                 )}
               </TouchableOpacity>
 
               <View style={styles.securityNote}>
-                <Shield size={16} color="#059669" />
+                <Shield size={16} color={designColor('059669')} />
                 <View style={{flex: 1}}>
                   <Text style={styles.securityTitle}>Secure SSO Login</Text>
                   <Text style={styles.securityText}>
@@ -529,31 +529,31 @@ const AxisConnectModal = ({
 };
 
 const styles = StyleSheet.create({
-  fullScreen: {flex: 1, backgroundColor: '#fff'},
+  fullScreen: {flex: 1, backgroundColor: designColor('fff')},
   overlay: {flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', padding: 16},
   overlayInner: {flex: 1, justifyContent: 'center'},
-  modalContainer: {backgroundColor: '#fff', borderRadius: 12, maxHeight: '85%'},
+  modalContainer: {backgroundColor: designColor('fff'), borderRadius: 12, maxHeight: '85%'},
   closeBtn: {position: 'absolute', top: 12, right: 12, zIndex: 1, padding: 4},
   content: {padding: 24, paddingTop: 36, alignItems: 'center'},
-  title: {fontSize: 18, fontWeight: '700', color: '#111827', marginBottom: 8, textAlign: 'center'},
-  subtitle: {fontSize: 13, color: '#6B7280', textAlign: 'center', marginBottom: 24, lineHeight: 18},
+  title: {fontSize: 18, fontWeight: '700', color: designColor('111827'), marginBottom: 8, textAlign: 'center'},
+  subtitle: {fontSize: 13, color: designColor('6b7280'), textAlign: 'center', marginBottom: 24, lineHeight: 18},
   loginBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
-    backgroundColor: '#059669', paddingVertical: 14, paddingHorizontal: 24,
+    backgroundColor: designColor('059669'), paddingVertical: 14, paddingHorizontal: 24,
     borderRadius: 10, width: '100%', marginBottom: 20,
   },
-  loginBtnText: {color: '#fff', fontSize: 15, fontWeight: '600'},
+  loginBtnText: {color: designColor('fff'), fontSize: 15, fontWeight: '600'},
   securityNote: {
     flexDirection: 'row', gap: 10, padding: 14, borderRadius: 10,
-    backgroundColor: '#ECFDF5', borderWidth: 1, borderColor: '#A7F3D0',
+    backgroundColor: designColor('ecfdf5'), borderWidth: 1, borderColor: designColor('a7f3d0'),
   },
-  securityTitle: {fontSize: 13, fontWeight: '600', color: '#065F46', marginBottom: 4},
-  securityText: {fontSize: 12, color: '#047857', lineHeight: 16},
+  securityTitle: {fontSize: 13, fontWeight: '600', color: designColor('065f46'), marginBottom: 4},
+  securityText: {fontSize: 12, color: designColor('047857'), lineHeight: 16},
   webViewHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+    paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: designColor('e5e7eb'),
   },
-  webViewTitle: {fontSize: 16, fontWeight: '600', color: '#111827'},
+  webViewTitle: {fontSize: 16, fontWeight: '600', color: designColor('111827')},
 });
 
 export default AxisConnectModal;

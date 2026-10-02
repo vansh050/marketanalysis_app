@@ -5,7 +5,7 @@ import { Trophy } from 'lucide-react-native';
 import server from '../../utils/serverConfig';
 import axios from 'axios';
 import { FadeLoading } from 'react-native-fade-loading';
- 
+
 import moment from 'moment';
 import Config from 'react-native-config';
 import { useTrade } from '../../screens/TradeContext';
@@ -13,6 +13,7 @@ import LinkOpeningWeb from '../../screens/Home/NewsScreen/LinkOpeningWeb';
 import { Title } from 'react-native-paper';
 import PriceText from '../AdviceScreenComponents/DynamicText/PriceText';
 import BestPerformerText from '../AdviceScreenComponents/DynamicText/HomeBestPerformer';
+import { designColor, designFont } from '../../design/literalTokens';
 const { width, height } = Dimensions.get('window');
 
 const screenWidth = Dimensions.get('window').width;
@@ -132,7 +133,6 @@ const BestPerformerSection = ({type}) => {
       
   return (
     <View style={styles.container}>
- 
       <FlatList
   // data={filteredPerformers}
   // renderItem={renderItem}
@@ -188,7 +188,7 @@ const BestPerformerSection = ({type}) => {
       <View style={styles.emptyStateWrapper}>
       <View style={styles.emptyStateContainer}>
         <View style={styles.emptyStateIconContainer}>
-        <Trophy size={32} color="#8B45FF" /></View>
+        <Trophy size={32} color={designColor('8b45ff')} /></View>
         <Text style={styles.emptyStateTitle}>No Best Performers Yet</Text>
         <Text style={styles.emptyStateText}>
           Looks like there's no data to display right now. Once you have performers, they'll appear here.
@@ -199,7 +199,6 @@ const BestPerformerSection = ({type}) => {
     )
   }
 />
-
       <LinkOpeningWeb
         symbol={title}
         setWebview={setModalVisible}
@@ -221,23 +220,23 @@ const styles = StyleSheet.create({
     alignContent:'center',
     alignSelf:'center',
     flex:1,
-    backgroundColor: '#fDfDfD',
+    backgroundColor: designColor('fdfdfd'),
   },
   title: {
     fontSize: 14,
-    fontFamily:'Satoshi-Bold',
-    color: '#000',
+    fontFamily:designFont('Satoshi-Bold'),
+    color: designColor('000'),
     marginBottom: 10,
     textAlign: 'center',
     paddingHorizontal: 10
   },
   subtitle: {
     fontSize: 12,
-    color: '#666',
+    color: designColor('666'),
     maxWidth:screenWidth,
     paddingHorizontal:20,
 
-    fontFamily:'Satoshi-Medium',
+    fontFamily:designFont('Satoshi-Medium'),
     textAlign: 'center',
     marginBottom: 20,
   },
@@ -245,20 +244,20 @@ const styles = StyleSheet.create({
   
   headerTitle: {
     fontSize: 20,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     marginBottom: 10,
-    color: '#000',
+    color: designColor('000'),
   },
   blogList: {
     paddingHorizontal: 0,
   },
   blogCard: {
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
     borderRadius: 10,
     overflow: 'hidden',
     width: 260,
     marginRight: 15,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 5,
@@ -273,7 +272,7 @@ const styles = StyleSheet.create({
   },
   blogTitle: {
     fontSize: 18,
-    fontFamily: 'Satoshi-Bold',
+    fontFamily: designFont('Satoshi-Bold'),
     color: 'white',
   },
   textOverlay: {
@@ -295,14 +294,14 @@ const styles = StyleSheet.create({
   timestampText: {
     fontSize: 12,
     color: 'white',
-    fontFamily: 'Satoshi-Regular',
+    fontFamily: designFont('Satoshi-Regular'),
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: designColor('fff'),
   },
   webView: {
-    borderTopColor:'#e9e9e9',
+    borderTopColor:designColor('e9e9e9'),
     borderWidth:1,
     flex: 1,
   },
@@ -317,7 +316,7 @@ const styles = StyleSheet.create({
 
   ///
   card: {
-    backgroundColor: "#1A1A1A",
+    backgroundColor: designColor('1a1a1a'),
     borderRadius: 15,
     padding: 16,
     flex:1,
@@ -332,37 +331,37 @@ const styles = StyleSheet.create({
   },
   stockName: {
     fontSize: 16,
-    color: "#FFFFFF",
-    fontFamily:'Satoshi-Medium',
+    color: designColor('ffffff'),
+    fontFamily:designFont('Satoshi-Medium'),
     marginRight:10
   },
   percentageBadge: {
-    backgroundColor: "#14C46F",
+    backgroundColor: designColor('14c46f'),
     borderRadius: 12,
     paddingHorizontal: 5,
     paddingVertical: 2,
   },
   percentageText: {
-    color: "#FFFFFF",
+    color: designColor('ffffff'),
     fontSize: 10,
-    fontFamily:'Satoshi-Bold',
+    fontFamily:designFont('Satoshi-Bold'),
   },
   currentLabel: {
-    color: "#A0A0A0",
+    color: designColor('a0a0a0'),
     fontSize: 10,
-    fontFamily:'Satoshi-Medium',
+    fontFamily:designFont('Satoshi-Medium'),
     marginTop: 8,
   },
   currentPrice: {
     fontSize: 16,
-    color: "#FFFFFF",
-    fontFamily:'Satoshi-Medium',
+    color: designColor('ffffff'),
+    fontFamily:designFont('Satoshi-Medium'),
     marginTop: 2,
   },
   change: {
     fontSize: 16,
-    color: "#14C46F",
-    fontFamily:'Satoshi-Medium',
+    color: designColor('14c46f'),
+    fontFamily:designFont('Satoshi-Medium'),
     marginTop: 4,
     marginLeft:20,
   },
@@ -374,32 +373,32 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     borderWidth: 1,
     borderStyle: "dashed",
-    borderColor: "#444",
+    borderColor: designColor('444'),
     justifyContent: "center",
     alignItems: "center",
   },
   moreComingTitle: {
     fontSize: 14,
-    color: "#FFFFFF",
-    fontFamily: "Satoshi-Medium",
+    color: designColor('ffffff'),
+    fontFamily: designFont('Satoshi-Medium'),
     textAlign: "center",
   },
   moreComingSubtitle: {
     fontSize: 10,
-    color: "#A0A0A0",
-    fontFamily: "Satoshi-Medium",
+    color: designColor('a0a0a0'),
+    fontFamily: designFont('Satoshi-Medium'),
     marginTop: 4,
     textAlign: "center",
   },
   comingSoonCard: {
-    backgroundColor: "#1A1A1A",
+    backgroundColor: designColor('1a1a1a'),
     borderRadius: 15,
     padding: 16,
     flex: 1,
     minWidth: 180,
     marginRight: 10,
     borderWidth: 1,
-    borderColor: "#333",
+    borderColor: designColor('333'),
     justifyContent: "center",
     alignItems: "center",
   },
@@ -409,21 +408,21 @@ const styles = StyleSheet.create({
   },
   comingSoonTitle: {
     fontSize: 16,
-    color: "#FFFFFF",
-    fontFamily: "Satoshi-Medium",
+    color: designColor('ffffff'),
+    fontFamily: designFont('Satoshi-Medium'),
     textAlign: "center",
   },
   comingSoonSubtitle: {
     fontSize: 10,
-    color: "#A0A0A0",
-    fontFamily: "Satoshi-Medium",
+    color: designColor('a0a0a0'),
+    fontFamily: designFont('Satoshi-Medium'),
     marginTop: 4,
     textAlign: "center",
   },
   divider: {
     height: 1,
     width: "80%",
-    backgroundColor: "#333",
+    backgroundColor: designColor('333'),
     marginVertical: 12,
   },
   emptyStateWrapper: {
@@ -431,34 +430,34 @@ const styles = StyleSheet.create({
     marginVertical:5,
   },
   emptyStateContainer: {
-    backgroundColor: '#fDfDfD',
+    backgroundColor: designColor('fdfdfd'),
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
     width: '100%',
     maxWidth: 340,
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
   },
   emptyStateIconContainer: {
-    backgroundColor: '#f3e8ff',
+    backgroundColor: designColor('f3e8ff'),
     borderRadius: 32,
     padding: 16,
     marginBottom: 16,
   },
   emptyStateTitle: {
     fontSize: 16,
-    fontFamily: 'Satoshi-Bold',
-    color: '#000',
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designColor('000'),
     marginBottom: 8,
     textAlign: 'center',
   },
   emptyStateText: {
     fontSize: 13,
-    color: '#666',
-    fontFamily: 'Satoshi-Medium',
+    color: designColor('666'),
+    fontFamily: designFont('Satoshi-Medium'),
     textAlign: 'center',
   },
 });

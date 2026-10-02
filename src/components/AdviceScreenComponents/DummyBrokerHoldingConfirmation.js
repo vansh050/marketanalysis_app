@@ -21,6 +21,8 @@ import Toast from 'react-native-toast-message';
 import portfolioEvents, {PORTFOLIO_EVENTS} from '../../utils/portfolioEvents';
 import useSdkClient from '../../sdk/useSdkClient';
 
+import { designColor, designFont } from '../../design/literalTokens';
+
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
   return v === 'true' || v === '1';
@@ -39,8 +41,7 @@ const DummyBrokerHoldingConfirmation = ({
   getModelPortfolioStrategyDetails,
   setOpenRebalanceModal,
   getRebalanceRepair,
-  modelPortfolioRepairTrades,
-  dummyBrokerCalculatedUniqueId,
+  executionCorrelation,
 }) => {
   const {configData} = useTrade();
   // For trade `variant` — see docs/APP_ARCHITECTURE.md § 4.5.2.
@@ -50,12 +51,6 @@ const DummyBrokerHoldingConfirmation = ({
   const [loading, setLoading] = useState(false);
 
   const advisorTag = configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG;
-
-  const matchingRepairTrade =
-    modelPortfolioRepairTrades &&
-    modelPortfolioRepairTrades?.find(
-      trade => trade.modelId === modelPortfolioModelId,
-    );
 
   const convertResponse = dataArray => {
     return dataArray.map(item => {
@@ -92,25 +87,9 @@ const DummyBrokerHoldingConfirmation = ({
         model_id: modelPortfolioModelId,
       });
 
-      const getAdditionalPayload = () => {
-        if (matchingRepairTrade) {
-          return {
-            modelName: matchingRepairTrade.modelName,
-            advisor: advisorTag,
-            unique_id: matchingRepairTrade?.uniqueId,
-          };
-        } else {
-          return {
-            modelName: storeModalName,
-            advisor: advisorTag,
-            unique_id: dummyBrokerCalculatedUniqueId,
-          };
-        }
-      };
-
       const payload = {
         ...getBasePayload(),
-        ...getAdditionalPayload(),
+        ...executionCorrelation,
       };
 
       const config = {
@@ -145,7 +124,7 @@ const DummyBrokerHoldingConfirmation = ({
         try {
           const sdkResult = await sdkClient.executeAdvice({
             kind: 'mpRebalance',
-            clientAdviceId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            clientAdviceId: `mp-rebalance:DummyBroker:${payload.unique_id || modelPortfolioModelId}`,
             brokerName: 'DummyBroker',
             modelId: modelPortfolioModelId,
             modelName: payload.modelName,
@@ -160,8 +139,8 @@ const DummyBrokerHoldingConfirmation = ({
           response = { data: { results: mappedRows } };
           console.log('[DummyBrokerHoldingConfirmation] SDK executeAdvice result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
         } catch (sdkErr) {
-          console.error('[DummyBrokerHoldingConfirmation] SDK executeAdvice failed, falling back to legacy:', sdkErr?.message);
-          response = null;
+          console.error('[DummyBrokerHoldingConfirmation] SDK owns this attempt; legacy fallback blocked:', sdkErr?.message);
+          throw sdkErr;
         }
       }
       if (!response) {
@@ -282,7 +261,7 @@ const DummyBrokerHoldingConfirmation = ({
                 style={styles.closeButton}
                 onPress={handleClose}
                 disabled={loading}>
-                <X size={24} color="#666" />
+                <X size={24} color={designColor('666')} />
               </TouchableOpacity>
             </View>
           </View>
@@ -314,7 +293,7 @@ const DummyBrokerHoldingConfirmation = ({
                 onPress={handleSubmit}
                 disabled={loading}>
                 {loading ? (
-                  <ActivityIndicator size="small" color="#fff" />
+                  <ActivityIndicator size="small" color={designColor('fff')} />
                 ) : (
                   <Text style={styles.confirmButtonText}>Confirm</Text>
                 )}
@@ -340,7 +319,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'white',
     borderRadius: 12,
     overflow: 'hidden',
-    shadowColor: '#000',
+    shadowColor: designColor('000'),
     shadowOffset: {
       width: 0,
       height: 4,
@@ -353,8 +332,8 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
-    backgroundColor: '#fff',
+    borderBottomColor: designColor('e5e7eb'),
+    backgroundColor: designColor('fff'),
   },
   headerContent: {
     flexDirection: 'row',
@@ -364,8 +343,8 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#000',
-    fontFamily: 'Poppins-Bold',
+    color: designColor('000'),
+    fontFamily: designFont('Poppins-Bold'),
     flex: 1,
   },
   closeButton: {
@@ -380,17 +359,17 @@ const styles = StyleSheet.create({
   },
   messageText: {
     fontSize: 16,
-    color: '#374151',
+    color: designColor('374151'),
     lineHeight: 24,
-    fontFamily: 'Poppins-Regular',
+    fontFamily: designFont('Poppins-Regular'),
     textAlign: 'left',
   },
   footer: {
     paddingVertical: 16,
     paddingHorizontal: 20,
     borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
-    backgroundColor: '#f9fafb',
+    borderTopColor: designColor('e5e7eb'),
+    backgroundColor: designColor('f9fafb'),
   },
   buttonContainer: {
     flexDirection: 'row',
@@ -407,26 +386,26 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
   cancelButton: {
-    backgroundColor: '#ef4444',
+    backgroundColor: designColor('ef4444'),
   },
   confirmButton: {
-    backgroundColor: '#0056B7',
+    backgroundColor: designColor('0056b7'),
   },
   buttonDisabled: {
-    backgroundColor: '#9ca3af',
+    backgroundColor: designColor('9ca3af'),
     opacity: 0.7,
   },
   cancelButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
     fontWeight: '600',
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
   confirmButtonText: {
-    color: '#fff',
+    color: designColor('fff'),
     fontSize: 16,
     fontWeight: '600',
-    fontFamily: 'Poppins-SemiBold',
+    fontFamily: designFont('Poppins-SemiBold'),
   },
 });
 

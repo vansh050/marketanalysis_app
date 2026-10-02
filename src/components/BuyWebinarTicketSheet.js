@@ -39,6 +39,8 @@ import {
   friendlyPaymentError,
 } from '../utils/cashfreeEnv';
 
+import { designColor } from '../design/literalTokens';
+
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
 // Translate backend `error` codes + raw CF SDK errors into something the
@@ -293,12 +295,12 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
         .add(CFPaymentModes.PAY_LATER)
         .build();
       const theme = new CFThemeBuilder()
-        .setNavigationBarBackgroundColor('#d97706')
-        .setNavigationBarTextColor('#FFFFFF')
-        .setButtonBackgroundColor('#d97706')
-        .setButtonTextColor('#FFFFFF')
-        .setPrimaryTextColor('#111827')
-        .setSecondaryTextColor('#6b7280')
+        .setNavigationBarBackgroundColor(designColor('d97706'))
+        .setNavigationBarTextColor(designColor('ffffff'))
+        .setButtonBackgroundColor(designColor('d97706'))
+        .setButtonTextColor(designColor('ffffff'))
+        .setPrimaryTextColor(designColor('111827'))
+        .setSecondaryTextColor(designColor('6b7280'))
         .build();
       const dropPayment = new CFDropCheckoutPayment(session, paymentModes, theme);
       CFPaymentGatewayService.doPayment(dropPayment);
@@ -398,7 +400,7 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
                       <TouchableOpacity
                         onPress={removeCoupon}
                         style={{ paddingHorizontal: 12, paddingVertical: 10 }}>
-                        <Text style={{ color: '#dc2626', fontWeight: '600' }}>Remove</Text>
+                        <Text style={{ color: designColor('dc2626'), fontWeight: '600' }}>Remove</Text>
                       </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
@@ -407,11 +409,11 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
                         style={{
                           paddingHorizontal: 14,
                           paddingVertical: 10,
-                          backgroundColor: '#d97706',
+                          backgroundColor: designColor('d97706'),
                           borderRadius: 8,
                           opacity: applyingCoupon ? 0.6 : 1,
                         }}>
-                        <Text style={{ color: '#fff', fontWeight: '700' }}>
+                        <Text style={{ color: designColor('fff'), fontWeight: '700' }}>
                           {applyingCoupon ? '…' : 'Apply'}
                         </Text>
                       </TouchableOpacity>
@@ -422,13 +424,13 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
                       style={{
                         fontSize: 12,
                         marginTop: 4,
-                        color: appliedCoupon ? '#16a34a' : '#dc2626',
+                        color: appliedCoupon ? designColor('16a34a') : designColor('dc2626'),
                       }}>
                       {couponMsg}
                     </Text>
                   )}
                   {appliedCoupon && (
-                    <Text style={{ fontSize: 12, marginTop: 2, color: '#374151' }}>
+                    <Text style={{ fontSize: 12, marginTop: 2, color: designColor('374151') }}>
                       Price: ₹{originalPrice} → <Text style={{ fontWeight: '700' }}>₹{payableAmount}</Text>
                     </Text>
                   )}
@@ -441,7 +443,7 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
 
               {phase === 'paying' ? (
                 <View style={styles.payingBox}>
-                  <ActivityIndicator color="#d97706" />
+                  <ActivityIndicator color={designColor('d97706')} />
                   <Text style={styles.payingText}>Waiting for confirmation… Don't close this window.</Text>
                 </View>
               ) : (
@@ -464,28 +466,28 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
 
 const styles = StyleSheet.create({
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
-  sheet: { backgroundColor: '#ffffff', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 32 },
+  sheet: { backgroundColor: designColor('ffffff'), borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 20, paddingBottom: 32 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  closeX: { fontSize: 26, color: '#9ca3af', paddingHorizontal: 4 },
-  lessonTitle: { fontSize: 14, fontWeight: '600', color: '#111827', marginTop: 12 },
-  lessonMeta: { fontSize: 11, color: '#6b7280', marginTop: 4 },
-  doneBox: { marginTop: 16, backgroundColor: '#f0fdf4', borderColor: '#bbf7d0', borderWidth: 1, borderRadius: 8, padding: 14 },
-  doneText: { color: '#166534', fontSize: 13 },
+  headerTitle: { fontSize: 16, fontWeight: '700', color: designColor('111827') },
+  closeX: { fontSize: 26, color: designColor('9ca3af'), paddingHorizontal: 4 },
+  lessonTitle: { fontSize: 14, fontWeight: '600', color: designColor('111827'), marginTop: 12 },
+  lessonMeta: { fontSize: 11, color: designColor('6b7280'), marginTop: 4 },
+  doneBox: { marginTop: 16, backgroundColor: designColor('f0fdf4'), borderColor: designColor('bbf7d0'), borderWidth: 1, borderRadius: 8, padding: 14 },
+  doneText: { color: designColor('166534'), fontSize: 13 },
   doneClose: { marginTop: 10, alignSelf: 'flex-start' },
-  doneCloseText: { color: '#16a34a', fontWeight: '600' },
+  doneCloseText: { color: designColor('16a34a'), fontWeight: '600' },
   form: { marginTop: 14 },
-  label: { fontSize: 12, fontWeight: '600', color: '#374151', marginBottom: 4, marginTop: 8 },
-  input: { borderWidth: 1, borderColor: '#d1d5db', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: '#111827' },
-  inputLocked: { backgroundColor: '#f9fafb', color: '#6b7280' },
-  helperText: { fontSize: 11, color: '#6b7280', marginTop: 4 },
-  errorBox: { marginTop: 10, backgroundColor: '#fef2f2', borderColor: '#fecaca', borderWidth: 1, borderRadius: 6, padding: 10 },
-  errorText: { color: '#991b1b', fontSize: 12 },
+  label: { fontSize: 12, fontWeight: '600', color: designColor('374151'), marginBottom: 4, marginTop: 8 },
+  input: { borderWidth: 1, borderColor: designColor('d1d5db'), borderRadius: 6, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: designColor('111827') },
+  inputLocked: { backgroundColor: designColor('f9fafb'), color: designColor('6b7280') },
+  helperText: { fontSize: 11, color: designColor('6b7280'), marginTop: 4 },
+  errorBox: { marginTop: 10, backgroundColor: designColor('fef2f2'), borderColor: designColor('fecaca'), borderWidth: 1, borderRadius: 6, padding: 10 },
+  errorText: { color: designColor('991b1b'), fontSize: 12 },
   payingBox: { alignItems: 'center', paddingVertical: 14 },
-  payingText: { color: '#6b7280', fontSize: 12, marginTop: 6 },
+  payingText: { color: designColor('6b7280'), fontSize: 12, marginTop: 6 },
   ctaRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 16 },
   cancelBtn: { paddingVertical: 10, paddingHorizontal: 14, marginRight: 6 },
-  cancelBtnText: { color: '#374151', fontWeight: '500' },
-  payBtn: { backgroundColor: '#d97706', paddingVertical: 10, paddingHorizontal: 16, borderRadius: 6 },
-  payBtnText: { color: '#ffffff', fontWeight: '600' },
+  cancelBtnText: { color: designColor('374151'), fontWeight: '500' },
+  payBtn: { backgroundColor: designColor('d97706'), paddingVertical: 10, paddingHorizontal: 16, borderRadius: 6 },
+  payBtnText: { color: designColor('ffffff'), fontWeight: '600' },
 });
