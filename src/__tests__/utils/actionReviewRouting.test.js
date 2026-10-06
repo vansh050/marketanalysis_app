@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import {parse} from '@babel/parser';
 import {hasVerifiedExecutionCompletion} from '../../utils/modelPortfolioExecution';
-import {normalizeRepairResponse} from '../../utils/rebalanceReconciliation';
+import {findResolvedModelForRecommendation, normalizeRepairResponse} from '../../utils/rebalanceReconciliation';
 import {accountRecoveryTitle, holdingsReviewCanResolve} from '../../utils/accountRecoveryUx';
 import {isPublisherLegTerminal} from '../../utils/publisherOrderLabel';
 
@@ -38,7 +38,7 @@ const setup=(models=[])=>{
   getModelPortfolioRepairTrades:jest.fn().mockResolvedValue(normalizeRepairResponse({models})),
   getRecentRepairResult:jest.fn(()=>null),acceptTimingStart:()=>{},acceptTimingMark:()=>{},
   handleAcceptClick:jest.fn(), handlePendingRefresh:jest.fn(),handleCheckStatus:jest.fn(),handleCheckBroker:jest.fn(),
-  Toast:{show:jest.fn()},hasVerifiedExecutionCompletion,console,
+  Toast:{show:jest.fn()},hasVerifiedExecutionCompletion,findResolvedModelForRecommendation,console,
   hasRepairTrades:false,
   accountRecoveryTitle,holdingsReviewCanResolve,isPublisherLegTerminal,
   onReviewRebalance:jest.fn().mockResolvedValue(true),

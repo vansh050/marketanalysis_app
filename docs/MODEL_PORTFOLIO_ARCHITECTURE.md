@@ -1,5 +1,26 @@
 # Model Portfolio Architecture
 
+## 2026-10-06 — a resolved model never acknowledges a different rebalance
+
+When the customer taps Accept, `RebalanceCard.handleRepairDiscovery` reads
+`get-repair`. If a model in `resolvedModels` (from `normalizeRepairResponse`)
+matches the current rebalance, the card sends
+`PUT /rebalance/update/subscriber-execution {executionStatus:'executed'}` and
+places nothing. That lookup matched by rebalance id **or model name**, so an
+operator-resolved **previous** rebalance (same model name, different
+`modelId`) acknowledged today's rebalance as executed. The server parks such a
+browser claim as `pending` / `frontend_terminal_hint_awaiting_server_evidence`,
+evidence that can never arrive, and the card stays on "awaiting confirmation"
+with no Accept (markup uagaskar, DefinEdge, 2026-10-06: September `bfc6d856`
+resolved October `ca653c31`).
+
+**Rule:** `findResolvedModelForRecommendation` (`src/utils/rebalanceReconciliation.js`)
+is the only matcher. Identity wins whenever both sides carry one: an item whose
+`modelId` or `completionRecommendationId` differs from the card's `model_Id` is
+never a match. The model name is a fallback only when an id is missing. This is
+the same guard `verifiedRepair` already applies via `completionRecommendationId`.
+Pinned by `src/__tests__/utils/rebalanceReconciliation.test.js`.
+
 ## 2026-10-01 — Cancel & Retry is driven by broker truth (3.9.168)
 
 `RebalanceCard.handleCancelAndRetry` cancels each still-open order via

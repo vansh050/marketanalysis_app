@@ -46,6 +46,38 @@ export const normalizeRepairResponse = data => {
   };
 };
 
+const normalizeModelName = value =>
+  String(value ?? '').replace(/_/g, ' ').trim().toLowerCase();
+
+/**
+ * Pick the server-resolved model that belongs to the CURRENT recommendation.
+ *
+ * A model the operator/server resolved for an EARLIER rebalance shares the
+ * model name with today's rebalance. Matching on the name alone let the card
+ * acknowledge today's rebalance as "executed" without placing a single order
+ * (markup uagaskar, 2026-10-06: September's operator-resolved rebalance
+ * bfc6d856 resolved October's ca653c31). Identity wins whenever both sides
+ * carry one; the name is only a fallback when an id is missing.
+ */
+export const findResolvedModelForRecommendation = (
+  resolvedModels,
+  {modelId, modelName} = {},
+) => {
+  const current = modelId != null && modelId !== '' ? String(modelId) : null;
+  return (resolvedModels || []).find(item => {
+    if (!item) return false;
+    const completionId = item.completionRecommendationId;
+    if (current && completionId != null && completionId !== '' &&
+        String(completionId) !== current) {
+      return false;
+    }
+    if (current && item.modelId != null && item.modelId !== '') {
+      return String(item.modelId) === current;
+    }
+    return normalizeModelName(item.modelName) === normalizeModelName(modelName);
+  }) || null;
+};
+
 export const normalizeRepairError = error => {
   const data = error?.response?.data;
   if (

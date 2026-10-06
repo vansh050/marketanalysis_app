@@ -1,4 +1,5 @@
 import {
+  findResolvedModelForRecommendation,
   isPostSellCashUsable,
   normalizeRepairError,
   normalizeRepairResponse,
@@ -95,4 +96,44 @@ describe('rebalance reconciliation response guards', () => {
       })).toBe(true);
     },
   );
+});
+
+describe('findResolvedModelForRecommendation', () => {
+  // markup uagaskar 2026-10-06: an operator-resolved September rebalance
+  // (bfc6d856) must not resolve October's rebalance (ca653c31) by name.
+  const old = {
+    modelName: 'MQ- FlexiCap Momentum',
+    modelId: 'bfc6d856',
+    executionComplete: true,
+    reconciliationResolved: true,
+  };
+
+  it('does not resolve a different rebalance with the same model name', () => {
+    expect(findResolvedModelForRecommendation([old], {
+      modelId: 'ca653c31', modelName: 'MQ- FlexiCap Momentum',
+    })).toBeNull();
+  });
+
+  it('rejects a completion recorded for another recommendation', () => {
+    expect(findResolvedModelForRecommendation([
+      {...old, modelId: 'ca653c31', completionRecommendationId: 'bfc6d856'},
+    ], {modelId: 'ca653c31', modelName: 'MQ- FlexiCap Momentum'})).toBeNull();
+  });
+
+  it('resolves the current rebalance by id', () => {
+    const current = {...old, modelId: 'ca653c31'};
+    expect(findResolvedModelForRecommendation([old, current], {
+      modelId: 'ca653c31', modelName: 'MQ- FlexiCap Momentum',
+    })).toBe(current);
+  });
+
+  it('falls back to the model name only when an id is missing', () => {
+    const legacy = {modelName: 'MQ_FlexiCap Momentum', reconciliationResolved: true};
+    expect(findResolvedModelForRecommendation([legacy], {
+      modelId: 'ca653c31', modelName: 'MQ FlexiCap Momentum',
+    })).toBe(legacy);
+    expect(findResolvedModelForRecommendation([old], {
+      modelName: 'MQ- FlexiCap Momentum',
+    })).toBe(old);
+  });
 });

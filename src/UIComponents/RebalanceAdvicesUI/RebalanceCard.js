@@ -21,6 +21,7 @@ import {classifyFundsResponse} from '../../utils/brokerSessionValidator';
 import {hasVerifiedExecutionCompletion} from '../../utils/modelPortfolioExecution';
 import {isPublisherLegTerminal} from '../../utils/publisherOrderLabel';
 import {accountRecoveryTitle, holdingsReviewCanResolve} from '../../utils/accountRecoveryUx';
+import {findResolvedModelForRecommendation} from '../../utils/rebalanceReconciliation';
 import eventEmitter from '../../components/EventEmitter';
 import LinearGradient from 'react-native-linear-gradient';
 import RenderHTML from 'react-native-render-html';
@@ -934,10 +935,11 @@ const RebalanceCard = ({
       }
       const requiresFreshCalculation =
         verifiedRepair?.requiresFreshRebalance === true;
-      const resolvedModel = result?.resolvedModels?.find(item =>
-        (item?.modelId && data?.model_Id &&
-          String(item.modelId) === String(data.model_Id)) ||
-        normalize(item?.modelName) === normalize(modelName),
+      // Identity-first: a model resolved for an EARLIER rebalance must never
+      // acknowledge this one as executed (see findResolvedModelForRecommendation).
+      const resolvedModel = findResolvedModelForRecommendation(
+        result?.resolvedModels,
+        {modelId: data?.model_Id, modelName},
       );
 
       setCalculatedPortfolioData?.(null);
