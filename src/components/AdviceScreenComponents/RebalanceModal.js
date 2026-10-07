@@ -2281,6 +2281,22 @@ const RebalanceModal = ({
           // cautionary listing) — RecommendationSuccessModal then
           // showed "All Orders Placed Successfully" for orders the
           // broker had actually rejected. Pass through unchanged.
+          // A server refusal before dispatch (MARKET_CLOSED, expired
+          // session, drifted plan) sent nothing. Its empty rows must not be
+          // padded into "submission not yet verified" legs (moneyman Fyers,
+          // 7 Oct 2026, 15:30:56 IST: all five legs shown pending).
+          if (sdkResult?.notSent === true) {
+            setLoading(false);
+            setOpenRebalanceModal(false);
+            Alert.alert(
+              'Orders not placed',
+              sdkResult?.recovery?.message ||
+                'Nothing was sent to Fyers. Please try again during market hours.',
+            );
+            getRebalanceRepair();
+            getModelPortfolioStrategyDetails();
+            return;
+          }
           checkData = sdkResult?.rows || [];
           console.log('[RebalanceModal] SDK executeAdvice (Fyers) result:', sdkResult?.status, sdkResult?.rows?.length, 'rows');
         } catch (sdkErr) {
@@ -2436,18 +2452,35 @@ const RebalanceModal = ({
         return;
       }
 
+      // Refused before dispatch (legacy, non-SDK path): nothing was sent.
+      if (
+        error?.response?.status === 409 &&
+        (error?.response?.data?.code === 'MARKET_CLOSED' ||
+          error?.response?.data?.dispatchState === 'NOT_SENT')
+      ) {
+        setOpenRebalanceModal(false);
+        Alert.alert(
+          'Orders not placed',
+          error?.response?.data?.message ||
+            'Nothing was sent to Fyers. Please try again during market hours.',
+        );
+        getRebalanceRepair();
+        getModelPortfolioStrategyDetails();
+        return;
+      }
+
       // Frozen-plan 409 (PLAN_DRIFTED / expired / ALREADY_CONSUMED — see
       // REBALANCE_PLAN_FREEZE_PLAN.md §4.4): the plan_id we hold is dead.
       // Refresh repair/strategy data (mints a fresh calculate/repair plan on
       // next open) instead of just toasting a generic failure.
       if (error?.response?.status === 409 && error?.response?.data?.recompute) {
         setOpenRebalanceModal(false);
-        Toast.show({
-          type: 'info',
-          text1: 'Portfolio refreshed',
-          text2: error?.response?.data?.message || 'Please review the updated trades.',
-          visibilityTime: 6000,
-        });
+        const refusal = planRefusalMessage(
+          error?.response?.data?.code,
+          'Fyers',
+          error?.response?.data?.message,
+        );
+        Alert.alert(refusal.title, refusal.message);
         getRebalanceRepair();
         getModelPortfolioStrategyDetails();
         return;
@@ -2891,12 +2924,12 @@ const RebalanceModal = ({
           // broker rejection: nothing was sent. Say why and let them retry
           // when the reason clears (market hours, reconnect, recalculate).
           if (response?.data?.notSent === true) {
-            Toast.show({
-              type: 'info',
-              text1: 'Orders not placed',
-              text2: errorMsg || 'Your broker did not receive these orders. Nothing was placed.',
-              visibilityTime: 6000,
-            });
+            // An Alert, not a toast: a toast over a closing screen looked
+            // like nothing happened.
+            Alert.alert(
+              'Orders not placed',
+              errorMsg || 'Your broker did not receive these orders. Nothing was placed.',
+            );
             setOpenRebalanceModal(false);
             setLoading(false);
             return;
@@ -4156,6 +4189,66 @@ const RebalanceModal = ({
                             : hasPendingSellAuthorization
                             ? 'Retry Sell Authorization'
                             : 'Go Back'}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : !isAlreadyAlignedCalculation ? (
+                    // "Already Aligned" is a claim about a zero-trade
+                    // calculation. With no such calculation the list is empty
+                    // for another reason, typically Repair rows clearing right
+                    // after placement while the broker confirms them (moneyman
+                    // Groww, 7 Oct 2026, showed "Already Aligned" with an
+                    // order still open).
+                    <>
+                      {matchingRepairTrade?.reconciliationPending === true ? (
+                        <ActivityIndicator
+                          size="large"
+                          color={designColor('2563eb')}
+                          style={{marginBottom: 20}}
+                        />
+                      ) : null}
+                      <Text
+                        testID="rebalance-empty-not-aligned"
+                        style={{
+                          fontFamily: designFont('Poppins-SemiBold'),
+                          color: designColor('1f2937'),
+                          fontSize: 18,
+                          textAlign: 'center',
+                          marginBottom: 12,
+                        }}>
+                        {matchingRepairTrade?.reconciliationPending === true
+                          ? 'Orders sent, checking with the broker'
+                          : 'Nothing to place right now'}
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: designFont('Poppins-Regular'),
+                          color: 'rgba(0,0,0,0.6)',
+                          textAlign: 'center',
+                          marginBottom: 24,
+                          fontSize: 14,
+                          lineHeight: 22,
+                          paddingHorizontal: 10,
+                        }}>
+                        {matchingRepairTrade?.reconciliationPending === true
+                          ? `Your orders were sent to ${broker || 'your broker'}. We are confirming them now. Anything that does not go through will appear under Repair Portfolio.`
+                          : 'Go back and open the portfolio again to see its latest orders.'}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={handleClose}
+                        style={{
+                          backgroundColor: designColor('000'),
+                          paddingHorizontal: 24,
+                          paddingVertical: 12,
+                          borderRadius: 8,
+                        }}>
+                        <Text
+                          style={{
+                            color: designColor('fff'),
+                            fontFamily: designFont('Poppins-Medium'),
+                            fontSize: 14,
+                          }}>
+                          Go Back
                         </Text>
                       </TouchableOpacity>
                     </>

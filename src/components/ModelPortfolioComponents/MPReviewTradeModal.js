@@ -75,6 +75,7 @@ import {
   getRebalanceBlockReason,
 } from '../../utils/rebalanceContract';
 import {planRefusalMessage} from '../../utils/planRefusalMessage';
+import {throwIfSdkNotSent} from '../../utils/sdkNotSent';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -149,6 +150,20 @@ const MPReviewTradeModal = ({
   // handling. Returns true if it handled the error (caller should stop).
   const handleFrozenPlanRecompute = (error) => {
     const recovery = accountRecoveryMetadata(error);
+    // Refused before anything reached the broker (market closed, expired
+    // session, ...). Never a sell-authorization problem: say why and stop,
+    // before the caller's TPIN branch can treat it as a rejected SELL.
+    const refusedData = error?.response?.data || {};
+    if (error?.response?.status === 409 && !refusedData.recompute &&
+        (refusedData.dispatchState === 'NOT_SENT' || refusedData.notSent === true ||
+         refusedData.code === 'MARKET_CLOSED')) {
+      Alert.alert(
+        'Orders not placed',
+        refusedData.message || 'Nothing was sent to your broker. Please try again later.',
+      );
+      onCloseReviewTrade();
+      return true;
+    }
     if (error?.response?.status === 409 &&
         (error?.response?.data?.recompute || recovery.running)) {
       const verificationPending =
@@ -553,6 +568,7 @@ const MPReviewTradeModal = ({
             planHash: rebalanceContract?.plan?.hash,
             trades: payload.trades,
           });
+          throwIfSdkNotSent(sdkResult);
           const mappedRows = (sdkResult?.rows || []).map(row => ({
             ...row,
             orderStatus: row.status,
@@ -2025,6 +2041,7 @@ const MPReviewTradeModal = ({
             planHash: rebalanceContract?.plan?.hash,
             trades: fyersTrades,
           })
+          throwIfSdkNotSent(sdkResult);
           const mappedRows = (sdkResult?.rows || []).map(row => ({
             ...row,
             orderStatus: row.status,

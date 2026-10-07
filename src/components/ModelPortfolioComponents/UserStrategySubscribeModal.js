@@ -66,6 +66,8 @@ import {getPlatformDisplayName} from '../../utils/advisorContentProfile';
 import PublisherWebViewOverlay from '../PublisherWebViewOverlay';
 
 import { designColor, designFont } from '../../design/literalTokens';
+import {throwIfSdkNotSent} from '../../utils/sdkNotSent';
+import {planRefusalMessage} from '../../utils/planRefusalMessage';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -253,6 +255,20 @@ const UserStrategySubscribeModal = ({
   // calculateRebalance, minting a fresh plan. Mirrors web's recompute handling.
   const handleFrozenPlanRecompute = (error) => {
     const recovery = accountRecoveryMetadata(error);
+    // Refused before anything reached the broker (market closed, expired
+    // session, ...). Never a sell-authorization problem: say why and stop,
+    // before the caller's TPIN branch can treat it as a rejected SELL.
+    const refusedData = error?.response?.data || {};
+    if (error?.response?.status === 409 && !refusedData.recompute &&
+        (refusedData.dispatchState === 'NOT_SENT' || refusedData.notSent === true ||
+         refusedData.code === 'MARKET_CLOSED')) {
+      Alert.alert(
+        'Orders not placed',
+        refusedData.message || 'Nothing was sent to your broker. Please try again later.',
+      );
+      setConfirmOrder(false);
+      return true;
+    }
     if (error?.response?.status === 409 &&
         (error?.response?.data?.recompute || recovery.running)) {
       const verificationPending =
@@ -261,14 +277,21 @@ const UserStrategySubscribeModal = ({
         console.info('[AccountRecovery] Waiting for operation', recovery.operationId);
       }
       setConfirmOrder(false);
-      Toast.show({
-        type: 'info',
-        text1: verificationPending ? 'Checking your broker' : 'Portfolio refreshed',
-        text2: verificationPending
-          ? 'Nothing was sent. We will refresh this automatically.'
-          : (error?.response?.data?.message || 'Please review the updated trades.'),
-        visibilityTime: 5000,
-      });
+      if (verificationPending) {
+        Toast.show({
+          type: 'info',
+          text1: 'Checking your broker',
+          text2: 'Nothing was sent. We will refresh this automatically.',
+          visibilityTime: 5000,
+        });
+      } else {
+        const refusal = planRefusalMessage(
+          error?.response?.data?.code,
+          broker,
+          error?.response?.data?.message,
+        );
+        Alert.alert(refusal.title, refusal.message);
+      }
       if (verificationPending) {
         setTimeout(
           () => calculateRebalance(),
@@ -649,6 +672,7 @@ const UserStrategySubscribeModal = ({
             trades: payload.trades,
             subscriptionId: latestRebalance?._id || '',
           });
+          throwIfSdkNotSent(sdkResult);
           const mappedRows = (sdkResult?.rows || []).map(row => ({
             ...row,
             orderStatus: row.status,
@@ -932,6 +956,7 @@ const UserStrategySubscribeModal = ({
           trades: payload.trades,
           subscriptionId: latestRebalance?._id || '',
         });
+        throwIfSdkNotSent(sdkResult);
         const mappedRows = (sdkResult?.rows || []).map(row => ({
           ...row,
           orderStatus: row.status,
@@ -1509,6 +1534,7 @@ const UserStrategySubscribeModal = ({
               trades: zerodhaStockDetails,
               subscriptionId: latestRebalance?._id || '',
             });
+            throwIfSdkNotSent(sdkResult);
             const mappedRows = (sdkResult?.rows || []).map(row => ({
               ...row,
               orderStatus: row.status,

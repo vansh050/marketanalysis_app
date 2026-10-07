@@ -21,6 +21,7 @@ import useSdkClient from '../../sdk/useSdkClient';
 import {canAttemptRebalancePlacement} from '../../utils/rebalanceMarketGate';
 import {useComponent} from '../../design/useDesign';
 import {planRefusalMessage} from '../../utils/planRefusalMessage';
+import {throwIfSdkNotSent} from '../../utils/sdkNotSent';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -167,6 +168,7 @@ const ExecutionStatusScreen = () => {
             planHash,
             trades,
           });
+          throwIfSdkNotSent(sdkResult);
           const mappedRows = (sdkResult?.rows || []).map(row => ({
             ...row,
             orderStatus: row.status,
