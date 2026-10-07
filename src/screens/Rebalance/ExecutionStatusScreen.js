@@ -20,6 +20,7 @@ import eventEmitter from '../../components/EventEmitter';
 import useSdkClient from '../../sdk/useSdkClient';
 import {canAttemptRebalancePlacement} from '../../utils/rebalanceMarketGate';
 import {useComponent} from '../../design/useDesign';
+import {planRefusalMessage} from '../../utils/planRefusalMessage';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -227,7 +228,8 @@ const ExecutionStatusScreen = () => {
       console.error('[Execution] error:', e);
       if (e?.response?.status === 409 && e?.response?.data?.recompute) {
         setNeedsRecompute(true);
-        setErrorMsg(e.response.data.message || 'The rebalance plan changed and needs to be recalculated.');
+        const refusal = planRefusalMessage(e.response.data.code, broker, e.response.data.message);
+        setErrorMsg(`${refusal.title}. ${refusal.message}`);
       } else {
         setErrorMsg(e.response?.data?.message || e.message || 'Order placement failed');
       }

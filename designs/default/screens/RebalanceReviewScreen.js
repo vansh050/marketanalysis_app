@@ -129,6 +129,7 @@ const RebalanceReviewScreen = ({viewModel, actions, slots}) => {
           t1RiskCost={funding?.t1RiskCost ?? funding?.marginProjection?.t1RiskCost}
           t1RiskLegCount={(funding?.t1RiskBuys ?? funding?.marginProjection?.t1RiskBuys ?? []).length}
           fundingAdjusted={!!funding?.fundingAdjusted}
+          attemptingDespiteShortfall={!!fundingConsent?.attemptingDespiteShortfall}
           pricesReady={!loading && buyOrders.length > 0}
         />
         {!fundingConsent?.required && (

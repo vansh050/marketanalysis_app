@@ -49,6 +49,41 @@ describe('mobile rebalance plan correlation', () => {
     });
   });
 
+  test('shown repair rows own the request even when an old calculation is still held', () => {
+    // moneyman ICICI, 7 Oct 2026: the 12:50 calculation (plan already sent and
+    // rejected by the broker) stayed in the parent. Repair rows were shown, but
+    // Place Order re-sent the consumed plan and was refused 409 twice.
+    const consumedCalculation = {
+      uniqueId: 'b1f3',
+      plan_id: 'rbp_consumed',
+      plan_version: 1,
+    };
+    expect(resolveRebalancePlanCorrelation({
+      calculatedPortfolioData: consumedCalculation,
+      matchingRepairTrade: staleRepair,
+      repairRowsShown: true,
+      activeModelName: 'MQ - LargeMid Momentum',
+      advisorTag: 'markup',
+      rebalanceFreezePlan: true,
+      repairFreezePlan: true,
+    })).toEqual({
+      modelName: 'MQ - LargeMid Momentum',
+      advisor: 'markup',
+      unique_id: '488f48c9',
+      plan_id: 'rbp_repair',
+      plan_version: 1,
+    });
+  });
+
+  test('the modal tells the resolver when repair rows are on screen', () => {
+    const source = fs.readFileSync(
+      path.resolve(__dirname, '../../components/AdviceScreenComponents/RebalanceModal.js'),
+      'utf8',
+    );
+    expect(source).toContain('repairRowsShown: isRepairMode');
+    expect(source).toMatch(/calculationMatchesPortfolio && !repairStatus/);
+  });
+
   test('all rendered execution paths consume the shared correlation result', () => {
     const source = fs.readFileSync(
       path.resolve(__dirname, '../../components/AdviceScreenComponents/RebalanceModal.js'),

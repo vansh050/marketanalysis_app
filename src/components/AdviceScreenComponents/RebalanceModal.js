@@ -1,4 +1,4 @@
-import {availableFundsOptions, getFundingReview, insufficientFundsAttemptOptions} from '../../utils/fundingContinuation';
+import {availableFundsOptions, fundingPanelCopy, getFundingReview, insufficientFundsAttemptOptions} from '../../utils/fundingContinuation';
 import { isPublisherExecutionComplete, includeUnconfirmedPublisherLegs } from '../../utils/publisherCompletionAuthority';
 import {createPublisherBatchDispatcher} from '../../utils/publisherBatchDispatch';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
@@ -76,6 +76,7 @@ import LowFundsRebalanceWarning from '../LowFundsRebalanceWarning';
 import PublisherWebViewOverlay from '../PublisherWebViewOverlay';
 import {isPostSellCashUsable} from '../../utils/rebalanceReconciliation';
 import { resolveRebalancePlanCorrelation } from '../../utils/rebalancePlanCorrelation';
+import {planRefusalMessage} from '../../utils/planRefusalMessage';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
 import {
   SELL_GATE_POLL_INTERVAL_MS,
@@ -372,9 +373,26 @@ const RebalanceModal = ({
           String(calculatedPortfolioData._rebalanceModelName).trim() ===
             String(storeModalName || '').trim())),
   );
-  const activeCalculatedPortfolioData = calculationMatchesPortfolio
-    ? calculatedPortfolioData
-    : null;
+  // Repair rows are the Repair authority (see isRepairMode below). When they
+  // are shown, a calculation still held by the parent belongs to the attempt
+  // that produced them: its plan was already sent, so neither its plan_id nor
+  // its funding/warning metadata may describe this screen. Re-sending it was
+  // refused `409 PLAN_ALREADY_CONSUMED` (moneyman ICICI, 7 Oct 2026).
+  const matchingRepairTrade =
+    modelPortfolioRepairTrades &&
+    modelPortfolioRepairTrades?.find(
+      trade => trade.modelId === modelPortfolioModelId,
+    );
+
+  const repairStatus =
+    matchingRepairTrade &&
+    matchingRepairTrade.failedTrades &&
+    matchingRepairTrade.failedTrades.length > 0;
+
+  const activeCalculatedPortfolioData =
+    calculationMatchesPortfolio && !repairStatus
+      ? calculatedPortfolioData
+      : null;
   const rebalanceContract = getRebalanceContract(activeCalculatedPortfolioData);
   const fundingConsent = getFundingReview(rebalanceContract, activeCalculatedPortfolioData);
 
@@ -556,18 +574,6 @@ const RebalanceModal = ({
   };
 
   const filteredData = data.filter(item => item.model_name === storeModalName);
-
-  // Now, let's find the matching repair trade
-  const matchingRepairTrade =
-    modelPortfolioRepairTrades &&
-    modelPortfolioRepairTrades?.find(
-      trade => trade.modelId === modelPortfolioModelId,
-    );
-
-  const repairStatus =
-    matchingRepairTrade &&
-    matchingRepairTrade.failedTrades &&
-    matchingRepairTrade.failedTrades.length > 0;
 
   // Check if modelPortfolioRepairTrades exists and has trades
   let dataArray = [];
@@ -1076,6 +1082,7 @@ const RebalanceModal = ({
     ...resolveRebalancePlanCorrelation({
       calculatedPortfolioData,
       matchingRepairTrade,
+      repairRowsShown: isRepairMode,
       activeModelName: filteredData[0]?.model_name || storeModalName,
       advisorTag,
       rebalanceFreezePlan,
@@ -3266,14 +3273,16 @@ const RebalanceModal = ({
         // so re-sliding "Place Order" would 409 forever. Close the modal and
         // refresh repair/strategy data so the next open mints a fresh plan —
         // mirrors web's recompute handling.
+        // An Alert, not a toast: closing the screen with a short-lived toast
+        // looked like the order silently vanished (moneyman ICICI, 7 Oct 2026).
         if (error?.response?.status === 409 && error?.response?.data?.recompute) {
           setOpenRebalanceModal(false);
-          Toast.show({
-            type: 'info',
-            text1: 'Portfolio refreshed',
-            text2: error?.response?.data?.message || 'Please review the updated trades.',
-            visibilityTime: 6000,
-          });
+          const refusal = planRefusalMessage(
+            error?.response?.data?.code,
+            broker,
+            error?.response?.data?.message,
+          );
+          Alert.alert(refusal.title, refusal.message);
           getRebalanceRepair();
           getModelPortfolioStrategyDetails();
           return;
@@ -3735,11 +3744,25 @@ const RebalanceModal = ({
       return null;
     }
 
+    const panelCopy = fundingPanelCopy(fundingConsent);
+    if (panelCopy.warning) {
+      return (
+        <View style={styles.fundingConsentContainer}>
+          <Text style={styles.fundingConsentTitle}>{panelCopy.title}</Text>
+          <Text style={styles.fundingConsentText}>{panelCopy.body}</Text>
+          <TouchableOpacity
+            disabled={reducingFunding || loading}
+            onPress={showAddFundsInstructions}
+            style={styles.fundingSecondaryButton}>
+            <Text style={styles.fundingSecondaryButtonText}>How to add funds</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.fundingConsentContainer}>
-        <Text style={styles.fundingConsentTitle}>
-          Investment target: ₹{Number(fundingConsent.desiredAmount || 0).toLocaleString('en-IN')}. This calculation: ₹{Number(fundingConsent.fundedAmount || 0).toLocaleString('en-IN')}. Remaining funding: ₹{Number(fundingConsent.shortfall || 0).toLocaleString('en-IN')}.
-        </Text>
+        <Text style={styles.fundingConsentTitle}>{panelCopy.title}</Text>
         <Text style={styles.fundingConsentText}>
           Add ₹{Number(fundingConsent.shortfall || 0).toLocaleString('en-IN')}{fundingConsent.canContinueWithAvailableFunds ? ' to include everything, or continue with available funds for this calculation' : fundingConsent.canAttemptWithInsufficientFunds ? ', or review the target stocks and attempt the buy. Your broker may reject the orders' : ' to your broker, then calculate again'}. Your investment target stays unchanged. Closing this screen makes no change.
         </Text>
@@ -4248,6 +4271,7 @@ const RebalanceModal = ({
                     t1RiskCost={t1RiskCost}
                     t1RiskLegCount={t1RiskBuys.length}
                     fundingAdjusted={!!activeCalculatedPortfolioData?.fundingAdjusted}
+                    attemptingDespiteShortfall={!!fundingConsent?.attemptingDespiteShortfall}
                   />
                   {renderFundingConsentPanel()}
                 </View>

@@ -20,6 +20,10 @@ const LowFundsRebalanceWarning = ({
   t1RiskCost = 0,
   t1RiskLegCount = 0,
   fundingAdjusted = false,
+  // Customer chose to attempt the full basket despite a shortfall: nothing
+  // was fitted, so "Orders fitted to available funds" would be false. The
+  // funding panel carries the broker-may-reject warning instead.
+  attemptingDespiteShortfall = false,
 }) => {
   const [expanded, setExpanded] = useState(false);
   const availableNum = parseFloat(availableCash);
@@ -29,6 +33,7 @@ const LowFundsRebalanceWarning = ({
   const deferred = Math.max(0, parseFloat(deferredSellProceeds) || 0);
   const t1Risk = Math.max(0, parseFloat(t1RiskCost) || 0);
   const show =
+    !attemptingDespiteShortfall &&
     pricesReady &&
     (addFunds > 1 || todayGap > 1 || t1Risk > 1 || fundingAdjusted);
   if (!show) return null;

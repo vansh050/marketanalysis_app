@@ -1,9 +1,11 @@
 /**
  * Select every execution identity field from the same reviewed attempt.
  *
- * A stale repair row may remain available while the customer reviews a fresh
- * calculation. The repair identity is valid only when no fresh calculation
- * identity is present; otherwise the displayed calculation owns the request.
+ * The identity follows the legs on screen. When the modal shows Repair rows
+ * (`repairRowsShown`), the Repair row owns the request even if the parent
+ * still holds a calculation: that calculation is the attempt the Repair rows
+ * came from, and its plan was already sent. Otherwise a stale repair row may
+ * coexist with a fresh calculation, and the displayed calculation wins.
  */
 export const resolveRebalancePlanCorrelation = ({
   calculatedPortfolioData,
@@ -12,9 +14,11 @@ export const resolveRebalancePlanCorrelation = ({
   advisorTag,
   rebalanceFreezePlan,
   repairFreezePlan,
+  repairRowsShown = false,
 }) => {
   const useRepairCorrelation = Boolean(
-    matchingRepairTrade && !calculatedPortfolioData?.uniqueId,
+    matchingRepairTrade &&
+      (repairRowsShown || !calculatedPortfolioData?.uniqueId),
   );
 
   if (useRepairCorrelation) {

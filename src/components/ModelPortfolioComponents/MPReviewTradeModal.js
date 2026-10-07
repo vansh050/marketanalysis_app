@@ -1,4 +1,4 @@
-import {availableFundsOptions, getFundingReview, insufficientFundsAttemptOptions} from '../../utils/fundingContinuation';
+import {availableFundsOptions, fundingPanelCopy, getFundingReview, insufficientFundsAttemptOptions} from '../../utils/fundingContinuation';
 import { isPublisherExecutionComplete, includeUnconfirmedPublisherLegs } from '../../utils/publisherCompletionAuthority';
 import {createPublisherBatchDispatcher} from '../../utils/publisherBatchDispatch';
 import React, {useState, useRef, useEffect, useCallback, useMemo} from 'react';
@@ -74,6 +74,7 @@ import {
   getRebalanceContract,
   getRebalanceBlockReason,
 } from '../../utils/rebalanceContract';
+import {planRefusalMessage} from '../../utils/planRefusalMessage';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -155,14 +156,21 @@ const MPReviewTradeModal = ({
       if (recovery.operationId) {
         console.info('[AccountRecovery] Waiting for operation', recovery.operationId);
       }
-      Toast.show({
-        type: 'info',
-        text1: verificationPending ? 'Checking your broker' : 'Portfolio refreshed',
-        text2: verificationPending
-          ? 'Nothing was sent. We will refresh this automatically.'
-          : (error?.response?.data?.message || 'Please review the updated trades.'),
-        visibilityTime: 6000,
-      });
+      if (verificationPending) {
+        Toast.show({
+          type: 'info',
+          text1: 'Checking your broker',
+          text2: 'Nothing was sent. We will refresh this automatically.',
+          visibilityTime: 6000,
+        });
+      } else {
+        const refusal = planRefusalMessage(
+          error?.response?.data?.code,
+          broker,
+          error?.response?.data?.message,
+        );
+        Alert.alert(refusal.title, refusal.message);
+      }
       onCloseReviewTrade();
       if (typeof calculateRebalance === 'function') {
         const delay = verificationPending
@@ -2551,10 +2559,10 @@ const MPReviewTradeModal = ({
                   backgroundColor: designColor('f8fafc'),
                 }}>
                   <Text style={{fontFamily: designFont('Poppins-SemiBold'), color: designColor('0f172a'), fontSize: 13, lineHeight: 20}}>
-                    Investment target: ₹{Number(fundingConsent.desiredAmount || 0).toLocaleString('en-IN')}. This calculation: ₹{Number(fundingConsent.fundedAmount || 0).toLocaleString('en-IN')}. Remaining funding: ₹{Number(fundingConsent.shortfall || 0).toLocaleString('en-IN')}.
+                    {fundingPanelCopy(fundingConsent).title}
                   </Text>
                   <Text style={{fontFamily: designFont('Poppins-Regular'), color: designColor('475569'), fontSize: 11, lineHeight: 18, marginTop: 4, marginBottom: 10}}>
-                    Closing makes no change. {fundingConsent.canContinueWithAvailableFunds ? 'Add funds and retry, or continue with available funds for this calculation.' : fundingConsent.canAttemptWithInsufficientFunds ? 'Add funds, or review the target stocks and attempt the buy. The broker may reject the orders.' : 'Add funds to your broker, then calculate again.'} Your investment target stays unchanged.
+                    {fundingConsent.attemptingDespiteShortfall ? fundingPanelCopy(fundingConsent).body : <>Closing makes no change. {fundingConsent.canContinueWithAvailableFunds ? 'Add funds and retry, or continue with available funds for this calculation.' : fundingConsent.canAttemptWithInsufficientFunds ? 'Add funds, or review the target stocks and attempt the buy. The broker may reject the orders.' : 'Add funds to your broker, then calculate again.'} Your investment target stays unchanged.</>}
                   </Text>
                   {fundingConsent.canContinueWithAvailableFunds && (
                     <TouchableOpacity onPress={continueWithAvailableFunds} disabled={reducingFunding || loading} style={{backgroundColor: designColor('0f172a'), padding: 10, borderRadius: 8, alignItems: 'center'}}>

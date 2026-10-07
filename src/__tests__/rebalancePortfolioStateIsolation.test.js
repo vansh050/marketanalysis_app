@@ -19,7 +19,7 @@ describe('rebalance portfolio state isolation', () => {
   test('shows calculation warnings only for the portfolio that produced them', () => {
     const modal = read('components/AdviceScreenComponents/RebalanceModal.js');
     expect(modal).toContain('const calculationMatchesPortfolio = Boolean(');
-    expect(modal).toContain('const activeCalculatedPortfolioData = calculationMatchesPortfolio');
+    expect(modal).toContain('calculationMatchesPortfolio && !repairStatus');
     expect(modal).toContain('const skippedStocksMessage = activeCalculatedPortfolioData?.message');
   });
 

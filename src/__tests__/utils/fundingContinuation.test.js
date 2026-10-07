@@ -1,4 +1,4 @@
-import {availableFundsOptions, availableFundsPayload, getFundingReview, insufficientFundsAttemptOptions} from '../../utils/fundingContinuation';
+import {availableFundsOptions, availableFundsPayload, fundingPanelCopy, getFundingReview, insufficientFundsAttemptOptions} from '../../utils/fundingContinuation';
 
 const contract = {
   customerAction: {code: 'EXECUTE', blocking: false},
@@ -89,4 +89,38 @@ test('an already affordable basket still shows its capital shortfall, with or wi
   expect(getFundingReview({...contract, fundingConsent: null})).toMatchObject({required: false, show: true, shortfall: 310630});
   expect(getFundingReview(null, {planShortfall: 310630, desiredSubscriptionAmount: 1000000, activeBudget: 689370})).toMatchObject({required: false, show: true, desiredAmount: 1000000});
   expect(getFundingReview(null, {})).toBeNull();
+});
+
+describe('funding panel after the customer chose to attempt the buy', () => {
+  // moneyman ICICI calculate response, 7 Oct 2026.
+  const contract = {
+    fundingConsent: {required: true, options: ['attempt_broker'], desiredAmount: 500, fundedAmount: 0, shortfall: 500},
+    fundingContinuation: {selected: true, choice: 'attempt_broker', targetAmount: 500, calculationBudget: 0, remainingFundingRequired: 500},
+    customerAction: {code: 'EXECUTE', blocking: false},
+    presentation: {title: 'Broker may reject these orders', message: 'Your broker balance was verified at Rs 0.00.'},
+  };
+
+  test('shows the server warning, not "add funds then calculate again"', () => {
+    const review = getFundingReview(contract);
+    expect(review.attemptingDespiteShortfall).toBe(true);
+    expect(review.required).toBe(false);
+    const copy = fundingPanelCopy(review);
+    expect(copy.warning).toBe(true);
+    expect(copy.title).toBe('Broker may reject these orders');
+    expect(copy.body).toBe('Your broker balance was verified at Rs 0.00.');
+  });
+
+  test('falls back to app copy when the server sends no presentation', () => {
+    const copy = fundingPanelCopy(getFundingReview({...contract, presentation: undefined}));
+    expect(copy.title).toBe('Your broker may reject these orders');
+    expect(copy.body).toContain('₹500');
+  });
+
+  test('ordinary shortfall keeps the target / calculation / remaining summary', () => {
+    const copy = fundingPanelCopy(getFundingReview({
+      ...contract, fundingContinuation: undefined, presentation: undefined,
+    }));
+    expect(copy.warning).toBe(false);
+    expect(copy.title).toContain('Remaining funding: ₹500');
+  });
 });
