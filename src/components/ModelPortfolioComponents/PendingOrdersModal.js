@@ -12,6 +12,7 @@ import {XIcon, RefreshCw} from 'lucide-react-native';
 import useTokens from '../../theme/useTokens';
 
 import { designColor, designFont } from '../../design/literalTokens';
+import {isPastAttemptWithNothingBought} from '../../utils/pastAttemptSummary';
 
 const normalizedStatus = status =>
   String(status || '').trim().toUpperCase().replace(/_/g, ' ');
@@ -68,6 +69,16 @@ const PendingOrdersModal = ({
   const hasFailedSell = retryableOrders.some(order =>
     String(order?.transactionType || '').toUpperCase() === 'SELL',
   );
+  const pastAttemptNothingBought = isPastAttemptWithNothingBought({
+    attemptedAt,
+    completedCount,
+    openCount,
+    orderCount: orders.length,
+    retryableCount: retryableOrders.length,
+  });
+  const attemptDateLabel = attemptedAt && !Number.isNaN(new Date(attemptedAt).getTime())
+    ? new Date(attemptedAt).toLocaleDateString('en-IN', {day: 'numeric', month: 'short'})
+    : null;
   const attemptLabel = attemptedAt && !Number.isNaN(new Date(attemptedAt).getTime())
     ? new Date(attemptedAt).toLocaleString('en-IN', {
         day: '2-digit', month: 'short', year: 'numeric',
@@ -154,11 +165,17 @@ const PendingOrdersModal = ({
           {(attemptLabel || hasOrders) && (
             <View style={styles.attemptSummary}>
               <Text style={styles.attemptSummaryTitle}>
-                {`${completedCount} completed`
-                  + (openCount > 0 ? ` · ${openCount} still open at ${brokerAppName || 'the broker'}` : '')
-                  + ` · ${retryableOrders.length} need${retryableOrders.length === 1 ? 's' : ''} action`}
+                {pastAttemptNothingBought
+                  ? `Last attempt on ${attemptDateLabel} · nothing was bought`
+                  : `${completedCount} completed`
+                    + (openCount > 0 ? ` · ${openCount} still open at ${brokerAppName || 'the broker'}` : '')
+                    + ` · ${retryableOrders.length} need${retryableOrders.length === 1 ? 's' : ''} action`}
               </Text>
-              {attemptLabel && (
+              {pastAttemptNothingBought ? (
+                <Text style={styles.attemptSummaryMeta}>
+                  None of these orders went through, so you hold nothing from that attempt. No order is being placed right now.
+                </Text>
+              ) : attemptLabel && (
                 <Text style={styles.attemptSummaryMeta}>
                   Attempted {attemptLabel}
                 </Text>
@@ -273,7 +290,11 @@ const PendingOrdersModal = ({
                   <View style={styles.actionRow}>
                     <RefreshCw size={14} color={designColor('fff')} />
                     <Text style={styles.actionButtonText}>
-                      {hasFailedSell ? 'Review failed SELL' : 'Continue to order placement'}
+                      {hasFailedSell
+                        ? 'Review failed SELL'
+                        : pastAttemptNothingBought
+                        ? 'Place these orders again'
+                        : 'Continue to order placement'}
                     </Text>
                   </View>
                 )}
