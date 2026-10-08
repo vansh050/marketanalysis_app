@@ -39,6 +39,58 @@ export const accountRecoveryTitle = recovery => {
   return 'Broker account needs attention';
 };
 
+// The card's pending badge. "Awaiting Broker Confirmation" is right only while
+// the blocker really is a broker order/account check. An ownership conflict or
+// a blocker stuck for days is not waiting on the broker; labelling it that way
+// made a tester read a 6-day-old Dhan holdings conflict as the previous
+// broker's (Zerodha's) order status carrying over (moneyman testaccount,
+// 2026-10-08). Presentation only: never use this to gate an action.
+const AWAITING_BROKER_LABEL = 'Awaiting Broker Confirmation';
+const BROKER_WAIT_TITLES = new Set([
+  'Broker order status is pending',
+  'Broker account check in progress',
+]);
+
+export const pendingVerificationBadgeLabel = recovery => {
+  if (recovery?.blocked !== true) return AWAITING_BROKER_LABEL;
+  const title = accountRecoveryTitle(recovery);
+  return BROKER_WAIT_TITLES.has(title) ? AWAITING_BROKER_LABEL : title;
+};
+
+const normalizeRecoveryModelName = value =>
+  String(value ?? '').replace(/_/g, ' ').trim().toLowerCase();
+
+/**
+ * The blocked recovery that explains THIS card's pending state, if any.
+ *
+ * A reconciling model entry from get-repair can arrive without `modelId`, so
+ * the card's id-matched `matchingFailedTrades` is empty and only the
+ * account-level `pending` flag survives. Fall back to the same-name entry for
+ * the label. Order: id-matched row, same-name repair row, account-level.
+ */
+export const pendingVerificationRecovery = ({
+  matchingFailedTrades,
+  repairModels,
+  modelId,
+  modelName,
+  accountRecovery,
+} = {}) => {
+  const current = modelId != null && modelId !== '' ? String(modelId) : null;
+  const wanted = normalizeRecoveryModelName(modelName);
+  const sameModel = (repairModels || []).find(item => {
+    if (!item || item.accountRecovery?.blocked !== true) return false;
+    if (current && item.modelId != null && item.modelId !== '') {
+      return String(item.modelId) === current;
+    }
+    return !!wanted && normalizeRecoveryModelName(item.modelName) === wanted;
+  });
+  return [
+    matchingFailedTrades?.accountRecovery,
+    sameModel?.accountRecovery,
+    accountRecovery,
+  ].find(recovery => recovery?.blocked === true) || null;
+};
+
 // Blocker causes that no amount of holdings editing can clear: they are waiting
 // on the broker, or on us, not on the customer's answer about who owns what.
 const HOLDINGS_UNRESOLVABLE_CAUSES = new Set([

@@ -1037,6 +1037,22 @@ opens the same immutable Repair review. Its new badge style resolves through
 `useTokens()` so the status remains variant-aware while the rest of this
 legacy card awaits its Phase I container/presentation split.
 
+**Pending badge wording (2026-10-08).** The pending STATE
+(`isPendingVerification`) is unchanged; only its badge text now names what it
+waits on. `accountRecoveryUx.pendingVerificationRecovery` picks the blocked
+recovery for this card — the id-matched `matchingFailedTrades.accountRecovery`,
+else the same-name `modelPortfolioRepairTrades` row (a reconciling get-repair
+model row can arrive without `modelId`, so the id match alone finds nothing),
+else the account-level `repairReconciliation.accountRecovery`.
+`pendingVerificationBadgeLabel` keeps "Awaiting Broker Confirmation" only for
+broker waits (`orders_unresolved`, `reconciling`, or no blocker known) and
+otherwise shows `accountRecoveryTitle`, e.g. "Portfolio holdings need review"
+for an `ownership_conflict`, "Verification needs support" once `staleDays > 0`.
+Why: after switching Zerodha → Dhan, a moneyman tester read a 6-day-old Dhan
+ownership conflict labelled "Awaiting Broker Confirmation" as the Zerodha
+execution's status carrying over. The badge is presentation only; never gate an
+action on it.
+
 ### 5f. Rebalance broker-connect intent TTL
 
 **File:** `src/components/AdviceScreenComponents/RebalanceAdvices.js`

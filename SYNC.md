@@ -134,3 +134,7 @@ decide whether to migrate.
   Reanimated 4 + Worklets hold.
 - OTA plumbing has no baked-in MarketAnalysis deployment key and no OTA was
   published as part of this sync.
+
+### 2026-10-08 targeted port
+
+Ported Alphab2bapp `87a06db7` (rebalance card pending-badge wording): `RebalanceCard.js`, `utils/accountRecoveryUx.js`, `rebalanceCardGate.test.js`, new `pendingVerificationBadge.test.js`. No OTA.

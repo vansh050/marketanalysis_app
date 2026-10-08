@@ -20,7 +20,12 @@ import Toast from 'react-native-toast-message';
 import {classifyFundsResponse} from '../../utils/brokerSessionValidator';
 import {hasVerifiedExecutionCompletion} from '../../utils/modelPortfolioExecution';
 import {isPublisherLegTerminal} from '../../utils/publisherOrderLabel';
-import {accountRecoveryTitle, holdingsReviewCanResolve} from '../../utils/accountRecoveryUx';
+import {
+  accountRecoveryTitle,
+  holdingsReviewCanResolve,
+  pendingVerificationBadgeLabel,
+  pendingVerificationRecovery,
+} from '../../utils/accountRecoveryUx';
 import {findResolvedModelForRecommendation} from '../../utils/rebalanceReconciliation';
 import eventEmitter from '../../components/EventEmitter';
 import LinearGradient from 'react-native-linear-gradient';
@@ -124,6 +129,7 @@ const RebalanceCard = ({
     getRecentRepairResult,
     getModelPortfolioStrategyDetails,
     modelPortfolioStrategyfinal,
+    modelPortfolioRepairTrades,
     repairReconciliation,
   } = useTrade();
   const angelOneApiKey = configData?.config.REACT_APP_ANGEL_ONE_API_KEY;
@@ -741,6 +747,19 @@ const RebalanceCard = ({
     !requiresFreshRebalance &&
     ((hasExecutionRecord && userExecution?.status === 'pending' && brokerMatchesExecution) ||
       brokerReconciliationPending);
+  // Label only. The pending STATE above is unchanged; this names what it is
+  // actually waiting on (e.g. an ownership review, not the broker).
+  const pendingBadgeLabel = isPendingVerification
+    ? pendingVerificationBadgeLabel(
+        pendingVerificationRecovery({
+          matchingFailedTrades,
+          repairModels: modelPortfolioRepairTrades,
+          modelId: data?.model_Id,
+          modelName: typeof modelName === 'string' ? modelName : modelName?.name,
+          accountRecovery: repairReconciliation?.accountRecovery,
+        }),
+      )
+    : null;
   // Broker/frozen-plan verified failed legs are the Repair authority. The
   // subscriber summary is only a projection and can be absent, duplicated, or
   // reset to `toExecute` during consolidation. Requiring that row here made
@@ -1453,7 +1472,7 @@ const RebalanceCard = ({
             <View style={{alignItems: 'center', marginBottom: 4, marginTop: 4}}>
               <View style={{backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12}}>
                 <Text style={{color: 'rgba(255,255,255,0.9)', fontSize: 12, fontFamily: designFont('Satoshi-Medium')}}>
-                  Awaiting Broker Confirmation
+                  {pendingBadgeLabel}
                 </Text>
               </View>
             </View>

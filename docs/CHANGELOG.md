@@ -1,5 +1,14 @@
 # Changelog
 
+## 2026-10-08 — Rebalance card names what its pending badge is waiting on
+
+Ported from Alphab2bapp `87a06db7`. Every pending state rendered "Awaiting
+Broker Confirmation", including a server `ownership_conflict` that says to
+contact support (moneyman testaccount read a 6-day-old Dhan conflict as the
+previous broker's status). Non-broker blockers now show `accountRecoveryTitle`
+("Portfolio holdings need review" / "Verification needs support"). Label only;
+gate logic unchanged. Not released (no OTA).
+
 ## 2026-10-02 — full AlphaB2B shared-layer sync (`0e68359d`)
 
 - Reconciled the complete shared app, design-default, tests, scripts, and

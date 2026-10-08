@@ -72,6 +72,12 @@ describe('RebalanceCard source contract', () => {
     expect(SOURCE).toContain("'Refresh Order Status'");
   });
 
+  it('labels the pending badge by what it waits on, without changing the gate', () => {
+    expect(SOURCE).toContain('{pendingBadgeLabel}');
+    expect(SOURCE).toContain('pendingVerificationRecovery({');
+    expect(SOURCE).toContain('repairModels: modelPortfolioRepairTrades');
+  });
+
   it('uses the account-wide reconciliation barrier when no model repair row exists', () => {
     expect(SOURCE).toContain('repairReconciliation?.pending === true');
     expect(SOURCE).toContain('accountReconciliationPending');
