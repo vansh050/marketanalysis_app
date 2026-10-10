@@ -49,6 +49,9 @@ const UpstoxModal = ({
   setShowBrokerModal,
   fetchBrokerStatusModal,
   reauthConfig,
+  // One-tap execute (2026-10-10): set when an Accept/Execute tap hit an
+  // expired Upstox session and this phone holds a saved PIN+TOTP.
+  autoUnlock = false,
 }) => {
   const { configData } = useTrade();
   const freshConfig = useConfig();
@@ -615,7 +618,13 @@ const UpstoxModal = ({
       onClose?.();
       setShowBrokerModal?.(false);
       const result = await fetchBrokerStatusModal?.();
-      eventEmitter.emit('refreshEvent', {source: 'Upstox device TOTP reconnect'});
+      // `broker connection` is the token the waiting trade/rebalance cards
+      // match to resume the original order (RebalanceCard matches only
+      // "broker connection" / " connect"; the old 'Upstox device TOTP
+      // reconnect' source silently skipped the rebalance resume).
+      eventEmitter.emit('refreshEvent', {
+        source: 'Upstox broker connection (device TOTP reconnect)',
+      });
       if (!result?.migrationWillShow) {
         showAlert('success', 'Upstox reconnected', 'Your protected login was unlocked on this phone.');
       }
@@ -659,6 +668,25 @@ const UpstoxModal = ({
     // to OAuth and must not trigger another biometric prompt in this open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isVisible, reauthConfig]);
+
+  // One-tap execute (2026-10-10). Opened from an expired Accept/Execute tap
+  // (no reauthConfig — BrokerSelectionModal already confirmed a saved vault):
+  // raise the biometric prompt immediately. Shares quickReconnectStartedRef
+  // with the reauth path above, so at most one prompt per opening; a failure
+  // leaves the normal sheet in place and is never retried automatically.
+  useEffect(() => {
+    if (!isVisible || !autoUnlock || reauthConfig) return;
+    if (!deviceTotpEnabled || !userEmail) return;
+    if (quickReconnectStartedRef.current) return;
+    quickReconnectStartedRef.current = true;
+    (async () => {
+      const saved = await hasDeviceTotp(totpIdentity).catch(() => false);
+      setHasSavedTotp(saved);
+      if (saved) await reconnectWithDeviceTotp();
+    })();
+    // Deliberately once per opening (see above).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isVisible, autoUnlock, reauthConfig]);
 
   const forgetSavedTotp = async () => {
     await removeDeviceTotp(totpIdentity);

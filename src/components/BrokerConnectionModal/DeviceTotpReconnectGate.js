@@ -203,6 +203,9 @@ const DeviceTotpReconnectGate = ({
   onClose,
   setShowBrokerModal,
   fetchBrokerStatusModal,
+  // One-tap execute (2026-10-10): set by BrokerSelectionModal when an Accept /
+  // Execute tap hit an expired session and this phone holds a saved vault.
+  autoUnlock = false,
 }) => {
   const definition = BROKERS[brokerName];
   const {configData} = useTrade();
@@ -567,6 +570,35 @@ const DeviceTotpReconnectGate = ({
   // disabled "Verify & enable quick reconnect" and the working unlock was a
   // small text link inside the card, which customers missed (Fyers report).
   const quickReconnectReady = hasSaved && !requiresOAuth && !checking;
+
+  // One-tap execute (2026-10-10). When opened from an expired Accept/Execute
+  // tap (`autoUnlock`), raise the biometric prompt as soon as the server state
+  // confirms the saved vault is usable — the customer already said "go" with
+  // the Accept tap, so a second "Reconnect with biometric unlock" tap is pure
+  // friction. Exactly once per opening: a cancelled or failed unlock leaves
+  // this sheet open with its normal button and normal-login fallback, and is
+  // never retried automatically (brokers lock logins after repeated bad TOTPs).
+  // finishSuccess emits `<broker> broker connection`, which the waiting
+  // trade/rebalance card listens for to resume the original order.
+  const autoUnlockStartedRef = useRef(false);
+  useEffect(() => {
+    if (!isVisible) {
+      autoUnlockStartedRef.current = false;
+      return;
+    }
+    if (!autoUnlock || !quickReconnectReady || loading) return;
+    if (autoUnlockStartedRef.current) return;
+    autoUnlockStartedRef.current = true;
+    recordBreadcrumb('auto_unlock_started', {branch: 'quick_reconnect'});
+    unlockAndReconnect();
+  }, [
+    autoUnlock,
+    isVisible,
+    loading,
+    quickReconnectReady,
+    recordBreadcrumb,
+    unlockAndReconnect,
+  ]);
   const quickReconnectConfig = useMemo(
     () => ({
       monogram: definition?.monogram,
