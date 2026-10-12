@@ -130,6 +130,26 @@ the reconciliation cron caught the CashFree webhook. The sheet now:
   on the CashFree order; the server tags the order with it and prints it on
   the course invoice, matching the web checkout.
 
+**Gateway follows supportAQ (2026-10-12).** Before paying, the sheet asks
+`GET /api/student-payments/gateway` (`{ gateway, website }`), the same
+gateway the advisor picked in supportAQ:
+- `cashfree` (or the lookup failed) → the CashFree flow above, unchanged.
+  If the advisor is not on CashFree the server refuses the order with
+  `409 USE_STUDENT_CHECKOUT` instead of collecting into the platform's
+  default account.
+- `razorpay` → `POST /api/student-payments/course/checkout` (Firebase
+  Bearer; the server prices the order, coupon included; the app sends no
+  amount) → `react-native-razorpay` on the returned `{ key, orderId,
+  amount }` → `POST /api/student-payments/confirm`, then poll
+  `/status/:orderId`. If Razorpay is closed, the server is asked once before
+  showing "cancelled". Anything short of confirmed is shown as "access
+  unlocking within minutes" (the server's sweep finishes it).
+- `payu` / `phonepe` → opens `<website>/course/<id>`; those gateways need a
+  browser redirect, so the purchase completes on the web.
+
+Service: `src/FunctionCall/services/StudentPaymentService.js`. Pinned by
+`src/__tests__/components/CoursePurchaseSheet.gateway.test.js`.
+
 `getClientCourseDetails` sends the Bearer (the server reads identity from
 the token), and `getCourse` sends it when signed in (drafts).
 `addClientCourse` was removed from the app service.

@@ -45,7 +45,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Linking,
 } from 'react-native';
+import RazorpayCheckout from 'react-native-razorpay';
 import Config from 'react-native-config';
 import { CFPaymentGatewayService } from 'react-native-cashfree-pg-sdk';
 import {
@@ -58,6 +60,7 @@ import {
 import couponService from '../FunctionCall/services/CouponService';
 import cashfreeOrderService from '../FunctionCall/services/CashFreeOrderService';
 import gumletService from '../FunctionCall/services/GumletService';
+import studentPaymentService from '../FunctionCall/services/StudentPaymentService';
 import { getAuth } from '@react-native-firebase/auth';
 import {
   getCashfreeEnvironment,
@@ -300,10 +303,105 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
     });
   }
 
+  // Course payments follow the gateway the advisor chose in supportAQ
+  // (2026-10-12). CashFree keeps the flow below; Razorpay runs natively
+  // here; PayU and PhonePe need a browser redirect, so the buyer finishes
+  // on the advisor's website. If the lookup fails, the CashFree path runs
+  // and the server refuses it (409 USE_STUDENT_CHECKOUT) for a non-CashFree
+  // advisor rather than collect into the wrong account.
   async function handlePaidPay() {
     setPhase('paying');
     setErrorMsg('');
+    let gw = null;
+    try {
+      gw = await studentPaymentService.getGateway();
+    } catch (e) {
+      console.warn('[CoursePurchaseSheet] gateway lookup failed:', e?.message);
+    }
+    if (gw?.gateway === 'razorpay') {
+      await payWithRazorpay();
+      return;
+    }
+    if (gw?.gateway === 'payu' || gw?.gateway === 'phonepe') {
+      if (gw.website) {
+        Linking.openURL(`${gw.website}/course/${course._id}`).catch(() => {});
+        setErrorMsg('Please complete this purchase on the website we just opened. Your course appears here once paid.');
+      } else {
+        setErrorMsg('Please buy this course on the advisor\'s website.');
+      }
+      setPhase('form');
+      return;
+    }
+    await payWithCashfree();
+  }
 
+  async function payWithRazorpay() {
+    let order;
+    try {
+      order = await studentPaymentService.startCourseCheckout({
+        courseId: course._id,
+        couponId: appliedCoupon?.couponId || appliedCoupon?._id || undefined,
+        name: name.trim(),
+        mobile: mobile.trim(),
+        pan: pan.trim().toUpperCase(),
+        gstin: gstin.trim().toUpperCase() || undefined,
+      });
+    } catch (e) {
+      if (e?.code === 'USE_CASHFREE') {
+        await payWithCashfree();
+        return;
+      }
+      setErrorMsg(e?.message || 'Could not start payment');
+      setPhase('form');
+      return;
+    }
+    const c = order.checkout || {};
+    let resp;
+    try {
+      resp = await RazorpayCheckout.open({
+        key: c.key,
+        order_id: c.orderId,
+        amount: c.amount,
+        currency: c.currency || 'INR',
+        name: c.name || course.title || 'Course',
+        description: course.title || '',
+        prefill: c.prefill || {},
+      });
+    } catch (e) {
+      // Closed or failed inside Razorpay. Ask the server once in case the
+      // payment went through anyway (it is the authority, not this callback).
+      const st = await studentPaymentService.status(order.orderId).catch(() => null);
+      if (st?.status === 'fulfilled') {
+        finishStudentPurchase(order.orderId, true);
+        return;
+      }
+      setErrorMsg(e?.description || e?.error?.description || 'Payment cancelled');
+      setPhase('form');
+      return;
+    }
+    let final = await studentPaymentService.confirm(order.orderId, {
+      razorpay: { paymentId: resp?.razorpay_payment_id, orderId: resp?.razorpay_order_id, signature: resp?.razorpay_signature },
+    }).catch(() => null);
+    if (final?.status !== 'fulfilled') {
+      final = await studentPaymentService.waitForFinal(order.orderId);
+    }
+    // Paid either way at this point: anything short of fulfilled is
+    // finished by the server's reconciliation within minutes.
+    finishStudentPurchase(order.orderId, final?.status === 'fulfilled');
+  }
+
+  function finishStudentPurchase(orderId, confirmed) {
+    setPendingAccess(!confirmed);
+    setPhase('done');
+    onPurchased && onPurchased({
+      paymentStatus: confirmed ? 'paid' : 'paid_pending',
+      buyerEmail: email.trim().toLowerCase(),
+      courseId: course._id,
+      orderId,
+    });
+  }
+
+  async function payWithCashfree() {
     let cfOrderResponse;
     try {
       cfOrderResponse = await cashfreeOrderService.createCourseOrder({
