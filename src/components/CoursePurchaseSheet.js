@@ -5,7 +5,7 @@
  * coupon input UI that exists as dead code in web's CoursePaymentModal.
  *
  * Flow:
- *  1. Buyer enters email, name, mobile, PAN, (optional) coupon code.
+ *  1. Buyer enters email, name, mobile, PAN, GSTIN, (optional) coupon code.
  *  2. Apply coupon → CouponService.checkCoupon — sets discount/finalAmount.
  *  3. Tap Pay:
  *     a. CashFreeOrderService.createCourseOrder (carries couponId) →
@@ -68,6 +68,8 @@ import { designColor } from '../design/literalTokens';
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
+// Same format the server checks before tagging the CashFree order.
+const GSTIN_RE = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][0-9A-Z]Z[0-9A-Z]$/;
 
 export default function CoursePurchaseSheet({ visible, onClose, course, onPurchased }) {
   const [phase, setPhase] = useState('form'); // form | paying | done
@@ -75,6 +77,7 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
   const [name, setName] = useState('');
   const [mobile, setMobile] = useState('');
   const [pan, setPan] = useState('');
+  const [gstin, setGstin] = useState('');
   const [couponCode, setCouponCode] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponMsg, setCouponMsg] = useState('');
@@ -225,6 +228,10 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
     if (!mobile.trim() || mobile.trim().length < 10) return 'Please enter a 10-digit mobile';
     const cleanPan = pan.trim().toUpperCase();
     if (cleanPan && !PAN_RE.test(cleanPan)) return 'PAN must be 5 letters + 4 digits + 1 letter (e.g. ABCDE1234F)';
+    const cleanGstin = gstin.trim().toUpperCase();
+    if (cleanGstin && !GSTIN_RE.test(cleanGstin)) {
+      return 'GSTIN must be 15 characters (e.g. 27ABCDE1234F1Z5)';
+    }
     return '';
   }
 
@@ -305,6 +312,7 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
         user_email: email.trim().toLowerCase(),
         mobileNumber: mobile.trim(),
         pan: pan.trim().toUpperCase(),
+        gstin: gstin.trim().toUpperCase() || undefined,
         course,
         name: name.trim(),
         userId: undefined, // resolved server-side by email if absent
@@ -494,6 +502,15 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
                 editable={phase !== 'paying'}
                 autoCapitalize="characters"
                 placeholder="ABCDE1234F"
+                style={styles.input}
+              />
+              <Text style={styles.label}>GSTIN (optional, for a business invoice)</Text>
+              <TextInput
+                value={gstin}
+                onChangeText={(t) => setGstin(t.replace(/[^0-9A-Za-z]/g, '').toUpperCase().slice(0, 15))}
+                editable={phase !== 'paying'}
+                autoCapitalize="characters"
+                placeholder="27ABCDE1234F1Z5"
                 style={styles.input}
               />
 

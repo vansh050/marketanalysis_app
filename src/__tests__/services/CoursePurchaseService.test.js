@@ -55,3 +55,15 @@ test('enrollment lookup is identity-bound (Bearer, no email param)', async () =>
   expect(opts.params).toEqual({ courseId: 'c1' });
   expect(opts.headers.Authorization).toBe('Bearer t');
 });
+
+test('the course order carries the coupon and an optional GSTIN', async () => {
+  const cashfreeOrderService = require('../../FunctionCall/services/CashFreeOrderService').default;
+  const base = { amount: 499, customerId: 'A-1', user_email: 'a@b.com', mobileNumber: '9999999999', pan: '', course: { _id: 'c1', title: 'C' }, name: 'A' };
+  await cashfreeOrderService.createCourseOrder({ ...base, couponId: 'k1', gstin: '27AAPFU0939F1ZV' });
+  let body = axios.post.mock.calls[0][1];
+  expect(body.couponId).toBe('k1');
+  expect(body.gstin).toBe('27AAPFU0939F1ZV');
+  await cashfreeOrderService.createCourseOrder(base);
+  body = axios.post.mock.calls[1][1];
+  expect('gstin' in body).toBe(false);
+});

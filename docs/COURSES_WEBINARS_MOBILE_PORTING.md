@@ -126,6 +126,9 @@ the reconciliation cron caught the CashFree webhook. The sheet now:
   tells the buyer access will unlock within minutes (the cron path) and
   never "payment failed";
 - enrolls ₹0 through `/client-course/claim-free`.
+- takes an optional GSTIN (same format check as the server) and sends it
+  on the CashFree order; the server tags the order with it and prints it on
+  the course invoice, matching the web checkout.
 
 `getClientCourseDetails` sends the Bearer (the server reads identity from
 the token), and `getCourse` sends it when signed in (drafts).

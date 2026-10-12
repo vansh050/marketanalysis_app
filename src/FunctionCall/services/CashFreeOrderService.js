@@ -39,7 +39,7 @@ class CashFreeOrderService {
    * `data.payment_session_id` (for the SDK) and `subscription.cashfree_order_id`
    * (for the post-payment status check + confirmCoursePurchase call).
    */
-  async createCourseOrder({ amount, customerId, user_email, mobileNumber, pan, course, name, userId, couponId }) {
+  async createCourseOrder({ amount, customerId, user_email, mobileNumber, pan, gstin, course, name, userId, couponId }) {
     // P4 (web-parity D10): block a ₹0 (100%-coupon) order before it reaches the
     // gateway — the gateway succeeds at ₹0 and the buyer is entitled without paying.
     // Shared guard, identical to the subscription path. See WEB_PARITY_MIGRATION §5.3.
@@ -58,6 +58,8 @@ class CashFreeOrderService {
         user_email,
         mobileNumber: String(mobileNumber),
         pan,
+        // Optional; the server validates it and prints it on the invoice.
+        ...(gstin ? { gstin: String(gstin) } : {}),
         advisor: Config.REACT_APP_ADVISOR_SPECIFIC_TAG,
         // Course-purchase markers — embedded in CF order_tags so the
         // webhook + reconciliation cron can write the CCL row server-side
