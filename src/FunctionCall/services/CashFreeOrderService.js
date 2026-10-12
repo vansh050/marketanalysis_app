@@ -37,9 +37,9 @@ class CashFreeOrderService {
    *
    * Returns the raw server response so the caller can pick out both
    * `data.payment_session_id` (for the SDK) and `subscription.cashfree_order_id`
-   * (for the post-payment status check + addClientCourse stamp).
+   * (for the post-payment status check + confirmCoursePurchase call).
    */
-  async createCourseOrder({ amount, customerId, user_email, mobileNumber, pan, course, name, userId }) {
+  async createCourseOrder({ amount, customerId, user_email, mobileNumber, pan, course, name, userId, couponId }) {
     // P4 (web-parity D10): block a ₹0 (100%-coupon) order before it reaches the
     // gateway — the gateway succeeds at ₹0 and the buyer is entitled without paying.
     // Shared guard, identical to the subscription path. See WEB_PARITY_MIGRATION §5.3.
@@ -67,6 +67,9 @@ class CashFreeOrderService {
         validityDurationDays: course.validityDurationDays,
         userId,
         name,
+        // The server recomputes the expected price from this coupon when it
+        // confirms the purchase; without it a discounted order is refused.
+        ...(couponId ? { couponId: String(couponId) } : {}),
       },
       { headers: getPublicHeaders() },
     );

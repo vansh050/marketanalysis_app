@@ -8,19 +8,24 @@
  *  1. Buyer enters email, name, mobile, PAN, (optional) coupon code.
  *  2. Apply coupon → CouponService.checkCoupon — sets discount/finalAmount.
  *  3. Tap Pay:
- *     a. Pre-payment enrollment row (idempotent on orderId; placeholder
- *        for status until the post-payment update writes the final state).
- *     b. CashFreeOrderService.createCourseOrder → returns
+ *     a. CashFreeOrderService.createCourseOrder (carries couponId) →
  *        payment_session_id + cashfree_order_id.
- *     c. CFDropCheckoutPayment via the existing
+ *     b. CFDropCheckoutPayment via the existing
  *        react-native-cashfree-pg-sdk (same as BuyWebinarTicketSheet).
- *     d. On verify: getOrderStatus → if SUCCESS, addClientCourse again
- *        with the final payment status + cf_payment_id.
- *     e. onPurchased(result) called.
+ *     c. On verify: getOrderStatus → if SUCCESS, confirmCoursePurchase
+ *        (POST /client-course/purchase). The server verifies the order is
+ *        PAID, belongs to the signed-in account and this course, and
+ *        matches the server price, then enrolls. 402 = not verifiable yet:
+ *        the cron enrolls within minutes, so we say so instead of failing.
+ *     d. onPurchased(result) called.
  *  4. FREE path (course.price === 0 OR coupon brings amount to 0):
- *     Skip CashFree entirely; call addClientCourse with paymentMode:'free'
- *     and a synthetic orderId so the server's idempotency still keys
- *     properly.
+ *     claimFreeCourse (POST /client-course/claim-free). The server
+ *     recomputes the price and refuses anything above ₹0.
+ *
+ *  The buyer is always the signed-in Firebase account (2026-10-12): the
+ *  email field shows it read-only. Until then the sheet wrote the
+ *  enrollment through the admin-only /client-course/add, which refused it —
+ *  free enrollments never landed and paid ones waited for the cron.
  *
  * Server-side webhook + reconciliation cron is the safety net for any
  * FE failure between (b) and (d).
@@ -53,6 +58,7 @@ import {
 import couponService from '../FunctionCall/services/CouponService';
 import cashfreeOrderService from '../FunctionCall/services/CashFreeOrderService';
 import gumletService from '../FunctionCall/services/GumletService';
+import { getAuth } from '@react-native-firebase/auth';
 import {
   getCashfreeEnvironment,
   friendlyPaymentError,
@@ -74,10 +80,16 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
   const [couponMsg, setCouponMsg] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
+  // Paid, but the server could not verify the order yet (402): access is
+  // granted by the reconciliation cron within minutes.
+  const [pendingAccess, setPendingAccess] = useState(false);
   const handledRef = useRef(false);
 
   useEffect(() => {
     if (visible) {
+      // The purchase identity is the signed-in account, not a typed email.
+      setEmail(String(getAuth().currentUser?.email || '').trim().toLowerCase());
+      setPendingAccess(false);
       setPhase('form');
       setErrorMsg('');
       setCouponMsg('');
@@ -205,7 +217,10 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
 
   function validateInputs() {
     const cleanEmail = email.trim().toLowerCase();
-    if (!cleanEmail || !EMAIL_RE.test(cleanEmail)) return 'Please enter a valid email';
+    if (!getAuth().currentUser) {
+      return 'Please sign in to enroll';
+    }
+    if (!cleanEmail || !EMAIL_RE.test(cleanEmail)) return 'Your account has no email address. Please sign in with an email to enroll.';
     if (!name.trim()) return 'Please enter your name';
     if (!mobile.trim() || mobile.trim().length < 10) return 'Please enter a 10-digit mobile';
     const cleanPan = pan.trim().toUpperCase();
@@ -213,49 +228,59 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
     return '';
   }
 
-  async function writePreOrPostEnrollment({ orderId, paymentStatus, transactionId, rawData, paymentMode }) {
+  function serverMessage(e, fallback) {
+    return e?.response?.data?.message || e?.message || fallback;
+  }
+
+  // Paid: confirm with the server, which verifies the order at CashFree.
+  async function finishPaidPurchase(status, cashfreeOrderId) {
+    const orderId = status?.order_id || cashfreeOrderId;
+    let pending = false;
     try {
-      return await gumletService.addClientCourse({
-        userEmail: email.trim().toLowerCase(),
-        name: name.trim(),
-        pan: pan.trim().toUpperCase() || undefined,
-        phoneNumber: mobile.trim(),
-        courseId: course._id,
-        courseTitle: course.title,
-        transactionId: transactionId || undefined,
-        amount: finalAmount,
-        validityDurationDays: course.validityDurationDays,
-        paymentMode: paymentMode || 'Cashfree',
-        status: paymentStatus,
-        rawData: rawData || undefined,
-        paymentDate: new Date(),
-        orderId,
-        couponId: appliedCoupon?.couponId || appliedCoupon?._id || undefined,
-        couponCode: appliedCoupon ? couponCode.trim() : undefined,
-      });
+      await gumletService.confirmCoursePurchase({ courseId: course._id, orderId, name: name.trim() });
     } catch (e) {
-      // The webhook + cron path is the safety net. Surface but don't
-      // unwind: a successful CF payment that fails to write the row
-      // client-side will still land within ~5 minutes via the cron.
-      console.warn('[CoursePurchaseSheet] addClientCourse failed:', e?.message);
-      return null;
+      // Money was taken either way. 402 = the gateway hasn't confirmed to
+      // the server yet; the reconciliation cron enrolls within minutes.
+      // Anything else: the order is still on record server-side, so the
+      // same cron path applies — never tell a paying buyer it failed.
+      pending = true;
+      console.warn('[CoursePurchaseSheet] confirmCoursePurchase:', e?.response?.status, serverMessage(e, ''));
     }
+    setPendingAccess(pending);
+    setPhase('done');
+    onPurchased && onPurchased({
+      paymentStatus: pending ? 'paid_pending' : 'paid',
+      buyerEmail: email.trim().toLowerCase(),
+      courseId: course._id,
+      orderId,
+      transactionId: status?.cf_payment_id,
+    });
   }
 
   async function handleFreePay() {
     setPhase('paying');
     setErrorMsg('');
-    // Stable orderId so a double-tap from the user collapses into an
-    // idempotent_update on the server side (matches the webinar free-path
-    // pattern from Phase 1b).
-    const syntheticOrderId = `FREE_COURSE_${course._id}_${email.trim().toLowerCase()}`;
-    const result = await writePreOrPostEnrollment({
-      orderId: syntheticOrderId,
-      paymentStatus: 'success',
-      paymentMode: appliedCoupon ? 'coupon_free' : 'free',
-    });
+    let result;
+    try {
+      result = await gumletService.claimFreeCourse({
+        courseId: course._id,
+        couponId: appliedCoupon?.couponId || appliedCoupon?._id || undefined,
+        name: name.trim(),
+      });
+    } catch (e) {
+      const code = e?.response?.status;
+      setErrorMsg(
+        code === 402
+          ? 'This course is not free at the current price. Please refresh and pay to enroll.'
+          : code === 409
+            ? serverMessage(e, 'This coupon is no longer available.')
+            : serverMessage(e, 'Could not record free enrollment. Please try again.'),
+      );
+      setPhase('form');
+      return;
+    }
     if (!result?.success) {
-      setErrorMsg('Could not record free enrollment. Please try again.');
+      setErrorMsg(result?.message || 'Could not record free enrollment. Please try again.');
       setPhase('form');
       return;
     }
@@ -283,6 +308,7 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
         course,
         name: name.trim(),
         userId: undefined, // resolved server-side by email if absent
+        couponId: appliedCoupon?.couponId || appliedCoupon?._id || undefined,
       });
     } catch (e) {
       setErrorMsg(e?.response?.data?.message || e?.message || 'Could not start payment');
@@ -318,21 +344,7 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
         try {
           const status = await cashfreeOrderService.getOrderStatus(cashfreeOrderId);
           if (String(status?.payment_status || '').toUpperCase() === 'SUCCESS') {
-            await writePreOrPostEnrollment({
-              orderId: status?.order_id || cashfreeOrderId,
-              paymentStatus: 'success',
-              transactionId: status?.cf_payment_id,
-              rawData: status,
-              paymentMode: 'Cashfree',
-            });
-            setPhase('done');
-            onPurchased && onPurchased({
-              paymentStatus: 'paid',
-              buyerEmail: email.trim().toLowerCase(),
-              courseId: course._id,
-              orderId: status?.order_id || cashfreeOrderId,
-              transactionId: status?.cf_payment_id,
-            });
+            await finishPaidPurchase(status, cashfreeOrderId);
           } else {
             setErrorMsg(`Payment ${String(status?.payment_status || 'unknown').toLowerCase()}`);
             setPhase('form');
@@ -362,21 +374,7 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
         try {
           const status = await cashfreeOrderService.getOrderStatus(cashfreeOrderId);
           if (String(status?.payment_status || '').toUpperCase() === 'SUCCESS') {
-            await writePreOrPostEnrollment({
-              orderId: status?.order_id || cashfreeOrderId,
-              paymentStatus: 'success',
-              transactionId: status?.cf_payment_id,
-              rawData: status,
-              paymentMode: 'Cashfree',
-            });
-            setPhase('done');
-            onPurchased && onPurchased({
-              paymentStatus: 'paid',
-              buyerEmail: email.trim().toLowerCase(),
-              courseId: course._id,
-              orderId: status?.order_id || cashfreeOrderId,
-              transactionId: status?.cf_payment_id,
-            });
+            await finishPaidPurchase(status, cashfreeOrderId);
             return;
           }
         } catch {}
@@ -453,7 +451,9 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
           {phase === 'done' ? (
             <View style={styles.doneBox}>
               <Text style={styles.doneText}>
-                Enrolled. Your course is now unlocked.
+                {pendingAccess
+                  ? 'Payment received. Your course will unlock within a few minutes — no need to pay again.'
+                  : 'Enrolled. Your course is now unlocked.'}
               </Text>
               <TouchableOpacity onPress={onClose} style={styles.doneClose}>
                 <Text style={styles.doneCloseText}>Close</Text>
@@ -462,14 +462,14 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
           ) : (
             <ScrollView style={{ marginTop: 12 }} keyboardShouldPersistTaps="handled">
               <Text style={styles.label}>Email *</Text>
+              {/* Read-only: the course is added to the signed-in account. */}
               <TextInput
                 value={email}
-                onChangeText={setEmail}
-                editable={phase !== 'paying'}
+                editable={false}
                 keyboardType="email-address"
                 autoCapitalize="none"
-                placeholder="you@example.com"
-                style={styles.input}
+                placeholder="Sign in to enroll"
+                style={[styles.input, styles.inputReadOnly]}
               />
               <Text style={styles.label}>Name *</Text>
               <TextInput
@@ -583,6 +583,7 @@ const styles = StyleSheet.create({
   closeX: { fontSize: 26, color: designColor('9ca3af'), paddingHorizontal: 4 },
   courseTitle: { fontSize: 14, fontWeight: '600', color: designColor('111827'), marginTop: 10 },
   courseMeta: { fontSize: 11, color: designColor('6b7280'), marginTop: 4 },
+  inputReadOnly: { opacity: 0.7 },
   doneBox: { marginTop: 16, backgroundColor: designColor('f0fdf4'), borderColor: designColor('bbf7d0'), borderWidth: 1, borderRadius: 8, padding: 14 },
   doneText: { color: designColor('166534'), fontSize: 13 },
   doneClose: { marginTop: 10, alignSelf: 'flex-start' },

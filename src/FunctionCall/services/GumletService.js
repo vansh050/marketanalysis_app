@@ -15,16 +15,19 @@
  *                                               returns { embedUrl, url,
  *                                               expiresAt, drm, format }.
  *
+ * Purchase: confirmCoursePurchase (paid, gateway-verified) and
+ * claimFreeCourse (₹0). Both enroll the Firebase identity.
+ *
  * Admin CRUD (collections/create, demo-course/create, lesson/module mutators,
- * trailer-token, client-course/add) is intentionally omitted — mobile is
- * viewer-only for v1.
+ * trailer-token, the admin-only client-course/add) is intentionally
+ * omitted — the app never writes enrollments directly.
  *
  * Cross-ref: Alphab2bapp/docs/COURSES_WEBINARS_MOBILE_PORTING.md §4.5.
  */
 
 import axios from 'axios';
 import server from '../../utils/serverConfig';
-import { getPublicHeaders, getAuthedHeaders } from '../../utils/courseAuthHeaders';
+import { getPublicHeaders, getAuthedHeaders, getOptionalAuthHeaders } from '../../utils/courseAuthHeaders';
 
 const BASE = `${server.server.baseUrl}api/gumlet`;
 
@@ -35,7 +38,9 @@ class GumletService {
   }
 
   async getCourse(courseId) {
-    const res = await axios.get(`${BASE}/collections/${courseId}`, { headers: getPublicHeaders() });
+    // A draft course is returned only to its admins / enrolled customers
+    // (server, 2026-10-12), so send the sign-in when there is one.
+    const res = await axios.get(`${BASE}/collections/${courseId}`, { headers: await getOptionalAuthHeaders() });
     return res.data;
   }
 
@@ -59,45 +64,43 @@ class GumletService {
   }
 
   /**
-   * Post-payment enrollment writer. Mirrors web's pattern in
-   * courseDetailsPage.handleAddCourseClient — called TWICE in the web
-   * flow: once before CashFree popup (orderId stamp, no payment_status)
-   * and again after SUCCESS (transactionId + payment_status filled in).
-   * Server is idempotent on orderId. Action returned in
-   * `data.action`: 'created' | 'pushed' | 'extended' | 'idempotent_update'.
-   *
-   * The cashfree_webhook → cron path is the safety net if the FE flow
-   * doesn't complete — so a network drop / tab close after CF SUCCESS
-   * still results in the enrollment landing within ~5 minutes.
+   * Paid purchase confirmation (server: POST /client-course/purchase).
+   * The server verifies the CashFree order is PAID, belongs to the signed-in
+   * account and this course, and matches the server-computed price, then
+   * enrolls the token identity. Idempotent on orderId.
+   *   200 → { success, data, action }
+   *   402 → ORDER_NOT_PAID (not verifiable yet — the cron will enroll)
+   *   403/409 → binding / amount mismatch
+   * Errors are re-thrown so the caller can branch on response.status.
    */
-  async addClientCourse(payload) {
-    // Public headers — server doesn't require Firebase auth here
-    // (guest checkout supported on web). Header pair still required.
-    const res = await axios.post(
-      `${BASE}/client-course/add`,
-      payload,
-      { headers: getPublicHeaders() },
-    );
+  async confirmCoursePurchase({ courseId, orderId, name }) {
+    const headers = await getAuthedHeaders();
+    const res = await axios.post(`${BASE}/client-course/purchase`, { courseId, orderId, name }, { headers });
     return res.data;
   }
 
   /**
-   * Returns the caller's enrollment row in a specific course (or null
-   * if not enrolled). Server contract:
-   *   200 → { success: true, data: { course: { startDate, endDate, ... }, modules, ... } }
-   *   404 → enrollment row not found (caller is NOT enrolled).
-   * Header-only — no Firebase Bearer required. Mirrors web's
-   * `GumletService.getClientCourseDetails(userEmail, courseId)` exactly.
-   *
-   * Used by CourseDetailScreen to flip the "Get free access" / "Enroll now"
-   * CTA to "Purchased" once the user has an active enrollment — without
-   * this query the button stays in the un-purchased state forever, even
-   * after a successful free-enroll write.
+   * ₹0 enrollment (free course or 100% coupon). The server recomputes the
+   * price and refuses anything above ₹0 (402), consumes the coupon
+   * atomically (409 when exhausted) and enrolls the token identity.
+   */
+  async claimFreeCourse({ courseId, couponId, name }) {
+    const headers = await getAuthedHeaders();
+    const res = await axios.post(`${BASE}/client-course/claim-free`, { courseId, couponId, name }, { headers });
+    return res.data;
+  }
+
+  /**
+   * The signed-in caller's enrollment in a course (server:
+   * GET /client-course/details, Firebase-verified — the identity comes from
+   * the token; `userEmail` is kept for call-site compatibility, unused).
+   *   200 → { success: true, data: { course: { startDate, endDate, ... } } }
+   *   404 → not enrolled.
    */
   async getClientCourseDetails(userEmail, courseId) {
     const res = await axios.get(`${BASE}/client-course/details`, {
-      headers: getPublicHeaders(),
-      params: { userEmail, courseId },
+      headers: await getAuthedHeaders(),
+      params: { courseId },
     });
     return res.data;
   }

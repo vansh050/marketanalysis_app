@@ -8,7 +8,8 @@
 > webinar discovery (`WebinarsListScreen`) + detail (`WebinarDetailScreen`),
 > free + paid purchase for both courses and webinars (`CoursePurchaseSheet` /
 > `BuyWebinarTicketSheet` via the Cashfree RN SDK), coupons (`CouponService`),
-> enrollment writes (`GumletService.addClientCourse`), magic-link join
+> enrollment through the server's verified routes (`confirmCoursePurchase` /
+> `claimFreeCourse`, since 2026-10-12), magic-link join
 > (`/token-magic`, ported 2026-06-19), and Android FCM reminders
 > (`WebinarReminderHandler`). Navigation + per-advisor config gates
 > (`coursesEnabled` / `webinarsEnabled`) are wired.
@@ -107,8 +108,29 @@ in `src/utils/courseAuthHeaders.js` — see §3.1.
 |---|---|---|---|
 | `POST /api/gumlet/playback-token/:lessonId` | Firebase Bearer + enrollment | `{courseId}` | `{playbackUrl, expiresAt}` |
 | `GET /api/gumlet/collections` | header-only | — | course list |
-| `GET /api/gumlet/collections/:courseId` | header-only | — | course with modules + lessons |
-| `GET /api/gumlet/client-course/details` | header-only | `?userEmail=&courseId=` | `{ data: { course: { startDate, endDate, ... }, modules, ... } }` on enrolled; 404 on not-enrolled |
+| `GET /api/gumlet/collections/:courseId` | header-only (published); a draft needs Firebase Bearer + admin or enrolled | — | course with modules + lessons |
+| `GET /api/gumlet/client-course/details` | Firebase Bearer (identity from token) | `?courseId=` | `{ data: { course: { startDate, endDate, ... }, modules, ... } }` on enrolled; 404 on not-enrolled |
+| `POST /api/gumlet/client-course/purchase` | Firebase Bearer | `{courseId, orderId, name}` | enrolls the token identity after verifying the CashFree order is PAID, belongs to that account + course, and matches the server price (coupon from `order_tags.couponId`). 402 = not verifiable yet |
+| `POST /api/gumlet/client-course/claim-free` | Firebase Bearer | `{courseId, couponId?, name}` | ₹0 enrollment; server recomputes price (402 if not free), coupon consumed atomically (409 when exhausted) |
+
+**Purchase identity + routes (2026-10-12).** `CoursePurchaseSheet` used to
+write the enrollment itself through `POST /client-course/add`. That route is
+admin-only (Firebase + `courses.write`), so from the app it returned 401.
+Free / 100%-coupon enrollments never landed, and paid ones only arrived when
+the reconciliation cron caught the CashFree webhook. The sheet now:
+- shows the signed-in Firebase email read-only. The buyer is that account,
+  and the server rejects an order whose email differs;
+- sends `couponId` on the CashFree order, without which a discounted
+  purchase fails the server's price check;
+- confirms a paid order through `/client-course/purchase`. On any error it
+  tells the buyer access will unlock within minutes (the cron path) and
+  never "payment failed";
+- enrolls ₹0 through `/client-course/claim-free`.
+
+`getClientCourseDetails` sends the Bearer (the server reads identity from
+the token), and `getCourse` sends it when signed in (drafts).
+`addClientCourse` was removed from the app service.
+Pinned by `src/__tests__/services/CoursePurchaseService.test.js`.
 
 Same `verifyFirebaseIdToken + verifyEnrollment` chain as
 `/api/livekit/token` — the server is the source of truth on enrollment,
@@ -134,7 +156,7 @@ Testing, or whitelist `com.google.android.packageinstaller` at the
 CashFree merchant dashboard.
 
 **`/client-course/details` consumer (CourseDetailScreen)** — mobile
-`GumletService.getClientCourseDetails(userEmail, courseId)` drives the
+`GumletService.getClientCourseDetails(userEmail, courseId)` (Firebase Bearer; `userEmail` unused since 2026-10-12) drives the
 "Get free access" / "Enroll now" / "Purchased" CTA on
 `CourseDetailScreen`. Without this query the CTA stays in the
 un-purchased state forever, even after a successful enrollment write
