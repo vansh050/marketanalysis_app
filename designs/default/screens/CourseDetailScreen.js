@@ -110,7 +110,7 @@ const CourseDetailScreen = ({viewModel, actions, slots}) => {
                 )}
               </View>
             )}
-            {!playbackLoading && !playbackError && playback && <GumletPlayer lesson={activeLesson} playback={playback} />}
+            {!playbackLoading && !playbackError && playback && <GumletPlayer lesson={activeLesson} playback={playback} injectedJavaScript={viewModel.playerScript} onMessage={actions.onPlayerMessage} />}
           </View>
         )}
         <View style={styles.modulesSection}>

@@ -17,14 +17,15 @@
  * Cross-ref: Alphab2bapp/docs/COURSES_WEBINARS_MOBILE_PORTING.md §4.5.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
-import {Alert} from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {Alert, AppState} from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
 import { useConfig } from '../../context/ConfigContext';
 import {useComponent} from '../../design/useDesign';
 import gumletService from '../../FunctionCall/services/GumletService';
 import CoursePurchaseSheet from '../../components/CoursePurchaseSheet';
 import {useAccountEmail} from '../../utils/accountEmail';
+import {buildGumletWatchScript, createLessonWatchMeter} from '../../utils/gumletWatchBridge';
 
 import { designColor } from '../../design/literalTokens';
 
@@ -107,6 +108,77 @@ export default function CourseDetailScreen() {
 
   useEffect(() => { fetchClientCourse(); }, [fetchClientCourse]);
 
+  // Resume + watch metering (2026-10-13, parity with web GumletPlayer):
+  // saved positions per lesson, and a meter per playing lesson that posts
+  // progress (resume) and watched seconds (AlphaQuark viewer-hour billing).
+  const [lessonProgress, setLessonProgress] = useState({});
+  useEffect(() => {
+    if (!isPurchased || !course?._id) return undefined;
+    let cancelled = false;
+    gumletService.getCourseProgress(course._id)
+      .then((map) => { if (!cancelled) setLessonProgress(map || {}); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [isPurchased, course?._id]);
+
+  const handleLessonProgress = useCallback((lessonId, row) => {
+    if (!lessonId || !row) return;
+    setLessonProgress((prev) => ({
+      ...prev,
+      [lessonId]: {
+        ...(prev[lessonId] || {}),
+        lastPositionSeconds: row.lastPositionSeconds,
+        durationSeconds: row.durationSeconds,
+        completed: !!(row.completed || prev[lessonId]?.completed),
+      },
+    }));
+  }, []);
+
+  const meterRef = useRef(null);
+  const activeLessonId = activeLesson?._id;
+  useEffect(() => {
+    if (!playback || !activeLessonId || !course?._id) return undefined;
+    const meter = createLessonWatchMeter({
+      lessonId: activeLessonId,
+      courseId: course._id,
+      service: gumletService,
+      onProgress: handleLessonProgress,
+    });
+    meterRef.current = meter;
+    return () => {
+      meter.stop();
+      if (meterRef.current === meter) meterRef.current = null;
+    };
+  }, [playback, activeLessonId, course?._id, handleLessonProgress]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (next) => {
+      if (next !== 'active' && meterRef.current) meterRef.current.flush();
+    });
+    return () => sub.remove();
+  }, []);
+
+  // Resume point is fixed when playback starts (a finished or ≥95% watched
+  // lesson restarts from 0); the bridge script seeks once the length is known.
+  const playerScript = useMemo(() => {
+    if (!playback || !activeLessonId) return undefined;
+    const lp = lessonProgress[activeLessonId];
+    let resumeAt = 0;
+    if (lp && !lp.completed) {
+      const dur = lp.durationSeconds || 0;
+      const pos = lp.lastPositionSeconds || 0;
+      resumeAt = dur > 0 && pos / dur >= 0.95 ? 0 : pos;
+    }
+    return buildGumletWatchScript(resumeAt);
+    // lessonProgress is read at playback start only; later progress writes
+    // must not rebuild the WebView's script mid-play.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playback, activeLessonId]);
+
+  const handlePlayerMessage = useCallback((event) => {
+    if (meterRef.current) meterRef.current.onMessage(event?.nativeEvent?.data);
+  }, []);
+
   const toggleModule = (moduleId) => {
     setOpenModuleIds((prev) => {
       const next = new Set(prev);
@@ -176,6 +248,7 @@ export default function CourseDetailScreen() {
       viewModel={{
         accent, loading, error, course, openModuleIds, activeLesson, playback,
         playbackError, playbackLoading, purchaseOpen, isPurchased,
+        playerScript, lessonProgress,
       }}
       actions={{
         onRetry: fetchCourse,
@@ -185,6 +258,7 @@ export default function CourseDetailScreen() {
         onSignIn: () => navigation.navigate('Login'),
         onToggleModule: toggleModule,
         onLessonPress: handleLessonPress,
+        onPlayerMessage: handlePlayerMessage,
       }}
       slots={{GumletPlayer, CoursePurchaseSheet}}
     />

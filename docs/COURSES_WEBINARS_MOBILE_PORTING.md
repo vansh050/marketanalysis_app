@@ -679,6 +679,28 @@ Two implementation options for the player:
 **Recommendation**: Option A for v1. Wire FairPlay/Widevine in
 Phase 2 when the web doc's §11 DRM gap closes.
 
+**As built:** Option B (WebView loading the signed `embedUrl` top-level).
+
+**Resume + watch-time metering (2026-10-13).** Gumlet's player.js receiver only
+runs when its page is framed, so the web subscription does not work in a
+top-level WebView. `src/utils/gumletWatchBridge.js` provides:
+- `buildGumletWatchScript(resumeAt)` — injected via the WebView's
+  `injectedJavaScript`; hooks the page's `<video>` (light DOM + shadow roots),
+  posts `{aq:'gumlet', event:'timeupdate'|'ended', seconds, duration}` and seeks
+  to `resumeAt` once the length is known (skipped when ≥95 % watched).
+- `createLessonWatchMeter` — same rules as web `GumletPlayer`: progress to
+  `POST /api/gumlet/lessons/:lessonId/progress` at most every 10 s and on
+  `ended` (position = duration → complete); watched seconds (consecutive
+  0–5 s steps, seeks excluded) to `POST /lessons/:lessonId/watch` every 60 s,
+  on `ended`, on app background (`AppState`) and on lesson change/unmount.
+- Gumlet's own RN messages (`{key:'timeupdate', data:{seconds,duration}}`) are
+  accepted only while the bridge is silent, so the two streams never double count.
+`CourseDetailScreen` (src) fetches `GET /courses/:courseId/progress` once
+enrolled, owns the meter, and passes `playerScript` / `onPlayerMessage`
+through the design screen to `composites.GumletPlayer`, which only forwards
+them to the WebView. Verified on a real signed Gumlet page: resume landed at
+30.1 s and timeupdates streamed. JS-only change (no native module).
+
 `CourseDetailScreen` mirrors `courseDetailsPage.js` — module list,
 lesson list, unlock semantics. The validity-day extension logic
 (`CourseClientList.courses[].endDate` from sum of `paymentDetails[].validityDays`)

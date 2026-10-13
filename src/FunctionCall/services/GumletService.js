@@ -64,6 +64,31 @@ class GumletService {
   }
 
   /**
+   * Resume + watch metering (server since 2026-10-13). All best-effort:
+   *   getCourseProgress → { [lessonId]: { lastPositionSeconds, durationSeconds, completed } }
+   *   upsertLessonProgress → POST /lessons/:lessonId/progress
+   *   reportWatchTime → POST /lessons/:lessonId/watch ({ courseId, seconds }),
+   *     feeds AlphaQuark's monthly viewer-hour billing.
+   */
+  async getCourseProgress(courseId) {
+    const headers = await getAuthedHeaders();
+    const res = await axios.get(`${BASE}/courses/${courseId}/progress`, { headers });
+    return res.data?.data || {};
+  }
+
+  async upsertLessonProgress(lessonId, body) {
+    const headers = await getAuthedHeaders();
+    const res = await axios.post(`${BASE}/lessons/${lessonId}/progress`, body, { headers });
+    return res.data;
+  }
+
+  async reportWatchTime(lessonId, body) {
+    const headers = await getAuthedHeaders();
+    const res = await axios.post(`${BASE}/lessons/${lessonId}/watch`, body, { headers });
+    return res.data;
+  }
+
+  /**
    * Paid purchase confirmation (server: POST /client-course/purchase).
    * The server verifies the CashFree order is PAID, belongs to the signed-in
    * account and this course, and matches the server-computed price, then

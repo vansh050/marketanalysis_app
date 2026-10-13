@@ -17,6 +17,9 @@
  * Props:
  *   - lesson    : { _id, title, duration }
  *   - playback  : { assetId, embedUrl, url, expiresAt, drm, format }
+ *   - injectedJavaScript / onMessage : supplied by the src container
+ *     (watch-time + resume bridge, src/utils/gumletWatchBridge.js);
+ *     forwarded to the WebView unchanged.
  *
  * Cross-ref: Alphab2bapp/docs/COURSES_WEBINARS_MOBILE_PORTING.md §4.5.
  */
@@ -30,7 +33,7 @@ import {
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 
-export default function GumletPlayer({ lesson, playback }) {
+export default function GumletPlayer({ lesson, playback, injectedJavaScript, onMessage }) {
   const [loading, setLoading] = useState(true);
 
   // Prefer the hosted embedUrl; fall back to assetId-derived URL if for
@@ -63,6 +66,8 @@ export default function GumletPlayer({ lesson, playback }) {
         // Cookies — Gumlet may use them for analytics + DRM session state.
         thirdPartyCookiesEnabled
         sharedCookiesEnabled
+        injectedJavaScript={injectedJavaScript}
+        onMessage={onMessage || (() => {})}
         onLoadEnd={() => setLoading(false)}
         onError={() => setLoading(false)}
         // Keep the player from accidentally navigating to ads / external
