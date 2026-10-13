@@ -22,6 +22,7 @@
  */
 
 import axios from 'axios';
+import { Platform } from 'react-native';
 import Config from 'react-native-config';
 import server from '../../utils/serverConfig';
 import { getPublicHeaders } from '../../utils/courseAuthHeaders';
@@ -61,6 +62,8 @@ class CashFreeOrderService {
         // Optional; the server validates it and prints it on the invoice.
         ...(gstin ? { gstin: String(gstin) } : {}),
         advisor: Config.REACT_APP_ADVISOR_SPECIFIC_TAG,
+        // The app's channel, so the server checks supportAQ's app gateway.
+        channel: Platform.OS === 'ios' ? 'ios' : 'android',
         // Course-purchase markers — embedded in CF order_tags so the
         // webhook + reconciliation cron can write the CCL row server-side
         // as a safety net for FE failures.

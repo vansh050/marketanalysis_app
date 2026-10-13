@@ -25,7 +25,12 @@ const BASE = `${server.server.baseUrl}api/student-payments`;
 class StudentPaymentService {
   /** { gateway: 'cashfree'|'razorpay'|'payu'|'phonepe'|null, website } */
   async getGateway() {
-    const res = await axios.get(`${BASE}/gateway`, { headers: getPublicHeaders(), timeout: 15000 });
+    // channel lets the backend apply supportAQ's app-only gateway switch.
+    const res = await axios.get(`${BASE}/gateway`, {
+      headers: getPublicHeaders(),
+      params: { channel: Platform.OS === 'ios' ? 'ios' : 'android' },
+      timeout: 15000,
+    });
     return res.data?.data || { gateway: null, website: null };
   }
 
@@ -34,11 +39,17 @@ class StudentPaymentService {
    * err.code from the server (USE_CASHFREE, USE_CLAIM_FREE,
    * COURSE_GATEWAY_NOT_CONFIGURED, COUPON_INVALID, …).
    */
-  async startCourseCheckout({ courseId, couponId, name, mobile, pan, gstin }) {
+  async startCourseCheckout({ courseId, couponId, name, mobile, pan, gstin, paymentInstrumentGroup, channelMetadata }) {
     try {
       const res = await axios.post(
         `${BASE}/course/checkout`,
-        { courseId, couponId, name, mobile, pan, gstin, channel: Platform.OS === 'ios' ? 'ios' : 'android' },
+        {
+          courseId, couponId, name, mobile, pan, gstin,
+          channel: Platform.OS === 'ios' ? 'ios' : 'android',
+          // PhonePe: the payment group the buyer chose (its own merchant ID).
+          ...(paymentInstrumentGroup ? { paymentInstrumentGroup } : {}),
+          ...(channelMetadata ? { channelMetadata } : {}),
+        },
         { headers: await getAuthedHeaders(), timeout: 30000 },
       );
       return res.data.data;

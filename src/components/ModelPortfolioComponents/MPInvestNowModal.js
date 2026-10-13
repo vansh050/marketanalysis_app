@@ -20,6 +20,7 @@ import {
   Easing,
   Platform,
   AppState,
+  Linking,
 } from 'react-native';
 import {
   User,
@@ -27,6 +28,15 @@ import {
   Settings,
 } from 'lucide-react-native';
 import axios from 'axios';
+import {
+  choosePhonePeGroup,
+  dispatchAppCheckout,
+} from '../../FunctionCall/services/AppPaymentGateway';
+import {
+  getPendingPhonePeOrderId,
+  openPhonePeCheckout,
+  pollPhonePeOrder,
+} from '../../FunctionCall/services/PhonePePaymentService';
 import Toast from 'react-native-toast-message';
 import server from '../../utils/serverConfig';
 import Config from 'react-native-config';
@@ -2482,6 +2492,89 @@ const MPInvestNowModal = ({
 
   // END PAYU PAYMENT FUNCTIONS
 
+  // ── PhonePe (Standard Checkout, opened in the PhonePe app / browser) ──
+  // The server finalizes the purchase (subscription, client list, invoice,
+  // stated investment from `capital`); the app opens the order and, when the
+  // buyer comes back, reads its status and shows the same success flow.
+  const phonePeResumeCheckRef = useRef(false);
+
+  const reconcilePendingPhonePe = useCallback(async () => {
+    if (phonePeResumeCheckRef.current) return;
+    const pendingOrderId = await getPendingPhonePeOrderId();
+    if (!pendingOrderId) return;
+    phonePeResumeCheckRef.current = true;
+    setLoading(true);
+    try {
+      const result = await pollPhonePeOrder(pendingOrderId, { attempts: 5, delayMs: 3000 });
+      if (result?.state === 'COMPLETED') {
+        setPaymentModal(false);
+        getPlanList?.();
+        handlePaymentSuccessWithTelegram();
+      } else if (result?.state === 'FAILED') {
+        setShowPaymentFail(true);
+        setPaymentSuccess(false);
+      } else {
+        Alert.alert(
+          'Payment pending',
+          'PhonePe is still processing this payment. Your plan will appear here once it is confirmed.',
+        );
+      }
+    } catch (error) {
+      console.warn('[MPInvestNow][PhonePe] status check failed:', error?.message);
+    } finally {
+      phonePeResumeCheckRef.current = false;
+      setLoading(false);
+      setLoadingmp(false);
+    }
+  }, [getPlanList]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    const appStateSubscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') reconcilePendingPhonePe();
+    });
+    // UPI apps can return through a deep link without a background→active hop.
+    const linkSubscription = Linking.addEventListener('url', () => reconcilePendingPhonePe());
+    return () => {
+      appStateSubscription.remove();
+      linkSubscription.remove();
+    };
+  }, [reconcilePendingPhonePe]);
+
+  const initiatePhonePePayment = async (plan, amount, recurring = false) => {
+    const headerName = configData?.config?.REACT_APP_HEADER_NAME;
+    const paymentInstrumentGroup = await choosePhonePeGroup({ headerName, recurring });
+    if (paymentInstrumentGroup === null) return; // buyer closed the choice
+    setLoading(true);
+    try {
+      await openPhonePeCheckout({
+        plan_id: plan?._id,
+        amount,
+        user_email: userEmail,
+        mobileNumber: paymentMobileNumber,
+        name,
+        panNumber,
+        gstNumber: gstNumber || undefined,
+        countryCode,
+        birthDate,
+        // Stated model-portfolio investment; saved server-side once paid.
+        capital: invetAmount,
+        duration: oneTimeDurationPlan,
+        couponId: appliedCouponId || undefined,
+        recurring,
+        frequency: recurring ? selectedCard : undefined,
+        paymentInstrumentGroup,
+      });
+      // Some Android UPI intents never background the host app.
+      setTimeout(() => reconcilePendingPhonePe(), 1500);
+    } catch (error) {
+      setLoading(false);
+      Alert.alert(
+        'PhonePe unavailable',
+        error?.response?.data?.message || error?.message || 'Could not start PhonePe checkout.',
+      );
+    }
+  };
+
   const handlePaymentType = async () => {
     if (!paymentPhone.e164) {
       Alert.alert(
@@ -2491,22 +2584,33 @@ const MPInvestNowModal = ({
       return;
     }
 
-    if (payu) {
-      if (selectedPlanType === 'recurring') {
-        initiatePayUSIPayment(plandata, selectedCard);
-      } else {
-        initiatePayUPayment(plandata, onetimeamount);
-      }
-    } else if (cashfree) {
-      if (selectedPlanType === 'recurring') {
-        initiateCashfreeRecurringPayment(plandata, selectedCard, inputValue);
-      } else {
-        console.log('this');
-        initiateCashfreePayment(plandata, onetimeamount);
-      }
-    } else {
-      handlePayment();
-    }
+    // One dispatcher for every gateway the advisor can pick in supportAQ
+    // (app switch, else the website gateway). No silent Razorpay fallback.
+    const recurring = selectedPlanType === 'recurring';
+    dispatchAppCheckout({
+      surface: 'mp_invest_now',
+      gateway: adminpaymentPlatform,
+      recurring,
+      configData,
+      handlers: {
+        payu: {
+          oneTime: () => initiatePayUPayment(plandata, onetimeamount),
+          recurring: () => initiatePayUSIPayment(plandata, selectedCard),
+        },
+        cashfree: {
+          oneTime: () => initiateCashfreePayment(plandata, onetimeamount),
+          recurring: () => initiateCashfreeRecurringPayment(plandata, selectedCard, inputValue),
+        },
+        phonepe: {
+          oneTime: () => initiatePhonePePayment(plandata, onetimeamount, false),
+          recurring: () => initiatePhonePePayment(plandata, onetimeamount, true),
+        },
+        razorpay: {
+          oneTime: () => handlePayment(),
+          recurring: () => handlePayment(),
+        },
+      },
+    });
   };
 
   const updateLeadUser = async () => {

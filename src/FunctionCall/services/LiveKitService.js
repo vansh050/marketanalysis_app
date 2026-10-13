@@ -13,6 +13,7 @@
  */
 
 import axios from 'axios';
+import { Platform } from 'react-native';
 import server from '../../utils/serverConfig';
 import {
   getPublicHeaders,
@@ -53,13 +54,20 @@ class LiveKitService {
   //   { paymentStatus: 'pending', orderId, cashfree: {...} }
   // ---------------------------------------------------------------------------
 
-  async purchaseWebinarTicket(lessonId, { userEmail, userName, mobile, returnUrl, couponCode }) {
+  async purchaseWebinarTicket(lessonId, { userEmail, userName, mobile, returnUrl, couponCode, paymentInstrumentGroup, channelMetadata }) {
     const headers = await getOptionalAuthHeaders();
     const res = await axios.post(
       `${BASE}/webinars/${lessonId}/purchase`,
       // couponCode is re-validated + finalAmount recomputed server-side
       // (never trusts a FE number) — see aq_backend livekit.js purchase.
-      { userEmail, userName, mobile, returnUrl, ...(couponCode ? { couponCode } : {}) },
+      // channel lets the server apply supportAQ's app-only gateway switch.
+      {
+        userEmail, userName, mobile, returnUrl,
+        channel: Platform.OS === 'ios' ? 'ios' : 'android',
+        ...(couponCode ? { couponCode } : {}),
+        ...(paymentInstrumentGroup ? { paymentInstrumentGroup } : {}),
+        ...(channelMetadata ? { channelMetadata } : {}),
+      },
       { headers },
     );
     return res.data?.data;

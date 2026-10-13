@@ -1,7 +1,8 @@
 /**
  * App course checkout follows the advisor's supportAQ gateway (2026-10-12):
  *   cashfree → existing CashFree order; razorpay → native Razorpay on a
- *   server-priced order, then /confirm; payu / phonepe → advisor website.
+ *   server-priced order, then /confirm; phonepe → native PhonePe on the
+ *   buyer's chosen payment group, confirmed on return; payu → advisor website.
  */
 import React from 'react';
 import renderer, { act } from 'react-test-renderer';
@@ -23,6 +24,11 @@ jest.mock('@react-native-firebase/auth', () => ({ getAuth: () => ({ currentUser:
 jest.mock('../../FunctionCall/services/StudentPaymentService', () => ({
   __esModule: true,
   default: { getGateway: jest.fn(), startCourseCheckout: jest.fn(), confirm: jest.fn(), status: jest.fn(), waitForFinal: jest.fn() },
+}));
+jest.mock('../../FunctionCall/services/AppPaymentGateway', () => ({
+  choosePhonePeGroup: jest.fn(),
+  openAndAwaitReturn: jest.fn(),
+  phonePeAppMetadata: () => ({ appId: 'com.test', channelVersion: '14' }),
 }));
 jest.mock('../../FunctionCall/services/CashFreeOrderService', () => ({ __esModule: true, default: { createCourseOrder: jest.fn(), getOrderStatus: jest.fn() } }));
 jest.mock('../../FunctionCall/services/GumletService', () => ({ __esModule: true, default: { confirmCoursePurchase: jest.fn(), claimFreeCourse: jest.fn() } }));
@@ -93,11 +99,44 @@ test('cashfree advisor: the existing CashFree order path runs, no Razorpay', asy
   expect(RazorpayCheckout.open).not.toHaveBeenCalled();
 });
 
-test('phonepe / payu advisor: sent to the advisor website course page, no order created', async () => {
+test('payu advisor: sent to the advisor website course page, no order created', async () => {
   const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
-  students.getGateway.mockResolvedValue({ gateway: 'phonepe', website: 'https://demo.alphaquark.in' });
+  students.getGateway.mockResolvedValue({ gateway: 'payu', website: 'https://demo.alphaquark.in' });
   await payWith();
   expect(open).toHaveBeenCalledWith('https://demo.alphaquark.in/course/c1');
   expect(students.startCourseCheckout).not.toHaveBeenCalled();
   expect(cashfree.createCourseOrder).not.toHaveBeenCalled();
+});
+
+test('phonepe advisor: order on the chosen group, PhonePe opened, confirmed on return → paid', async () => {
+  const gateway = require('../../FunctionCall/services/AppPaymentGateway');
+  students.getGateway.mockResolvedValue({ gateway: 'phonepe' });
+  gateway.choosePhonePeGroup.mockResolvedValue('cards');
+  students.startCourseCheckout.mockResolvedValue({ orderId: ID, gateway: 'phonepe', checkout: { redirectUrl: 'https://pp.test/x' } });
+  gateway.openAndAwaitReturn.mockResolvedValue('returned');
+  students.waitForFinal.mockResolvedValue({ status: 'fulfilled' });
+  const { onPurchased } = await payWith();
+  expect(students.startCourseCheckout).toHaveBeenCalledWith(expect.objectContaining({ paymentInstrumentGroup: 'cards' }));
+  expect(gateway.openAndAwaitReturn).toHaveBeenCalledWith('https://pp.test/x');
+  expect(onPurchased).toHaveBeenCalledWith(expect.objectContaining({ paymentStatus: 'paid', orderId: ID }));
+  expect(cashfree.createCourseOrder).not.toHaveBeenCalled();
+});
+
+test('phonepe advisor: returning without paying grants nothing', async () => {
+  const gateway = require('../../FunctionCall/services/AppPaymentGateway');
+  students.getGateway.mockResolvedValue({ gateway: 'phonepe' });
+  gateway.choosePhonePeGroup.mockResolvedValue(undefined);
+  students.startCourseCheckout.mockResolvedValue({ orderId: ID, gateway: 'phonepe', checkout: { redirectUrl: 'https://pp.test/x' } });
+  gateway.openAndAwaitReturn.mockResolvedValue('returned');
+  students.waitForFinal.mockResolvedValue({ status: 'created' });
+  const { onPurchased } = await payWith();
+  expect(onPurchased).not.toHaveBeenCalled();
+});
+
+test('phonepe advisor: closing the payment-group choice creates no order', async () => {
+  const gateway = require('../../FunctionCall/services/AppPaymentGateway');
+  students.getGateway.mockResolvedValue({ gateway: 'phonepe' });
+  gateway.choosePhonePeGroup.mockResolvedValue(null);
+  await payWith();
+  expect(students.startCourseCheckout).not.toHaveBeenCalled();
 });

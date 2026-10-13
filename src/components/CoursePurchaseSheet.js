@@ -61,6 +61,11 @@ import couponService from '../FunctionCall/services/CouponService';
 import cashfreeOrderService from '../FunctionCall/services/CashFreeOrderService';
 import gumletService from '../FunctionCall/services/GumletService';
 import studentPaymentService from '../FunctionCall/services/StudentPaymentService';
+import {
+  choosePhonePeGroup,
+  openAndAwaitReturn,
+  phonePeAppMetadata,
+} from '../FunctionCall/services/AppPaymentGateway';
 import { getAuth } from '@react-native-firebase/auth';
 import {
   getCashfreeEnvironment,
@@ -322,7 +327,12 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
       await payWithRazorpay();
       return;
     }
-    if (gw?.gateway === 'payu' || gw?.gateway === 'phonepe') {
+    if (gw?.gateway === 'phonepe') {
+      await payWithPhonePe();
+      return;
+    }
+    // PayU needs a hosted browser form, so the buyer finishes on the website.
+    if (gw?.gateway === 'payu') {
       if (gw.website) {
         Linking.openURL(`${gw.website}/course/${course._id}`).catch(() => {});
         setErrorMsg('Please complete this purchase on the website we just opened. Your course appears here once paid.');
@@ -388,6 +398,64 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
     // Paid either way at this point: anything short of fulfilled is
     // finished by the server's reconciliation within minutes.
     finishStudentPurchase(order.orderId, final?.status === 'fulfilled');
+  }
+
+  // PhonePe: the order is opened on the merchant ID for the payment group the
+  // buyer picks, paid in PhonePe, and confirmed by the server when the buyer
+  // returns (the server's reconciliation finishes it if the app is closed).
+  async function payWithPhonePe() {
+    const paymentInstrumentGroup = await choosePhonePeGroup();
+    if (paymentInstrumentGroup === null) {
+      setPhase('form');
+      return;
+    }
+    let order;
+    try {
+      order = await studentPaymentService.startCourseCheckout({
+        courseId: course._id,
+        couponId: appliedCoupon?.couponId || appliedCoupon?._id || undefined,
+        name: name.trim(),
+        mobile: mobile.trim(),
+        pan: pan.trim().toUpperCase(),
+        gstin: gstin.trim().toUpperCase() || undefined,
+        paymentInstrumentGroup,
+        channelMetadata: phonePeAppMetadata(),
+      });
+    } catch (e) {
+      if (e?.code === 'USE_CASHFREE') {
+        await payWithCashfree();
+        return;
+      }
+      setErrorMsg(e?.message || 'Could not start payment');
+      setPhase('form');
+      return;
+    }
+    const redirectUrl = order?.checkout?.redirectUrl;
+    if (!redirectUrl) {
+      setErrorMsg('PhonePe did not return a checkout page. Please try again.');
+      setPhase('form');
+      return;
+    }
+    try {
+      await openAndAwaitReturn(redirectUrl);
+    } catch (e) {
+      setErrorMsg(e?.message || 'Could not open PhonePe');
+      setPhase('form');
+      return;
+    }
+    const final = await studentPaymentService.waitForFinal(order.orderId, { timeoutMs: 30000 });
+    if (final?.status === 'fulfilled') {
+      finishStudentPurchase(order.orderId, true);
+    } else if (final?.status === 'failed' || final?.status === 'expired') {
+      setErrorMsg('PhonePe reported that this payment was not completed.');
+      setPhase('form');
+    } else {
+      // Not confirmed yet — either still processing or not paid. Never show
+      // a purchase as done on an unconfirmed order; the server finishes a
+      // real payment and the course then appears in My Courses.
+      setErrorMsg('Payment not confirmed yet. If you completed it in PhonePe, the course will appear in a few minutes.');
+      setPhase('form');
+    }
   }
 
   function finishStudentPurchase(orderId, confirmed) {

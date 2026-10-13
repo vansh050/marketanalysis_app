@@ -33,6 +33,13 @@ import {
   CFThemeBuilder,
 } from 'cashfree-pg-api-contract';
 import liveKitService from '../FunctionCall/services/LiveKitService';
+import RazorpayCheckout from 'react-native-razorpay';
+import studentPaymentService from '../FunctionCall/services/StudentPaymentService';
+import {
+  choosePhonePeGroup,
+  openAndAwaitReturn,
+  phonePeAppMetadata,
+} from '../FunctionCall/services/AppPaymentGateway';
 import {getAccountEmail} from '../utils/accountEmail';
 import {
   getCashfreeEnvironment,
@@ -198,6 +205,62 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
     } catch {}
   }
 
+  // Finish a webinar ticket bought on Razorpay / PhonePe (utilities/
+  // studentPayments on the server, which writes the enrollment once paid).
+  async function payStudentOrder(purchase, cleanEmail) {
+    const done = (status) => {
+      setPhase('done');
+      onPurchased && onPurchased({
+        paymentStatus: status,
+        orderId: purchase.orderId,
+        courseId: purchase.courseId,
+        buyerEmail: cleanEmail,
+      });
+    };
+    const c = purchase.checkout || {};
+    if (purchase.gateway === 'phonepe') {
+      if (!c.redirectUrl) throw new Error('PhonePe did not return a checkout page');
+      await openAndAwaitReturn(c.redirectUrl);
+      const final = await studentPaymentService.waitForFinal(purchase.orderId, { timeoutMs: 30000 });
+      if (final?.status === 'fulfilled') return done('paid');
+      setErrorMsg(
+        final?.status === 'failed' || final?.status === 'expired'
+          ? friendlyErrorMessage({ code: 'PAYMENT_FAILED' }, isFree)
+          : 'Payment not confirmed yet. If you completed it in PhonePe, your seat will be confirmed in a few minutes.',
+      );
+      setPhase('form');
+      return;
+    }
+    if (purchase.gateway === 'razorpay') {
+      let resp;
+      try {
+        resp = await RazorpayCheckout.open({
+          key: c.key,
+          order_id: c.orderId,
+          amount: c.amount,
+          currency: c.currency || 'INR',
+          name: c.name || lesson?.title || 'Webinar',
+          description: lesson?.title || '',
+          prefill: c.prefill || {},
+        });
+      } catch (e) {
+        const st = await studentPaymentService.status(purchase.orderId).catch(() => null);
+        if (st?.status === 'fulfilled') return done('paid');
+        setErrorMsg(friendlyErrorMessage({ code: 'PAYMENT_CANCELLED' }, isFree));
+        setPhase('form');
+        return;
+      }
+      let final = await studentPaymentService.confirm(purchase.orderId, {
+        razorpay: { paymentId: resp?.razorpay_payment_id, orderId: resp?.razorpay_order_id, signature: resp?.razorpay_signature },
+      }).catch(() => null);
+      if (final?.status !== 'fulfilled') final = await studentPaymentService.waitForFinal(purchase.orderId);
+      return done(final?.status === 'fulfilled' ? 'paid' : 'paid_pending');
+    }
+    // PayU needs a hosted browser form; the webinar page on the website takes it.
+    setErrorMsg('Please book this webinar on the advisor\'s website.');
+    setPhase('form');
+  }
+
   async function handleSubmit() {
     setErrorMsg('');
     const cleanEmail = email.trim().toLowerCase();
@@ -207,6 +270,17 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
 
     setPhase('paying');
     try {
+      // The advisor's gateway for the app (supportAQ app switch, else the
+      // website gateway). PhonePe asks for the payment group BEFORE the order
+      // exists, because each group has its own merchant ID.
+      let paymentInstrumentGroup;
+      if (!isFree) {
+        const gw = await studentPaymentService.getGateway().catch(() => null);
+        if (gw?.gateway === 'phonepe') {
+          paymentInstrumentGroup = await choosePhonePeGroup();
+          if (paymentInstrumentGroup === null) { setPhase('form'); return; }
+        }
+      }
       const purchase = await liveKitService.purchaseWebinarTicket(lesson.lessonId, {
         userEmail: cleanEmail,
         userName: name.trim(),
@@ -215,7 +289,15 @@ export default function BuyWebinarTicketSheet({ visible, onClose, lesson, onPurc
         returnUrl: '',
         // Backend re-validates + recomputes finalAmount server-side.
         couponCode: appliedCoupon?.code || undefined,
+        paymentInstrumentGroup,
+        channelMetadata: phonePeAppMetadata(),
       });
+
+      // Razorpay / PhonePe / PayU advisors: a server-priced student order.
+      if (purchase.paymentStatus === 'pending' && purchase.gateway && purchase.gateway !== 'cashfree') {
+        await payStudentOrder(purchase, cleanEmail);
+        return;
+      }
 
       // Free path — server already wrote the enrollment + fired email
       if (purchase.paymentStatus === 'free') {
