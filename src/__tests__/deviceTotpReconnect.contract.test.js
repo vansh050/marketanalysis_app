@@ -101,13 +101,36 @@ describe('device-owned broker TOTP reconnect contract', () => {
     expect(brokerSelection).toContain('DEVICE_TOTP_AUTO_RECONNECT');
     expect(brokerSelection).toContain(': hasDeviceTotp(identity))');
     expect(brokerSelection).toContain('setOpenTokenExpireModel(false)');
-    expect(brokerSelection).toContain('modalStore.openModal(target.modalKey)');
+    expect(brokerSelection).toContain(
+      'modalStore.openModal(target.modalKey, {autoUnlock: true})',
+    );
+  });
+
+  test('one-tap execute: an expired Accept raises the biometric without a second tap (2026-10-10)', () => {
+    const modalManager = read('src/GlobalUIModals/ModalManager.js');
+    expect(modalManager).toContain('autoUnlock={modalPayload?.autoUnlock === true}');
+    // Gate: auto-unlock only when the server confirmed the saved vault is
+    // usable, exactly once per opening, through the same unlockAndReconnect
+    // the button uses (so the fallback sheet and alerts are unchanged).
+    const gateAuto = reconnectGate.slice(
+      reconnectGate.indexOf('const autoUnlockStartedRef'),
+      reconnectGate.indexOf('const quickReconnectConfig'),
+    );
+    expect(gateAuto).toContain('if (!autoUnlock || !quickReconnectReady || loading) return;');
+    expect(gateAuto).toContain('if (autoUnlockStartedRef.current) return;');
+    expect(gateAuto).toContain('unlockAndReconnect();');
+    // Upstox: same once-per-opening guard as its reauth path; never on reauth.
+    expect(upstox).toContain('if (!isVisible || !autoUnlock || reauthConfig) return;');
+    expect(upstox).toContain('if (saved) await reconnectWithDeviceTotp();');
+    // Every quick reconnect must emit a source the waiting cards resume on.
+    expect(upstox).toContain("source: 'Upstox broker connection (device TOTP reconnect)'");
+    expect(reconnectGate).toContain('source: `${brokerName} broker connection`');
   });
 
   test('every quick-reconnect broker auto-opens from an expired card (2026-10-02)', () => {
     // Rebalance, single-trade and basket cards all open the expiry through
     // BrokerSelectionModal, so this one map covers every card.
-    for (const key of ['Angel One', 'Zerodha', 'Fyers', 'Motilal', 'Dhan', 'AliceBlue']) {
+    for (const key of ['Angel One', 'Zerodha', 'Fyers', 'Motilal', 'Dhan', 'Upstox', 'AliceBlue']) {
       expect(brokerSelection).toMatch(new RegExp(`'?${key}'?: \\{broker: `));
     }
     expect(brokerSelection).toContain('hasAliceBlueDeviceLogin(identity)');
@@ -282,7 +305,14 @@ describe('device-owned broker TOTP reconnect contract', () => {
       phase3.indexOf("if (brokerName === 'Angel One')"),
       phase3.indexOf('// Default credential brokers'),
     );
-    expect(angelGuide).toContain('Copy your <b>API Key</b>');
+    expect(angelGuide).toContain('Copy the <b>API Key</b>');
+    // Kyzen QA 2026-10-13: a TOTP key was pasted as the API Key and the API
+    // key as the Client Code. The guide names both wrong values, and the
+    // fields reject those shapes before submit.
+    expect(angelGuide).toContain('not the long <b>TOTP key</b>');
+    expect(angelGuide).toContain('Client Code = your Angel One login ID');
+    expect(angelOverride).toContain('pattern: /^(?![A-Z2-7]{16,}$)\\S{4,64}$/');
+    expect(angelOverride).toContain('pattern: /^[A-Za-z]+\\d+$/');
     expect(angelGuide).toContain('does not issue or require an API Secret');
     expect(angelGuide).not.toContain('API Key</b> and <b>Secret');
     expect(angelOverride).toContain('prerequisites: []');

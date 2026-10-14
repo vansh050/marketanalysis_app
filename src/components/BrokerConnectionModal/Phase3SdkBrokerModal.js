@@ -475,8 +475,24 @@ const buildSchemaOverride = (brokerName, userDetails, storedOverride = null) => 
   if (brokerName === 'Angel One') {
     return {
       fields: [
-        {name: 'apiKey', initialValue: stored?.apiKey || ''},
-        {name: 'clientCode', initialValue: stored?.clientCode || ''},
+        {
+          name: 'apiKey',
+          initialValue: stored?.apiKey || '',
+          placeholder: 'API Key from your SmartAPI app (e.g. aB3dE5fG)',
+          // A TOTP key (16+ chars of A–Z/2–7, from "Enable TOTP") is the
+          // most common wrong paste here (Kyzen QA 2026-10-13).
+          pattern: /^(?![A-Z2-7]{16,}$)\S{4,64}$/,
+          patternError:
+            'This looks like your TOTP key, not the API Key. Copy the API Key shown on your app at smartapi.angelone.in → My Apps.',
+        },
+        {
+          name: 'clientCode',
+          initialValue: stored?.clientCode || '',
+          placeholder: 'Your Angel One login ID (e.g. A123456)',
+          pattern: /^[A-Za-z]+\d+$/,
+          patternError:
+            'Enter your Angel One login ID (letters then numbers, e.g. A123456) — not the API Key.',
+        },
       ],
       // BrokerGuideCard above is the host's single source of truth for app
       // creation, static IP and the environment-specific redirect URL.

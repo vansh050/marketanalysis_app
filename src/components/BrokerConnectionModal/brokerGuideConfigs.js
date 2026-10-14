@@ -253,9 +253,9 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
         `Name it <b>${wl}</b>`,
         'Set the <b>Redirect URL</b> and <b>Postback URL</b> shown below',
         'Paste your <b>IP</b> into <b>Whitelisted IPs</b>',
-        'Copy your <b>API Key</b>',
+        'Copy the <b>API Key</b> shown on that app (a short code, usually 8 letters/numbers) — not the <b>Secret Key</b>, and not the long <b>TOTP key</b> from Enable TOTP',
       ],
-      note: 'Enter your SmartAPI API Key and Angel One Client Code below. SmartAPI does not issue or require an API Secret for this connection.',
+      note: 'API Key = the key from your SmartAPI app. Client Code = your Angel One login ID (e.g. A123456), not the API key. SmartAPI does not issue or require an API Secret for this connection.',
     },
     'DefinEdge Securities': {
       monogram: 'D',
