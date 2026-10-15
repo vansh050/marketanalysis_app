@@ -35,7 +35,7 @@ import useModalStore from '../../GlobalUIModals/modalStore';
 import BrokerWalkthroughPlayer from '../../components/BrokerConnectionModal/BrokerWalkthroughPlayer';
 import {getAccountEmail} from '../../utils/accountEmail';
 import {useConfig} from '../../context/ConfigContext';
-import {generateDeviceTotp, hasDeviceTotp, removeDeviceTotp, saveDeviceTotpSeed, unlockDeviceTotpSeed} from '../../services/DeviceTotpVault';
+import {generateDeviceTotp, hasDeviceTotp, removeDeviceTotp, saveDeviceTotpSeed, unlockDeviceTotpRecord, unlockDeviceTotpSeed} from '../../services/DeviceTotpVault';
 
 import { designColor } from '../../design/literalTokens';
 
@@ -140,8 +140,12 @@ const BrokerCredentialScreen = () => {
       if (brokerKey === 'kotak' && configData?.deviceTotpEnabled === true && !submissionValues.totp) {
         submissionValues.totp = await generateDeviceTotp(totpIdentity);
       }
-      if (brokerKey === 'groww' && configData?.deviceTotpEnabled === true && !submissionValues.totp_seed && hasSavedTotp) {
-        submissionValues.totp_seed = await unlockDeviceTotpSeed(totpIdentity);
+      let growwRecordLacksToken = false;
+      if (brokerKey === 'groww' && configData?.deviceTotpEnabled === true && hasSavedTotp && (!submissionValues.totp_seed || !submissionValues.apiKey)) {
+        const record = await unlockDeviceTotpRecord(totpIdentity);
+        if (!submissionValues.totp_seed) submissionValues.totp_seed = record?.seed || '';
+        if (!submissionValues.apiKey) submissionValues.apiKey = record?.apiKey || '';
+        growwRecordLacksToken = Boolean(record?.seed) && !record?.apiKey;
       }
       if (!validate(submissionValues)) { setSubmitting(false); return; }
       const userId = await getUserId();
@@ -257,15 +261,19 @@ const BrokerCredentialScreen = () => {
               uid: userId,
               user_email: userEmail,
               user_broker: 'Groww',
-              apiKey: encrypt(formValues.apiKey),
+              apiKey: encrypt(submissionValues.apiKey),
               totp_seed: encrypt(submissionValues.totp_seed),
             },
             { headers: getHeaders(), timeout: 20000 },
           );
-          if (configData?.deviceTotpEnabled === true && saveTotpOnDevice && submissionValues.totp_seed) {
-            await saveDeviceTotpSeed(totpIdentity, submissionValues.totp_seed);
-            setHasSavedTotp(true);
-            setSaveTotpOnDevice(false);
+          if (configData?.deviceTotpEnabled === true && (saveTotpOnDevice || growwRecordLacksToken) && submissionValues.totp_seed) {
+            try {
+              await saveDeviceTotpSeed(totpIdentity, submissionValues.totp_seed, '', {apiKey: submissionValues.apiKey});
+              setHasSavedTotp(true);
+              setSaveTotpOnDevice(false);
+            } catch (saveErr) {
+              console.warn('[Groww] could not save login on this phone:', saveErr?.message);
+            }
           }
           await onConnectionSuccess();
           setSubmitting(false);
@@ -523,6 +531,15 @@ const BrokerCredentialScreen = () => {
               {brokerKey === 'kotak' && saveTotpOnDevice && !hasSavedTotp && <TextInput style={styles.input} value={deviceTotpSeed} onChangeText={setDeviceTotpSeed} placeholder="Authenticator secret (Base32)" placeholderTextColor={designColor('999')} secureTextEntry autoCapitalize="none" autoCorrect={false} />}
               {hasSavedTotp && <View>
                 <TouchableOpacity onPress={async () => {
+                  if (brokerKey === 'groww') {
+                    const record = await unlockDeviceTotpRecord(totpIdentity);
+                    setFormValues(previous => ({
+                      ...previous,
+                      totp_seed: record?.seed || '',
+                      ...(record?.apiKey ? {apiKey: record.apiKey} : {}),
+                    }));
+                    return;
+                  }
                   const value = brokerKey === 'kotak' ? await generateDeviceTotp(totpIdentity) : await unlockDeviceTotpSeed(totpIdentity);
                   setFormValues(previous => ({...previous, [brokerKey === 'kotak' ? 'totp' : 'totp_seed']: value || ''}));
                 }}><Text style={styles.fieldLabel}>Unlock saved key</Text></TouchableOpacity>

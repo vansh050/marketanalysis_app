@@ -6,6 +6,7 @@ import {
   normalizeDeviceTotpSeedInput,
   saveDeviceTotpSeed,
   unlockDeviceTotpLogin,
+  unlockDeviceTotpRecord,
 } from '../../services/DeviceTotpVault';
 
 jest.mock('react-native-keychain', () => ({
@@ -80,6 +81,26 @@ describe('DeviceTotpVault protected login', () => {
       accessible: 'device-only',
       accessControl: 'biometry-or-passcode',
     });
+  });
+
+  test('Groww saves the TOTP token with the secret and one unlock returns both', async () => {
+    authenticator.check.mockReturnValue(true);
+    authenticator.generate.mockReturnValue('654321');
+    const growwIdentity = {advisor: 'kyzenresearch', broker: 'Groww', userEmail: 'owner@example.com'};
+    const token = 'eyJraWQiOiJ4In0.eyJzdWIiOiIxIn0.c2lnbmF0dXJl';
+    await saveDeviceTotpSeed(growwIdentity, 'ABCD2345', '', {apiKey: token});
+    const stored = Keychain.setGenericPassword.mock.calls.at(-1)[1];
+    expect(JSON.parse(stored)).toMatchObject({seed: 'ABCD2345', apiKey: token});
+    Keychain.getGenericPassword.mockResolvedValue({username: 'broker-totp', password: stored});
+    await expect(unlockDeviceTotpRecord(growwIdentity)).resolves.toMatchObject({seed: 'ABCD2345', apiKey: token});
+  });
+
+  test('a Groww record saved before the token was kept still unlocks the secret', async () => {
+    Keychain.getGenericPassword.mockResolvedValue({
+      username: 'broker-totp',
+      password: JSON.stringify({version: 3, seed: 'ABCD2345'}),
+    });
+    await expect(unlockDeviceTotpRecord({advisor: 'p', broker: 'Groww', userEmail: 'a@b.c'})).resolves.toMatchObject({seed: 'ABCD2345', apiKey: ''});
   });
 
   test('unlock asks for the same access rule the key was saved with', async () => {

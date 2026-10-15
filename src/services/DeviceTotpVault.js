@@ -83,6 +83,10 @@ const FACTOR_RULES = Object.freeze({
   Zerodha: {password: /^.{4,128}$/, userId: /^.{3,64}$/},
   Fyers: {pin: /^\d{4}$/, userId: /^.{3,64}$/},
   'Arihant Capital': {password: /^.{4,128}$/, userId: /^.{3,64}$/},
+  // Groww's "TOTP Token" (the long eyJ… value, sent as apiKey). Without it
+  // a phone-saved Groww login unlocked only the secret and the customer had
+  // to paste the token again on every reconnect.
+  Groww: {apiKey: /^\S{20,8192}$/},
 });
 
 const sanitizeProtectedValues = (identity, values = {}) => {
@@ -120,6 +124,7 @@ const parseRecord = value => {
         password: typeof parsed.password === 'string' ? parsed.password : '',
         userId: typeof parsed.userId === 'string' ? parsed.userId : '',
         twoFactor: typeof parsed.twoFactor === 'string' ? parsed.twoFactor : '',
+        apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : '',
       };
     }
   } catch (_) {
@@ -132,6 +137,7 @@ const parseRecord = value => {
     password: '',
     userId: '',
     twoFactor: '',
+    apiKey: '',
   };
 };
 

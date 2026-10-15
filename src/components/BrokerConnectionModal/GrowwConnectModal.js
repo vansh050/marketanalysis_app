@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   StyleSheet,
@@ -42,7 +42,7 @@ import {
   normalizeDeviceTotpSeedInput,
   removeDeviceTotp,
   saveDeviceTotpSeed,
-  unlockDeviceTotpSeed,
+  unlockDeviceTotpRecord,
 } from '../../services/DeviceTotpVault';
 
 import { designColor } from '../../design/literalTokens';
@@ -110,10 +110,15 @@ const GrowwConnectModal = ({
       .catch(() => setHasSavedTotp(false));
   }, [isVisible, deviceTotpEnabled, advisorSubdomain, userEmail]);
 
+  // One unlock fills both Groww values. Records saved before 2026-10-15
+  // hold only the secret; the next successful connect adds the token.
+  const savedRecordLacksToken = useRef(false);
   const unlockSavedTotp = async () => {
     try {
-      const seed = await unlockDeviceTotpSeed(totpIdentity);
-      if (seed) setTotpToken(seed);
+      const record = await unlockDeviceTotpRecord(totpIdentity);
+      if (record?.seed) setTotpToken(record.seed);
+      if (record?.apiKey) setApiKey(record.apiKey);
+      savedRecordLacksToken.current = Boolean(record?.seed) && !record?.apiKey;
     } catch (err) {
       showAlert('error', 'Could not unlock key', err?.message || 'Device authentication failed.');
     }
@@ -163,10 +168,18 @@ const GrowwConnectModal = ({
       showAlert('error', 'Error', 'User not found. Please try again.');
       return;
     }
-    const trimmedApiKey = apiKey.trim();
+    let trimmedApiKey = apiKey.trim();
     let trimmedToken = normalizeDeviceTotpSeedInput(totpToken);
-    if (!trimmedToken && hasSavedTotp && deviceTotpEnabled) {
-      trimmedToken = (await unlockDeviceTotpSeed(totpIdentity)) || '';
+    if ((!trimmedToken || !trimmedApiKey) && hasSavedTotp && deviceTotpEnabled) {
+      try {
+        const record = await unlockDeviceTotpRecord(totpIdentity);
+        if (!trimmedToken) trimmedToken = record?.seed || '';
+        if (!trimmedApiKey) trimmedApiKey = record?.apiKey || '';
+        savedRecordLacksToken.current = Boolean(record?.seed) && !record?.apiKey;
+      } catch (err) {
+        showAlert('error', 'Could not unlock key', err?.message || 'Device authentication failed.');
+        return;
+      }
     }
     if (!trimmedApiKey || !trimmedToken) {
       showAlert(
@@ -192,10 +205,18 @@ const GrowwConnectModal = ({
         { headers: authHeaders, timeout: 25000 },
       );
       if (res.data?.success) {
-        if (deviceTotpEnabled && saveTotpOnDevice && trimmedToken) {
-          await saveDeviceTotpSeed(totpIdentity, trimmedToken);
-          setHasSavedTotp(true);
-          setSaveTotpOnDevice(false);
+        const upgradeSavedRecord = hasSavedTotp && savedRecordLacksToken.current;
+        if (deviceTotpEnabled && (saveTotpOnDevice || upgradeSavedRecord) && trimmedToken) {
+          try {
+            await saveDeviceTotpSeed(totpIdentity, trimmedToken, '', {apiKey: trimmedApiKey});
+            savedRecordLacksToken.current = false;
+            setHasSavedTotp(true);
+            setSaveTotpOnDevice(false);
+          } catch (saveErr) {
+            // The broker connection already succeeded; saving on the phone
+            // is a convenience and must not turn success into an error.
+            console.warn('[Groww] could not save login on this phone:', saveErr?.message);
+          }
         }
         try {
           await saveBrokerSessionTime('Groww');
@@ -390,7 +411,7 @@ const GrowwConnectModal = ({
       }}
       phase="creds"
       error={''}
-      canSubmit={Boolean(apiKey) && (Boolean(totpToken) || hasSavedTotp)}
+      canSubmit={(Boolean(apiKey) || hasSavedTotp) && (Boolean(totpToken) || hasSavedTotp)}
       submitLabel="Connect Groww"
       loading={loading}
       onSubmit={handleSubmit}
