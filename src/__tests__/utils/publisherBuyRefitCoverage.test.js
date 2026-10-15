@@ -54,7 +54,10 @@ describe('every BUY basket is refitted before Kite opens', () => {
   });
 
   test('a basket the customer can no longer afford closes the run instead of opening an empty Kite window', () => {
-    expect(submitKiteBatch).toContain('Nothing left to buy');
+    // Held buys are NOT "nothing left": the sells are done and the buys are
+    // still owed (moneyman/gvarung 2026-10-15).
+    expect(submitKiteBatch).toContain('Buy orders were not placed');
+    expect(submitKiteBatch).not.toContain('Nothing left to buy');
   });
 
   test('refitting is idempotent per batch index', () => {

@@ -75,6 +75,7 @@ import useSdkClient from '../../sdk/useSdkClient';
 import LowFundsRebalanceWarning from '../LowFundsRebalanceWarning';
 import PublisherWebViewOverlay from '../PublisherWebViewOverlay';
 import {isPostSellCashUsable} from '../../utils/rebalanceReconciliation';
+import {heldBuysTitle, heldBuysBody} from '../../utils/heldBuys';
 import { resolveRebalancePlanCorrelation } from '../../utils/rebalancePlanCorrelation';
 import {planRefusalMessage} from '../../utils/planRefusalMessage';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
@@ -199,6 +200,11 @@ const RebalanceModal = ({
   const publisherAttemptRef = useRef(null);
   const publisherContinuationContextRef = useRef(null);
   const publisherContinuationLaunchRef = useRef(null);
+  // Set when the post-sell refit holds back EVERY remaining buy. The sells
+  // are done but nothing was sent, so the modal must say that — never
+  // "Already Aligned" and never "orders submitted" (moneyman/gvarung,
+  // 2026-10-15: six buys held, app claimed the portfolio was aligned).
+  const [heldBuys, setHeldBuys] = useState(null);
   const orderActionInFlightRef = useRef(false);
   const kiteHandoff = useKiteHandoffGuard({
     visible: webView,
@@ -884,6 +890,7 @@ const RebalanceModal = ({
       !hasPendingSellAuthorization &&
       !showUnaffordableTargetsExplanation &&
       !publisherBuyContinuation?.attemptId &&
+      !heldBuys &&
       activeCalculatedPortfolioData &&
       !Array.isArray(activeCalculatedPortfolioData) &&
       activeCalculatedPortfolioData?.status !== 1 &&
@@ -977,6 +984,7 @@ const RebalanceModal = ({
   useEffect(() => {
     if (!visible) {
       setEditableData([]);
+      setHeldBuys(null);
       initializedRef.current = false;
       publisherGateCancelledRef.current = true;
     }
@@ -1256,6 +1264,11 @@ const RebalanceModal = ({
         );
 
         if (!isPostSellCashUsable(data)) {
+          setHeldBuys({
+            count: buys.length,
+            reason: 'unverified',
+            message: data?.message || '',
+          });
           Toast.show({
             type: 'info',
             text1: 'Buying power is still being verified',
@@ -1270,6 +1283,15 @@ const RebalanceModal = ({
             String(l.tradingSymbol || l.symbol || '').toUpperCase(),
             Number(l.quantity) || 0,
           ]),
+        );
+        setHeldBuys(
+          data.submit.length
+            ? null
+            : {
+                count: (data.withheld || []).length || buys.length,
+                reason: 'held',
+                message: data?.message || '',
+              },
         );
         pendingKiteBatchesRef.current[index] = pricedBatch
           .map(leg => {
@@ -1358,8 +1380,8 @@ const RebalanceModal = ({
     if (!batch || !batch.length) {
       Toast.show({
         type: 'info',
-        text1: 'Nothing left to buy',
-        text2: 'Your available funds do not cover any of the remaining orders. Use Repair once funds are available.',
+        text1: 'Buy orders were not placed',
+        text2: 'Your sells are done. Nothing new was sent to your broker — see the details on screen.',
         visibilityTime: 8000,
       });
       if (finishOnHold) finishKitePublisherRun();
@@ -4286,6 +4308,95 @@ const RebalanceModal = ({
                         </Text>
                       </TouchableOpacity>
                     </>
+                  ) : heldBuys ? (
+                    <>
+                      <View
+                        style={{
+                          width: 72,
+                          height: 72,
+                          borderRadius: 36,
+                          backgroundColor: designColor('fef3c7'),
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          marginBottom: 20,
+                        }}>
+                        <AlertOctagon size={36} color={designColor('d97706')} />
+                      </View>
+                      <Text
+                        testID="rebalance-empty-buys-held"
+                        style={{
+                          fontFamily: designFont('Poppins-SemiBold'),
+                          color: designColor('d97706'),
+                          fontSize: 18,
+                          textAlign: 'center',
+                          marginBottom: 12,
+                        }}>
+                        {heldBuysTitle(heldBuys)}
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: designFont('Poppins-Regular'),
+                          color: 'rgba(0,0,0,0.6)',
+                          textAlign: 'center',
+                          marginBottom: 24,
+                          fontSize: 14,
+                          lineHeight: 22,
+                          paddingHorizontal: 10,
+                        }}>
+                        {heldBuysBody(heldBuys)}
+                      </Text>
+                      {publisherBuyContinuation?.attemptId ? (
+                        <TouchableOpacity
+                          testID="rebalance-buys-held-retry"
+                          onPress={() => {
+                            setHeldBuys(null);
+                            setZerodhaStatus(null);
+                            refittedKiteBatchesRef.current.clear();
+                            publisherContinuationLaunchRef.current = null;
+                            setLoading(true);
+                            resumeZerodhaBuyPublisher(publisherBuyContinuation).catch(
+                              error => {
+                                setLoading(false);
+                                Toast.show({
+                                  type: 'error',
+                                  text1: 'Could not continue Zerodha buys',
+                                  text2:
+                                    error?.message ||
+                                    'Please check the attempt again.',
+                                  visibilityTime: 7000,
+                                });
+                              },
+                            );
+                          }}
+                          style={{
+                            backgroundColor: designColor('000'),
+                            paddingHorizontal: 24,
+                            paddingVertical: 12,
+                            borderRadius: 8,
+                          }}>
+                          <Text
+                            style={{
+                              color: designColor('fff'),
+                              fontFamily: designFont('Poppins-Medium'),
+                              fontSize: 14,
+                            }}>
+                            Try again
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      <TouchableOpacity
+                        onPress={handleClose}
+                        style={{marginTop: 8, padding: 6}}>
+                        <Text
+                          style={{
+                            color: 'rgba(0,0,0,0.6)',
+                            fontFamily: designFont('Poppins-Medium'),
+                            fontSize: 13,
+                          }}>
+                          Go back
+                        </Text>
+                      </TouchableOpacity>
+                    </>
                   ) : !isAlreadyAlignedCalculation ? (
                     // "Already Aligned" is a claim about a zero-trade
                     // calculation. With no such calculation the list is empty
@@ -4465,7 +4576,10 @@ const RebalanceModal = ({
               ) : null}
             />
             {dataArray.length === 0 && renderFundingConsentPanel()}
-            {awaitingOrderStatus && (
+            {/* A held buy basket also ends the Kite run as 'success' (that
+                records the completed sells), but nothing new reached the
+                broker — don't claim it did. */}
+            {awaitingOrderStatus && !heldBuys && (
               <View
                 style={[
                   styles.notecontainer,
