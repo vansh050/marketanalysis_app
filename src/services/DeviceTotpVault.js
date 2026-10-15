@@ -39,7 +39,7 @@ export const friendlyDeviceAuthError = error => {
   const message = String(error?.message || error || '');
   if (!DEVICE_AUTH_ERROR.test(message)) return error;
   const wrapped = new Error(
-    'Phone authentication did not complete. Use your fingerprint, face unlock, or device PIN, then tap Reconnect with biometric unlock again.',
+    'Phone authentication did not complete. Use your fingerprint or device PIN (some phones' face unlock cannot open this key), then tap Reconnect with biometric unlock again.',
   );
   wrapped.code = 'DEVICE_AUTHENTICATION_REQUIRED';
   return wrapped;
@@ -177,6 +177,10 @@ export async function unlockDeviceTotpRecord(identity) {
   try {
     const credentials = await Keychain.getGenericPassword({
       service: serviceFor(identity),
+      // Android: the read must name the same rule the key was saved with.
+      // Without it the prompt allows weak (Class 2) face unlock, which the
+      // key does not accept, so unlock "succeeds" and then fails.
+      accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_ANY_OR_DEVICE_PASSCODE,
       authenticationType:
         Keychain.AUTHENTICATION_TYPE?.DEVICE_PASSCODE_OR_BIOMETRICS,
       authenticationPrompt: {title: 'Unlock broker connection', subtitle: 'Authenticate to use the broker TOTP key stored on this phone', cancel: 'Cancel'},

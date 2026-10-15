@@ -71,6 +71,10 @@ export async function unlockAliceBlueDeviceLogin(identity) {
   try {
     credentials = await Keychain.getGenericPassword({
       service: serviceFor(identity),
+      // Android: the read must name the same rule the key was saved with.
+      // Without it the prompt allows weak (Class 2) face unlock, which the
+      // key does not accept, so unlock "succeeds" and then fails.
+      accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_ANY_OR_DEVICE_PASSCODE,
       authenticationType:
         Keychain.AUTHENTICATION_TYPE?.DEVICE_PASSCODE_OR_BIOMETRICS,
       authenticationPrompt: {

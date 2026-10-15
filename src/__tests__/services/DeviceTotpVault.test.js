@@ -82,6 +82,15 @@ describe('DeviceTotpVault protected login', () => {
     });
   });
 
+  test('unlock asks for the same access rule the key was saved with', async () => {
+    // Without it Android offers weak face unlock, which the key rejects.
+    Keychain.getGenericPassword.mockResolvedValue({username: 'broker-totp', password: 'ABCD2345'});
+    await unlockDeviceTotpLogin(identity);
+    expect(Keychain.getGenericPassword.mock.calls[0][0]).toMatchObject({
+      accessControl: 'biometry-or-passcode',
+    });
+  });
+
   test('one unlock returns both a fresh TOTP and the protected MPIN', async () => {
     Keychain.getGenericPassword.mockResolvedValue({
       username: 'broker-totp',

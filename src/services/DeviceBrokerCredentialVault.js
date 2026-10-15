@@ -59,6 +59,10 @@ export async function savePersistedBrokerCredentials(identity, entry) {
 export async function unlockPersistedBrokerCredentials(identity) {
   const credentials = await Keychain.getGenericPassword({
     service: serviceFor(identity),
+    // Android: the read must name the same rule the key was saved with.
+    // Without it the prompt allows weak (Class 2) face unlock, which the
+    // key does not accept, so unlock "succeeds" and then fails.
+    accessControl: Keychain.ACCESS_CONTROL.BIOMETRY_ANY_OR_DEVICE_PASSCODE,
     authenticationPrompt: {
       title: 'Unlock broker connection',
       subtitle: 'Authenticate to use API credentials protected on this phone',
