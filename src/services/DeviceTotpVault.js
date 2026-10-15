@@ -39,7 +39,7 @@ export const friendlyDeviceAuthError = error => {
   const message = String(error?.message || error || '');
   if (!DEVICE_AUTH_ERROR.test(message)) return error;
   const wrapped = new Error(
-    'Phone authentication did not complete. Use your fingerprint or device PIN (some phones' face unlock cannot open this key), then tap Reconnect with biometric unlock again.',
+    'Phone authentication did not complete. Use your fingerprint or device PIN (face unlock cannot open this key on some phones), then tap Reconnect with biometric unlock again.',
   );
   wrapped.code = 'DEVICE_AUTHENTICATION_REQUIRED';
   return wrapped;
