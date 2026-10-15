@@ -42,6 +42,9 @@ const ModalManager = () => {
       setShowBrokerModal={setShowBrokerModal}
       fetchBrokerStatusModal={fetchBrokerStatusModal}
       reauthConfig={modalPayload?.reauthConfig || null}
+      // Set only by BrokerSelectionModal's expired-execution path: the sheet
+      // raises the biometric prompt itself (one-tap execute, 2026-10-10).
+      autoUnlock={modalPayload?.autoUnlock === true}
     />
   );
 };

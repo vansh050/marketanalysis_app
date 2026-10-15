@@ -27,7 +27,7 @@ import { useConfig } from '../context/ConfigContext';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 import { registerCallback } from '../utils/brokerAuth';
 import { brokerDisplayConfig } from '../config/brokerDisplayConfig';
-import { handleSmartReauth, flipPrimaryBroker } from '../utils/reauthHelpers';
+import { handleSmartReauth } from '../utils/reauthHelpers';
 import { refreshGrowwSession } from '../utils/growwRefresh';
 import eventEmitter from './EventEmitter';
 import AngelOneCautionaryWarning from './AngelOneCautionaryWarning';
@@ -47,6 +47,9 @@ const DEVICE_TOTP_AUTO_RECONNECT = Object.freeze({
     // the account is on direct_api. AliceBlue keeps its partner-login vault
     // in DeviceBrokerLoginVault, not the TOTP vault (2026-10-02).
     Dhan: {broker: 'Dhan', modalKey: 'Dhan'},
+    // Upstox: upstoxModal unlocks a saved PIN+TOTP itself when opened with
+    // `autoUnlock` (2026-10-10, one-tap execute).
+    Upstox: {broker: 'Upstox', modalKey: 'Upstox'},
     AliceBlue: {broker: 'AliceBlue', modalKey: 'AliceBlue', vault: 'aliceblue'},
     'Alice Blue': {broker: 'AliceBlue', modalKey: 'AliceBlue', vault: 'aliceblue'},
 });
@@ -274,7 +277,8 @@ const BrokerSelectionModal = ({
 
         setLoginLoading(true);
         try {
-            await flipPrimaryBroker(broker, userEmail, configData);
+            // Primary changes only when the login succeeds (the connect
+            // route sets it); backing out keeps the current broker active.
             const result = await handleSmartReauth({
                 brokerName: broker,
                 userEmail,
@@ -314,6 +318,13 @@ const BrokerSelectionModal = ({
     // immediately. DeviceTotpReconnectGate then owns the biometric prompt,
     // session refresh, and normal-login fallback. Customers without a local
     // vault keep the existing token-expiry UI unchanged.
+    //
+    // One-tap execute (2026-10-10): the payload `autoUnlock: true` tells the
+    // receiving sheet to raise the biometric prompt by itself once it has
+    // confirmed the saved vault is usable, instead of waiting for a second
+    // "Reconnect with biometric unlock" tap. The Accept tap is the intent; the
+    // biometric is the authentication. Any failure leaves the sheet open with
+    // its normal options. See docs/BROKER_CONNECTION.md § One-tap execute.
     useEffect(() => {
         if (!OpenTokenExpireModel) {
             autoReconnectAttemptRef.current = null;
@@ -348,7 +359,10 @@ const BrokerSelectionModal = ({
                 setShowBrokerModal(false);
                 setOpenTokenExpireModel(false);
                 modalStore.closeModal();
-                setTimeout(() => modalStore.openModal(target.modalKey), 100);
+                setTimeout(
+                    () => modalStore.openModal(target.modalKey, {autoUnlock: true}),
+                    100,
+                );
             })
             .catch(error => {
                 console.warn(
