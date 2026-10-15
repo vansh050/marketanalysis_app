@@ -56,6 +56,13 @@ export const brokerDisplayConfig = [
     key: 'Fyers',
     logo: require('../assets/fyers.png'),
   },
+  // Motilal Oswal: de-listed 2026-06-13/07-13, re-listed 2026-10-15 (product
+  // decision). Its connect modal, dispatch case and capability entry were kept.
+  {
+    name: 'Motilal Oswal',
+    key: 'Motilal',
+    logo: require('../assets/Motilalicon.png'),
+  },
   {
     name: 'IIFL Securities',
     key: 'IIFL',
