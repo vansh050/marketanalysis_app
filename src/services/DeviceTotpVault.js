@@ -25,10 +25,57 @@ export const normalizeDeviceTotpSeedInput = seed => {
   // Broker pages commonly group setup keys with spaces or hyphens. These are
   // presentation separators, not Base32 data. Also discard invisible Unicode
   // clipboard marks that otherwise make a visually correct key fail locally.
-  return candidate
-    .replace(/[\s\u00AD\u200B\u200C\u200D\u2060\uFEFF\u2010\u2011\u2012\u2013\u2014\u2015-]/g, '')
-    .toUpperCase();
+  const compact = candidate.replace(
+    /[\s\u00AD\u200B\u200C\u200D\u2060\uFEFF\u2010\u2011\u2012\u2013\u2014\u2015-]/g,
+    '',
+  );
+  const upper = compact.toUpperCase();
+  if (/^[A-Z2-7]+=*$/.test(upper)) return upper;
+  // Some authenticator export / QR-reader apps show the same secret in
+  // Base64 (mixed case, often ending in "="). A tester pasted one for Upstox
+  // and every check rejected it (Kyzen QA 2026-10-15). Convert it to the
+  // Base32 the TOTP maths needs, but only when it is clearly Base64 and has a
+  // TOTP-secret length; the generated "key check" code lets the customer
+  // confirm it against their authenticator before the broker sees it.
+  return base64SecretToBase32(compact) || upper;
 };
+
+const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+const BASE64_ALPHABET =
+  'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const TOTP_SECRET_BYTES = new Set([10, 16, 20, 32, 64]);
+
+function base64SecretToBase32(value) {
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(value) || value.length % 4 !== 0) return '';
+  const looksBase64 =
+    /[+/=]/.test(value) || (/[a-z]/.test(value) && /[A-Z]/.test(value));
+  if (!looksBase64) return '';
+  const bytes = [];
+  let buffer = 0;
+  let bits = 0;
+  for (const ch of value.replace(/=+$/, '')) {
+    buffer = (buffer << 6) | BASE64_ALPHABET.indexOf(ch);
+    bits += 6;
+    if (bits >= 8) {
+      bits -= 8;
+      bytes.push((buffer >> bits) & 0xff);
+    }
+  }
+  if (!TOTP_SECRET_BYTES.has(bytes.length)) return '';
+  let out = '';
+  buffer = 0;
+  bits = 0;
+  for (const byte of bytes) {
+    buffer = (buffer << 8) | byte;
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      out += BASE32_ALPHABET[(buffer >> bits) & 31];
+    }
+  }
+  if (bits > 0) out += BASE32_ALPHABET[(buffer << (5 - bits)) & 31];
+  return out;
+}
 
 const normalizeSeed = normalizeDeviceTotpSeedInput;
 

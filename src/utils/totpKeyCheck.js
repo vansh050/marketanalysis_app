@@ -26,6 +26,10 @@ export const explainInvalidSeed = (seed, brokerName = 'broker') => {
   if (/^\d{6}$/.test(value)) {
     return `That is a 6-digit one-time code. Paste the setup key it comes from: the secret in the ${brokerName} TOTP QR (or its manual setup key).`;
   }
+  const raw = String(seed || '').replace(/\s+/g, '');
+  if (/^[A-Za-z0-9+/]+={0,2}$/.test(raw) && (/[+/=]/.test(raw) || (/[a-z]/.test(raw) && /[A-Z]/.test(raw)))) {
+    return `This looks like a Base64 copy of a key, but not one with a TOTP-secret length. Open the ${brokerName} TOTP QR again and copy its setup key (letters A–Z and digits 2–7).`;
+  }
   if (/[^A-Z0-9=]/.test(value)) {
     return `It contains characters a TOTP secret never has. A TOTP secret uses only letters A–Z and digits 2–7. Use the secret from the ${brokerName} TOTP QR (or its manual setup key).`;
   }
