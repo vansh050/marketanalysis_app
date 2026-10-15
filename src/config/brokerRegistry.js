@@ -69,10 +69,10 @@ export const brokerRegistry = [
     logoKey: 'groww',
     fields: [
       {
-        label: 'API Key',
+        label: 'TOTP Token',
         key: 'apiKey',
         isSecret: false,
-        placeholder: 'Paste your Groww API Key',
+        placeholder: 'Paste your Groww TOTP token (starts with eyJ...)',
       },
       {
         label: 'TOTP Secret Key (Base32)',

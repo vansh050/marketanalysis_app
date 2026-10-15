@@ -172,7 +172,7 @@ const GrowwConnectModal = ({
       showAlert(
         'error',
         'Missing Credentials',
-        'Paste both the API Key and the TOTP Secret Key (the Base32 string shown below the QR on Groww\'s "Generate TOTP token" dialog — not the JWT-style token at the top).',
+        'Paste both the TOTP Token and the TOTP Secret Key (the Base32 string shown below the QR on Groww\'s "Generate TOTP token" dialog — not the JWT-style token at the top).',
       );
       return;
     }
@@ -259,7 +259,7 @@ const GrowwConnectModal = ({
         'error',
         'Connection Error',
         res.data?.message ||
-          'Failed to connect Groww. Please verify your API Key, TOTP Secret Key (Base32 string below the QR), and that your dedicated IP is whitelisted on Groww.',
+          'Failed to connect Groww. Please verify your TOTP Token, TOTP Secret Key (Base32 string below the QR), and that your dedicated IP is whitelisted on Groww.',
       );
     } catch (err) {
       const errorCode = err?.response?.data?.error_code;
@@ -274,7 +274,7 @@ const GrowwConnectModal = ({
           'error',
           'TOTP Secret Key format is off',
           serverMessage ||
-            'The TOTP Secret Key needs to be the Base32 string from BELOW the QR code on Groww\'s "Generate TOTP token" dialog — ~32 characters of A–Z and 2–7 only (e.g. HYSRYAALJ3NPKVQH2K4VW4FQH4AKEENP). The API Key field takes the JWT at the top of the same dialog, but the TOTP Secret Key must be the Base32 below the QR.',
+            'The TOTP Secret Key needs to be the Base32 string from BELOW the QR code on Groww\'s "Generate TOTP token" dialog — ~32 characters of A–Z and 2–7 only (e.g. HYSRYAALJ3NPKVQH2K4VW4FQH4AKEENP). The TOTP Token field takes the token at the top of the same dialog, but the TOTP Secret Key must be the Base32 below the QR.',
         );
       } else if (errorCode === 'WRONG_LENGTH') {
         showAlert(
@@ -288,7 +288,7 @@ const GrowwConnectModal = ({
           'error',
           'Groww rejected the credentials',
           serverMessage ||
-            'Groww did not accept the combination. Most common causes: (1) the API Key field is missing or has the wrong value — it should be the long JWT-style "TOTP Token" from the TOP of Groww\'s "Generate TOTP token" dialog. (2) the TOTP Secret Key is from a different "Generate TOTP token" dialog than the JWT you pasted. (3) your dedicated static IP is not whitelisted — click "Update static IP" on Groww and add the IP shown below.',
+            'Groww did not accept the combination. Most common causes: (1) the TOTP Token field is missing or has the wrong value — it should be the long "TOTP Token" from the TOP of Groww\'s "Generate TOTP token" dialog. (2) the TOTP Secret Key is from a different "Generate TOTP token" dialog than the JWT you pasted. (3) your dedicated static IP is not whitelisted — click "Update static IP" on Groww and add the IP shown below.',
         );
       } else if (
         errorCode === 'INVALID_SEED' ||
@@ -298,7 +298,7 @@ const GrowwConnectModal = ({
           'error',
           'Groww rejected the credentials',
           serverMessage ||
-            'Same mismatch as above. Verify (1) the API Key is the JWT from the TOP of the "Generate TOTP token" dialog, (2) the TOTP Secret Key is the Base32 string below the QR in the SAME dialog, and (3) your dedicated static IP is whitelisted via Groww\'s "Update static IP".',
+            'Same mismatch as above. Verify (1) the TOTP Token is the token from the TOP of the "Generate TOTP token" dialog, (2) the TOTP Secret Key is the Base32 string below the QR in the SAME dialog, and (3) your dedicated static IP is whitelisted via Groww\'s "Update static IP".',
         );
       } else {
         // Gate the generic "Connection Error" wording on whether axios
@@ -344,13 +344,14 @@ const GrowwConnectModal = ({
         brandTo: designColor('0a7d63'),
         portalUrl: 'https://groww.in/trade-api/api-keys',
         portalLabel: 'Open Groww Trade API',
+        guideTitle: 'How to get your TOTP token',
         walkthroughVideoId: 'Stba6JN-uMI',
         guideSteps: [
           'Log in at <b>groww.in</b> and verify your device',
           'Open <b>groww.in/trade-api/api-keys</b>',
           'Open the <b>Generate API key</b> dropdown → pick <b>Generate TOTP token</b>',
           'Name the token and click <b>Continue</b>',
-          'Copy <b>both</b> values shown — the <b>JWT token</b> and the <b>Base32 secret</b> (shown once!)',
+          'Copy <b>both</b> values shown — the <b>TOTP token</b> (top of the dialog) and the <b>TOTP secret</b> below the QR code (shown once!)',
           'Click <b>Update static IP</b> and whitelist the IP below',
         ],
       }}
@@ -363,11 +364,11 @@ const GrowwConnectModal = ({
       setUnmetAck={setUnmetAck}
       fields={[
         {
-          label: 'TOTP Token (API Key)',
+          label: 'TOTP Token',
           value: apiKey,
           onChange: (t) => setApiKey(t.trim()),
           multiline: true,
-          placeholder: 'Paste the JWT token (eyJ...) from Groww',
+          placeholder: 'Paste the TOTP token (starts with eyJ...)',
         },
         {
           label: 'TOTP QR Secret (Base32)',

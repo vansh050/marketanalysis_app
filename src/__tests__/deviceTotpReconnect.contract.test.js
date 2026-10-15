@@ -313,7 +313,7 @@ describe('device-owned broker TOTP reconnect contract', () => {
     expect(dhan).toContain('egressBrokerKey="dhan_direct"');
     expect(kotak).toContain("label: 'API Access Token'");
     expect(kotak).toContain('egressBrokerKey="kotak"');
-    expect(groww).toContain("label: 'TOTP Token (API Key)'");
+    expect(groww).toContain("label: 'TOTP Token'");
     expect(groww).toContain('egressBrokerKey="groww"');
     expect(definedge).toContain("label: 'API Token'");
     expect(definedge).toContain("label: 'API Secret'");

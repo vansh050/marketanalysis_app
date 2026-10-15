@@ -31,7 +31,7 @@ const GrowwHelpContent = ({expanded, onExpandChange}) => {
       <View style={[styles.container, {paddingBottom: 20}]}>
         <Text style={styles.title}>About this connection</Text>
         <Text style={styles.intro}>
-          Groww uses an API Key + TOTP Secret pair (Bearer token + seed
+          Groww uses a TOTP Token + TOTP Secret pair (Bearer token + seed
           for daily 6-digit codes) instead of OAuth. Tap{' '}
           <Text style={{fontWeight: '700'}}>Read More</Text> below for
           notes on which value goes where, daily refresh behaviour,
@@ -60,7 +60,7 @@ const GrowwHelpContent = ({expanded, onExpandChange}) => {
                 • The <Text style={{fontWeight: '700'}}>JWT token</Text> (the
                 TOTP Token, starts with{' '}
                 <Text style={styles.mono}>eyJraWQi…</Text>) → paste
-                into the "TOTP Token (used as API Key)" field. Groww
+                into the "TOTP Token" field. Groww
                 uses this as the Bearer token.
               </Text>
               <Text style={styles.noteText}>
