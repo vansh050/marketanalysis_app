@@ -30,6 +30,7 @@ import {
   saveDeviceTotpSeed,
   unlockDeviceTotpLogin,
 } from '../../services/DeviceTotpVault';
+import {describeUpstoxConnectError} from '../../utils/upstoxConnectError';
 import {explainInvalidSeed} from '../../utils/totpKeyCheck';
 import {
   isRetryableEnrollmentError,
@@ -354,7 +355,11 @@ const UpstoxModal = ({
       .catch(error => {
         console.log('[Upstox] Error:', error?.response?.data || error?.message || error);
         setIsLoading(false);
-        showAlert('error', 'Incorrect Credentials', 'Please check your API Key and Secret Key and try again.');
+        const {title, message} = describeUpstoxConnectError(
+          error,
+          brokerConnectRedirectURL,
+        );
+        showAlert('error', title, message);
       });
   };
 
