@@ -30,6 +30,7 @@ import {
   saveDeviceTotpSeed,
   unlockDeviceTotpLogin,
 } from '../../services/DeviceTotpVault';
+import {explainInvalidSeed} from '../../utils/totpKeyCheck';
 import {
   isRetryableEnrollmentError,
   isWrongPinError,
@@ -261,7 +262,7 @@ const UpstoxModal = ({
         showAlert(
           'error',
           'Check the Upstox TOTP secret',
-          'This is not a valid Base32 TOTP setup key. Uppercase and lowercase are both accepted. Use the secret encoded in the Upstox TOTP QR (or its manual setup key), not your Upstox API Secret; Base32 uses letters A–Z and digits 2–7.',
+          explainInvalidSeed(deviceTotpSeed, 'Upstox'),
         );
         return;
       }
