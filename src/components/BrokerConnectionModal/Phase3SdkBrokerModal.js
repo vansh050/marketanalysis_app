@@ -479,11 +479,14 @@ const buildSchemaOverride = (brokerName, userDetails, storedOverride = null) => 
           name: 'apiKey',
           initialValue: stored?.apiKey || '',
           placeholder: 'API Key from your SmartAPI app (e.g. aB3dE5fG)',
-          // A TOTP key (16+ chars of A–Z/2–7, from "Enable TOTP") is the
-          // most common wrong paste here (Kyzen QA 2026-10-13).
-          pattern: /^(?![A-Z2-7]{16,}$)\S{4,64}$/,
+          // SmartAPI API keys are exactly 8 letters/digits (every saved key
+          // fleet-wide, 2026-10-15). A 9-character typo still got a session
+          // that Angel One then refused (AG8004), looping "connected" ->
+          // "session expired"; a TOTP key (16+ chars) was the 2026-10-13
+          // wrong paste. The server enforces the same rule.
+          pattern: /^[A-Za-z0-9]{8}$/,
           patternError:
-            'This looks like your TOTP key, not the API Key. Copy the API Key shown on your app at smartapi.angelone.in → My Apps.',
+            'The API Key is 8 letters or digits (not your TOTP key or a longer secret). Copy it from your app at smartapi.angelone.in → My Apps.',
         },
         {
           name: 'clientCode',

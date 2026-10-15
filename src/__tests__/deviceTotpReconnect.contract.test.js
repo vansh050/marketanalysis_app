@@ -311,7 +311,7 @@ describe('device-owned broker TOTP reconnect contract', () => {
     // fields reject those shapes before submit.
     expect(angelGuide).toContain('not the long <b>TOTP key</b>');
     expect(angelGuide).toContain('Client Code = your Angel One login ID');
-    expect(angelOverride).toContain('pattern: /^(?![A-Z2-7]{16,}$)\\S{4,64}$/');
+    expect(angelOverride).toContain('pattern: /^[A-Za-z0-9]{8}$/');
     expect(angelOverride).toContain('pattern: /^[A-Za-z]+\\d+$/');
     expect(angelGuide).toContain('does not issue or require an API Secret');
     expect(angelGuide).not.toContain('API Key</b> and <b>Secret');
