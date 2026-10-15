@@ -115,7 +115,11 @@ const parseRecord = value => {
     if ((parsed?.version === 2 || parsed?.version === 3) && typeof parsed.seed === 'string') {
       return {
         seed: normalizeSeed(parsed.seed),
-        mpin: /^\d{6}$/.test(String(parsed.mpin || ''))
+        // Same range the save accepts (FACTOR_RULES): Angel One MPINs are
+        // 4 digits, Kotak 6. Reading back only 6 digits dropped every saved
+        // Angel One MPIN, so quick reconnect failed with "Client ID, MPIN and
+        // six-digit TOTP are required" (Kyzen QA 2026-10-15).
+        mpin: /^\d{4,6}$/.test(String(parsed.mpin || ''))
           ? String(parsed.mpin)
           : '',
         pin: /^\d{4,6}$/.test(String(parsed.pin || ''))

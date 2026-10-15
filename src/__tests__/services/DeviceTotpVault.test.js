@@ -103,6 +103,15 @@ describe('DeviceTotpVault protected login', () => {
     await expect(unlockDeviceTotpRecord({advisor: 'p', broker: 'Groww', userEmail: 'a@b.c'})).resolves.toMatchObject({seed: 'ABCD2345', apiKey: ''});
   });
 
+  test('a 4-digit Angel One MPIN saved on the phone is returned on unlock', async () => {
+    Keychain.getGenericPassword.mockResolvedValue({
+      username: 'broker-totp',
+      password: JSON.stringify({version: 3, seed: 'ABCD2345', mpin: '1234', userId: 'A12345'}),
+    });
+    await expect(unlockDeviceTotpLogin({advisor: 'k', broker: 'Angel One', userEmail: 'a@b.c'}))
+      .resolves.toMatchObject({mpin: '1234', userId: 'A12345', totp: expect.any(String)});
+  });
+
   test('unlock asks for the same access rule the key was saved with', async () => {
     // Without it Android offers weak face unlock, which the key rejects.
     Keychain.getGenericPassword.mockResolvedValue({username: 'broker-totp', password: 'ABCD2345'});
