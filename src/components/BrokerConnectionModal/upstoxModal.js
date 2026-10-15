@@ -247,6 +247,14 @@ const UpstoxModal = ({
       !hasSavedTotp
     ) {
       const normalizedSeed = normalizeDeviceTotpSeedInput(deviceTotpSeed);
+      if (!normalizedSeed) {
+        showAlert(
+          'error',
+          'Enter the Upstox TOTP secret',
+          'To save quick reconnect on this phone, paste the secret from the Upstox TOTP QR (or its manual setup key) into the TOTP secret box. To connect without saving, untick "Enable quick reconnect on this phone".',
+        );
+        return;
+      }
       try {
         generateDeviceTotpFromSeed(normalizedSeed);
       } catch (_) {
