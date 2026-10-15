@@ -119,6 +119,13 @@ const GrowwConnectModal = ({
       if (record?.seed) setTotpToken(record.seed);
       if (record?.apiKey) setApiKey(record.apiKey);
       savedRecordLacksToken.current = Boolean(record?.seed) && !record?.apiKey;
+      // A complete saved login reconnects in one tap, like Fyers quick
+      // reconnect. The IP-whitelist confirmation was given when the login
+      // was saved, so it is not asked again. An older record without the
+      // token only fills the secret; the customer pastes the token once.
+      if (record?.seed && record?.apiKey) {
+        await handleSubmit({fromSavedKey: true, seed: record.seed, apiKey: record.apiKey});
+      }
     } catch (err) {
       showAlert('error', 'Could not unlock key', err?.message || 'Device authentication failed.');
     }
@@ -159,8 +166,9 @@ const GrowwConnectModal = ({
     );
   };
 
-  const handleSubmit = async () => {
-    if (!egressReady) {
+  const handleSubmit = async (arg) => {
+    const saved = arg && arg.fromSavedKey ? arg : null;
+    if (!egressReady && !saved) {
       setUnmetAck(true);
       return;
     }
@@ -168,8 +176,8 @@ const GrowwConnectModal = ({
       showAlert('error', 'Error', 'User not found. Please try again.');
       return;
     }
-    let trimmedApiKey = apiKey.trim();
-    let trimmedToken = normalizeDeviceTotpSeedInput(totpToken);
+    let trimmedApiKey = saved?.apiKey || apiKey.trim();
+    let trimmedToken = saved?.seed || normalizeDeviceTotpSeedInput(totpToken);
     if ((!trimmedToken || !trimmedApiKey) && hasSavedTotp && deviceTotpEnabled) {
       try {
         const record = await unlockDeviceTotpRecord(totpIdentity);
@@ -407,6 +415,7 @@ const GrowwConnectModal = ({
         saveOnDevice: saveTotpOnDevice,
         onToggleSave: () => setSaveTotpOnDevice(value => !value),
         onUnlock: unlockSavedTotp,
+        unlockLabel: 'Reconnect with saved key',
         onForget: forgetSavedTotp,
       }}
       phase="creds"
