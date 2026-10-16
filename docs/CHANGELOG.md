@@ -1,5 +1,25 @@
 # Changelog
 
+## 2026-10-16 — Second whitelisted IP (OVH) on the connect sheet and Manage Connections
+
+- Customers can now whitelist a second static IP (OVH Mumbai) beside their
+  existing one, so orders keep flowing if one network fails (Route64 was
+  down ~2 h on 2026-10-16). Shown only when the backend returns `ovh_address`
+  (`egress_frontend_config.ovh_secondary_enabled`); older builds unaffected.
+- Connect sheet shows both IPs in role order; Manage Connections shows an
+  "Add a backup IP" card per broker with "I've added it"
+  (`POST /egress/ovh/added`); the backend confirms it on the next order.
+- Files: `src/components/BrokerConnectionModal/EgressIpCallout.js`
+  (`SecondStaticIp`, `markOvhAdded`, `fetchEgressEntry`),
+  `src/components/BrokerConnectionModal/BackupStaticIp.js` (new),
+  `src/screens/Home/ManageConnectionsModal.js`,
+  `src/__tests__/secondStaticIp.render.test.js`,
+  `docs/BROKER_CONNECTION.md` § "Second whitelisted IP (OVH Mumbai)".
+- Backend: ccxt-india `0481615b`, `a0ba0660` (deployed; design
+  `docs/EGRESS_OVH_PRIMARY_DESIGN.md`). Web: prod-alphaquark-github `3fb1d63b8`.
+- No OTA; ships with the next binary.
+- Ported from Alphab2bapp `5a7c14c1`.
+
 ## 2026-10-08 — Rebalance card names what its pending badge is waiting on
 
 Ported from Alphab2bapp `87a06db7`. Every pending state rendered "Awaiting

@@ -1483,6 +1483,43 @@ Step 2 now instructs the user to paste the dedicated static IP into the Breeze "
 - The 5 HDFC/ICICI/Upstox `*ConnectUI.js` files already contain `EgressIpCallout` + an inline comment about the purpose. No UI component change — only the HelpContent instructional text was updated, because that's the user-facing prose.
 - Kotak's HelpContent was not updated — its credential form doesn't involve creating an app with an "Allowed IPs" field; Kotak's IP whitelist is configured on the consumer-key settings page which is already covered via `EgressIpCallout`.
 
+## Second whitelisted IP (OVH Mumbai) — 2026-10-16
+
+Brokers accept a **primary + secondary** static IP. On 2026-10-16 Route64's
+Frankfurt PoP stopped forwarding for ~2 h and every whitelisted-IP broker call
+from egress customers timed out. The backend now gives each claimed IPv6
+customer a second address (OVH Mumbai, routed via Docker1) so either network
+can carry their orders once both are whitelisted. Backend design: ccxt-india
+`docs/EGRESS_OVH_PRIMARY_DESIGN.md`. Web twin: prod-alphaquark-github
+`src/Home/BrokerConnection/BackupStaticIp.js` (BROKER_CONNECTION_ARCHITECTURE §11A.2a).
+
+- **API:** for a `claimed` IPv6 broker `/egress/me` adds `ovh_address`,
+  `ovh_role` (`secondary` = existing customer keeps their IP as primary and
+  adds this as the backup; `primary` = customer activated after the cut-over
+  sets it as the main IP) and `ovh_state` (`not_added` / `requested` /
+  `confirmed` / `rejected`). `address` is unchanged, so older builds keep
+  showing one IP and keep working. Kotak (IPv4-only) never gets one.
+  `POST /egress/ovh/added {broker, customer_id|email}` → `requested`.
+- **Connect sheet** (`EgressIpCallout.js`, claimed state): when `ovh_address`
+  is present, `SecondStaticIp` replaces the single address box and shows both
+  IPs in role order with copy buttons; the acknowledgement reads "I have
+  added both IPs…" and ticking it calls `markOvhAdded` when the state is
+  `not_added`/`rejected` (fire-and-forget, never blocks connect).
+- **Manage Connections** (`src/screens/Home/ManageConnectionsModal.js`):
+  `BackupStaticIp` (`src/components/BrokerConnectionModal/BackupStaticIp.js`)
+  renders under each broker row; it maps the display name with
+  `EGRESS_BROKER_KEY_BY_NAME`, fetches the entry via `fetchEgressEntry`, and
+  renders nothing unless that broker has a second IP. States: "I've added it"
+  → "Waiting for confirmation…" → "Active" (confirmed), or a red fix-it note
+  with the button again (rejected).
+- **Confirmation is backend-owned:** the next order placement for a
+  `requested` broker is sent from the OVH address; success → `confirmed`, the
+  broker's exact IP-rejection text → `rejected` and the order is resent from
+  Route64. A login/connect success is never evidence.
+- Styles reuse the callout's existing StyleSheet + `designToken`s (style
+  audit stays 0 literals). Tenant header via `getTenantSubdomain(configData)`.
+- Tests: `src/__tests__/secondStaticIp.render.test.js`.
+
 ## EgressIpCallout polish — parity audit (Group D, 2026-04-20)
 
 Ports web `b25d105` (UI polish + visible error state + steps preamble), `0f1f3bf` (no-opt-out hard-gate), and `fca0620`'s red-flash half (the HDFC/ICICI step-text half was ported in Group C4/C5).

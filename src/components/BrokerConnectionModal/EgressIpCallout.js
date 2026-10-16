@@ -964,6 +964,7 @@ const EgressIpCallout = ({
   }
 
   if (brokerState === 'claimed' && brokerEntry?.address) {
+    const hasSecondIp = Boolean(brokerEntry.ovh_address);
     const flashBg = flashAnim.interpolate({
       inputRange: [0, 1],
       outputRange: [designColor('fef3c7'), designColor('fee2e2')],
@@ -982,6 +983,18 @@ const EgressIpCallout = ({
               : 'IPv4 — unique to your account'}
           </Text>
 
+          {hasSecondIp ? (
+            <SecondStaticIp
+              brokerKey={brokerKey}
+              entry={brokerEntry}
+              customerId={customerId}
+              customerEmail={customerEmail}
+              configData={configData}
+              onEntryChange={setBrokerEntry}
+              showAddedButton={false}
+            />
+          ) : (
+          <>
           <IpAddressBox
             address={brokerEntry.address}
             copied={copiedIp === brokerEntry.address}
@@ -1004,6 +1017,8 @@ const EgressIpCallout = ({
               </>
             ) : null}
           </Text>
+          </>
+          )}
 
           <Animated.View
             style={[
@@ -1011,7 +1026,17 @@ const EgressIpCallout = ({
               flashAck && {backgroundColor: flashBg, borderColor: designColor('ef4444')},
             ]}>
             <TouchableOpacity
-              onPress={() => setAcknowledged(!acknowledged)}
+              onPress={() => {
+                const next = !acknowledged;
+                setAcknowledged(next);
+                const st = brokerEntry.ovh_state;
+                if (next && hasSecondIp && (st === 'not_added' || st === 'rejected')) {
+                  // Verified on the first order; optional, never blocks connect.
+                  markOvhAdded({brokerKey, customerId, customerEmail, configData})
+                    .then(fresh => fresh && setBrokerEntry(fresh))
+                    .catch(() => {});
+                }
+              }}
               style={styles.checkboxRow}
               activeOpacity={0.7}>
               <View
@@ -1032,9 +1057,15 @@ const EgressIpCallout = ({
                     IP.{'\n'}
                   </Text>
                 )}
-                I have added{' '}
-                <Text style={styles.ipInline}>{brokerEntry.address}</Text> to
-                my {brokerDisplay} developer portal whitelist. I understand
+                {hasSecondIp ? (
+                  <>I have added both IPs to my {brokerDisplay} developer portal whitelist.</>
+                ) : (
+                  <>
+                    I have added{' '}
+                    <Text style={styles.ipInline}>{brokerEntry.address}</Text> to
+                    my {brokerDisplay} developer portal whitelist.
+                  </>
+                )} I understand
                 broker API calls will be rejected until the entry is active on{' '}
                 {brokerDisplay}'s side.
               </Text>
@@ -1087,7 +1118,177 @@ const IpAddressBox = ({address, copied, onCopy, accent}) => (
   </View>
 );
 
+/**
+ * Second whitelisted IP (OVH Mumbai) — ccxt-india docs/EGRESS_OVH_PRIMARY_DESIGN.md.
+ * Brokers accept a primary + secondary static IP; with both whitelisted the
+ * customer's orders keep flowing when one network path is down. /egress/me
+ * adds `ovh_address`, `ovh_role` ('secondary' = existing customer adds it as
+ * the backup; 'primary' = newer customer sets it as the main IP) and
+ * `ovh_state` (not_added | requested | confirmed | rejected). `address` is
+ * unchanged. Mirrors web src/Home/BrokerConnection/BackupStaticIp.js.
+ */
+export async function markOvhAdded({brokerKey, customerId, customerEmail, configData}) {
+  const body = {broker: brokerKey};
+  if (customerId) {
+    body.customer_id = customerId;
+  }
+  if (customerEmail) {
+    body.email = customerEmail;
+  }
+  const res = await axios.post(`${server.ccxtServer.baseUrl}egress/ovh/added`, body, {
+    headers: buildHeaders(configData),
+    timeout: 10000,
+  });
+  return res.data?.entry || null;
+}
+
+/** One broker's /egress/me entry (null on any failure — callers treat the
+ *  second-IP prompt as optional). */
+export async function fetchEgressEntry({brokerKey, customerId, customerEmail, configData}) {
+  if (!brokerKey || (!customerId && !customerEmail)) {
+    return null;
+  }
+  try {
+    const params = {};
+    if (customerId) {
+      params.customer_id = customerId;
+    }
+    if (customerEmail) {
+      params.email = customerEmail;
+    }
+    const res = await axios.get(`${server.ccxtServer.baseUrl}egress/me`, {
+      headers: buildHeaders(configData),
+      params,
+      timeout: 10000,
+    });
+    return res.data?.brokers?.[brokerKey] || null;
+  } catch (e) {
+    return null;
+  }
+}
+
+const OVH_STATE_NOTE = {
+  requested: b => `Waiting for confirmation. We check it automatically on your next ${b} order.`,
+  confirmed: () => 'Active. Your orders can use either IP.',
+  rejected: b =>
+    `${b} rejected this IP on your last order. Check it is entered exactly as shown, then tap "I've added it" again.`,
+};
+
+export const SecondStaticIp = ({
+  brokerKey,
+  entry,
+  customerId,
+  customerEmail,
+  configData,
+  onEntryChange,
+  showAddedButton = true,
+  withCard = false,
+}) => {
+  const colors = useColors();
+  const brand = colors?.brand?.primary || designColor('2563eb');
+  const [copied, setCopied] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+  if (!entry?.ovh_address || !entry?.address) {
+    return null;
+  }
+
+  const brokerName = BROKER_DISPLAY_NAMES[brokerKey] || brokerKey;
+  const hint = BROKER_WHITELIST_HINT[brokerKey];
+  const portal = BROKER_DEV_PORTAL_URLS[brokerKey];
+  const ovhIsPrimary = entry.ovh_role === 'primary';
+  const primary = ovhIsPrimary ? entry.ovh_address : entry.address;
+  const secondary = ovhIsPrimary ? entry.address : entry.ovh_address;
+  const state = entry.ovh_state || 'not_added';
+  const canMarkAdded = showAddedButton && (state === 'not_added' || state === 'rejected');
+  const copy = address => {
+    Clipboard.setString(address);
+    setCopied(address);
+    setTimeout(() => setCopied(null), 1800);
+  };
+  const handleAdded = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const fresh = await markOvhAdded({brokerKey, customerId, customerEmail, configData});
+      if (fresh) {
+        onEntryChange?.(fresh);
+      }
+    } catch (err) {
+      setError(err?.response?.data?.error || err?.message || 'Could not save. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const body = (
+    <View testID={`second-static-ip-${brokerKey}`} accessibilityValue={{text: state}}>
+      {withCard ? (
+        <Text style={styles.titleAmber}>
+          {state === 'confirmed' ? 'Backup IP' : 'Add a backup IP'}
+        </Text>
+      ) : null}
+      <Text style={styles.stepText}>
+        {ovhIsPrimary
+          ? `${brokerName} lets you whitelist two IPs. Add both so your orders keep going through if one network has a problem.`
+          : `Add a backup IP in the Secondary slot of your ${brokerName} whitelist. If our main network has a problem, your orders go through the backup instead. Your current IP stays as it is.`}
+      </Text>
+      <Text style={[styles.stepText, styles.bold, styles.ovhGap]}>
+        {ovhIsPrimary ? 'Primary static IP' : 'Primary static IP (already set)'}
+      </Text>
+      <IpAddressBox address={primary} copied={copied === primary} onCopy={copy} accent={brand} />
+      <Text style={[styles.stepText, styles.bold, styles.ovhGap]}>
+        {ovhIsPrimary ? 'Secondary static IP' : 'Secondary static IP (add this)'}
+      </Text>
+      <IpAddressBox address={secondary} copied={copied === secondary} onCopy={copy} accent={brand} />
+      <Text style={[styles.stepText, styles.ovhGap]}>
+        Paste them into your {brokerName} IP whitelist
+        {hint ? (
+          <>
+            {' — '}
+            <Text style={styles.italic}>{hint}</Text>
+          </>
+        ) : null}
+        {portal ? (
+          <>
+            {' '}
+            <LinkifiedUrl url={portal} display="(open portal)" />
+          </>
+        ) : null}
+      </Text>
+      {OVH_STATE_NOTE[state] ? (
+        <Text
+          testID={`second-static-ip-state-${brokerKey}`}
+          style={[state === 'rejected' ? styles.bodyRed : styles.stepText, styles.bold, styles.ovhNote]}>
+          {OVH_STATE_NOTE[state](brokerName)}
+        </Text>
+      ) : null}
+      {canMarkAdded ? (
+        <TouchableOpacity
+          onPress={handleAdded}
+          disabled={saving}
+          style={[styles.primaryButton, styles.ovhGap, {backgroundColor: brand}, saving && styles.ovhSaving]}
+          accessibilityRole="button"
+          activeOpacity={0.8}>
+          {saving ? (
+            <ActivityIndicator size="small" color={designColor('fff')} />
+          ) : (
+            <Text style={styles.primaryButtonText}>I've added it</Text>
+          )}
+        </TouchableOpacity>
+      ) : null}
+      {error ? <Text style={[styles.bodyRed, styles.ovhError]}>{error}</Text> : null}
+    </View>
+  );
+  return withCard ? <View style={[styles.card, styles.cardAmber]}>{body}</View> : body;
+};
+
 const styles = StyleSheet.create({
+  // Second whitelisted IP (SecondStaticIp) spacing.
+  ovhGap: {marginTop: 10},
+  ovhNote: {marginTop: 8},
+  ovhError: {marginTop: 6},
+  ovhSaving: {opacity: 0.6},
   container: {
     marginTop: 18,
     marginBottom: 12,

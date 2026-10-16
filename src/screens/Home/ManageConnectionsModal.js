@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
+import BackupStaticIp from '../../components/BrokerConnectionModal/BackupStaticIp';
 import Toast from 'react-native-toast-message';
 import server from '../../utils/serverConfig';
 import Config from 'react-native-config';
@@ -384,7 +385,8 @@ const ManageConnectionsModal = ({
   };
 
   const renderConnection = item => (
-    <View key={item.broker} style={styles.connectionItem}>
+    <React.Fragment key={item.broker}>
+    <View style={styles.connectionItem}>
       <View style={styles.connectionInfo}>
         <Text style={styles.brokerName}>{item.broker}</Text>
         {item.is_active && (
@@ -463,6 +465,14 @@ const ManageConnectionsModal = ({
         </TouchableOpacity>
       </View>
     </View>
+    {/* Second whitelisted IP (backup) for this broker — renders nothing when not applicable */}
+    <BackupStaticIp
+      broker={item.broker}
+      customerId={userDetails?._id}
+      customerEmail={userEmail}
+      configData={configData}
+    />
+    </React.Fragment>
   );
 
   return (
