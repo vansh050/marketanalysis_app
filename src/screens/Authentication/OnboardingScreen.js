@@ -11,9 +11,8 @@
  * De-tenanting: the arfs original hardcoded 4 arfs-branded video clips.
  * This version reads the slide list from `useTokens().assets.onboardingSlides`
  * so a variant can override the whole carousel via its own
- * `designs/<variant>/tokens/assets.js` (see theme/assets.js header comment
- * for the default-set caveat — the shipped defaults are arfs's own clips,
- * not yet verified branding-neutral for other tenants).
+ * `designs/<variant>/tokens/assets.js`. The shared default is empty
+ * (2026-10-16 — the clips were arfs's and cost every app ~16 MB).
  */
 import React, {useState, useRef, useEffect} from 'react';
 import {useNavigation} from '@react-navigation/native';
@@ -38,8 +37,8 @@ const OnboardingScreen = () => {
   // Auto-advance slides, navigate to login after last slide
   useEffect(() => {
     if (!slides.length) {
-      // No slides resolved (shouldn't happen — theme/assets.js always ships
-      // a default set) — don't strand the user on a blank carousel.
+      // No slides (the shared default is empty; only a variant override or
+      // arfs_app ships clips) — don't strand the user on a blank carousel.
       navigation.replace(loginScreen);
       return undefined;
     }
