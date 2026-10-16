@@ -43,6 +43,9 @@ const SDK_PATH_CANDIDATES = [
 ];
 const SDK_PATH =
   SDK_PATH_CANDIDATES.find((p) => fs.existsSync(p)) || SDK_PATH_CANDIDATES[0];
+// Packages that must exist exactly once in the bundle. See resolveRequest.
+const SINGLETON_PACKAGES = ['react', 'react-native', 'react-native-webview'];
+const APP_ORIGIN = path.join(__dirname, 'index.js');
 const WATCH_FOLDERS = [SDK_PATH];
 if (!NODE_MODULES_PATH.startsWith(`${__dirname}${path.sep}`)) {
   WATCH_FOLDERS.push(NODE_MODULES_PATH);
@@ -64,6 +67,26 @@ const config = {
     babelTransformerPath: require.resolve('react-native-svg-transformer'),
   },
   resolver: {
+    // Resolve the singleton packages (and their subpaths, e.g.
+    // react/jsx-runtime) from the APP for every importer, the SDK included.
+    // iOS CI runs `npm install` in the SDK checkout, which installs the SDK's
+    // React 18 devDependency next to its lib; SDK files then resolved that
+    // copy while the app used React 19 — two Reacts, crash at launch
+    // ("Cannot read property 'useState' of null"). Same fix as Markup
+    // 9d90a5fb8 (2026-10-14); ported 2026-10-16 after TestFlight crashes.
+    resolveRequest: (context, moduleName, platform) => {
+      const pinned = SINGLETON_PACKAGES.some(
+        (pkg) => moduleName === pkg || moduleName.startsWith(`${pkg}/`),
+      );
+      if (pinned && context.originModulePath !== APP_ORIGIN) {
+        return context.resolveRequest(
+          {...context, originModulePath: APP_ORIGIN},
+          moduleName,
+          platform,
+        );
+      }
+      return context.resolveRequest(context, moduleName, platform);
+    },
     assetExts: assetExts.filter((ext) => ext !== 'svg'),
     sourceExts: [...sourceExts, 'svg'],
     resolverMainFields: ['sbmodern', 'react-native', 'browser', 'main'],

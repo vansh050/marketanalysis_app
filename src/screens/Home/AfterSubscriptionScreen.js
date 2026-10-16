@@ -175,6 +175,13 @@ const AfterSubscriptionScreen = ({route}) => {
 
   // Fetch Strategy
   const getStrategyDetails = () => {
+    // No model name (or a failed lookup) can never load holdings: end the
+    // spinner instead of leaving 'Loading your holdings…' up forever
+    // (2026-10-13: a rebalance alert navigated here with fileName undefined).
+    if (!fileName || fileName === 'undefined') {
+      setPortfolioLoading(false);
+      return;
+    }
     if (fileName) {
       axios
         .get(
@@ -207,7 +214,10 @@ const AfterSubscriptionScreen = ({route}) => {
             setLatestRebalance(latest);
           }
         })
-        .catch(err => console.log(err));
+        .catch(err => {
+          console.log(err);
+          setPortfolioLoading(false);
+        });
     }
   };
   useEffect(() => {

@@ -16,7 +16,7 @@ import {generateToken} from '../../utils/SecurityTokenManager';
 import {getTenantSubdomain} from '../../utils/variantHelper';
 import {useTrade} from '../../screens/TradeContext';
 import useSellAuthGuide from '../../hooks/useSellAuthGuide';
-import {designColor, designFont} from '../../design/literalTokens';
+import {designFont, designToken} from '../../design/literalTokens';
 
 const SKIP = new Set(['DummyBroker', 'Zerodha']);
 const askedKey = (email, broker) => `aq.ddpiAsked.${String(email || '').toLowerCase()}.${broker}`;
@@ -144,23 +144,23 @@ export default function DdpiDeclarationPrompt() {
 const styles = StyleSheet.create({
   overlay: {flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.35)'},
   sheet: {
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('ddpiPrompt.sheet.backgroundColor'),
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     padding: 20,
   },
-  title: {fontSize: 16, color: designColor('111827'), fontFamily: designFont('Poppins-SemiBold')},
+  title: {fontSize: 16, color: designToken('ddpiPrompt.title.color'), fontFamily: designFont('Poppins-SemiBold')},
   body: {
     marginTop: 6,
     fontSize: 13,
     lineHeight: 19,
-    color: designColor('374151'),
+    color: designToken('ddpiPrompt.body.color'),
     fontFamily: designFont('Poppins-Regular'),
   },
   link: {
     marginTop: 8,
     fontSize: 13,
-    color: designColor('2563eb'),
+    color: designToken('ddpiPrompt.link.color'),
     textDecorationLine: 'underline',
     fontFamily: designFont('Poppins-Regular'),
   },
@@ -170,17 +170,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: designColor('2563eb'),
+    borderColor: designToken('ddpiPrompt.choice.borderColor'),
     alignItems: 'center',
   },
-  choiceText: {fontSize: 14, color: designColor('2563eb'), fontFamily: designFont('Poppins-SemiBold')},
+  choiceText: {fontSize: 14, color: designToken('ddpiPrompt.choice.textColor'), fontFamily: designFont('Poppins-SemiBold')},
   later: {marginTop: 12, alignSelf: 'center', padding: 6},
-  laterText: {fontSize: 13, color: designColor('6b7280'), fontFamily: designFont('Poppins-Regular')},
+  laterText: {fontSize: 13, color: designToken('ddpiPrompt.later.color'), fontFamily: designFont('Poppins-Regular')},
   small: {
     marginTop: 4,
     fontSize: 11,
     textAlign: 'center',
-    color: designColor('9ca3af'),
+    color: designToken('ddpiPrompt.footnote.color'),
     fontFamily: designFont('Poppins-Regular'),
   },
 });

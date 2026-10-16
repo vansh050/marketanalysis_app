@@ -35,8 +35,24 @@ const NotificationListScreen = () => {
         notifications,
         isLoading,
     };
+    // Next-step actions for presentations that group rows into portfolio
+    // and research updates (Kyzen, Figma 2012:733). The bottom tabs are
+    // mounted under stack route 'Home' or 'HomeS' depending on the entry
+    // path; return to whichever exists so we do not stack a second tab
+    // navigator on top of the notification screen.
+    const openHomeTab = (tab) => {
+        const routes = navigation.getState?.()?.routes || [];
+        const host = routes.some((r) => r.name === 'Home')
+            ? 'Home'
+            : routes.some((r) => r.name === 'HomeS')
+              ? 'HomeS'
+              : 'Home';
+        navigation.navigate(host, { screen: tab });
+    };
     const actions = {
         onBack: () => navigation.goBack(),
+        onOpenPortfolioUpdate: () => openHomeTab('Home'),
+        onOpenResearchUpdate: () => openHomeTab('Home'),
         onRefresh: refresh,
         onMarkAllRead: markAllRead,
         onNotificationPress: (item) => {

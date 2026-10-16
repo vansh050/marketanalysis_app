@@ -4,8 +4,8 @@
  * Ported from arfs_app's original pre-sync flow (2026-07-17, see
  * arfs_app git tag `pre-fullsync-20260717`) and upstreamed into Alphab2bapp
  * as a fleet-wide, config-gated feature. Gated end-to-end by
- * `config.phoneFirstLoginEnabled` (default OFF) — SplashScreen only routes
- * here when the advisor has opted in. See ConfigContext.js +
+ * `config.phoneFirstLoginEnabled` (default OFF), unless a tenant navigation
+ * manifest explicitly sets `preLoginPolicy: 'always'`. See ConfigContext.js +
  * Models/AdvisorConfigModel.js `phone_first_login_enabled` (aq_backend_github).
  *
  * De-tenanting: the arfs original hardcoded 4 arfs-branded video clips.

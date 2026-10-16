@@ -8,13 +8,21 @@ export function isPublisherExecutionComplete(body) {
 
 export function includeUnconfirmedPublisherLegs(rows = [], approved = [], body) {
   if (isPublisherExecutionComplete(body)) return rows;
-  const identity = row => [
-    String(row.tradingSymbol || row.symbol || '').toUpperCase().replace(/-EQ$/, ''),
+  const symbolSide = row => [
+    String(row.tradingSymbol || row.symbol || '').toUpperCase().replace(/-(EQ|BE|BZ)$/, ''),
     String(row.transactionType || '').toUpperCase(),
-    String(row.exchange || 'NSE').toUpperCase(),
   ].join(':');
+  const identity = row => `${symbolSide(row)}:${String(row.exchange || 'NSE').toUpperCase()}`;
   const observed = new Set(rows.map(identity));
-  return [...rows, ...approved.filter(leg => !observed.has(identity(leg))).map(leg => ({
+  // The broker may report the order on the other exchange (Fyers 2026-10-05:
+  // plan PATELENG NSE, order book PATELENG BSE). Match on stock + side unless
+  // the plan itself has that stock + side on more than one exchange.
+  const observedBySide = new Set(rows.map(symbolSide));
+  const legsPerSide = approved.reduce((m, leg) => m.set(symbolSide(leg), (m.get(symbolSide(leg)) || 0) + 1), new Map());
+  const isObserved = leg =>
+    observed.has(identity(leg)) ||
+    (legsPerSide.get(symbolSide(leg)) === 1 && observedBySide.has(symbolSide(leg)));
+  return [...rows, ...approved.filter(leg => !isObserved(leg)).map(leg => ({
     ...leg,
     symbol: leg.symbol || leg.tradingSymbol,
     orderStatus: 'PENDING_CONFIRMATION',

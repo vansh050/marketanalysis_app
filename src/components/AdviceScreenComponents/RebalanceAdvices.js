@@ -57,6 +57,30 @@ import usePeriodicRefresh from '../../utils/usePeriodicRefresh';
 
 import { designFont } from '../../design/literalTokens';
 
+
+// A Calculate that starts a first investment on this broker while another
+// broker already holds the model (ccxt newPortfolioNotice, 2026-10-05).
+// Allowed, but only as an explicit choice — it is NOT a rebalance of the
+// existing holdings (markup/ravidesai5584: FlexiCap on DefinEdge, empty Zerodha).
+export const confirmNewPortfolioIfNeeded = (data) =>
+  new Promise((resolve) => {
+    const notice = data?.newPortfolioNotice || data?.rebalanceContract?.newPortfolioNotice;
+    if (!notice?.isNewPortfolio) {
+      resolve(true);
+      return;
+    }
+    const existing = (notice.existingBooks || []).map((b) => b.broker).join(', ');
+    Alert.alert(
+      `New portfolio on ${notice.broker}?`,
+      `${notice.message}\n\nThis is not a rebalance of your holdings on ${existing}.`,
+      [
+        {text: 'Cancel', style: 'cancel', onPress: () => resolve(false)},
+        {text: `Start new on ${notice.broker}`, onPress: () => resolve(true)},
+      ],
+      {cancelable: true, onDismiss: () => resolve(false)},
+    );
+  });
+
 const RebalanceAdvices = React.memo(({userEmail, orderscreen, type}) => {
   const navigation = useNavigation();
   const [loading, setLoading] = useState(false);
@@ -739,7 +763,7 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
                 text: decision.customerAction.label,
                 onPress: decision.customerAction.code === 'MODIFY_INVESTMENT'
                   ? () => navigation.navigate('AfterSubscriptionScreen', {
-                      fileName: storeModalName,
+                      fileName: targetName,
                       openModifyInvestment: true,
                     })
                   : undefined,
@@ -768,7 +792,7 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
                   text: 'Update',
                   onPress: () => {
                     navigation.navigate('AfterSubscriptionScreen', {
-                      fileName: storeModalName,
+                      fileName: targetName,
                       openModifyInvestment: true,
                     });
                   },
@@ -825,6 +849,9 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
           _rebalanceModelName: targetName,
           _rebalanceModelId: targetId,
         };
+        if (!(await confirmNewPortfolioIfNeeded(normalizedData))) {
+          return false;
+        }
         setCalculatedPortfolioData(normalizedData);
         setOpenRebalanceModal(true);
         acceptTimingMark('review_opened');
@@ -946,6 +973,9 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
       setModelObjectId(modelPortfolioModelId);
       setLoading(false);
     } else {
+      // Same tap may have just set the model via setStoreModalName; state
+      // is not updated yet, so read the option first (2026-10-13).
+      const branchModelName = options.modelName || storeModalName;
 
       const effectiveBroker = broker ? broker : "DummyBroker";
       const credentials = {jwtToken, apiKey, secretKey, clientCode, viewToken, sid, serverId};
@@ -956,7 +986,7 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
       let payload = {
         userEmail: userEmail,
         userBroker: effectiveBroker,
-        modelName: storeModalName?.trim(),
+        modelName: branchModelName?.trim(),
         advisor: configData?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG,
         model_id: modelPortfolioModelId,
         userFund: options?.forceRefresh
@@ -1007,7 +1037,7 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
                 text: decision.customerAction.label,
                 onPress: decision.customerAction.code === 'MODIFY_INVESTMENT'
                   ? () => navigation.navigate('AfterSubscriptionScreen', {
-                      fileName: storeModalName,
+                      fileName: branchModelName,
                       openModifyInvestment: true,
                     })
                   : undefined,
@@ -1036,7 +1066,7 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
                   text: 'Update',
                   onPress: () => {
                     navigation.navigate('AfterSubscriptionScreen', {
-                      fileName: storeModalName,
+                      fileName: branchModelName,
                       openModifyInvestment: true,
                     });
                   },
@@ -1096,6 +1126,9 @@ const angelOneApiKey = configData?.config?.REACT_APP_ANGEL_ONE_API_KEY;
         setLoading(false);
         // Tag with model name to prevent cross-portfolio contamination (matching prod)
         const normalizedData = tagCalculatedPortfolio(response.data);
+        if (!(await confirmNewPortfolioIfNeeded(normalizedData))) {
+          return;
+        }
         setCalculatedPortfolioData(normalizedData);
         setOpenRebalanceModal(true);
         setStoreModalName(storeModalName);

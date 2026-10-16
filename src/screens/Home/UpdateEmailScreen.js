@@ -39,6 +39,20 @@ const UpdateEmailScreen = () => {
     'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
   });
 
+  // The backend changes an account's email only for the signed-in owner of
+  // that account (verified Firebase ID token; aq_backend d7028fc9,
+  // 2026-10-10 — the route used to trust `currentEmail` from the body).
+  const authedHeaders = async () => {
+    let bearer = {};
+    try {
+      const token = await getAuth().currentUser?.getIdToken();
+      if (token) bearer = {Authorization: `Bearer ${token}`};
+    } catch (_) {
+      // No token → the server answers 401/403 with a readable message.
+    }
+    return {...headers(), ...bearer};
+  };
+
   const handleSendOtp = async () => {
     if (!newEmail.trim()) return showToast('Please enter your new email address');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) return showToast('Please enter a valid email address');
@@ -48,7 +62,7 @@ const UpdateEmailScreen = () => {
       const response = await axios.post(
         `${server.server.baseUrl}api/user/send-email-update-otp`,
         {currentEmail, newEmail: newEmail.toLowerCase()},
-        {headers: headers()},
+        {headers: await authedHeaders()},
       );
       if (response.data.success) {
         setStep(2);
@@ -71,7 +85,7 @@ const UpdateEmailScreen = () => {
       const response = await axios.post(
         `${server.server.baseUrl}api/user/verify-email-update-otp`,
         {currentEmail, newEmail: newEmail.toLowerCase(), otp},
-        {headers: headers()},
+        {headers: await authedHeaders()},
       );
       if (response.data.success) {
         setStep(3);

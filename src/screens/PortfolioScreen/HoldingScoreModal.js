@@ -24,7 +24,7 @@ const  HoldingScoreModal = ({modalVisible,scoreSymbol,setModalVisible}) => {
     const [loadingscore, setLoadingscore] = useState(false);
     const [stockData, setStockData] = useState(null);
     const [error, setError] = useState(null);
-
+  
     const fetchStockScore = async (stockSymbol) => {
       setLoadingscore(true);
       setError(null);
@@ -41,7 +41,7 @@ const  HoldingScoreModal = ({modalVisible,scoreSymbol,setModalVisible}) => {
         console.log('paylll----:',payload);
       try {
         const response = await axios.post(
-          `${server.ccxtServer.baseUrl}/misc/calculate-stocks-scores-runtime`,
+          `${server.ccxtServer.baseUrl}/misc/calculate-stocks-scores-runtime`, 
           payload,
           {
             headers: {
@@ -54,7 +54,7 @@ const  HoldingScoreModal = ({modalVisible,scoreSymbol,setModalVisible}) => {
             },
           }
         );
-
+        
         console.log('cleanded symbol',cleanedSymbol);
         const { success, cached } = response.data;
         const scoreData = success.length > 0 ? success[0] : cached.length > 0 ? cached[0] : null;
@@ -68,15 +68,15 @@ const  HoldingScoreModal = ({modalVisible,scoreSymbol,setModalVisible}) => {
         setLoadingscore(false);
       }
     };
-
-
+  
+  
     useEffect(()=> {
         if(modalVisible) {
             fetchStockScore(scoreSymbol);
         }
     },[modalVisible])
-
-
+  
+  
 
   return (
     <Modal visible={modalVisible} transparent animationType="slide">
@@ -89,7 +89,7 @@ const  HoldingScoreModal = ({modalVisible,scoreSymbol,setModalVisible}) => {
     setModalVisible(false);  // ✅ Close modal
   }} size={18} color={'black'}/>
           </View>
-
+        
           {loadingscore ? (
             <ActivityIndicator size="large" color={designColor('000')} />
           ) : error ? (
@@ -104,23 +104,23 @@ const  HoldingScoreModal = ({modalVisible,scoreSymbol,setModalVisible}) => {
               <RefreshCw size={14} color={designColor('000')} />
             </TouchableOpacity>
               </View>
-
+        
               {/* Table Rows */}
               <View style={styles.tableRow}>
                 <Text style={styles.cell}>Durability</Text>
                 <Text style={styles.cell}>{stockData.scores.durability_score.toFixed(2)}</Text>
               </View>
-
+        
               <View style={styles.tableRow}>
                 <Text style={styles.cell}>Momentum</Text>
                 <Text style={styles.cell}>{stockData.scores.momentum_score.toFixed(2)}</Text>
               </View>
-
+        
               <View style={styles.tableRow}>
                 <Text style={styles.cell}>Valuation</Text>
                 <Text style={styles.cell}>{stockData.scores.valuation_score.toFixed(2)}</Text>
               </View>
-
+        
               {/* Total Score Row */}
               <View   style={[
   styles.tableRow,
@@ -160,7 +160,7 @@ const styles = StyleSheet.create({
         padding: 20,
         borderTopRightRadius: 20,
         borderTopLeftRadius: 20,
-
+      
         shadowColor: designColor('000'),
         shadowOpacity: 0.2,
         shadowRadius: 4,
@@ -174,7 +174,7 @@ const styles = StyleSheet.create({
       },
       refreshButton: {
         padding: 3,
-
+    
         position:'absolute',
         right:0,
       },

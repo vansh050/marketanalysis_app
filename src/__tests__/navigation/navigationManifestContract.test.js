@@ -8,7 +8,7 @@ const path = require('path');
 const defaultNavigation = {
   tabs: [{key: 'advice'}, {key: 'more'}],
   initialTab: 'advice',
-  chrome: {legacyToolbar: true, tabBarHeight: 60},
+  chrome: {legacyToolbar: true, tabBarHeight: 60, coursesNativeHeader: true},
 };
 const customTabs = [{key: 'portfolio'}, {key: 'more'}];
 
@@ -28,7 +28,7 @@ describe('resolveDesign navigation merge', () => {
     const {navigation} = resolveDesign({name: 'custom', source: 'prop'});
     expect(navigation.tabs).toBe(customTabs);
     expect(navigation.initialTab).toBe('advice');
-    expect(navigation.chrome).toEqual({legacyToolbar: true, tabBarHeight: 60});
+    expect(navigation.chrome).toEqual({legacyToolbar: true, tabBarHeight: 60, coursesNativeHeader: true});
   });
 
   test('the default variant exposes its own manifest', () => {

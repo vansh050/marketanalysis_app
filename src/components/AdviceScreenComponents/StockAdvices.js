@@ -45,6 +45,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReviewTradeModal from '../ReviewTradeModal';
 import { useModal } from '../../components/ModalContext';
 import eventEmitter from '../EventEmitter';
+import {orderPlaceRows} from '../../utils/orderPlaceRows';
+import {
+  DEEP_LINK_EXECUTE_EVENT,
+  claimDeepLinkExecuteTarget,
+  targetMatchesAdviceRow,
+} from '../../utils/deepLinkExecuteTarget';
 import BrokerSelectionModal from '../BrokerSelectionModal';
 
 import { useTrade } from '../../screens/TradeContext';
@@ -101,6 +107,7 @@ import {
 
 import { designColor, designFont } from '../../design/literalTokens';
 import {sellOrdersForAuth} from '../../utils/sellAuthOrders';
+import {kiteQuantity, missingQuantityMessage, tradesMissingQuantity} from '../../utils/kiteQuantity';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -1558,7 +1565,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
         });
         placementEnvelope = response.data;
         placementHttpStatus = response.status;
-        placementResults = response.data?.results || [];
+        placementResults = orderPlaceRows(response.data);
       }
 
       if (isReconciliationResponse(placementHttpStatus, placementEnvelope)) {
@@ -1930,6 +1937,11 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       return false;
     }
 
+    const missingQty = tradesMissingQuantity(trades);
+    if (missingQty.length) {
+      Toast.show({type: 'error', text1: 'Quantity needed', text2: missingQuantityMessage(missingQty), visibilityTime: 7000});
+      return false;
+    }
     const basket = trades.map(stock => {
       // Scripmaster-resolved symbol/exchange (-EQ strip, BE→BSE, etc).
       const resolved = resolveZerodhaSymbol(stock, symbolMap);
@@ -1957,7 +1969,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       // reaches Kite as 150 shares, not 2. Single stocks have no `Lots`
       // field and stay unchanged (their quantity is already shares).
       const kiteShares =
-        (parseInt(stock.quantity, 10) || 1) *
+        kiteQuantity(stock) *
         (parseInt(stock.Lots || stock.lots || 1, 10) || 1);
 
       const basketItem = convertToBasketItem('Zerodha', stock, symbolMap, {
@@ -3919,6 +3931,48 @@ useEffect(() => {
       eventEmitter.off('stockAction', handleStockAction); // Cleanup on unmount
     };
   }, []);
+
+  // WhatsApp/Telegram execute link, trade_execute surface (2026-10-10). The
+  // link's advice id matches the `advice_reco_id` of this customer's pending
+  // stock rows. One row → exactly what the card's Trade Now does
+  // (handleSingleSelectStock: broker / expiry / funds / sell-auth gates, then
+  // the review). Several rows → add each to the cart; the last add opens the
+  // cart sheet so the customer reviews them together. Only the Home/All list
+  // claims (never Ignore/rejected lists), and only once trades have loaded —
+  // an unloaded list waits for the next announcement. Registered every render
+  // so the handlers never close over stale trades. See
+  // utils/deepLinkExecuteTarget.js.
+  useEffect(() => {
+    if (type !== 'home' && type !== 'All') return undefined;
+    const handleDeepLinkTarget = async target => {
+      if (target?.surface !== 'trade_execute' || isDatafetching) return;
+      const rows = (recommendationStock || []).filter(
+        item =>
+          item?.type === 'stock' &&
+          item?.Symbol &&
+          item?.tradeId &&
+          targetMatchesAdviceRow(target, item, 'trade_execute'),
+      );
+      if (rows.length === 0) return;
+      if (!claimDeepLinkExecuteTarget(t => t === target)) return;
+      if (rows.length === 1) {
+        await handleSingleSelectStock(rows[0].Symbol, rows[0].tradeId, 'add');
+        return;
+      }
+      for (let i = 0; i < rows.length; i += 1) {
+        const isLast = i === rows.length - 1;
+        // eslint-disable-next-line no-await-in-loop
+        await handleSelectStock(
+          rows[i].Symbol,
+          rows[i].tradeId,
+          'add',
+          isLast ? undefined : 'handlesingle',
+        );
+      }
+    };
+    eventEmitter.on(DEEP_LINK_EXECUTE_EVENT, handleDeepLinkTarget);
+    return () => eventEmitter.off(DEEP_LINK_EXECUTE_EVENT, handleDeepLinkTarget);
+  });
 
   useEffect(() => {
     eventEmitter.on('OpenTradeModel', handleTradeNow1);

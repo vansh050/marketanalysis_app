@@ -1,3 +1,4 @@
+import {normalizeBespokeCategory} from './planCategories';
 /**
  * alphanomyPlanShape — pure helpers that turn raw catalog plans (from the
  * MP `getAllStrategy` / bespoke `getAllBespoke` endpoints) into the row
@@ -17,34 +18,41 @@
 
 const isValidPrice = (v) => Number.isFinite(Number(v)) && Number(v) > 0;
 
-export const resolvePrimaryPricing = (plan) => {
-    if (!plan) return null;
+export const resolvePricingOptions = (plan) => {
+    if (!plan) return [];
+    const options = [];
+    if (isValidPrice(plan?.amount)) {
+        options.push({
+            value: Number(plan.amount),
+            label: `${plan.duration || 1} months`,
+            period: 'onetime',
+        });
+    }
     if (plan.planType === 'onetime' && Array.isArray(plan.onetimeOptions)) {
-        const opt = plan.onetimeOptions.find((o) => isValidPrice(o?.amountWithoutGst));
-        if (opt) {
-            return {
+        plan.onetimeOptions.forEach((opt, index) => {
+            if (!isValidPrice(opt?.amountWithoutGst)) return;
+            options.push({
                 value: Number(opt.amountWithoutGst),
                 label: opt.label || `${opt.duration} days`,
-                period: 'onetime',
-            };
-        }
+                period: `onetime-${index}`,
+            });
+        });
     }
-    if (isValidPrice(plan?.pricingWithoutGst?.monthly)) {
-        return { value: Number(plan.pricingWithoutGst.monthly), label: 'Monthly', period: 'monthly' };
-    }
-    if (isValidPrice(plan?.pricingWithoutGst?.quarterly)) {
-        return { value: Number(plan.pricingWithoutGst.quarterly), label: 'Quarterly', period: 'quarterly' };
-    }
-    if (isValidPrice(plan?.pricingWithoutGst?.['half-yearly'])) {
-        return { value: Number(plan.pricingWithoutGst['half-yearly']), label: '6 Months', period: 'half-yearly' };
-    }
-    if (isValidPrice(plan?.pricingWithoutGst?.yearly)) {
-        return { value: Number(plan.pricingWithoutGst.yearly), label: 'Yearly', period: 'yearly' };
-    }
-    if (isValidPrice(plan?.pricing?.yearly)) {
-        return { value: Number(plan.pricing.yearly), label: 'Yearly', period: 'yearly' };
-    }
-    return null;
+    [
+        ['monthly', 'Monthly'],
+        ['quarterly', 'Quarterly'],
+        ['half-yearly', '6 months'],
+        ['yearly', '12 months'],
+    ].forEach(([period, label]) => {
+        const value = plan?.pricingWithoutGst?.[period] ?? plan?.pricing?.[period];
+        if (isValidPrice(value)) options.push({value: Number(value), label, period});
+    });
+    return options;
+};
+
+export const resolvePrimaryPricing = (plan) => {
+    const options = resolvePricingOptions(plan);
+    return options[0] || null;
 };
 
 const PERIOD_SUFFIX = {
@@ -97,6 +105,14 @@ export const formatMinInvest = (v) => {
 export const shapeMpPlan = (plan, { badgeTop = 'TOP', badgeBot = '100' } = {}) => {
     if (!plan) return null;
     const pricing = resolvePrimaryPricing(plan);
+    const pricingOptions = resolvePricingOptions(plan).map(option => ({
+        ...option,
+        price: formatINR(option.value),
+    }));
+    const discount = Number(plan.discountPercentage) || 0;
+    const originalValue = pricing && discount > 0 && discount < 100
+        ? Math.round(pricing.value / (1 - discount / 100))
+        : pricing?.value;
     return {
         id: plan._id || plan.id || plan.model_name,
         badgeTop,
@@ -104,10 +120,15 @@ export const shapeMpPlan = (plan, { badgeTop = 'TOP', badgeBot = '100' } = {}) =
         name: plan.model_name || plan.name || 'Model Portfolio',
         price: pricing ? formatINR(pricing.value) : '—',
         priceSuffix: PERIOD_SUFFIX[pricing?.period] || '',
+        pricingOptions,
+        originalPrice: originalValue ? formatINR(originalValue) : null,
+        saveBadge: discount > 0 ? `Save ${Math.round(discount)}%` : null,
         freq: pricing?.label || 'Monthly',
         minInvest: formatMinInvest(plan.minInvestment),
         volatility: formatVolatility(plan.volatility),
         cagr: formatCagr(plan),
+        isSubscribed: Boolean(plan.subscription),
+        timeCyclePlan: plan.timeCyclePlan === true,
         // Validity used by the white plan-card variant (MP tab on Plans).
         validity: pricing?.label ? `${pricing.label} validity` : 'Monthly validity',
     };
@@ -128,14 +149,27 @@ export const shapeBespokePlan = (plan) => {
     const savePct = hasDiscount
         ? Math.round(((original - value) / original) * 100)
         : 0;
+    const pricingOptions = resolvePricingOptions(plan).map(option => ({
+        ...option,
+        price: formatINR(option.value),
+    }));
+    const rawValidity = plan.validity ?? plan.duration;
+    const validity = rawValidity
+        ? `${rawValidity}${typeof rawValidity === 'number' ? ' Months' : ''}`
+        : pricing?.label || 'See plan details';
     return {
         id: plan._id || plan.id || plan.model_name,
         name: plan.model_name || plan.name || 'Bespoke Plan',
         priceOrig: hasDiscount ? formatINR(original) : null,
         priceNow: formatINR(value),
-        validity: pricing?.label ? `${pricing.label} validity` : 'Monthly validity',
+        pricingOptions,
+        validity,
+        retentionRate: plan.retentionRate ?? plan.retention_rate ?? '—',
         freq: pricing?.label || 'Monthly',
         freqVariant: pricing?.period === 'monthly' ? null : 'amber',
         saveBadge: hasDiscount ? `Save ${savePct}%` : null,
+        isSubscribed: Boolean(plan.subscription),
+        // Advisor-defined bespoke category (null = plain "Bespoke").
+        category: normalizeBespokeCategory(plan.bespoke_category),
     };
 };

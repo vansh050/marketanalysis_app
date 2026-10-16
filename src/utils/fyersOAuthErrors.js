@@ -10,3 +10,4 @@ export const isFyersRedirectMismatch = value => {
     compact.includes('redirecturimismatch')
   );
 };
+

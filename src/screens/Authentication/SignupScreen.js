@@ -18,10 +18,16 @@ import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
-import {getAdvisorSubdomain, getBuildTenantSubdomain} from '../../utils/variantHelper';
+import {getBuildTenantSubdomain} from '../../utils/variantHelper';
 import { getStoredCampaign } from '../../utils/smartLink';
 import { validateEmail } from '../../utils/emailValidation';
 import { useComponent } from '../../design/useDesign';
+import {configureGoogleAuth, signInWithGoogleFirebase} from '../../utils/googleAuth';
+import {
+    getGoogleSignInUserMessage,
+    isGoogleSignInCancellation,
+    isGoogleSignInConfigurationError,
+} from '../../utils/googleSignInError';
 import {
     checkAndFetchAdvisorConfig,
     setUserData,
@@ -46,6 +52,13 @@ const SignupScreen = () => {
     const [success] = useState('');
     const [isPasswordVisible, setIsPasswordVisible] = useState(false);
     const [isChecked, setIsChecked] = useState(false);
+
+    React.useEffect(() => {
+        configureGoogleAuth({
+            googleWebClientId: config?.googleWebClientId,
+            googleIosClientId: config?.googleIosClientId,
+        });
+    }, [config?.googleIosClientId, config?.googleWebClientId]);
 
     const storeLoginTime = async () => {
         try {
@@ -247,6 +260,116 @@ const SignupScreen = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [email, password, name, isChecked]);
 
+    const handleGoogleSignup = useCallback(async () => {
+        if (!isChecked) {
+            showTermsToast();
+            return;
+        }
+        if (loading) {
+            return;
+        }
+
+        setLoading(true);
+        setErrorShow(false);
+        let attemptedEmail = 'unknown';
+
+        try {
+            const {
+                user,
+                email: effectiveEmail,
+                name: effectiveName,
+                photo: effectivePhoto,
+            } = await signInWithGoogleFirebase();
+            attemptedEmail = effectiveEmail;
+
+            const campaign = await getStoredCampaign();
+            await axios.post(
+                `${server.server.baseUrl}api/user/`,
+                {
+                    email: effectiveEmail,
+                    name: effectiveName || effectiveEmail.split('@')[0],
+                    imageUrl: effectivePhoto,
+                    firebaseId: user.uid,
+                    phoneNumber: 0,
+                    telegramId: '',
+                    profileCompletion: 50,
+                    user_onBoard_from: Config?.REACT_APP_WHITE_LABEL_TEXT,
+                    campaign: campaign || undefined,
+                },
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Advisor-Subdomain': getBuildTenantSubdomain(),
+                        'aq-encrypted-key': generateToken(
+                            Config.REACT_APP_AQ_KEYS,
+                            Config.REACT_APP_AQ_SECRET,
+                        ),
+                    },
+                    timeout: 10000,
+                },
+            );
+
+            const userDetails = await axios.get(
+                `${server.server.baseUrl}api/user/getUser/${effectiveEmail}?includeAdvisorConfig=true`,
+                {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Advisor-Subdomain': getBuildTenantSubdomain(),
+                        'aq-encrypted-key': generateToken(
+                            Config.REACT_APP_AQ_KEYS,
+                            Config.REACT_APP_AQ_SECRET,
+                        ),
+                    },
+                    timeout: 10000,
+                },
+            );
+
+            const advisorSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
+            trackAppUser({
+                email: effectiveEmail,
+                firebase_id: user.uid,
+                name: effectiveName,
+                login_method: 'google',
+                advisor_subdomain: advisorSubdomain,
+            });
+            logLoginAttempt({
+                email: effectiveEmail,
+                firebase_id: user.uid,
+                status: 'success',
+                login_method: 'google',
+                advisor_subdomain: advisorSubdomain,
+            });
+
+            await handlePostSignupNavigation(userDetails, effectiveEmail);
+        } catch (e) {
+            if (isGoogleSignInCancellation(e)) {
+                return;
+            }
+
+            if (isGoogleSignInConfigurationError(e)) {
+                console.warn('Google sign-up configuration error:', e.code, e.message);
+            } else {
+                console.error('Google sign-up failed:', e.code || e.response?.status || e.message);
+            }
+
+            const advisorSubdomain = config?.subdomain || config?.advisorRaCode?.toLowerCase();
+            logLoginAttempt({
+                email: attemptedEmail,
+                status: 'failed',
+                login_method: 'google',
+                failure_reason: 'google_auth_error',
+                error_message: e.message,
+                error_code: e.code,
+                advisor_subdomain: advisorSubdomain,
+            });
+            setError(getGoogleSignInUserMessage(e));
+            setErrorShow(true);
+        } finally {
+            setLoading(false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [isChecked, loading, config?.subdomain, config?.advisorRaCode]);
+
     const dismissError = useCallback(() => {
         setErrorShow(false);
         Keyboard.dismiss();
@@ -282,6 +405,7 @@ const SignupScreen = () => {
                 onPasswordVisibilityToggle: () => setIsPasswordVisible((p) => !p),
                 onTermsToggle: () => setIsChecked((c) => !c),
                 onSignup: handleSignup,
+                onGoogleSignup: handleGoogleSignup,
                 dismissError,
                 onNavigateToLogin: () => navigation.navigate('Login'),
                 onOpenTerms: () => navigation.navigate('Terms & Conditions'),

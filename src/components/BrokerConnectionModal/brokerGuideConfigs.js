@@ -53,6 +53,7 @@ import Clipboard from '@react-native-clipboard/clipboard';
 import { PlayCircle, ExternalLink } from 'lucide-react-native';
 
 import { designColor } from '../../design/literalTokens';
+import {useTokens} from '../../theme/useTokens';
 
 /**
  * opts: { whiteLabelText, brokerConnectRedirectURL, iciciRedirectUrl, ccxtBaseUrl }
@@ -77,6 +78,64 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
     DefinEdge: 'DefinEdge Securities',
   }[brokerName] || brokerName;
   const MAP = {
+    Zerodha: {
+      monogram: 'Z',
+      brandFrom: designColor('387ed1'),
+      brandTo: designColor('1f5fa9'),
+      title: 'Connect through Kite securely',
+      noticeTitle: 'BROKER-HOSTED LOGIN',
+      noticeText:
+        'Your Kite user ID, password and OTP are entered only on Zerodha’s secure page. The app never asks for or stores them.',
+      walkthroughVideoId: 'tqJTYfgkS04',
+      guideSteps: [
+        'Tap <b>Login to Zerodha</b> below',
+        'On Kite, select <b>Login to Kite web</b> and complete your normal login',
+        'Review the authorization and return here automatically',
+      ],
+    },
+    Dhan: {
+      monogram: 'D',
+      brandFrom: designColor('28a97b'),
+      brandTo: designColor('187257'),
+      title: 'Connect through Dhan securely',
+      noticeTitle: 'DHAN PARTNER LOGIN',
+      noticeText:
+        'The standard connection uses Dhan’s partner login. You do not need to create or paste an API token for this route.',
+      walkthroughVideoId: 'MhAfqNQKSrQ',
+      guideSteps: [
+        'Tap <b>Continue to Dhan</b> below',
+        'Sign in on Dhan’s secure page and approve the connection',
+        'Return here automatically when Dhan confirms authorization',
+      ],
+    },
+    AliceBlue: {
+      monogram: 'A',
+      brandFrom: designColor('1b73c9'),
+      brandTo: designColor('124b84'),
+      title: 'Connect through AliceBlue securely',
+      noticeTitle: 'BROKER-HOSTED LOGIN',
+      noticeText:
+        'Sign-in and OTP verification happen on AliceBlue’s page. No AliceBlue password or OTP is stored in the app.',
+      guideSteps: [
+        'Tap <b>Continue to AliceBlue</b> below',
+        'Complete AliceBlue login and OTP verification',
+        'Return here automatically after authorization',
+      ],
+    },
+    'Axis Securities': {
+      monogram: 'A',
+      brandFrom: designColor('8d1736'),
+      brandTo: designColor('5f0f25'),
+      title: 'Connect through Axis Direct securely',
+      noticeTitle: 'AXIS SSO LOGIN',
+      noticeText:
+        'Axis Direct owns the sign-in screen. The app receives only the authorization result needed to link your trading account.',
+      guideSteps: [
+        'Tap <b>Continue to Axis Direct</b> below',
+        'Sign in and approve access on the Axis Direct page',
+        'Return here automatically after Axis confirms the connection',
+      ],
+    },
     Upstox: {
       monogram: 'U',
       brandFrom: designColor('8b54ff'),
@@ -307,9 +366,15 @@ export const BrokerGuideCard = ({
   brokerName,
   onWatchWalkthrough,
 }) => {
+  const tokens = useTokens();
+  const palette = tokens.colors;
+  const type = tokens.typography;
   if (!config) return null;
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, {
+      backgroundColor: palette.surface.card,
+      borderColor: palette.border.default,
+    }]}>
       <View style={styles.titleRow}>
         <LinearGradient
           colors={[config.brandFrom, config.brandTo || config.brandFrom]}
@@ -317,17 +382,29 @@ export const BrokerGuideCard = ({
           end={{ x: 1, y: 1 }}
           style={styles.monogram}
         >
-          <Text style={styles.monogramText}>
+          <Text style={[styles.monogramText, {fontFamily: type.title.fontFamily}]}>
             {config.monogram || String(brokerName || '?').charAt(0)}
           </Text>
         </LinearGradient>
-        <Text style={styles.title}>How to get your API key</Text>
+        <Text style={[styles.title, {
+          color: palette.text.primary,
+          fontFamily: type.title.fontFamily,
+        }]}>{config.title || 'How to get your API key'}</Text>
       </View>
-      <View style={[styles.oneTimeNotice, {borderColor: accent}]}> 
-        <Text style={[styles.oneTimeNoticeTitle, {color: accent}]}>ONE-TIME BROKER SETUP</Text>
-        <Text style={styles.oneTimeNoticeText}>
-          You normally create these API credentials only once. Later reconnects
-          usually just need your broker User ID, password and any required OTP.
+      <View style={[styles.oneTimeNotice, {
+        borderColor: accent,
+        backgroundColor: palette.surface.elevated,
+      }]}>
+        <Text style={[styles.oneTimeNoticeTitle, {
+          color: accent,
+          fontFamily: type.subtitle.fontFamily,
+        }]}>{config.noticeTitle || 'ONE-TIME BROKER SETUP'}</Text>
+        <Text style={[styles.oneTimeNoticeText, {
+          color: palette.text.secondary,
+          fontFamily: type.body.fontFamily,
+        }]}>
+          {config.noticeText ||
+            'You normally create these API credentials only once. Later reconnects usually just need your broker User ID, password and any required OTP.'}
         </Text>
       </View>
       {(config.guideSteps || []).map((s, i) => (
@@ -335,22 +412,51 @@ export const BrokerGuideCard = ({
           <View style={[styles.stepNum, { borderColor: accent }]}>
             <Text style={[styles.stepNumText, { color: accent }]}>{i + 1}</Text>
           </View>
-          <RichText text={s} style={styles.stepText} boldStyle={styles.stepBold} />
+          <RichText
+            text={s}
+            style={[styles.stepText, {
+              color: palette.text.secondary,
+              fontFamily: type.body.fontFamily,
+            }]}
+            boldStyle={[styles.stepBold, {
+              color: palette.text.primary,
+              fontFamily: type.bodyEmphasis.fontFamily,
+            }]}
+          />
         </View>
       ))}
       {!!config.redirectUrl && (
         <TouchableOpacity
-          style={styles.redirectRow}
+          style={[styles.redirectRow, {
+            backgroundColor: palette.surface.elevated,
+            borderColor: palette.border.default,
+          }]}
           onPress={() => Clipboard.setString(config.redirectUrl)}
         >
-          <Text style={styles.redirectLabel}>Redirect URL (tap to copy)</Text>
-          <Text style={[styles.redirectValue, { color: accent }]} numberOfLines={1}>
+          <Text style={[styles.redirectLabel, {
+            color: palette.text.muted,
+            fontFamily: type.subtitle.fontFamily,
+          }]}>Redirect URL (tap to copy)</Text>
+          <Text style={[styles.redirectValue, {
+            color: accent,
+            fontFamily: type.bodyEmphasis.fontFamily,
+          }]} numberOfLines={1}>
             {config.redirectUrl}
           </Text>
         </TouchableOpacity>
       )}
       {!!config.note && (
-        <RichText text={config.note} style={styles.note} boldStyle={styles.stepBold} />
+        <RichText
+          text={config.note}
+          style={[styles.note, {
+            color: palette.text.muted,
+            fontFamily: type.body.fontFamily,
+          }]}
+          boldStyle={[styles.stepBold, {
+            color: palette.text.primary,
+            fontFamily: type.bodyEmphasis.fontFamily,
+          }]}
+        />
       )}
       <View style={styles.actionsRow}>
         {!!config.portalUrl && (
@@ -358,8 +464,11 @@ export const BrokerGuideCard = ({
             style={[styles.portalBtn, { backgroundColor: accent }]}
             onPress={() => Linking.openURL(config.portalUrl)}
           >
-            <ExternalLink size={14} color={designColor('fff')} />
-            <Text style={styles.portalBtnText}>
+            <ExternalLink size={14} color={palette.brand.onBrand} />
+            <Text style={[styles.portalBtnText, {
+              color: palette.brand.onBrand,
+              fontFamily: type.button.fontFamily,
+            }]}>
               {config.portalLabel || 'Open broker portal'}
             </Text>
           </TouchableOpacity>
@@ -372,7 +481,10 @@ export const BrokerGuideCard = ({
             accessibilityLabel={`Watch ${brokerName || 'broker'} walkthrough in app`}
           >
             <PlayCircle size={15} color={accent} />
-            <Text style={[styles.videoBtnText, { color: accent }]}>
+            <Text style={[styles.videoBtnText, {
+              color: accent,
+              fontFamily: type.button.fontFamily,
+            }]}>
               Watch walkthrough
             </Text>
           </TouchableOpacity>

@@ -29,6 +29,7 @@ import {
     isOrderSuccess,
     isOrderRejected,
     isOrderPending,
+    isOrderManuallyPlaced,
     getOrderStatusDisplay,
     isManagerClosedZeroFill,
 } from '../../../src/utils/orderStatusUtils';
@@ -50,7 +51,10 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
     const avgPrice = item.AvgPrice || item.tradedPrice || '';
     const isBuy = item.Type === 'BUY';
 
-    const StatusIconComponent = isOrderSuccess(item.trade_place_status) || managerClosedZeroFill
+    const StatusIconComponent =
+        isOrderSuccess(item.trade_place_status) ||
+        isOrderManuallyPlaced(item.trade_place_status) ||
+        managerClosedZeroFill
         ? Check
         : isOrderPending(item.trade_place_status)
           ? Pause
@@ -78,6 +82,9 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
                 .join(' | ')
             : item.Symbol;
     const companyName = item?.companyName;
+    // Which plan the order belongs to (backend `planName`, 2026-10-13) —
+    // customers with several plans could not tell orders apart.
+    const planName = typeof item?.planName === 'string' ? item.planName.trim() : '';
 
     // Exit rows must show the actual exit price explicitly; the generic
     // "Avg." line only shows tradedPrice which for a SELL is ambiguous. For a
@@ -152,6 +159,16 @@ const OrderRow = ({ item, color1, color2, onDdpiHelpPress }) => {
                     </Text>
                 </View>
             </View>
+
+            {planName ? (
+                <Text
+                    variant="caption"
+                    numberOfLines={1}
+                    style={{ fontSize: 11, color: tokens.colors.text.muted, marginTop: 4 }}
+                >
+                    {planName}
+                </Text>
+            ) : null}
 
             <View
                 style={{

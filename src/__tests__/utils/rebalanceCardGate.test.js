@@ -327,8 +327,19 @@ describe('RebalanceCard freshest-evidence contract', () => {
   });
 
   it('only routes to the holdings screen when holdings can settle the block', () => {
-    expect(SOURCE).toContain('holdingsReviewCanResolve(result.accountRecovery)');
+    expect(SOURCE).toContain('holdingsReviewCanResolve(blockedRecovery)');
     expect(SOURCE).not.toMatch(/else if \(action === 'review_holdings'\) \{/);
+  });
+
+  // Kyzen QA 2026-10-14: the block (YESBANK ownership conflict) arrived only on
+  // models[0].accountRecovery; the tap fell through to "Broker order status is
+  // pending". The handler must use the same model-level fallback as the badge.
+  it('a model-level blocked recovery is handled before the generic pending toast', () => {
+    expect(SOURCE).toContain('const blockedRecovery = result.accountRecovery?.blocked');
+    expect(SOURCE).toContain('(result?.models || []).find(item => sameModel(item) && item?.accountRecovery?.blocked)?.accountRecovery');
+    expect(SOURCE).toContain('text1: accountRecoveryTitle(blockedRecovery)');
+    expect(SOURCE.indexOf('if (blockedRecovery?.blocked)'))
+      .toBeLessThan(SOURCE.indexOf("text1: 'Broker order status is pending'"));
   });
 
   it('never enrolls model-only reconciliation for a stale pending summary', () => {

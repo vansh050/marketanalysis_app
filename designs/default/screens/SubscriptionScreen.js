@@ -14,6 +14,7 @@ const SubscriptionScreen = ({viewModel, actions, slots}) => {
   const {
     gradient1, gradient2, loading, brokerStatus, userDetails, broker,
     userEmail, themeColor, cashText, cashVerification, refreshing,
+    brokerSessionRejected,
   } = viewModel;
   const {
     onBack, onRefresh, openManageConnections, handleOpen,
@@ -74,7 +75,7 @@ const SubscriptionScreen = ({viewModel, actions, slots}) => {
             // Check the actual primary entry's status + token_expire.
             ((() => {
               const primaryEntry = getPrimaryBrokerEntry(userDetails);
-              const primaryExpired = isBrokerSessionExpired(primaryEntry);
+              const primaryExpired = isBrokerSessionExpired(primaryEntry) || brokerSessionRejected;
               if (primaryExpired) {
                 return (
                   <View style={styles.expiredContainer}>

@@ -77,7 +77,7 @@ import {
   friendlyPaymentError,
 } from '../../utils/cashfreeEnv';
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designToken } from '../../design/literalTokens';
 
 // Brokers requiring per-customer IP whitelisting. Partners short-
 // circuit to null without hitting /egress/me. Keep keys in sync with
@@ -168,6 +168,9 @@ const EgressIpCallout = ({
   showUnmetAck = false,
   onUnmetAckHandled,
   showSetupGuide = true,
+  // Optional ref the parent uses to scroll the acknowledgment row into view
+  // when the customer taps the locked form without ticking it.
+  ackAnchorRef,
 }) => {
   const brokerKey = (broker || '').toLowerCase().trim();
   const brokerDisplay = BROKER_DISPLAY_NAMES[brokerKey] || brokerKey;
@@ -178,13 +181,13 @@ const EgressIpCallout = ({
   // running white-label tenant. The semantic state panels (info/warning/
   // error) intentionally keep their conventional blue/amber/red.
   const colors = useColors();
-  const brand = colors?.brand?.primary || designColor('2563eb');
+  const brand = colors?.brand?.primary || designToken('egressCallout.brand.2563eb');
 
   // Keep the compliance flow visually part of the app rather than a generic
   // warning block. The content and acknowledgement rules stay identical to
   // the web flow; this only gives the two connection steps a clear hierarchy.
   const StaticIpProgress = ({ready = false}) => (
-    <View style={[styles.progressCard, {borderColor: brand}]}> 
+    <View style={[styles.progressCard, {borderColor: brand}]}>
       <View style={[styles.progressBadge, {backgroundColor: brand}]}> 
         <Text style={styles.progressBadgeText}>{ready ? '✓' : '1'}</Text>
       </View>
@@ -666,7 +669,7 @@ const EgressIpCallout = ({
             ]}
             activeOpacity={0.8}>
             {subscribing ? (
-              <ActivityIndicator size="small" color={designColor('fff')} />
+              <ActivityIndicator size="small" color={designToken('egressCallout.color.fff')} />
             ) : (
               <Text style={styles.primaryButtonText}>
                 {paymentStarted
@@ -764,7 +767,7 @@ const EgressIpCallout = ({
         {PaymentStatusPanel}
         <View style={[styles.card, styles.cardNeutral]}>
           <View style={styles.row}>
-            <ActivityIndicator size="small" color={designColor('6b7280')} />
+            <ActivityIndicator size="small" color={designToken('egressCallout.color.6b7280')} />
             <Text style={styles.bodyText}>
               {'  '}Loading your dedicated IP status for {brokerDisplay}...
             </Text>
@@ -813,7 +816,7 @@ const EgressIpCallout = ({
         <View style={[styles.card, styles.cardAmber]}>
           <StaticIpProgress />
           <Text style={styles.titleAmber}>Your dedicated static IP</Text>
-          <Text style={[styles.bodyAmber, {fontSize: 11}]}>
+          <Text style={[styles.bodyAmberNote, {fontSize: 11}]}>
             IPv4 — shared manager static IP (SEBI compliant, does not change)
           </Text>
 
@@ -841,14 +844,15 @@ const EgressIpCallout = ({
           </Text>
 
           <Animated.View
+            ref={ackAnchorRef}
             style={[
               styles.ackRow,
               flashAck && {
                 backgroundColor: flashAnim.interpolate({
                   inputRange: [0, 1],
-                  outputRange: [designColor('fef3c7'), designColor('fee2e2')],
+                  outputRange: [designToken('brokerSheet.egress.ackFlash.fromColor'), designToken('brokerSheet.egress.ackFlash.toColor')],
                 }),
-                borderColor: designColor('ef4444'),
+                borderColor: designToken('brokerSheet.egress.ackFlash.borderColor'),
               },
             ]}>
             <TouchableOpacity
@@ -868,7 +872,7 @@ const EgressIpCallout = ({
               </View>
               <Text style={styles.ackText}>
                 {flashAck && !acknowledged && (
-                  <Text style={[styles.bold, {color: designColor('b91c1c')}]}>
+                  <Text style={[styles.bold, {color: designToken('brokerSheet.egress.ackFlash.warningText.color')}]}>
                     ⚠ Please tick this box to confirm you've whitelisted the
                     IP.{'\n'}
                   </Text>
@@ -910,7 +914,7 @@ const EgressIpCallout = ({
             {brokerEntry?.message ||
               'Please come back in a few days — once provisioning is complete, this screen will automatically let you claim your own dedicated IP and connect.'}
           </Text>
-          <Text style={[styles.bodyAmber, {fontSize: 11, marginTop: 8}]}>
+          <Text style={[styles.bodyAmberNote, {fontSize: 11, marginTop: 8}]}>
             In the meantime, please use a different broker. You cannot connect
             to {brokerDisplay} right now.
           </Text>
@@ -951,7 +955,7 @@ const EgressIpCallout = ({
             ]}
             activeOpacity={0.8}>
             {claiming ? (
-              <ActivityIndicator size="small" color={designColor('fff')} />
+              <ActivityIndicator size="small" color={designToken('egressCallout.color.fff')} />
             ) : (
               <Text style={styles.primaryButtonText}>
                 Assign me a dedicated static IP
@@ -967,7 +971,7 @@ const EgressIpCallout = ({
     const hasSecondIp = Boolean(brokerEntry.ovh_address);
     const flashBg = flashAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: [designColor('fef3c7'), designColor('fee2e2')],
+      outputRange: [designToken('brokerSheet.egress.ackFlash.fromColor'), designToken('brokerSheet.egress.ackFlash.toColor')],
     });
     return (
       <View style={styles.container}>
@@ -977,7 +981,7 @@ const EgressIpCallout = ({
         <View style={[styles.card, styles.cardAmber]}>
           <StaticIpProgress ready={acknowledged} />
           <Text style={styles.titleAmber}>Dedicated static IP assigned</Text>
-          <Text style={[styles.bodyAmber, {fontSize: 11}]}>
+          <Text style={[styles.bodyAmberNote, {fontSize: 11}]}>
             {brokerEntry.family === 'ipv6'
               ? 'IPv6 — unique to your account'
               : 'IPv4 — unique to your account'}
@@ -1021,9 +1025,10 @@ const EgressIpCallout = ({
           )}
 
           <Animated.View
+            ref={ackAnchorRef}
             style={[
               styles.ackRow,
-              flashAck && {backgroundColor: flashBg, borderColor: designColor('ef4444')},
+              flashAck && {backgroundColor: flashBg, borderColor: designToken('brokerSheet.egress.ackFlash.borderColor')},
             ]}>
             <TouchableOpacity
               onPress={() => {
@@ -1052,7 +1057,7 @@ const EgressIpCallout = ({
               </View>
               <Text style={styles.ackText}>
                 {flashAck && !acknowledged && (
-                  <Text style={[styles.bold, {color: designColor('b91c1c')}]}>
+                  <Text style={[styles.bold, {color: designToken('brokerSheet.egress.ackFlash.warningText.color')}]}>
                     ⚠ Please tick this box to confirm you've whitelisted the
                     IP.{'\n'}
                   </Text>
@@ -1185,7 +1190,7 @@ export const SecondStaticIp = ({
   withCard = false,
 }) => {
   const colors = useColors();
-  const brand = colors?.brand?.primary || designColor('2563eb');
+  const brand = colors?.brand?.primary || designToken('egressCallout.brand.2563eb');
   const [copied, setCopied] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
@@ -1271,7 +1276,7 @@ export const SecondStaticIp = ({
           accessibilityRole="button"
           activeOpacity={0.8}>
           {saving ? (
-            <ActivityIndicator size="small" color={designColor('fff')} />
+            <ActivityIndicator size="small" color={designToken('egressCallout.color.fff')} />
           ) : (
             <Text style={styles.primaryButtonText}>I've added it</Text>
           )}
@@ -1294,66 +1299,67 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   setupGuide: {
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('brokerSheet.egress.setupGuide.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('e2e8f0'),
+    borderColor: designToken('brokerSheet.egress.setupGuide.borderColor'),
     borderRadius: 16,
     padding: 14,
     marginBottom: 10,
   },
   setupEyebrow: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.setupEyebrow.fontFamily'),
     fontSize: 10,
     letterSpacing: 0.8,
+    color: designToken('brokerSheet.egress.setupEyebrow.color'),
   },
   setupTitle: {
-    color: designColor('1e293b'),
-    fontFamily: designFont('Satoshi-Bold'),
+    color: designToken('brokerSheet.egress.setupTitle.color'),
+    fontFamily: designToken('brokerSheet.egress.setupTitle.fontFamily'),
     fontSize: 15,
     marginTop: 3,
     marginBottom: 8,
   },
   setupStep: {
-    color: designColor('475569'),
-    fontFamily: designFont('Satoshi-Regular'),
+    color: designToken('brokerSheet.egress.setupStep.color'),
+    fontFamily: designToken('brokerSheet.egress.setupStep.fontFamily'),
     fontSize: 12,
     lineHeight: 18,
     marginTop: 2,
   },
   setupFamily: {
-    color: designColor('0f766e'),
-    fontFamily: designFont('Satoshi-Bold'),
+    color: designToken('brokerSheet.egress.setupFamily.color'),
+    fontFamily: designToken('brokerSheet.egress.setupFamily.fontFamily'),
     fontSize: 11,
     marginTop: 8,
   },
   paymentStatus: {
-    backgroundColor: designColor('eff6ff'),
+    backgroundColor: designToken('brokerSheet.egress.paymentStatus.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('bfdbfe'),
+    borderColor: designToken('brokerSheet.egress.paymentStatus.borderColor'),
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
   },
   paymentStatusPending: {
-    backgroundColor: designColor('fffbeb'),
-    borderColor: designColor('fde68a'),
+    backgroundColor: designToken('egressCallout.paymentStatusPending.backgroundColor'),
+    borderColor: designToken('egressCallout.paymentStatusPending.borderColor'),
   },
   paymentStatusConfirmed: {
-    backgroundColor: designColor('ecfdf5'),
-    borderColor: designColor('a7f3d0'),
+    backgroundColor: designToken('egressCallout.paymentStatusConfirmed.backgroundColor'),
+    borderColor: designToken('egressCallout.paymentStatusConfirmed.borderColor'),
   },
   paymentStatusFailed: {
-    backgroundColor: designColor('fef2f2'),
-    borderColor: designColor('fecaca'),
+    backgroundColor: designToken('egressCallout.paymentStatusFailed.backgroundColor'),
+    borderColor: designToken('egressCallout.paymentStatusFailed.borderColor'),
   },
   paymentStatusTitle: {
-    color: designColor('1e293b'),
-    fontFamily: designFont('Satoshi-Bold'),
+    color: designToken('brokerSheet.egress.paymentStatusTitle.color'),
+    fontFamily: designToken('brokerSheet.egress.paymentStatusTitle.fontFamily'),
     fontSize: 13,
   },
   paymentStatusDetail: {
-    color: designColor('475569'),
-    fontFamily: designFont('Satoshi-Regular'),
+    color: designToken('brokerSheet.egress.paymentStatusDetail.color'),
+    fontFamily: designToken('brokerSheet.egress.paymentStatusDetail.fontFamily'),
     fontSize: 12,
     lineHeight: 18,
     marginTop: 3,
@@ -1362,7 +1368,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 2,
     padding: 14,
-    shadowColor: designColor('0f172a'),
+    shadowColor: designToken('egressCallout.card.shadowColor'),
     shadowOpacity: 0.06,
     shadowRadius: 10,
     shadowOffset: {width: 0, height: 3},
@@ -1373,9 +1379,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderRadius: 12,
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('brokerSheet.egress.progressCard.backgroundColor'),
     padding: 10,
     marginBottom: 12,
+    borderColor: designToken('brokerSheet.egress.progressCard.borderColor'),
   },
   progressBadge: {
     width: 28,
@@ -1386,101 +1393,110 @@ const styles = StyleSheet.create({
     marginRight: 9,
   },
   progressBadgeText: {
-    color: designColor('ffffff'),
-    fontFamily: designFont('Satoshi-Bold'),
+    color: designToken('brokerSheet.egress.progressBadgeText.color'),
+    fontFamily: designToken('brokerSheet.egress.progressBadgeText.fontFamily'),
     fontSize: 13,
   },
   progressCopy: {flex: 1},
   progressEyebrow: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.progressEyebrow.fontFamily'),
     fontSize: 10,
     letterSpacing: 0.6,
+    color: designToken('brokerSheet.egress.progressEyebrow.color'),
   },
   progressTitle: {
-    color: designColor('1f2937'),
-    fontFamily: designFont('Satoshi-Bold'),
+    color: designToken('brokerSheet.egress.progressTitle.color'),
+    fontFamily: designToken('brokerSheet.egress.progressTitle.fontFamily'),
     fontSize: 13,
     marginTop: 2,
   },
   cardNeutral: {
-    backgroundColor: designColor('ffffff'),
-    borderColor: designColor('e5e7eb'),
+    backgroundColor: designToken('brokerSheet.egress.cardNeutral.backgroundColor'),
+    borderColor: designToken('egressCallout.cardNeutral.borderColor'),
   },
   cardBlue: {
-    backgroundColor: designColor('eff6ff'),
-    borderColor: designColor('bfdbfe'),
+    backgroundColor: designToken('brokerSheet.egress.cardBlue.backgroundColor'),
+    borderColor: designToken('brokerSheet.egress.cardBlue.borderColor'),
   },
   cardAmber: {
-    backgroundColor: designColor('fffbeb'),
-    borderColor: designColor('fde68a'),
+    backgroundColor: designToken('brokerSheet.egress.cardAmber.backgroundColor'),
+    borderColor: designToken('brokerSheet.egress.cardAmber.borderColor'),
   },
   cardRed: {
-    backgroundColor: designColor('fef2f2'),
-    borderColor: designColor('fecaca'),
+    backgroundColor: designToken('brokerSheet.egress.cardRed.backgroundColor'),
+    borderColor: designToken('brokerSheet.egress.cardRed.borderColor'),
   },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   bodyText: {
-    fontFamily: designFont('Satoshi-Regular'),
+    fontFamily: designToken('brokerSheet.egress.bodyText.fontFamily'),
     fontSize: 13,
-    color: designColor('374151'),
+    color: designToken('brokerSheet.egress.bodyText.color'),
   },
   titleBlue: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.titleBlue.fontFamily'),
     fontSize: 15,
-    color: designColor('1e3a8a'),
+    color: designToken('brokerSheet.egress.titleBlue.color'),
     marginBottom: 6,
   },
   bodyBlue: {
-    fontFamily: designFont('Satoshi-Regular'),
+    fontFamily: designToken('brokerSheet.egress.bodyBlue.fontFamily'),
     fontSize: 12,
-    color: designColor('1e40af'),
+    color: designToken('brokerSheet.egress.bodyBlue.color'),
     lineHeight: 18,
   },
   titleAmber: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.titleAmber.fontFamily'),
     fontSize: 15,
-    color: designColor('78350f'),
+    color: designToken('brokerSheet.egress.titleAmber.color'),
     marginBottom: 4,
   },
   bodyAmber: {
-    fontFamily: designFont('Satoshi-Regular'),
+    fontFamily: designToken('brokerSheet.egress.bodyAmber.fontFamily'),
     fontSize: 12,
-    color: designColor('92400e'),
+    color: designToken('brokerSheet.egress.bodyAmber.color'),
+    lineHeight: 18,
+  },
+  // Small amber notes (static-IP hints): same defaults as bodyAmber, with
+  // their own design tokens so a variant can style notes separately.
+  bodyAmberNote: {
+    fontFamily: designToken('brokerSheet.egress.bodyAmberNote.fontFamily'),
+    fontSize: 12,
+    color: designToken('brokerSheet.egress.bodyAmberNote.color'),
     lineHeight: 18,
   },
   titleRed: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.titleRed.fontFamily'),
     fontSize: 14,
-    color: designColor('991b1b'),
+    color: designToken('brokerSheet.egress.titleRed.color'),
     marginBottom: 4,
   },
   bodyRed: {
-    fontFamily: designFont('Satoshi-Regular'),
+    fontFamily: designToken('brokerSheet.egress.bodyRed.fontFamily'),
     fontSize: 12,
-    color: designColor('b91c1c'),
+    color: designToken('brokerSheet.egress.bodyRed.color'),
   },
   bannerTitle: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.bannerTitle.fontFamily'),
     fontSize: 13,
-    color: designColor('991b1b'),
+    color: designToken('brokerSheet.egress.bannerTitle.color'),
   },
   bannerBody: {
-    fontFamily: designFont('Satoshi-Regular'),
+    fontFamily: designToken('brokerSheet.egress.bannerBody.fontFamily'),
     fontSize: 12,
-    color: designColor('b91c1c'),
+    color: designToken('brokerSheet.egress.bannerBody.color'),
     marginTop: 2,
   },
   bannerSmall: {
-    fontFamily: designFont('Satoshi-Regular'),
+    fontFamily: designToken('brokerSheet.egress.bannerSmall.fontFamily'),
     fontSize: 11,
-    color: designColor('b91c1c'),
+    color: designToken('brokerSheet.egress.bannerSmall.color'),
     marginTop: 2,
   },
   primaryButton: {
-    backgroundColor: designColor('2563eb'),
+    backgroundColor: designToken('egressCallout.primaryButton.backgroundColor'),
     paddingVertical: 11,
     paddingHorizontal: 16,
     borderRadius: 8,
@@ -1488,8 +1504,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   primaryButtonText: {
-    color: designColor('ffffff'),
-    fontFamily: designFont('Satoshi-Bold'),
+    color: designToken('brokerSheet.egress.primaryButtonText.color'),
+    fontFamily: designToken('brokerSheet.egress.primaryButtonText.fontFamily'),
     fontSize: 13,
   },
   secondaryButton: {
@@ -1502,11 +1518,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   secondaryButtonText: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('egressCallout.secondaryButtonText.fontFamily'),
     fontSize: 13,
   },
   retryButton: {
-    backgroundColor: designColor('dc2626'),
+    backgroundColor: designToken('egressCallout.retryButton.backgroundColor'),
     paddingVertical: 7,
     paddingHorizontal: 14,
     borderRadius: 6,
@@ -1514,28 +1530,28 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   retryButtonText: {
-    color: designColor('ffffff'),
-    fontFamily: designFont('Satoshi-Medium'),
+    color: designToken('egressCallout.retryButtonText.color'),
+    fontFamily: designToken('egressCallout.retryButtonText.fontFamily'),
     fontSize: 12,
   },
   stepHeader: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('egressCallout.stepHeader.fontFamily'),
     fontSize: 13,
-    color: designColor('78350f'),
+    color: designToken('egressCallout.stepHeader.color'),
   },
   ipBox: {
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('brokerSheet.egress.ipBox.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('fde68a'),
+    borderColor: designToken('brokerSheet.egress.ipBox.borderColor'),
     borderRadius: 8,
     padding: 10,
     paddingHorizontal: 12,
     marginTop: 6,
   },
   ipText: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.ipText.fontFamily'),
     fontSize: 14,
-    color: designColor('111827'),
+    color: designToken('brokerSheet.egress.ipText.color'),
   },
   copyButton: {
     alignSelf: 'flex-start',
@@ -1544,25 +1560,28 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    backgroundColor: designColor('f8fafc'),
+    backgroundColor: designToken('brokerSheet.egress.copyButton.backgroundColor'),
+    borderColor: designToken('brokerSheet.egress.copyButton.borderColor'),
   },
   copyButtonText: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.copyButtonText.fontFamily'),
     fontSize: 12,
+    color: designToken('brokerSheet.egress.copyButtonText.color'),
   },
   stepText: {
-    fontFamily: designFont('Satoshi-Regular'),
+    fontFamily: designToken('brokerSheet.egress.stepText.fontFamily'),
     fontSize: 12,
-    color: designColor('78350f'),
+    color: designToken('brokerSheet.egress.stepText.color'),
     lineHeight: 18,
     marginTop: 2,
   },
   link: {
-    color: designColor('2563eb'),
+    color: designToken('egressCallout.link.color'),
     textDecorationLine: 'underline',
   },
   bold: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.bold.fontFamily'),
+    color: designToken('brokerSheet.egress.bold.color'),
   },
   italic: {
     fontStyle: 'italic',
@@ -1572,8 +1591,8 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: designColor('fde68a'),
-    backgroundColor: designColor('fef3c7'),
+    borderColor: designToken('brokerSheet.egress.ackRow.borderColor'),
+    backgroundColor: designToken('brokerSheet.egress.ackRow.backgroundColor'),
   },
   checkboxRow: {
     flexDirection: 'row',
@@ -1584,37 +1603,37 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 4,
     borderWidth: 2,
-    borderColor: designColor('f59e0b'),
-    backgroundColor: designColor('ffffff'),
+    borderColor: designToken('egressCallout.checkbox.borderColor'),
+    backgroundColor: designToken('egressCallout.checkbox.backgroundColor'),
     marginRight: 10,
     marginTop: 2,
     alignItems: 'center',
     justifyContent: 'center',
   },
   checkboxChecked: {
-    backgroundColor: designColor('d97706'),
-    borderColor: designColor('d97706'),
+    backgroundColor: designToken('egressCallout.checkboxChecked.backgroundColor'),
+    borderColor: designToken('egressCallout.checkboxChecked.borderColor'),
   },
   checkboxFlash: {
-    borderColor: designColor('ef4444'),
+    borderColor: designToken('brokerSheet.egress.ackFlash.borderColor'),
     borderWidth: 3,
   },
   checkboxMark: {
-    color: designColor('ffffff'),
+    color: designToken('egressCallout.checkboxMark.color'),
     fontSize: 14,
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('egressCallout.checkboxMark.fontFamily'),
   },
   ackText: {
     flex: 1,
-    fontFamily: designFont('Satoshi-Regular'),
+    fontFamily: designToken('brokerSheet.egress.ackText.fontFamily'),
     fontSize: 12,
-    color: designColor('78350f'),
+    color: designToken('brokerSheet.egress.ackText.color'),
     lineHeight: 18,
   },
   ipInline: {
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('brokerSheet.egress.ipInline.fontFamily'),
     fontSize: 12,
-    color: designColor('111827'),
+    color: designToken('brokerSheet.egress.ipInline.color'),
   },
 });
 

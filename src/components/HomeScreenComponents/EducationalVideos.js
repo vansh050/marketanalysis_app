@@ -8,7 +8,7 @@ import Config from 'react-native-config';
 import { useTrade } from '../../screens/TradeContext';
 import APP_VARIANTS from '../../utils/Config';
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../design/literalTokens';
 
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
@@ -25,7 +25,7 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
   const [loading, setLoading] = useState(true);  // Add loading state
   const [selectedVideo, setSelectedVideo] = useState(null);
 
-
+  
   //console.log('Videos:',videos);
   const onStateChange = (state) => {
     if (state === 'ended') {
@@ -84,16 +84,16 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
       <View style={styles.modalOverlay} >
         <View style={[styles.modalContainer]}>
 
-      <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',alignContent:'center',paddingHorizontal:20,paddingVertical:15,borderBottomWidth:1,marginBottom:10,borderColor:designColor('ccc')}}>
+      <View style={{flexDirection:'row',justifyContent:'space-between',alignItems:'center',alignContent:'center',paddingHorizontal:20,paddingVertical:15,borderBottomWidth:1,marginBottom:10,borderColor:designToken('education.videos.border')}}>
 
   <View style={styles.header}>
   <Text style={styles.headerTitle}>Educational Videos</Text>
   </View>
-    <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} onPress={()=>setOpenvideos(false)} size={15} color={designColor('000')}/>
+    <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} onPress={()=>setOpenvideos(false)} size={15} color={designToken('education.videos.text')}/>
       </View>
 
       <View style={styles.container}>
-
+     
           <FlatList
             data={[]}
             renderItem={renderItem}
@@ -106,21 +106,21 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
               //   <View style={{ flexDirection: 'row' }}>
               //     <FadeLoading
               //       style={{ width: screenWidth * 0.5, height: 100, marginTop: 5, marginLeft: 10 }}
-              //       primaryColor="#f0f0f0"
-              //       secondaryColor="#e0e0e0"
+              //       primaryColor=designToken('education.videos.skeletonBase')
+              //       secondaryColor=designToken('education.videos.skeletonHighlight')
               //       duration={500}
               //     />
               //     <FadeLoading
               //       style={{ width: screenWidth * 0.5, height: 100, marginTop: 5, marginLeft: 10 }}
-              //       primaryColor="#f0f0f0"
-              //       secondaryColor="#e0e0e0"
+              //       primaryColor=designToken('education.videos.skeletonBase')
+              //       secondaryColor=designToken('education.videos.skeletonHighlight')
               //       duration={500}
               //     />
               //   </View>
               // ) :
-
+              
               (
-
+             
                   <View style={{
                     flex: 1,
                     alignItems: 'center',
@@ -128,7 +128,7 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
                     padding: 24,
                     marginVertical: 30,
                     marginHorizontal: 20,
-                    backgroundColor: APP_VARIANTS.EmptyStateUi.lightWarmColor,
+                    backgroundColor: APP_VARIANTS.EmptyStateUi.lightWarmColor, 
                     borderRadius: 16,
                     overflow: 'hidden',
                   }}>
@@ -151,13 +151,13 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
                       borderRadius: 60,
                       backgroundColor: 'rgba(173, 66, 38, 0.06)', // Lighter shade of #6B1400
                     }} />
-
+                    
                     {/* Icon container */}
                     <View style={{
                       width: 70,
                       height: 70,
                       borderRadius: 35,
-                      backgroundColor: designColor('fff'),
+                      backgroundColor: designToken('education.videos.surface'),
                       justifyContent: 'center',
                       alignItems: 'center',
                       marginBottom: 20,
@@ -169,9 +169,9 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
                     }}>
                       <Text style={{ fontSize: 30 }}>🎬</Text>
                     </View>
-
-                    <Text style={{
-                      fontFamily: designFont('Satoshi-Bold'),
+                    
+                    <Text style={{ 
+                      fontFamily: designFont('Satoshi-Bold'), 
                       fontSize: 18,
                       color: APP_VARIANTS.EmptyStateUi.darkerColor, // Darker shade of reference color
                       textAlign: 'center',
@@ -179,7 +179,7 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
                     }}>
                       No Videos Available
                     </Text>
-
+                    
                     <Text style={{
                       fontFamily: designFont('Satoshi-Medium'),
                       fontSize: 14,
@@ -190,7 +190,7 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
                     }}>
                       We're curating video tutorials and masterclasses for you. Check back soon for fresh content!
                     </Text>
-
+                    
                     {/* Visual indicators - video timeline style */}
                     <View style={{
                       flexDirection: 'row',
@@ -225,12 +225,12 @@ const EducationalVideos = ({type,visible,setOpenvideos}) => {
                   </View>
               )
             )}
-
+            
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.videoList}
-
+            
           />
-
+        
         {selectedVideo && (
           <Modal  visible={true} transparent={true} onRequestClose={() => setSelectedVideo(null)}>
             <View style={styles.modalBackground}>
@@ -259,10 +259,10 @@ const styles = StyleSheet.create({
     paddingVertical:10,
   },
   modalContainer: {
-    backgroundColor:designColor('fffef7'),
+    backgroundColor:designToken('education.videos.surface2'),
     borderTopRightRadius:20,borderTopLeftRadius:20,
     maxHeight:screenHeight,
-
+ 
   },
   modalOverlay: {
     flex: 1,
@@ -273,16 +273,16 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 14,
     fontFamily:designFont('Satoshi-Medium'),
-    color: designColor('666'),
+    color: designToken('education.videos.textSecondary'),
     marginBottom: 0,
     textAlign: 'center',
   },
   subtitle: {
     fontSize: 14,
-    color: designColor('666'),
+    color: designToken('education.videos.textSecondary'),
     fontFamily:designFont('Satoshi-Medium'),
     textAlign: 'center',
-
+ 
   },
   containerEmpty: {
     paddingVertical:50,
@@ -290,7 +290,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center', // Centers content vertically
     alignItems: 'center', // Centers content horizontally
     alignContent: 'center',
-    backgroundColor: designColor('fdfdfd'),
+    backgroundColor: designToken('education.videos.surface3'),
   },
   header: {
     flexDirection: 'row',
@@ -300,12 +300,12 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontFamily: designFont('Satoshi-Bold'),
-    color: 'black',
+    color: designToken('education.videos.text'),
   },
   seeAllText: {
     fontSize: 14,
     fontFamily: designFont('Satoshi-Regular'),
-    color: designColor('4b8cee'),
+    color: designToken('education.videos.accent'),
     marginRight: 10,
   },
   videoList: {
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
     alignContent:'center',
     alignItems:'center',
     alignSelf:'center',
-
+  
   },
   videoCard: {
     color:'transparent',
@@ -341,12 +341,12 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 15,
     fontFamily:designFont('Satoshi-Medium'),
-    fontWeight: 'normal',
-    color: 'black',
+    fontWeight: 'normal', 
+    color: designToken('education.videos.text'),
   },
   videoDetails: {
     fontSize: 12,
-    color: designColor('888'),
+    color: designToken('education.videos.textMuted'),
     fontFamily:designFont('Satoshi-Light')
   },
   modalBackground: {
@@ -357,7 +357,7 @@ const styles = StyleSheet.create({
   },
   videoPlayerContainer: {
     width: '90%',
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('education.videos.surface'),
     height:'25%',
     borderRadius: 10,
     overflow: 'hidden',
@@ -365,12 +365,12 @@ const styles = StyleSheet.create({
   },
   closeButton: {
     padding: 10,
-    backgroundColor: designColor('ff5c5c'),
+    backgroundColor: designToken('education.videos.danger'),
     width: '100%',
     alignItems: 'flex-end',
   },
   modalVideoTitle: {
-    color: designColor('fff'),
+    color: designToken('education.videos.surface'),
     fontSize: 14,
     marginRight:10,
     paddingVertical:5,

@@ -29,7 +29,7 @@ const WatchlistScreen = () => {
 
 
 
-  const [toastvisible, settoastvisible] = useState(false);
+  const [toastvisible, settoastvisible] = useState(false); 
   const [toastMessage, setToastMessage] = useState('');
   const [toastType, setToastType] = useState('success');
   const [showBuyButtonOpacity, setShowBuyButtonOpacity] = useState(1); // State for Buy button opacity
@@ -108,12 +108,12 @@ const WatchlistScreen = () => {
     });
 };
 
-
+  
 
   const addStockToWatchlist = (stock) => {
     setWatchlists((prevWatchlists) => {
       const currentWatchlist = prevWatchlists[activeTab];
-
+  
       // Check if the stock is already in the current watchlist
       if (currentWatchlist.some(item => item.symbol === stock.symbol)) {
         // Remove the stock if already present
@@ -168,7 +168,7 @@ const WatchlistScreen = () => {
     }
     return groupedStocks;
   };
-
+  
   const renderStockRow = ({ item }) => {
     console.log('itemm------:',item);
     return (
@@ -216,29 +216,29 @@ const WatchlistScreen = () => {
       </View>
     );
   };
+  
 
-
-
+  
 
 
   const subscribeToSymbols = async () => {
     const wsManager = WebSocketManager.getInstance();
-
+    
     // Call subscribeToAllSymbols using wsManager
     await wsManager.subscribeToAllSymbols(watchlists[activeTab]);
   };
-
+  
   useEffect(() => {
     subscribeToSymbols();
   }, [watchlists[activeTab]]);
-
+  
 
 
     onRowOpen = rowKey => {
        console.log('Opened row with key:', rowKey);
         deleteStock(rowKey);
     };
-
+  
   return (
     <View style={styles.container}>
       <StatusBar backgroundColor="black" barStyle="light-content" />
@@ -246,8 +246,8 @@ const WatchlistScreen = () => {
         <>
           <View style={styles.tabs}>
             {['Watchlist 1', 'Watchlist 2', 'Watchlist 3','Watchlist 4','Watchlist 5'].map((tab, index) => (
-              <TouchableOpacity
-                key={index}
+              <TouchableOpacity 
+                key={index} 
                 style={[styles.tab, activeTab === index + 1 && styles.activeTab]}
                 onPress={() => setActiveTab(index + 1)}
               >
@@ -260,17 +260,17 @@ const WatchlistScreen = () => {
 
           <View style={styles.searchBarContainer}>
             <SearchIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} size={16} color={designColor('918f8f')} />
-            <TextInput
+            <TextInput 
               textAlignVertical='bottom'
               placeholderTextColor={designColor('918f8f')}
               style={styles.searchBar}
               placeholder="Search & add stocks"
               value={searchQuery}
-              onFocus={openSearch}
+              onFocus={openSearch} 
               onChangeText={text => setSearchQuery(text)}
             />
             <Text style={styles.stockLimit}>{watchlists[activeTab].length}/100</Text>
-
+ 
           </View>
 
           {watchlists[activeTab].length > 0 ? (
@@ -322,7 +322,7 @@ const WatchlistScreen = () => {
                   backgroundColor: 'rgba(173, 66, 38, 0.06)',
                 }} />
               </View>
-
+              
               <View style={{
                 width: 110,
                 height: 110,
@@ -337,18 +337,18 @@ const WatchlistScreen = () => {
                 shadowRadius: 10,
                 elevation: 4,
               }}>
-                <Image
-                  source={require('../../assets/emptyWatchlisticon.png')}
+                <Image 
+                  source={require('../../assets/emptyWatchlisticon.png')} 
                   style={{
                     width: 70,
                     height: 70,
                     resizeMode: 'contain',
-                  }}
+                  }} 
                 />
               </View>
-
-              <Text style={{
-                fontFamily: designFont('Satoshi-Bold'),
+              
+              <Text style={{ 
+                fontFamily: designFont('Satoshi-Bold'), 
                 fontSize: 20,
                 color: APP_VARIANTS.EmptyStateUi.darkerColor,
                 textAlign: 'center',
@@ -356,7 +356,7 @@ const WatchlistScreen = () => {
               }}>
                 Nothing here yet
               </Text>
-
+              
               <Text style={{
                 fontFamily: designFont('Satoshi-Medium'),
                 fontSize: 15,
@@ -368,14 +368,14 @@ const WatchlistScreen = () => {
               }}>
                 Use the search bar to add stocks to your watchlist.
               </Text>
-
-
+              
+     
             </View>
           )}
         </>
       ) : (
         <View style={styles.swapUpContainer}>
-          <WishSearch
+          <WishSearch 
             searchQuery={searchQuery}
             onBackPress={closeSearch}
             onQueryChange={setSearchQuery}
@@ -513,7 +513,7 @@ const styles = StyleSheet.create({
   },
   stockContainer: {
     flex: 1,
-
+    
     marginHorizontal:8,
     paddingVertical:5,
     borderWidth:1,
@@ -523,7 +523,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   stockItem: {
-
+ 
     alignContent:'center',
     alignItems:'center',
     justifyContent:'space-between',

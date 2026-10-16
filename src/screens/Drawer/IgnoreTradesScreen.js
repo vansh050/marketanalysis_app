@@ -11,6 +11,7 @@
  */
 
 import React, {useState, useEffect, useRef, useCallback} from 'react';
+import {orderPlaceRows} from '../../utils/orderPlaceRows';
 import {
   View,
   FlatList,
@@ -63,6 +64,7 @@ import {
 } from '../../services/DurableOrderService';
 
 import { designColor, designFont } from '../../design/literalTokens';
+import {kiteQuantity, missingQuantityMessage, tradesMissingQuantity} from '../../utils/kiteQuantity';
 
 const {width: SCREEN_WIDTH} = Dimensions.get('window');
 const scale = SCREEN_WIDTH / 375; // Assuming the design is based on a 375px wide screen (iPhone X)
@@ -647,7 +649,7 @@ const IgnoreTradesScreen = () => {
             data: JSON.stringify(payloadWithClientIds),
           });
           placementEnvelope = response.data;
-          placementResults = response.data?.results || [];
+          placementResults = orderPlaceRows(response.data);
         }
 
         if (isReconciliationResponse(response?.status, placementEnvelope)) {
@@ -748,6 +750,13 @@ const IgnoreTradesScreen = () => {
     // to /api/zerodha/publisher/record-orders, so variant must be present
     // here to land in the persisted record. See docs/APP_ARCHITECTURE.md
     // § 4.5.2 Trade variant field.
+    // Before anything is persisted: a stored breadcrumb for an order that
+    // never opened would read as 'awaiting broker confirmation' forever.
+    const missingQty = tradesMissingQuantity(stockDetails);
+    if (missingQty.length) {
+      Toast.show({type: 'error', text1: 'Quantity needed', text2: missingQuantityMessage(missingQty), visibilityTime: 7000});
+      return;
+    }
     const zerodhaVariant = computeTradeVariant(allowAfterHoursOrders);
     const zerodhaTrades = (stockDetails || []).map(s => ({ ...s, variant: zerodhaVariant }));
 
@@ -777,7 +786,7 @@ const IgnoreTradesScreen = () => {
 
         const basketItem = convertToBasketItem('Zerodha', stock, undefined, {
           price: orderPrice,
-          quantity: parseInt(stock.quantity, 10) || 1,
+          quantity: kiteQuantity(stock),
         });
 
         console.log('[ZerodhaPublisher] Basket item:', JSON.stringify(basketItem));

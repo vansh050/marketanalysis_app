@@ -17,6 +17,8 @@ const parser = require('@babel/parser');
 
 const ROOT = path.resolve(__dirname, '..');
 const DESIGNS_ROOT = path.join(ROOT, 'designs');
+const SRC_ROOT = path.join(ROOT, 'src');
+const DEFAULT_REGISTRY_PATH = path.join(DESIGNS_ROOT, 'default', 'index.js');
 const BASELINE_PATH = path.join(__dirname, 'design-boundary-baseline.json');
 const EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx']);
 const FORBIDDEN_PACKAGES = [
@@ -283,8 +285,79 @@ function auditSource(source, file) {
   return [...findings.values()];
 }
 
+function collectStaticUseComponentKeys(node, file, calls = []) {
+  if (!node || typeof node !== 'object') return calls;
+  if (
+    node.type === 'CallExpression' &&
+    node.callee?.type === 'Identifier' &&
+    node.callee.name === 'useComponent' &&
+    node.arguments?.[0]?.type === 'StringLiteral'
+  ) {
+    calls.push({
+      key: node.arguments[0].value,
+      file: path.relative(ROOT, file).split(path.sep).join('/'),
+      line: node.loc?.start?.line || 0,
+    });
+  }
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) {
+      value.forEach(child => collectStaticUseComponentKeys(child, file, calls));
+    } else if (value && typeof value === 'object' && value.type) {
+      collectStaticUseComponentKeys(value, file, calls);
+    }
+  }
+  return calls;
+}
+
+function auditRegistryFloor() {
+  const registrySource = fs.readFileSync(DEFAULT_REGISTRY_PATH, 'utf8');
+  const registered = new Set(
+    [...registrySource.matchAll(/['"]([a-z]+\.[A-Za-z0-9_]+)['"]\s*:/g)]
+      .map(match => match[1]),
+  );
+  const calls = [];
+  for (const root of [SRC_ROOT, DESIGNS_ROOT]) {
+    for (const file of walk(root)) {
+      const source = fs.readFileSync(file, 'utf8');
+      try {
+        collectStaticUseComponentKeys(parser.parse(source, PARSE_OPTIONS), file, calls);
+      } catch (_) {
+        // The design parser reports design-file syntax errors separately.
+      }
+    }
+  }
+  return calls.filter(call => !registered.has(call.key));
+}
+
+function auditVariantCoverage() {
+  const findings = [];
+  for (const entry of fs.readdirSync(DESIGNS_ROOT, {withFileTypes: true})) {
+    if (!entry.isDirectory() || entry.name === 'default' || entry.name.startsWith('__')) continue;
+    const coveragePath = path.join(DESIGNS_ROOT, entry.name, 'coverage.json');
+    if (!fs.existsSync(coveragePath)) continue;
+    const indexPath = path.join(DESIGNS_ROOT, entry.name, 'index.js');
+    const sdkPath = path.join(DESIGNS_ROOT, entry.name, 'sdk', 'index.js');
+    const coverage = JSON.parse(fs.readFileSync(coveragePath, 'utf8'));
+    const indexSource = fs.existsSync(indexPath) ? fs.readFileSync(indexPath, 'utf8') : '';
+    const sdkSource = fs.existsSync(sdkPath) ? fs.readFileSync(sdkPath, 'utf8') : '';
+    for (const key of coverage.requiredComponents || []) {
+      if (!indexSource.includes(`'${key}'`) && !indexSource.includes(`\"${key}\"`)) {
+        findings.push(`${entry.name} requires component override ${key}`);
+      }
+    }
+    for (const key of coverage.requiredSdkSlots || []) {
+      if (!new RegExp(`\\b${key}\\s*:`).test(sdkSource)) {
+        findings.push(`${entry.name} requires SDK slot ${key}`);
+      }
+    }
+  }
+  return findings;
+}
+
 function main() {
   const findings = audit();
+  const missingRegistryKeys = auditRegistryFloor();
+  const missingVariantCoverage = auditVariantCoverage();
   const baseline = new Set(JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')));
 
   if (process.argv.includes('--print-baseline')) {
@@ -304,17 +377,29 @@ function main() {
   for (const id of stale) {
     console.error(`STALE_DESIGN_BOUNDARY_BASELINE ${id}`);
   }
+  for (const item of missingRegistryKeys) {
+    console.error(
+      `MISSING_DEFAULT_DESIGN_COMPONENT ${item.file}:${item.line} ` +
+        `requests ${item.key}; register it in designs/default/index.js`,
+    );
+  }
+  for (const item of missingVariantCoverage) {
+    console.error(`MISSING_VARIANT_DESIGN_COVERAGE ${item}`);
+  }
 
-  if (additions.length || stale.length || process.exitCode) {
+  if (additions.length || stale.length || missingRegistryKeys.length || missingVariantCoverage.length || process.exitCode) {
     console.error(
       `Design boundary audit failed: ${additions.length} new violation(s), ` +
-        `${stale.length} stale baseline entr${stale.length === 1 ? 'y' : 'ies'}.`,
+        `${stale.length} stale baseline entr${stale.length === 1 ? 'y' : 'ies'}, ` +
+        `${missingRegistryKeys.length} missing default component key(s), ` +
+        `${missingVariantCoverage.length} missing required variant surface(s).`,
     );
     process.exit(1);
   }
 
   console.log(
-    `Design boundary audit passed: ${findings.size} known violation(s) baselined; no new presentation-layer coupling.`,
+    `Design boundary audit passed: ${findings.size} known violation(s) baselined; ` +
+      'no new presentation-layer coupling; default component registry complete.',
   );
 }
 

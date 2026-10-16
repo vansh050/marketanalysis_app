@@ -105,6 +105,8 @@ export const ConfigProvider = ({ children }) => {
         buildTenant &&
         runtimeTenant.toLowerCase() !== buildTenant.toLowerCase(),
     );
+    const authClientIdsBuildOwned =
+        isRuntimeTenant || buildConfig?.authClientIdsBuildOwned === true;
     const [config, setConfig] = useState(initialConfig);
     const [loading, setLoading] = useState(true);
 
@@ -322,7 +324,7 @@ export const ConfigProvider = ({ children }) => {
                         // rejects with DEVELOPER_ERROR if passed verbatim.
                         // ============================================================================
                         googleWebClientId:
-                            (isRuntimeTenant
+                            (authClientIdsBuildOwned
                                 ? buildConfig?.googleWebClientId
                                 : typeof apiData.googleWebClientId === 'string'
                                 ? apiData.googleWebClientId.trim()
@@ -335,7 +337,7 @@ export const ConfigProvider = ({ children }) => {
                         // .trim() as googleWebClientId. Consumed by Login/LogOutScreen;
                         // only applied on iOS (undefined is a harmless no-op elsewhere).
                         googleIosClientId:
-                            (isRuntimeTenant
+                            (authClientIdsBuildOwned
                                 ? buildConfig?.googleIosClientId
                                 : typeof apiData.googleIosClientId === 'string'
                                 ? apiData.googleIosClientId.trim()
@@ -388,6 +390,12 @@ export const ConfigProvider = ({ children }) => {
                         // Drawer entries + webinar screens consume these.
                         coursesEnabled:  apiData.coursesEnabled  ?? false,
                         webinarsEnabled: apiData.webinarsEnabled ?? false,
+
+                        // Advisor identity for the regulatory disclaimer
+                        // (advisor_config.sebi_ra_number / company_name, via
+                        // /api/app-advisor/get). null = not configured.
+                        sebiRaNumber: apiData.sebiRaNumber || null,
+                        legalName: apiData.legalName || null,
 
                         // RIA AUM-billing / NBA / Portfolio-Health / Transition per-advisor
                         // gates (D3). Source of truth: advisor_config.{aum_billing.enabled,

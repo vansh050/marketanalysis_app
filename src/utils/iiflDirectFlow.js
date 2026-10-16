@@ -38,3 +38,4 @@ export const hasCompleteIiflCallback = url => {
   const {authCode, clientCode} = parseIiflCallbackUrl(url);
   return Boolean(authCode && clientCode);
 };
+

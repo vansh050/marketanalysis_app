@@ -2,7 +2,7 @@ import React from 'react';
 import {View, Text, TouchableOpacity, StyleSheet} from 'react-native';
 import {Info, Lightbulb} from 'lucide-react-native';
 
-import { designColor } from '../design/literalTokens';
+import { designToken } from '../design/literalTokens';
 
 const AngelOneCautionaryWarning = ({visible, onAck, onCancel}) => {
   if (!visible) return null;
@@ -12,7 +12,7 @@ const AngelOneCautionaryWarning = ({visible, onAck, onCancel}) => {
         <View style={styles.handle} />
         <View style={styles.headerRow}>
           <View style={styles.headerIconWrap}>
-            <Info size={22} color={designColor('92400e')} />
+            <Info size={22} color={designToken('angelWarning.color.92400e')} />
           </View>
           <Text style={styles.headerTitle}>Before connecting Angel One</Text>
         </View>
@@ -28,7 +28,7 @@ const AngelOneCautionaryWarning = ({visible, onAck, onCancel}) => {
 
         <View style={styles.tipBox}>
           <View style={styles.tipHeaderRow}>
-            <Lightbulb size={16} color={designColor('1e40af')} />
+            <Lightbulb size={16} color={designToken('angelWarning.color.1e40af')} />
             <Text style={styles.tipHeader}>What this means for you</Text>
           </View>
           <Text style={styles.tipBody}>
@@ -61,13 +61,13 @@ const AngelOneCautionaryWarning = ({visible, onAck, onCancel}) => {
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: designToken('angelWarning.backdrop.backgroundColor'),
     justifyContent: 'flex-end',
     zIndex: 9999,
     elevation: 9999,
   },
   sheet: {
-    backgroundColor: 'white',
+    backgroundColor: designToken('angelWarning.sheet.backgroundColor'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
@@ -77,14 +77,14 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
     width: 40,
     height: 4,
-    backgroundColor: designColor('e5e7eb'),
+    backgroundColor: designToken('angelWarning.handle.backgroundColor'),
     borderRadius: 2,
     marginBottom: 16,
   },
   headerRow: {flexDirection: 'row', alignItems: 'center', marginBottom: 16},
   headerIconWrap: {
     padding: 10,
-    backgroundColor: designColor('fef3c7'),
+    backgroundColor: designToken('angelWarning.headerIconWrap.backgroundColor'),
     borderRadius: 10,
     marginRight: 12,
   },
@@ -92,18 +92,18 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     fontWeight: '700',
-    color: designColor('1f2937'),
+    color: designToken('angelWarning.headerTitle.color'),
   },
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: designColor('1f2937'),
+    color: designToken('angelWarning.sectionTitle.color'),
     marginBottom: 6,
   },
-  sectionBody: {fontSize: 13, color: designColor('374151'), lineHeight: 20},
+  sectionBody: {fontSize: 13, color: designToken('angelWarning.sectionBody.color'), lineHeight: 20},
   tipBox: {
-    backgroundColor: designColor('eff6ff'),
-    borderColor: designColor('bfdbfe'),
+    backgroundColor: designToken('angelWarning.tipBox.backgroundColor'),
+    borderColor: designToken('angelWarning.tipBox.borderColor'),
     borderWidth: 1,
     borderRadius: 10,
     padding: 12,
@@ -113,10 +113,10 @@ const styles = StyleSheet.create({
   tipHeader: {
     fontSize: 12,
     fontWeight: '600',
-    color: designColor('1e40af'),
+    color: designToken('angelWarning.tipHeader.color'),
     marginLeft: 6,
   },
-  tipBody: {fontSize: 12, color: designColor('1d4ed8'), lineHeight: 19},
+  tipBody: {fontSize: 12, color: designToken('angelWarning.tipBody.color'), lineHeight: 19},
   buttonRow: {flexDirection: 'row', marginTop: 20},
   btn: {
     paddingVertical: 14,
@@ -127,12 +127,12 @@ const styles = StyleSheet.create({
   cancelBtn: {
     flex: 1,
     borderWidth: 1,
-    borderColor: designColor('9ca3af'),
+    borderColor: designToken('angelWarning.cancelBtn.borderColor'),
     marginRight: 10,
   },
-  cancelBtnText: {fontSize: 14, fontWeight: '600', color: designColor('374151')},
-  ackBtn: {flex: 2, backgroundColor: designColor('1a237e')},
-  ackBtnText: {fontSize: 14, fontWeight: '600', color: 'white'},
+  cancelBtnText: {fontSize: 14, fontWeight: '600', color: designToken('angelWarning.cancelBtnText.color')},
+  ackBtn: {flex: 2, backgroundColor: designToken('angelWarning.ackBtn.backgroundColor')},
+  ackBtnText: {fontSize: 14, fontWeight: '600', color: designToken('angelWarning.ackBtnText.color')},
 });
 
 export default AngelOneCautionaryWarning;

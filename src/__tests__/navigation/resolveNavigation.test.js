@@ -108,6 +108,22 @@ test('pre-login order: phone login first skips the carousel; invalid lists keep 
   expect(noLogin.warnings).toContain('pre_login_missing_phone_login');
 });
 
+test('pre-login policy defaults to backend and accepts a tenant-owned always-on flow', () => {
+  expect(resolve({}).preLoginPolicy).toBe('backend');
+  expect(resolve({preLoginPolicy: 'always'}).preLoginPolicy).toBe('always');
+  const invalid = resolve({preLoginPolicy: 'sometimes'});
+  expect(invalid.preLoginPolicy).toBe('backend');
+  expect(invalid.warnings).toContain('invalid_pre_login_policy:sometimes');
+});
+
+test('authNavigation defaults to legacy; stack-safe is an explicit opt-in', () => {
+  expect(resolve({}).authNavigation).toBe('legacy');
+  expect(resolve({authNavigation: 'stack-safe'}).authNavigation).toBe('stack-safe');
+  const invalid = resolve({authNavigation: 'reset'});
+  expect(invalid.authNavigation).toBe('legacy');
+  expect(invalid.warnings).toContain('invalid_auth_navigation:reset');
+});
+
 test('chrome: out-of-range tab bar height falls back to 60', () => {
   expect(resolve({chrome: {tabBarHeight: 72}}).chrome.tabBarHeight).toBe(72);
   expect(resolve({chrome: {tabBarHeight: 5}}).chrome.tabBarHeight).toBe(60);

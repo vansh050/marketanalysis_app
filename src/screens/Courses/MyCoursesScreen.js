@@ -51,6 +51,7 @@ export default function MyCoursesScreen() {
         onRefresh: () => load({pullToRefresh: true}),
         onRetry: load,
         onOpenCourse: courseId => navigation.navigate('CourseDetail', {courseId}),
+        onBack: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Home'),
       }}
     />
   );

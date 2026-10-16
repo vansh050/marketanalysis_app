@@ -282,40 +282,40 @@ const ReviewZerodhaTradeModal = ({
   const handleRemoveStock = async (symbol, tradeId) => {
     console.log("Removing stock:-----------------=====", symbol, tradeId);
     const startTime = Date.now(); // Capture the start time
-
+  
     const cartItemsKey = "cartItems";
-
+  
     try {
       // Load cart items from AsyncStorage
       const cartData = await AsyncStorage.getItem(cartItemsKey);
       let cartItems = cartData ? JSON.parse(cartData) : [];
-
+  
       // Filter out stock from state and AsyncStorage
       const updatedStockDetails = stockDetails.filter(
         (selectedStock) =>
           !(selectedStock.tradingSymbol === symbol && selectedStock.tradeId === tradeId)
       );
-
+  
       const updatedCartItems = cartItems.filter(
         (selectedStock) =>
           !(selectedStock.tradingSymbol === symbol && selectedStock.tradeId === tradeId)
       );
-
+  
       // Update state and AsyncStorage in parallel
       setStockDetails(updatedStockDetails);
-
+  
       await AsyncStorage.setItem(cartItemsKey, JSON.stringify(updatedCartItems));
       const storedCartItems = await AsyncStorage.getItem(cartItemsKey);
 console.log('Review Modal in AsyncStorage:', storedCartItems);
       console.log('Emitting stockRemoved event--------------------->>>>>>>>>>>>>>>>>>>>');
       eventEmitter.emit("stockRemoved", { symbol, tradeId });
-
+  
     } catch (error) {
       console.error("Error removing stock:", error);
     }
   };
-
-
+  
+  
 
   const [selectedOption, setSelectedOption] = useState("");
   const [inputFixSizeValue, setInputFixValue] = useState("");
@@ -360,7 +360,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
   );
 
 
-
+  
   const [zerodhaStatus, setZerodhaStatus] = useState(null);
   const [zerodhaRequestToken, setZerodhaRequestToken] = useState(null);
   const [zerodhaRequestType, setZerodhaRequestType] = useState(null);
@@ -509,7 +509,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
   const getUpdatedBasket = async (stockDetails) => {
     const apiUrl = `${server.ccxtWs.httpUrl}/zerodha/fno/symbol-lotsize`;
 
-
+  
     // Filter relevant symbols
     const symbolsToFetch = stockDetails
       .filter(stock => stock.exchange === 'NFO' || stock.exchange === 'BFO')
@@ -518,9 +518,9 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
         exchange: stock.exchange,
         transactionType: stock.transactionType
       }));
-
+  
     let fetchedData = {};
-
+  
     if (symbolsToFetch.length > 0) {
       try {
         const response = await axios.post(apiUrl,
@@ -539,7 +539,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
             },
           }
         );
-
+  
         const data = response.data;
         console.log('data i got yayyy------',data);
         if (data.status === 0) {
@@ -549,12 +549,12 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
             return acc;
           }, {});
         }
-
+  
       } catch (error) {
         console.error("Error fetchi........ng lotsize and new_symbol:", error);
       }
     }
-
+  
     console.log('Fetched new symbol:', fetchedData);
     return fetchedData;
   };
@@ -986,7 +986,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
         baseUrl: getPublisherWebViewBaseUrl(configData),
         orders: basket.length,
       }, configData);
-
+    
     } catch (error) {
       console.error("Failed to prepare Zerodha publisher:", error);
       await clearStoredPublisherAttempt().catch(() => {});
@@ -1286,7 +1286,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
     setTotalQuantity(newQuantity);  // Update total quantity state
     applyMultiplierToBasket(newQuantity);
   };
-
+  
   const handleDecreaseAllStockQty = () => {
     if (totalQuantity > 0) {
       const newQuantity = totalQuantity - 1;  // Decrease total quantity by 1
@@ -1294,7 +1294,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
       applyMultiplierToBasket(newQuantity);
     }
   };
-
+  
   const handleQuantityInputChangeAll = (value) => {
     const newQuantity = parseInt(value) || 0; // If invalid, fallback to 0
     setTotalQuantity(newQuantity);  // Update total quantity state
@@ -1303,7 +1303,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
 
 
 
-
+  
   const renderTradeRow = ({ item, index }) => {
    // console.log('the maine ITEM WE GET in Review Trade Modal:',item);
     const symbol = item.tradingSymbol;
@@ -1325,10 +1325,10 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
           <View style={{flexDirection:'row'}}>
             <View style={[styles.tradeType, item.transactionType === 'SELL' ? styles.sell : styles.buy]}>
             <Text style={[styles.tradeType, item.transactionType === 'SELL' ? styles.sell : styles.buy]}>
-            {item.transactionType === 'SELL' ? 'SELL' : 'BUY'}{' \u2022'}
+            {item.transactionType === 'SELL' ? 'SELL' : 'BUY'}{' \u2022'} 
           </Text>
             </View>
-          <ReviewTradeText
+          <ReviewTradeText 
               symbol={symbol || ""}
               orderType={optionType}
               exchange={exe}
@@ -1338,7 +1338,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
           </View>
         </View>
         <View style={styles.tableCell}>
-
+       
         </View>
         <View style={styles.tableCell}>
         <Text style={styles.tableHeaderText}>Qty/Lot</Text>
@@ -1378,9 +1378,9 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
       {item.transactionType}
     </Text>
     </View>
-
+   
   </View>
-
+  
   {/* Center-aligned quantity counter */}
   <View style={styles.quantityContainer}>
     <TouchableOpacity
@@ -1402,9 +1402,9 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
       <Plus size={12} color={designColor('000')} />
     </TouchableOpacity>
   </View>
-
+  
   <View style={styles.rightContainer}>
-  <ReviewTradeText
+  <ReviewTradeText 
         symbol={symbol || ""}
         orderType={item.orderType}
         exchange={exe}
@@ -1462,7 +1462,7 @@ if (basketData?.length > 0) {
       onRequestClose={handleClose}
       animationType="slide"
       hardwareAccelerated={true}
-
+      
     >
       <SafeAreaView style={styles.modalOverlay} >
         <View style={[styles.modalContainer, { width: width * 1 }]}>
@@ -1542,10 +1542,10 @@ if (basketData?.length > 0) {
                   <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} size={24} color={designColor('00000033')} />
               </TouchableOpacity>
                       <View style={{ borderWidth: 1, borderColor: designColor('e8e8e8'), marginTop: 5 }}></View>
-
+            
                       <View style={styles.tableContainer}>
-
-
+                
+              
                         <FlatList
                         data={basketData}
                         renderItem={renderTradeRow}
@@ -1577,7 +1577,7 @@ if (basketData?.length > 0) {
                           style={styles.quantityInput}
                             keyboardType="numeric"
                             onChangeText={(value) => handleQuantityInputChangeAll(value)}
-
+                     
                           />
                           <TouchableOpacity  onPress={() => handleIncreaseAllStockQty()}  style={styles.button}>
                             <Plus size={16} />
@@ -1640,7 +1640,7 @@ if (basketData?.length > 0) {
               <View style={{alignContent:'flex-end',alignItems:'flex-end' }}>
               <XIcon onPress={handleClose} size={16} color={'black'}/>
               </View>
-
+              
              <WebView
                ref={webViewRef}
                style={{ flex: 1,borderTopRightRadius:100,borderTopLeftRadius:100,}}
@@ -1683,9 +1683,9 @@ if (basketData?.length > 0) {
                   <XIcon style={{alignContent:'center',alignItems:'center',alignSelf:'center'}} size={24} color={designColor('00000033')} />
                 </TouchableOpacity>
               </View>
-
+  
          <View style={{ borderWidth: 0.4, borderColor: designColor('e4e4e4'), marginTop: 5 }}/>
-
+  
               <FlatList
                 data={stockDetails}
                 renderItem={renderItem}
@@ -1725,7 +1725,7 @@ if (basketData?.length > 0) {
                 }
                 contentContainerStyle={{ paddingHorizontal: 10, marginBottom: 10 }}
               />
-
+  
               {stockDetails.length > 0 && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginHorizontal: 20, marginBottom: 20 }}>
                   <View>
@@ -1740,7 +1740,7 @@ if (basketData?.length > 0) {
                       <Text style={{ color: 'grey', marginRight: 10 }}>Fix Size</Text>
                     </View>
                   </View>
-
+  
                   {selectedOption === "fix" && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8, marginLeft: 10 }}>
                       <TextInput
@@ -1783,7 +1783,7 @@ if (basketData?.length > 0) {
                   )}
                 </View>
               )}
-
+  
               <View style={{ paddingVertical: 0, borderTopColor: designColor('e4e4e4'), borderTopWidth: 0.5, elevation: 1, backgroundColor: designColor('fff') }}>
               <GestureHandlerRootView style={{ flex: 0 }}>
 <View style={{paddingVertical:5,paddingHorizontal:10,borderTopColor:designColor('e4e4e4'),borderTopWidth:0.5,elevation:1,backgroundColor:designColor('fff')}}>
@@ -1883,7 +1883,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 25,
   },
   closeButton: {
-
+  
   },
   buyOrder: {
     color: designColor('fff'),
@@ -1894,7 +1894,7 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
 
     borderRadius:15,
-
+ 
   },
   sellOrder: {
     color: designColor('fff'),
@@ -1904,7 +1904,7 @@ const styles = StyleSheet.create({
     backgroundColor:'red',
   },
   cell: {
-
+    
     borderWidth:1,
     borderColor:'grey',
     justifyContent: 'flex-start',
@@ -1964,7 +1964,7 @@ const styles = StyleSheet.create({
  overflow:'hidden'
   },
   horizontal: {
-
+ 
   },
   modalHeader: {
     fontSize: 18,
@@ -2020,7 +2020,7 @@ const styles = StyleSheet.create({
     top: 10,
     right: 10,
   },
-
+   
   header: {
     flexDirection: 'row',
     alignItems: 'center',

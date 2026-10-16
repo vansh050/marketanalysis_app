@@ -86,6 +86,23 @@ describe('shared dispatcher persistence-gate ordering contract', () => {
   const path = require('path');
   const read = rel => fs.readFileSync(path.join(process.cwd(), rel), 'utf8');
 
+  test('SDK OAuth uses one runtime tenant callback and has no platform fallback', () => {
+    const src = read(
+      'src/components/BrokerConnectionModal/Phase3SdkBrokerModal.js',
+    );
+    expect(src).toContain(
+      'configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL',
+    );
+    expect(src).toContain(
+      'runtimeConfig?.REACT_APP_BROKER_CONNECT_REDIRECT_URL',
+    );
+    expect(src).toContain('redirectUrl={brokerConnectRedirectURL}');
+    expect(src).toContain('Broker callback not configured');
+    expect(src).not.toContain(
+      "'https://prod.alphaquark.in/stock-recommendation'",
+    );
+  });
+
   test('host refresh runs before verification so the legacy lane is never stranded', () => {
     const src = read('src/components/BrokerConnectionModal/BrokerConnectModalDispatch.js');
     const refreshAt = src.indexOf('const result = await fetchBrokerStatusModal?.(...args)');
@@ -161,6 +178,23 @@ describe('shared dispatcher persistence-gate ordering contract', () => {
     expect(catchReturnAt).toBeGreaterThan(-1);
     expect(dismissAt).toBeGreaterThan(catchReturnAt);
     expect(body.slice(catchReturnAt, dismissAt)).toContain('return;');
+  });
+
+  test('the SDK OAuth lane uses the active tenant redirect without a platform fallback', () => {
+    const src = read('src/components/BrokerConnectionModal/Phase3SdkBrokerModal.js');
+
+    expect(src).toContain(
+      'configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL ||',
+    );
+    expect(src).toContain(
+      'runtimeConfig?.REACT_APP_BROKER_CONNECT_REDIRECT_URL ||',
+    );
+    expect(src).toContain('brokerConnectRedirectURL,');
+    expect(src).toContain('redirectUrl={brokerConnectRedirectURL}');
+    expect(src).toContain('Broker callback not configured');
+    expect(src).not.toContain(
+      "'https://prod.alphaquark.in/stock-recommendation'",
+    );
   });
 
   test('Kotak success closes through the common callback used by ModalManager', () => {

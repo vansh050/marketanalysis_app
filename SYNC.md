@@ -34,8 +34,14 @@ below are intentional and tested.
 - Repo: `https://github.com/alpha112233/Alphab2bapp`
 - Local clone: `/Users/pratik/PycharmProjects/Alphab2bapp`
 - Tracked branch: `release/deploy_5.1`
-- Last merged commit: `0e68359d` (`perf(rebalance): keep the ccxt connection
-  warm while model portfolios are on screen`) — synced 2026-10-02.
+- Last merged commit: `222267d5` (content sync 2026-10-17; previous `0e68359d`
+  on 2026-10-02). Per-file: 94 stale + 42 new + 32 undeclared `src/`
+  differences set to upstream. Kept: `designs/registry.js` variant lines,
+  `babel.config.js` worklets plugin (reanimated 4 hold), and the
+  `LoginScreen.js` Android Web-OAuth fallback — rebuilt on top of upstream's
+  new Google flow (`signInWithGoogleFirebase` + GET-first
+  `getOrCreateBackendUser`): native and web paths both finish in
+  `runGoogleLogin`. `redirectLink.test.js` tenant-aware.
 - Cadence: at least monthly.
 
 ## Sync workflow

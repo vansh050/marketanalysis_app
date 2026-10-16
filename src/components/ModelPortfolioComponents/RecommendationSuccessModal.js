@@ -48,7 +48,7 @@ import {
   isCautionaryListingMessage,
   isInsufficientFundsMessage,
 } from '../../utils/rebalanceHelpers';
-import { designColor, designFont } from '../../design/literalTokens';
+import { designFont, designToken } from '../../design/literalTokens';
 const { height: screenHeight } = Dimensions.get('window');
 const { width: screenWidth } = Dimensions.get('window');
 import { useModal } from '../ModalContext';
@@ -101,7 +101,7 @@ const RecommendationSuccessModal = ({
   const gradient2 = tokens.colors.brand.gradientEnd;
   const brandPrimary = tokens.colors.brand.primary;
   const infoColor = tokens.colors.status.info;
-  const stepCompletedColor = config?.paymentModal?.stepCompletedColor || designColor('29a400');
+  const stepCompletedColor = config?.paymentModal?.stepCompletedColor || designToken('recoSuccess.stepCompletedColor.29a400');
   // Status warning tokens — used by the AMO pill on result cards. Sourced
   // from `theme/colors.js § DEFAULT_TOKENS.status`. Tenant overrides via
   // `colorTokens.status.warning(Bg)` are honoured when present (config
@@ -648,13 +648,13 @@ const RecommendationSuccessModal = ({
             {(isUnconfirmedStatus || isFailureStatus) && (
               <View style={{
                 marginLeft: 8,
-                backgroundColor: isUnconfirmedStatus ? designColor('dbeafe') : designColor('fee2e2'),
+                backgroundColor: isUnconfirmedStatus ? designToken('recoSuccess.backgroundColor.dbeafe') : designToken('recoSuccess.backgroundColor.fee2e2'),
                 paddingHorizontal: 6,
                 paddingVertical: 2,
                 borderRadius: 4,
               }}>
                 <Text style={{
-                  color: isUnconfirmedStatus ? designColor('1d4ed8') : designColor('dc2626'),
+                  color: isUnconfirmedStatus ? designToken('recoSuccess.color.1d4ed8') : designToken('recoSuccess.color.dc2626'),
                   fontSize: 10,
                   fontFamily: designFont('Poppins-Medium'),
                 }}>
@@ -697,7 +697,7 @@ const RecommendationSuccessModal = ({
                 backgroundColor:
                   item.transactionType.toLowerCase() === 'buy'
                     ? stepCompletedColor
-                    : designColor('ff2f2f'),
+                    : designToken('recoSuccess.value.ff2f2f'),
               },
             ]}>
             <Text style={styles.buyButtonText}>{item?.transactionType}</Text>
@@ -744,20 +744,20 @@ const RecommendationSuccessModal = ({
             marginTop: 6,
             marginBottom: 4,
             padding: 8,
-            backgroundColor: isUnconfirmedStatus ? designColor('eff6ff') : designColor('fef2f2'),
+            backgroundColor: isUnconfirmedStatus ? designToken('recoSuccess.backgroundColor.eff6ff') : designToken('recoSuccess.backgroundColor.fef2f2'),
             borderWidth: 1,
-            borderColor: isUnconfirmedStatus ? designColor('bfdbfe') : designColor('fecaca'),
+            borderColor: isUnconfirmedStatus ? designToken('recoSuccess.borderColor.bfdbfe') : designToken('recoSuccess.borderColor.fecaca'),
             borderRadius: 6,
           }}>
             <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
               <AlertCircle
                 size={14}
-                color={isUnconfirmedStatus ? designColor('2563eb') : designColor('dc2626')}
+                color={isUnconfirmedStatus ? designToken('recoSuccess.color.2563eb') : designToken('recoSuccess.color.dc2626')}
                 style={{ marginTop: 1, marginRight: 6 }}
               />
               <Text style={{
                 flex: 1,
-                color: isUnconfirmedStatus ? designColor('1e40af') : designColor('991b1b'),
+                color: isUnconfirmedStatus ? designToken('recoSuccess.color.1e40af') : designToken('recoSuccess.color.991b1b'),
                 fontSize: 11,
                 fontFamily: designFont('Poppins-Regular'),
                 lineHeight: 16,
@@ -796,7 +796,7 @@ const RecommendationSuccessModal = ({
               marginBottom: 4,
               fontSize: 11,
               lineHeight: 15,
-              color: designColor('b45309'),
+              color: designToken('recoSuccess.color.b45309'),
             }}>
             Not enough funds for this order. We retry it for you once your
             sells settle — don't place it at the broker yourself, or you may
@@ -815,7 +815,7 @@ const RecommendationSuccessModal = ({
               borderRadius: 6,
               borderWidth: 1,
               borderColor: brandPrimary,
-              backgroundColor: designColor('eff6ff'),
+              backgroundColor: designToken('recoSuccess.backgroundColor.eff6ff'),
             }}>
             <Text
               style={{
@@ -845,9 +845,9 @@ const RecommendationSuccessModal = ({
             marginTop: 6,
             marginBottom: 4,
             padding: 8,
-            backgroundColor: designColor('fffbeb'),
+            backgroundColor: designToken('recoSuccess.backgroundColor.fffbeb'),
             borderWidth: 1,
-            borderColor: designColor('fde68a'),
+            borderColor: designToken('recoSuccess.borderColor.fde68a'),
             borderRadius: 6,
             flexDirection: 'row',
             alignItems: 'center',
@@ -855,7 +855,7 @@ const RecommendationSuccessModal = ({
           }}>
             <Text style={{
               flex: 1,
-              color: designColor('78350f'),
+              color: designToken('recoSuccess.color.78350f'),
               fontSize: 11,
               fontFamily: designFont('Poppins-Regular'),
               lineHeight: 16,
@@ -873,16 +873,16 @@ const RecommendationSuccessModal = ({
                 paddingVertical: 5,
                 borderRadius: 6,
                 borderWidth: 1,
-                borderColor: designColor('d97706'),
-                backgroundColor: designColor('fef3c7'),
+                borderColor: designToken('recoSuccess.borderColor.d97706'),
+                backgroundColor: designToken('recoSuccess.backgroundColor.fef3c7'),
                 flexDirection: 'row',
                 alignItems: 'center',
                 opacity: refreshingIdx !== null ? 0.6 : 1,
               }}>
               {refreshingIdx === index ? (
-                <ActivityIndicator size="small" color={designColor('92400e')} style={{ marginRight: 4 }} />
+                <ActivityIndicator size="small" color={designToken('recoSuccess.color.92400e')} style={{ marginRight: 4 }} />
               ) : null}
-              <Text style={{ color: designColor('92400e'), fontSize: 11, fontFamily: designFont('Poppins-Medium') }}>
+              <Text style={{ color: designToken('recoSuccess.color.92400e'), fontSize: 11, fontFamily: designFont('Poppins-Medium') }}>
                 {refreshingIdx === index ? 'Checking…' : 'Refresh'}
               </Text>
             </TouchableOpacity>
@@ -892,13 +892,13 @@ const RecommendationSuccessModal = ({
           <View style={{
             marginTop: 6,
             padding: 10,
-            backgroundColor: designColor('f0f9ff'),
+            backgroundColor: designToken('recoSuccess.backgroundColor.f0f9ff'),
             borderWidth: 1,
-            borderColor: designColor('bfdbfe'),
+            borderColor: designToken('recoSuccess.borderColor.bfdbfe'),
             borderRadius: 8,
           }}>
             <Text style={{
-              color: designColor('0f172a'),
+              color: designToken('recoSuccess.color.0f172a'),
               fontSize: 11,
               fontFamily: designFont('Poppins-Medium'),
               marginBottom: 6,
@@ -907,7 +907,7 @@ const RecommendationSuccessModal = ({
             </Text>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 6 }}>
-              <Text style={{ width: 60, color: designColor('475569'), fontSize: 11, fontFamily: designFont('Poppins-Regular') }}>
+              <Text style={{ width: 60, color: designToken('recoSuccess.color.475569'), fontSize: 11, fontFamily: designFont('Poppins-Regular') }}>
                 Quantity
               </Text>
               <TextInput
@@ -918,22 +918,22 @@ const RecommendationSuccessModal = ({
                 style={{
                   flex: 1,
                   borderWidth: 1,
-                  borderColor: designColor('cbd5e1'),
+                  borderColor: designToken('recoSuccess.borderColor.cbd5e1'),
                   borderRadius: 6,
                   paddingHorizontal: 8,
                   paddingVertical: 6,
                   fontSize: 12,
                   fontFamily: designFont('Poppins-Regular'),
-                  backgroundColor: designColor('fff'),
-                  color: designColor('0f172a'),
+                  backgroundColor: designToken('recoSuccess.backgroundColor.fff'),
+                  color: designToken('recoSuccess.color.0f172a'),
                 }}
                 placeholder="e.g. 100"
-                placeholderTextColor={designColor('94a3b8')}
+                placeholderTextColor={designToken('recoSuccess.placeholderTextColor.94a3b8')}
               />
             </View>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-              <Text style={{ width: 60, color: designColor('475569'), fontSize: 11, fontFamily: designFont('Poppins-Regular') }}>
+              <Text style={{ width: 60, color: designToken('recoSuccess.color.475569'), fontSize: 11, fontFamily: designFont('Poppins-Regular') }}>
                 Avg. price
               </Text>
               <TextInput
@@ -944,17 +944,17 @@ const RecommendationSuccessModal = ({
                 style={{
                   flex: 1,
                   borderWidth: 1,
-                  borderColor: designColor('cbd5e1'),
+                  borderColor: designToken('recoSuccess.borderColor.cbd5e1'),
                   borderRadius: 6,
                   paddingHorizontal: 8,
                   paddingVertical: 6,
                   fontSize: 12,
                   fontFamily: designFont('Poppins-Regular'),
-                  backgroundColor: designColor('fff'),
-                  color: designColor('0f172a'),
+                  backgroundColor: designToken('recoSuccess.backgroundColor.fff'),
+                  color: designToken('recoSuccess.color.0f172a'),
                 }}
                 placeholder="Actual ₹ per share"
-                placeholderTextColor={designColor('94a3b8')}
+                placeholderTextColor={designToken('recoSuccess.placeholderTextColor.94a3b8')}
               />
             </View>
 
@@ -968,10 +968,10 @@ const RecommendationSuccessModal = ({
                   marginRight: 8,
                   borderRadius: 6,
                   borderWidth: 1,
-                  borderColor: designColor('cbd5e1'),
+                  borderColor: designToken('recoSuccess.borderColor.cbd5e1'),
                   opacity: submittingManualIdx !== null ? 0.5 : 1,
                 }}>
-                <Text style={{ color: designColor('475569'), fontSize: 11, fontFamily: designFont('Poppins-Medium') }}>
+                <Text style={{ color: designToken('recoSuccess.color.475569'), fontSize: 11, fontFamily: designFont('Poppins-Medium') }}>
                   Cancel
                 </Text>
               </TouchableOpacity>
@@ -988,9 +988,9 @@ const RecommendationSuccessModal = ({
                   opacity: submittingManualIdx !== null ? 0.7 : 1,
                 }}>
                 {submittingManualIdx === index ? (
-                  <ActivityIndicator size="small" color={designColor('fff')} style={{ marginRight: 6 }} />
+                  <ActivityIndicator size="small" color={designToken('recoSuccess.color.fff')} style={{ marginRight: 6 }} />
                 ) : null}
-                <Text style={{ color: designColor('fff'), fontSize: 11, fontFamily: designFont('Poppins-Medium') }}>
+                <Text style={{ color: designToken('recoSuccess.color.fff'), fontSize: 11, fontFamily: designFont('Poppins-Medium') }}>
                   {submittingManualIdx === index ? 'Saving…' : 'Confirm Placed'}
                 </Text>
               </TouchableOpacity>
@@ -1022,7 +1022,7 @@ const RecommendationSuccessModal = ({
                   setsuccessclosemodel(true);
                   hideAddToCartModal();
                 }}>
-                <ChevronLeft size={24} color={designColor('000')} />
+                <ChevronLeft size={24} color={designToken('recoSuccess.color.000')} />
               </TouchableOpacity>
               <View style={styles.headerTextContainer}>
                 <Text style={styles.headerTitle}>Trade Details</Text>
@@ -1067,7 +1067,7 @@ const RecommendationSuccessModal = ({
             {successCount === totalCount && successCount !== 0 && (
               <View style={styles.statusContainer}>
                 <View style={[styles.statusIcon, { backgroundColor: stepCompletedColor }]}>
-                  <CheckIcon size={40} color={'white'} />
+                  <CheckIcon size={40} color={designToken('recoSuccess.color.white')} />
                 </View>
                 <View style={styles.statusTextContainer}>
                   <Text style={styles.statusTitle}>
@@ -1091,14 +1091,14 @@ const RecommendationSuccessModal = ({
 
             {totalCount === 0 && (
               <View style={styles.statusContainer}>
-                <View style={[styles.statusIcon, { backgroundColor: designColor('ef4639') }]}>
-                  <XIcon size={40} color={'white'} />
+                <View style={[styles.statusIcon, { backgroundColor: designToken('recoSuccess.backgroundColor.ef4639') }]}>
+                  <XIcon size={40} color={designToken('recoSuccess.color.white')} />
                 </View>
                 <View style={styles.statusTextContainer}>
                   <Text style={styles.statusTitle}>No Orders Placed</Text>
                   <Text style={{
                     marginTop: 4, fontFamily: designFont('Poppins-Medium'),
-                    color: 'black',
+                    color: designToken('recoSuccess.color.black'),
                     fontSize: 10,
                     paddingRight: 10,
                   }}>
@@ -1110,8 +1110,8 @@ const RecommendationSuccessModal = ({
 
             {failureCount === totalCount && totalCount > 0 && (
               <View style={styles.statusContainer}>
-                <View style={[styles.statusIcon, { backgroundColor: designColor('ef4639') }]}>
-                  <XIcon size={40} color={'white'} />
+                <View style={[styles.statusIcon, { backgroundColor: designToken('recoSuccess.backgroundColor.ef4639') }]}>
+                  <XIcon size={40} color={designToken('recoSuccess.color.white')} />
                 </View>
 
                 <View style={styles.statusTextContainer}>
@@ -1123,7 +1123,7 @@ const RecommendationSuccessModal = ({
                       just needs to point users at them. */}
                   <Text style={{
                     marginTop: 4, fontFamily: designFont('Poppins-Medium'),
-                    color: 'black',
+                    color: designToken('recoSuccess.color.black'),
                     fontSize: 10,
                     paddingRight: 10,
                   }}>
@@ -1157,16 +1157,16 @@ const RecommendationSuccessModal = ({
 
             {publisherRecovery?.nextAction === 'CONTINUE_BUYS' && (
               <View style={{marginHorizontal: 16, marginTop: 12, padding: 14,
-                borderRadius: 10, backgroundColor: designColor('eaf4ff')}}>
-                <Text style={{fontFamily: designFont('Poppins-SemiBold'), color: designColor('073b75')}}>
+                borderRadius: 10, backgroundColor: designToken('recoSuccess.backgroundColor.eaf4ff')}}>
+                <Text style={{fontFamily: designFont('Poppins-SemiBold'), color: designToken('recoSuccess.color.073b75')}}>
                   Zerodha sells confirmed
                 </Text>
-                <Text style={{fontFamily: designFont('Poppins-Regular'), color: designColor('31465c'),
+                <Text style={{fontFamily: designFont('Poppins-Regular'), color: designToken('recoSuccess.color.31465c'),
                   fontSize: 11, marginTop: 4}}>
                   The buy order was not sent yet. Continue with the remaining buy-only basket.
                 </Text>
                 <TouchableOpacity
-                  style={{marginTop: 10, backgroundColor: designColor('0b63ce'), borderRadius: 8,
+                  style={{marginTop: 10, backgroundColor: designToken('recoSuccess.backgroundColor.0b63ce'), borderRadius: 8,
                     paddingVertical: 11, alignItems: 'center'}}
                   onPress={() => onContinuePublisherBuys?.({
                     attemptId: publisherAttemptId,
@@ -1176,7 +1176,7 @@ const RecommendationSuccessModal = ({
                     allLegs: publisherRecovery.legs || [],
                     context: publisherRecovery.context || {},
                   })}>
-                  <Text style={{color: 'white', fontFamily: designFont('Poppins-SemiBold')}}>
+                  <Text style={{color: designToken('recoSuccess.color.white'), fontFamily: designFont('Poppins-SemiBold')}}>
                     Continue with {publisherRecovery.buySummary?.expected || 1} Buy
                   </Text>
                 </TouchableOpacity>
@@ -1184,19 +1184,19 @@ const RecommendationSuccessModal = ({
             )}
 
             {publisherRecovery?.nextAction === 'REPAIR_REMAINING' && (
-              <View style={{padding: 12, marginBottom: 12, backgroundColor: designColor('fffbeb'), borderRadius: 8}}>
-                <Text style={{color: designColor('78350f'), fontFamily: designFont('Poppins-Regular')}}>
+              <View style={{padding: 12, marginBottom: 12, backgroundColor: designToken('recoSuccess.backgroundColor.fffbeb'), borderRadius: 8}}>
+                <Text style={{color: designToken('recoSuccess.color.78350f'), fontFamily: designFont('Poppins-Regular')}}>
                   {publisherRecovery.message}
                 </Text>
               </View>
             )}
             {publisherRecovery?.nextAction === 'AUTHORIZE_OR_CHECK_ACCOUNT' && (
               <View style={{marginHorizontal: 16, marginTop: 12, padding: 14,
-                borderRadius: 10, backgroundColor: designColor('fff4e5')}}>
-                <Text style={{fontFamily: designFont('Poppins-SemiBold'), color: designColor('8a4b00')}}>
+                borderRadius: 10, backgroundColor: designToken('recoSuccess.backgroundColor.fff4e5')}}>
+                <Text style={{fontFamily: designFont('Poppins-SemiBold'), color: designToken('recoSuccess.color.8a4b00')}}>
                   Zerodha orders were not found
                 </Text>
-                <Text style={{fontFamily: designFont('Poppins-Regular'), color: designColor('5b4630'),
+                <Text style={{fontFamily: designFont('Poppins-Regular'), color: designToken('recoSuccess.color.5b4630'),
                   fontSize: 11, marginTop: 4}}>
                   {publisherRecovery.message}
                 </Text>
@@ -1206,7 +1206,7 @@ const RecommendationSuccessModal = ({
             {unconfirmedCount > 0 && (
               <View style={styles.statusContainer}>
                 <View style={[styles.statusIcon, { backgroundColor: infoColor }]}>
-                  <Info size={40} color={'white'} />
+                  <Info size={40} color={designToken('recoSuccess.color.white')} />
                 </View>
                 <View style={styles.statusTextContainer}>
                   <Text style={styles.statusTitle}>
@@ -1221,15 +1221,15 @@ const RecommendationSuccessModal = ({
                   {directReconciliationRow ? (
                     <TouchableOpacity
                       onPress={() => setShowCustomerReport(true)}
-                      style={{marginTop: 10, alignSelf: 'flex-start', backgroundColor: designColor('2563eb'),
+                      style={{marginTop: 10, alignSelf: 'flex-start', backgroundColor: designToken('recoSuccess.backgroundColor.2563eb'),
                         paddingHorizontal: 12, paddingVertical: 8, borderRadius: 7}}>
-                      <Text style={{color: designColor('fff'), fontFamily: designFont('Poppins-SemiBold'), fontSize: 11}}>
+                      <Text style={{color: designToken('recoSuccess.color.fff'), fontFamily: designFont('Poppins-SemiBold'), fontSize: 11}}>
                         {customerReportStatus ? 'Update what happened' : 'Tell us what happened'}
                       </Text>
                     </TouchableOpacity>
                   ) : null}
                   {customerReportStatus ? (
-                    <Text style={{fontSize: 10, color: designColor('1e40af'), marginTop: 6}}>
+                    <Text style={{fontSize: 10, color: designToken('recoSuccess.color.1e40af'), marginTop: 6}}>
                       Report received; verification is pending. Retry remains blocked.
                     </Text>
                   ) : null}
@@ -1241,8 +1241,8 @@ const RecommendationSuccessModal = ({
               successCount !== totalCount &&
               unconfirmedCount === 0 && (
               <View style={styles.statusContainer}>
-                <View style={[styles.statusIcon, { backgroundColor: designColor('ffcd28') }]}>
-                  <AlertCircle size={40} color={'black'} />
+                <View style={[styles.statusIcon, { backgroundColor: designToken('recoSuccess.backgroundColor.ffcd28') }]}>
+                  <AlertCircle size={40} color={designToken('recoSuccess.color.black')} />
                 </View>
                 <View style={styles.statusTextContainer}>
                   <Text style={styles.statusTitle}>
@@ -1270,7 +1270,7 @@ const RecommendationSuccessModal = ({
                 {/* Header with icon */}
                 <View style={cautionaryStyles.headerRow}>
                   <View style={cautionaryStyles.iconCircle}>
-                    <AlertTriangle size={20} color={designColor('d97706')} />
+                    <AlertTriangle size={20} color={designToken('recoSuccess.color.d97706')} />
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={cautionaryStyles.alertTitle}>
@@ -1339,7 +1339,7 @@ const RecommendationSuccessModal = ({
               <View style={lowFundsStyles.alertContainer}>
                 <View style={lowFundsStyles.headerRow}>
                   <View style={lowFundsStyles.iconCircle}>
-                    <AlertCircle size={20} color={designColor('b91c1c')} />
+                    <AlertCircle size={20} color={designToken('recoSuccess.color.b91c1c')} />
                   </View>
                   <View style={{ flex: 1, marginLeft: 10 }}>
                     <Text style={lowFundsStyles.alertTitle}>
@@ -1363,7 +1363,7 @@ const RecommendationSuccessModal = ({
                         <Text
                           style={[
                             lowFundsStyles.amountValue,
-                            lowFundsAvailable < 0 && { color: designColor('b91c1c') },
+                            lowFundsAvailable < 0 && { color: designToken('recoSuccess.color.b91c1c') },
                           ]}>
                           {formatINR(lowFundsAvailable)}
                         </Text>
@@ -1512,9 +1512,9 @@ const cautionaryStyles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 4,
     padding: 14,
-    backgroundColor: designColor('fffbeb'),
+    backgroundColor: designToken('recoSuccess.alertContainer.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('fcd34d'),
+    borderColor: designToken('recoSuccess.alertContainer.borderColor'),
     borderRadius: 12,
   },
   headerRow: {
@@ -1526,19 +1526,19 @@ const cautionaryStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: designColor('fef3c7'),
+    backgroundColor: designToken('recoSuccess.iconCircle.backgroundColor'),
     alignItems: 'center',
     justifyContent: 'center',
   },
   alertTitle: {
     fontSize: 14,
     fontFamily: designFont('Poppins-SemiBold'),
-    color: designColor('92400e'),
+    color: designToken('recoSuccess.alertTitle.color'),
   },
   alertDescription: {
     fontSize: 12,
     fontFamily: designFont('Poppins-Regular'),
-    color: designColor('b45309'),
+    color: designToken('recoSuccess.alertDescription.color'),
     lineHeight: 18,
     marginBottom: 10,
   },
@@ -1549,7 +1549,7 @@ const cautionaryStyles = StyleSheet.create({
     marginBottom: 12,
   },
   stockBadge: {
-    backgroundColor: designColor('fef3c7'),
+    backgroundColor: designToken('recoSuccess.stockBadge.backgroundColor'),
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 16,
@@ -1557,38 +1557,38 @@ const cautionaryStyles = StyleSheet.create({
   stockBadgeText: {
     fontSize: 12,
     fontFamily: designFont('Poppins-Medium'),
-    color: designColor('92400e'),
+    color: designToken('recoSuccess.stockBadgeText.color'),
   },
   instructionsBox: {
-    backgroundColor: designColor('eff6ff'),
+    backgroundColor: designToken('recoSuccess.instructionsBox.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('bfdbfe'),
+    borderColor: designToken('recoSuccess.instructionsBox.borderColor'),
     borderRadius: 8,
     padding: 10,
   },
   instructionsTitle: {
     fontSize: 12,
     fontFamily: designFont('Poppins-SemiBold'),
-    color: designColor('1e40af'),
+    color: designToken('recoSuccess.instructionsTitle.color'),
     marginBottom: 4,
   },
   instructionStep: {
     fontSize: 11,
     fontFamily: designFont('Poppins-Regular'),
-    color: designColor('1d4ed8'),
+    color: designToken('recoSuccess.instructionStep.color'),
     lineHeight: 18,
     marginLeft: 2,
   },
   partialSuccessNote: {
     fontSize: 11,
     fontFamily: designFont('Poppins-Medium'),
-    color: designColor('166534'),
+    color: designToken('recoSuccess.partialSuccessNote.color'),
     marginTop: 10,
-    backgroundColor: designColor('f0fdf4'),
+    backgroundColor: designToken('recoSuccess.partialSuccessNote.backgroundColor'),
     padding: 8,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: designColor('bbf7d0'),
+    borderColor: designToken('recoSuccess.partialSuccessNote.borderColor'),
   },
 });
 
@@ -1601,9 +1601,9 @@ const lowFundsStyles = StyleSheet.create({
     marginTop: 12,
     marginBottom: 4,
     padding: 14,
-    backgroundColor: designColor('fef2f2'),
+    backgroundColor: designToken('recoSuccess.alertContainer.backgroundColor2'),
     borderWidth: 1,
-    borderColor: designColor('fecaca'),
+    borderColor: designToken('recoSuccess.alertContainer.borderColor2'),
     borderRadius: 12,
   },
   headerRow: {
@@ -1615,19 +1615,19 @@ const lowFundsStyles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: designColor('fee2e2'),
+    backgroundColor: designToken('recoSuccess.iconCircle.backgroundColor2'),
     justifyContent: 'center',
     alignItems: 'center',
   },
   alertTitle: {
     fontSize: 14,
     fontFamily: designFont('Poppins-SemiBold'),
-    color: designColor('991b1b'),
+    color: designToken('recoSuccess.alertTitle.color2'),
   },
   alertDescription: {
     fontSize: 12,
     fontFamily: designFont('Poppins-Regular'),
-    color: designColor('991b1b'),
+    color: designToken('recoSuccess.alertDescription.color2'),
     lineHeight: 18,
   },
   amountsBox: {
@@ -1635,20 +1635,20 @@ const lowFundsStyles = StyleSheet.create({
     marginTop: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('recoSuccess.amountsBox.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('fecaca'),
+    borderColor: designToken('recoSuccess.amountsBox.borderColor'),
     borderRadius: 8,
   },
   amountLabel: {
     fontSize: 10,
     fontFamily: designFont('Poppins-Regular'),
-    color: designColor('7f1d1d'),
+    color: designToken('recoSuccess.amountLabel.color'),
   },
   amountValue: {
     fontSize: 13,
     fontFamily: designFont('Poppins-SemiBold'),
-    color: designColor('111827'),
+    color: designToken('recoSuccess.amountValue.color'),
     marginTop: 2,
   },
   stockBadgeContainer: {
@@ -1659,7 +1659,7 @@ const lowFundsStyles = StyleSheet.create({
   stockBadge: {
     paddingHorizontal: 12,
     paddingVertical: 5,
-    backgroundColor: designColor('fee2e2'),
+    backgroundColor: designToken('recoSuccess.stockBadge.backgroundColor2'),
     borderRadius: 16,
     marginRight: 6,
     marginBottom: 6,
@@ -1667,26 +1667,26 @@ const lowFundsStyles = StyleSheet.create({
   stockBadgeText: {
     fontSize: 12,
     fontFamily: designFont('Poppins-Medium'),
-    color: designColor('991b1b'),
+    color: designToken('recoSuccess.stockBadgeText.color2'),
   },
   instructionsBox: {
     marginTop: 10,
     padding: 10,
-    backgroundColor: designColor('eff6ff'),
+    backgroundColor: designToken('recoSuccess.instructionsBox.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('bfdbfe'),
+    borderColor: designToken('recoSuccess.instructionsBox.borderColor'),
     borderRadius: 8,
   },
   instructionsTitle: {
     fontSize: 12,
     fontFamily: designFont('Poppins-SemiBold'),
-    color: designColor('1e40af'),
+    color: designToken('recoSuccess.instructionsTitle.color'),
     marginBottom: 4,
   },
   instructionStep: {
     fontSize: 11,
     fontFamily: designFont('Poppins-Regular'),
-    color: designColor('1d4ed8'),
+    color: designToken('recoSuccess.instructionStep.color'),
     lineHeight: 18,
   },
 });
@@ -1694,11 +1694,11 @@ const lowFundsStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   modalContainer: {
     flex: 1,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('recoSuccess.modalContainer.backgroundColor'),
   },
   modalContent: {
     flex: 1,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('recoSuccess.modalContent.backgroundColor'),
   },
 
   headerGradient: {
@@ -1718,7 +1718,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontFamily: designFont('Poppins-Medium'),
-    color: designColor('fff'),
+    color: designToken('recoSuccess.headerTitle.color'),
   },
   subHeaderContainer: {
     marginLeft: 45,
@@ -1727,7 +1727,7 @@ const styles = StyleSheet.create({
   subHeaderText: {
     fontSize: 12,
     fontFamily: designFont('Poppins-Regular'),
-    color: designColor('f0f0f0'),
+    color: designToken('recoSuccess.subHeaderText.color'),
   },
 
   contentContainer: {
@@ -1750,13 +1750,13 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statusTitle: {
-    fontFamily: designFont('Satoshi-Bold'),
-    color: 'black',
+    fontFamily: designToken('recoSuccess.statusTitle.fontFamily'),
+    color: designToken('recoSuccess.statusTitle.color'),
     fontSize: 18,
   },
   statusDescription: {
     fontFamily: designFont('Poppins-Regular'),
-    color: 'black',
+    color: designToken('recoSuccess.statusDescription.color'),
     fontSize: 10,
     paddingRight: 10,
   },
@@ -1774,22 +1774,22 @@ const styles = StyleSheet.create({
 
   bottomSafeArea: {
     height: Platform.OS === 'ios' ? 34 : 0,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('recoSuccess.bottomSafeArea.backgroundColor'),
   },
 
   successCard: {
-    backgroundColor: designColor('b6ff92'),
+    backgroundColor: designToken('recoSuccess.successCard.backgroundColor'),
   },
   pendingCard: {
-    backgroundColor: designColor('eff6ff'),
+    backgroundColor: designToken('recoSuccess.pendingCard.backgroundColor'),
   },
   rejectedCard: {
-    backgroundColor: 'rgba(255, 0, 0, 0.10)',
+    backgroundColor: designToken('recoSuccess.rejectedCard.backgroundColor'),
   },
   backButton: {
     padding: 4,
     borderRadius: 5,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('recoSuccess.backButton.backgroundColor'),
     marginRight: 10,
   },
   linkText: {
@@ -1805,7 +1805,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 0.5,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: designColor('ccc'),
+    borderBottomColor: designToken('recoSuccess.infoRow.borderBottomColor'),
   },
   infoItem: {
     flex: 1,
@@ -1822,12 +1822,12 @@ const styles = StyleSheet.create({
   infoTitle: {
     fontSize: 11,
     fontFamily: designFont('Poppins-Regular'),
-    color: designColor('888'),
+    color: designToken('recoSuccess.infoTitle.color'),
   },
   infoValue: {
-    color: designColor('464646'),
+    color: designToken('recoSuccess.infoValue.color'),
     fontSize: 12,
-    fontFamily: designFont('Satoshi-Bold'),
+    fontFamily: designToken('recoSuccess.infoValue.fontFamily'),
   },
   progressBarContainer: {
     flexDirection: 'row',
@@ -1838,21 +1838,21 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     alignContent: 'flex-start',
     alignItems: 'flex-start',
-    backgroundColor: designColor('d9d9d9'),
+    backgroundColor: designToken('recoSuccess.progressBarContainer.backgroundColor'),
     borderRadius: 8,
   },
   successBar: {
-    backgroundColor: designColor('338d72'),
+    backgroundColor: designToken('recoSuccess.successBar.backgroundColor'),
     height: 5,
     borderTopLeftRadius: 3,
     borderBottomLeftRadius: 3,
   },
   pendingBar: {
-    backgroundColor: designColor('3b82f6'),
+    backgroundColor: designToken('recoSuccess.pendingBar.backgroundColor'),
     height: 5,
   },
   failureBar: {
-    backgroundColor: designColor('ef344a'),
+    backgroundColor: designToken('recoSuccess.failureBar.backgroundColor'),
     height: 5,
     alignSelf: 'flex-start',
     justifyContent: 'flex-start',
@@ -1862,44 +1862,44 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 3,
   },
   orderGreenCard: {
-    backgroundColor: designColor('b6ff92'),
+    backgroundColor: designToken('recoSuccess.orderGreenCard.backgroundColor'),
     paddingTop: 10,
     paddingHorizontal: 10,
     borderRadius: 0,
     width: '100%',
-    borderColor: designColor('c8c8c8'),
+    borderColor: designToken('recoSuccess.orderGreenCard.borderColor'),
     borderBottomWidth: 0.5,
   },
   orderTitle: {
     fontSize: 12,
-    color: designColor('161917'),
+    color: designToken('recoSuccess.orderTitle.color'),
     fontWeight: '500',
     letterSpacing: 0.5,
     fontFamily: designFont('Poppins-Medium'),
   },
   orderType: {
-    color: designColor('fff'),
-    fontFamily: designFont('Satoshi-Bold'),
+    color: designToken('recoSuccess.orderType.color'),
+    fontFamily: designToken('recoSuccess.orderType.fontFamily'),
     fontSize: 10,
     borderRadius: 3,
     paddingVertical: 2,
     paddingHorizontal: 10,
   },
   buyButtonText: {
-    color: designColor('fff'),
+    color: designToken('recoSuccess.buyButtonText.color'),
     fontSize: 12,
     fontWeight: '400',
     fontFamily: designFont('Poppins-Regular'),
   },
   metaTextMuted: {
-    color: designColor('888b8c'),
+    color: designToken('recoSuccess.metaTextMuted.color'),
     fontSize: 12,
     fontWeight: '400',
     fontFamily: designFont('Poppins-Regular'),
     marginRight: 2,
   },
   metaTextStrong: {
-    color: designColor('15171a'),
+    color: designToken('recoSuccess.metaTextStrong.color'),
     fontSize: 12,
     fontWeight: '500',
     fontFamily: designFont('Poppins-Medium'),
@@ -1910,7 +1910,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   dateText: {
-    color: designColor('4a4a4a'),
+    color: designToken('recoSuccess.dateText.color'),
     fontSize: 12,
     fontFamily: designFont('Poppins-Regular'),
   },

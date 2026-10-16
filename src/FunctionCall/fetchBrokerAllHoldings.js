@@ -220,6 +220,18 @@ export const fetchBrokerAllHoldings = async (
       },
     });
 
+    // A broker error (expired token etc.) comes back as status 1 WITH all-zero
+    // totals. Treating those as a real empty portfolio showed "No holdings in
+    // your Upstox account yet" for an account holding Rs 3.8 lakh (Kyzen,
+    // 2026-10-13). Report the failure instead of fake zeros.
+    if (Number(response.data?.status) === 1) {
+      return {
+        fetchFailed: true,
+        message: response.data?.message || 'Holdings could not be loaded',
+        // Server copy of the last good totals (ccxt 9db1684f), if any.
+        lastKnown: response.data?.lastKnown || null,
+      };
+    }
     const totals = response.data?.totalHoldings;
     if (!totals) return null;
     return {

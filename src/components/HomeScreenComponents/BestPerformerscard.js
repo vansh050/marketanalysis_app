@@ -56,25 +56,25 @@ const BestPerformers = () => {
                                     primaryColor={designColor('f0f0f0')}
                                     secondaryColor={designColor('e0e0e0')}
                                     duration={500}
-                                  />
+                                  /> 
                                   <FadeLoading
                                     style={{ width: screenWidth * 0.8, height: 20, marginTop: 5,}}
                                     primaryColor={designColor('f0f0f0')}
                                     secondaryColor={designColor('e0e0e0')}
                                     duration={500}
-                                  />
+                                  /> 
                                    <FadeLoading
                                     style={{ width: screenWidth * 0.8, height: 20, marginTop: 5,}}
                                     primaryColor={designColor('f0f0f0')}
                                     secondaryColor={designColor('e0e0e0')}
                                     duration={500}
-                                  />
+                                  /> 
                                    <FadeLoading
                                     style={{ width: screenWidth * 0.8, height: 20, marginVertical: 5,}}
                                     primaryColor={designColor('f0f0f0')}
                                     secondaryColor={designColor('e0e0e0')}
                                     duration={500}
-                                  />
+                                  /> 
                                 </View>
                               ) : (
                                 <View style={styles.containerEmpty}>
@@ -85,10 +85,10 @@ const BestPerformers = () => {
                               </View>
                               )
                             )}
-
+      
          contentContainerStyle={{paddingHorizontal:10}}
           indicatorStyle='black'
-
+       
         />
       </View>
     </View>
@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
     color: 'black',
   },
   flatListContainer: {
-
+ 
     borderRadius: 15,
     borderWidth: 1.2,
     borderColor: designColor('f2f2f2'),

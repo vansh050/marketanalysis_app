@@ -271,9 +271,9 @@ describe('Integration: Broker Trade Flow (Phase A direct-ccxt)', () => {
           secretKey: 'e',
           sid: 's',
           serverId: 'sr',
-          viewToken: 'vt',
+          baseUrl: 'https://kotak-dc.example',
         },
-        ['apiKey', 'apiAccessToken', 'accessToken', 'sid', 'serverId'],
+        ['apiKey', 'apiAccessToken', 'jwtToken', 'accessToken', 'sid', 'serverId', 'baseUrl'],
       ],
       [
         'Hdfc Securities',

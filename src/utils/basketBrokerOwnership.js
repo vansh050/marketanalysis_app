@@ -23,3 +23,4 @@ export const getBasketBrokerOwnership = (basketLifecycle, currentBroker) => {
       positionBrokers.length > 1,
   };
 };
+

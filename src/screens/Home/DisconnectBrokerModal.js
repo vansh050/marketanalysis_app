@@ -9,7 +9,7 @@ import {
 } from "react-native";
 import { useTrade } from "../TradeContext";
 
-import { designColor } from '../../design/literalTokens';
+import { designColor, designToken } from '../../design/literalTokens';
 
 const DisconnectBrokerModal = ({
   showDisconnectBroker,
@@ -47,7 +47,7 @@ const DisconnectBrokerModal = ({
               activeOpacity={0.8}
             >
               {withoutBrokerLoader ? (
-                <ActivityIndicator color={designColor('fff')} size="small" />
+                <ActivityIndicator color={designToken('disconnectBroker.surface')} size="small" />
               ) : (
                 <Text style={styles.disconnectText}>Disconnect</Text>
               )}
@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
   modalContainer: {
     width: "100%",
     maxWidth: 360,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('disconnectBroker.surface'),
     borderRadius: 12,
     paddingVertical: 24,
     paddingHorizontal: 20,
@@ -86,13 +86,13 @@ const styles = StyleSheet.create({
   modalTitle: {
     fontSize: 18,
     fontWeight: "600",
-    color: designColor('111827'),
+    color: designToken('disconnectBroker.text'),
     textAlign: "center",
     marginBottom: 8,
   },
   modalMessage: {
     fontSize: 14,
-    color: designColor('4b5563'),
+    color: designToken('disconnectBroker.textSecondary'),
     textAlign: "center",
     marginBottom: 20,
   },
@@ -110,20 +110,20 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     borderWidth: 1,
-    borderColor: designColor('d1d5db'),
-    backgroundColor: designColor('fff'),
+    borderColor: designToken('disconnectBroker.border'),
+    backgroundColor: designToken('disconnectBroker.surface'),
   },
   cancelText: {
     fontSize: 14,
     fontWeight: "500",
-    color: designColor('374151'),
+    color: designToken('disconnectBroker.text2'),
   },
   disconnectButton: {
-    backgroundColor: designColor('dc2626'),
+    backgroundColor: designToken('disconnectBroker.danger'),
   },
   disconnectText: {
     fontSize: 14,
     fontWeight: "600",
-    color: designColor('fff'),
+    color: designToken('disconnectBroker.surface'),
   },
 });

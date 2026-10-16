@@ -50,7 +50,7 @@ import {
   getRecentCorporateActionNotices,
 } from '../../utils/corporateActionNotice';
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../design/literalTokens';
 
 const PortfolioScreen = () => {
   const navigation = useNavigation();
@@ -1191,7 +1191,7 @@ const PortfolioScreen = () => {
                   <Text
                     style={{
                       fontSize: 12,
-                      color: designColor('a0a0a0'),
+                      color: designToken('portfolio.textMuted'),
                       fontFamily: designFont('Satoshi-Regular'),
                     }}>
                     Qty.{' '}
@@ -1200,7 +1200,7 @@ const PortfolioScreen = () => {
                   <Text
                     style={{
                       marginLeft: 5,
-                      color: 'black',
+                      color: designToken('portfolio.text'),
                       fontFamily: designFont('Satoshi-Bold'),
                     }}>
                     •
@@ -1210,7 +1210,7 @@ const PortfolioScreen = () => {
                       marginHorizontal: 5,
                       fontFamily: designFont('Satoshi-Regular'),
                       fontSize: 12,
-                      color: designColor('a0a0a0'),
+                      color: designToken('portfolio.textMuted'),
                     }}>
                     Avg.
                   </Text>
@@ -1248,7 +1248,7 @@ const PortfolioScreen = () => {
                         corporateActionMessage(corporateActionNotice, item?.quantity),
                       )}
                       style={{marginLeft: 8, padding: 4}}>
-                      <InfoIcon size={16} color={designColor('b45309')} />
+                      <InfoIcon size={16} color={designToken('portfolio.warning')} />
                     </TouchableOpacity>
                   )}
                   {/* <TouchableOpacity
@@ -1321,10 +1321,10 @@ const PortfolioScreen = () => {
       <View
         style={[
           styles.flatListContainerpos,
-          isClosed && {backgroundColor: designColor('ffe5e5'), opacity: 0.6},
+          isClosed && {backgroundColor: designToken('portfolio.dangerSoft'), opacity: 0.6},
         ]}>
         <View
-          style={[styles.listItem, isClosed && {backgroundColor: designColor('ffe5e5')}]}>
+          style={[styles.listItem, isClosed && {backgroundColor: designToken('portfolio.dangerSoft')}]}>
           {/* Your existing JSX - keep it exactly as is */}
           <View>
             <View style={{flexDirection: 'column'}}>
@@ -1338,7 +1338,7 @@ const PortfolioScreen = () => {
                   <Text
                     style={{
                       fontSize: 12,
-                      color: designColor('a0a0a0'),
+                      color: designToken('portfolio.textMuted'),
                       fontFamily: designFont('Satoshi-Regular'),
                     }}>
                     Qty.
@@ -1349,7 +1349,7 @@ const PortfolioScreen = () => {
                   <Text
                     style={{
                       marginLeft: 5,
-                      color: 'black',
+                      color: designToken('portfolio.text'),
                       fontFamily: designFont('Satoshi-Bold'),
                     }}>
                     |
@@ -1359,7 +1359,7 @@ const PortfolioScreen = () => {
                       marginHorizontal: 5,
                       fontFamily: designFont('Satoshi-Regular'),
                       fontSize: 12,
-                      color: designColor('a0a0a0'),
+                      color: designToken('portfolio.textMuted'),
                     }}>
                     Avg.
                   </Text>
@@ -1518,6 +1518,12 @@ const PortfolioScreen = () => {
     userName,
     config,
     tickers,
+
+    // Variant-facing next-step actions (Kyzen Investments, Figma 2017:606).
+    // Rebalance review and repair live on the Home tab cards, which own the
+    // per-broker execution matching; the presentation only links there.
+    onReviewRebalance: () => navigation?.navigate?.('Home'),
+    onOpenPlans: () => navigation?.navigate?.('Plans'),
 
     // Modal
     modalVisible, scoreSymbol, setModalVisible,

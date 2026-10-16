@@ -182,6 +182,7 @@ const MySubscriptionsScreen = () => {
       }}
       actions={{
         onBack: () => navigation.goBack(),
+        onNotifications: () => navigation.navigate('NotificationListScreen'),
         onOpenPlan: handlePlanPress,
         onTabChange: setActiveSubTab,
         onBrowsePlans: () => navigation.navigate('Model Portfolio'),

@@ -26,7 +26,7 @@ import { useTrade } from "../../screens/TradeContext"
 import { generateToken } from "../../utils/SecurityTokenManager"
 import APP_VARIANTS from "../../utils/Config"
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../design/literalTokens';
 
 const pdfcicon = require("../../assets/pdf.png")
 const screenWidth = Dimensions.get("window").width
@@ -53,13 +53,13 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
       //position:'bottom',
       position: "bottom", // Duration the toast is visible
       text1Style: {
-        color: "black",
+        color: designToken('education.pdf.text'),
         fontSize: 11,
         fontWeight: 0,
         fontFamily: designFont('Poppins-Medium'), // Customize your font
       },
       text2Style: {
-        color: "black",
+        color: designToken('education.pdf.text'),
         fontSize: 12,
         fontFamily: designFont('Poppins-Regular'), // Customize your font
       },
@@ -207,7 +207,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
           </View>
         </TouchableOpacity>
         <TouchableOpacity style={styles.downloadButton} onPress={() => handleDownload(item._id)} disabled={isLoading}>
-          <Download size={25} color={isLoading ? designColor('ccc') : "black"} />
+          <Download size={25} color={isLoading ? designToken('education.pdf.border') : "black"} />
         </TouchableOpacity>
       </View>
     );
@@ -224,7 +224,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
               alignItems: "center",
               paddingHorizontal: 20,
               borderBottomWidth: 1,
-              borderColor: designColor('ccc'),
+              borderColor: designToken('education.pdf.border'),
               marginBottom: 10,
               paddingVertical: 15,
             }}
@@ -232,7 +232,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
             <View style={styles.header}>
               <Text style={styles.headerTitle}>Educational PDF</Text>
             </View>
-            <XIcon onPress={() => setOpenpdf(false)} size={15} color={designColor('000')} />
+            <XIcon onPress={() => setOpenpdf(false)} size={15} color={designToken('education.pdf.text')} />
           </View>
 
           <View style={styles.container}>
@@ -242,8 +242,8 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
               {isLoading ? (
                 <FadeLoading
                   style={{ width: screenWidth * 0.5, height: 10, marginTop: 5 }}
-                  primaryColor={designColor('f0f0f0')}
-                  secondaryColor={designColor('e0e0e0')}
+                  primaryColor={designToken('education.pdf.skeletonBase')}
+                  secondaryColor={designToken('education.pdf.skeletonHighlight')}
                   duration={500}
                 />
               ) : type === "homepdf" ? (
@@ -307,7 +307,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
                       width: 70,
                       height: 70,
                       borderRadius: 35,
-                      backgroundColor: designColor('fff'),
+                      backgroundColor: designToken('education.pdf.surface'),
                       justifyContent: "center",
                       alignItems: "center",
                       marginBottom: 20,
@@ -380,7 +380,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
                       style={{
                         width: 40,
                         height: 50,
-                        backgroundColor: designColor('ffffff'),
+                        backgroundColor: designToken('education.pdf.surface2'),
                         borderRadius: 4,
                         borderWidth: 1,
                         borderColor: APP_VARIANTS.EmptyStateUi.mutedColor, // Muted shade of reference color
@@ -389,7 +389,7 @@ const EducationalPDF = ({ type, visible, setOpenpdf }) => {
                         justifyContent: "center",
                       }}
                     >
-                      <Text style={{ fontSize: 16, color: designColor('6b1400') }}>PDF</Text>
+                      <Text style={{ fontSize: 16, color: designToken('education.pdf.dangerStrong') }}>PDF</Text>
                     </View>
                   </View>
                 </View>
@@ -409,7 +409,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
   },
   modalContainer: {
-    backgroundColor: designColor('fffef7'),
+    backgroundColor: designToken('education.pdf.surface3'),
     borderTopRightRadius: 20,
     borderTopLeftRadius: 20,
     maxHeight: screenHeight - 100,
@@ -423,7 +423,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 20,
     fontFamily: designFont('Satoshi-Bold'),
-    color: "black",
+    color: designToken('education.pdf.text'),
   },
   header: {
     flexDirection: "row",
@@ -433,13 +433,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 14,
     fontFamily: designFont('Satoshi-Medium'),
-    color: designColor('666'),
+    color: designToken('education.pdf.textSecondary'),
     marginBottom: 0,
     textAlign: "center",
   },
   subtitle: {
     fontSize: 14,
-    color: designColor('666'),
+    color: designToken('education.pdf.textSecondary'),
     fontFamily: designFont('Satoshi-Medium'),
     textAlign: "center",
   },
@@ -449,13 +449,13 @@ const styles = StyleSheet.create({
     justifyContent: "center", // Centers content vertically
     alignItems: "center", // Centers content horizontally
     alignContent: "center",
-    backgroundColor: designColor('fdfdfd'),
+    backgroundColor: designToken('education.pdf.surface4'),
   },
   sectionTitle: {
     fontSize: 20,
     fontFamily: designFont('Satoshi-Bold'),
     marginBottom: 10,
-    color: "black",
+    color: designToken('education.pdf.text'),
   },
   flatList: {
     marginTop: 10,
@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('education.pdf.surface'),
     padding: 10,
     borderRadius: 10,
     marginVertical: 5,
@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     borderBottomWidth: 1,
-    borderBottomColor: designColor('e6e6e6'),
+    borderBottomColor: designToken('education.pdf.border2'),
   },
   pdfContent: {
     flexDirection: "row",
@@ -493,13 +493,13 @@ const styles = StyleSheet.create({
   pdfCardTitle: {
     fontSize: 16,
     fontFamily: designFont('Satoshi-Medium'),
-    color: designColor('333'),
+    color: designToken('education.pdf.text2'),
     flexShrink: 1, // Ensures it doesn't overflow
   },
   pdfCardDescription: {
     fontSize: 12,
     fontFamily: designFont('Satoshi-Light'),
-    color: designColor('858585'),
+    color: designToken('education.pdf.textMuted'),
     marginTop: 5,
   },
   downloadButton: {

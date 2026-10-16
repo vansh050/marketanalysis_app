@@ -57,7 +57,7 @@ const ProfileModalHelp = ({
   const OpenHelpModal = () => {
     // console.log('modal:',helpVisible)
      setHelpVisible(true);
-
+ 
    };
 
 
@@ -87,7 +87,7 @@ const ProfileModalHelp = ({
            <XIcon size={24} color="grey" />
            </TouchableOpacity>
       </View>
-
+          
            <View style={{flex:1}}>
            <ScrollView>
              <Pressable>
@@ -105,7 +105,7 @@ const ProfileModalHelp = ({
          <View style={styles.accordionContainer}>
            <Collapse isExpanded={1}>
              <CollapseHeader style={styles.header}>
-
+    
              </CollapseHeader>
              <CollapseBody style={styles.accordionContent}>
                <Text style={{ fontSize: 16, lineHeight:20, justifyContent:'center', color:designColor('2b2b2b'),fontFamily:designFont('Poppins-Regular') }}>
@@ -126,7 +126,7 @@ const ProfileModalHelp = ({
          </View>
        </View>
      )}
-
+            
              </Pressable>
            </ScrollView>
            </View>
@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
     flexDirection:'row',
     width: '20%',
     height: 40,
-
+    
     borderColor: designColor('ccc'),
     borderWidth: 1,
     borderRadius: 5,

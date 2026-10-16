@@ -21,6 +21,7 @@ import {
   Dimensions,
   FlatList,
   TouchableOpacity,
+  Alert,
 } from 'react-native';
 import {useParams} from 'react-router-native';
 import axios from 'axios';
@@ -545,12 +546,32 @@ const MPPerformanceScreen = ({route}) => {
       setOpenTokenExpireModel(true);
       setCalculateLoading(false);
     } else {
+      // The rebalance id comes from the latest rebalance; fall back to the
+      // strategy's own rebalance history. Undefined fields are dropped by
+      // JSON, and /rebalance/calculate then answers 400 "model_id is
+      // missing" — which this screen used to swallow silently (2026-10-13,
+      // Kyzen "Accept rebalance does not move to the next step").
+      const history = strategyDetails?.model?.rebalanceHistory;
+      const rebalanceModelId =
+        latestRebalance?.model_Id ||
+        latestRebalance?.model_id ||
+        (Array.isArray(history) && history.length ? history[history.length - 1]?.model_Id : undefined);
+      if (!rebalanceModelId) {
+        setCalculateLoading(false);
+        Alert.alert(
+          'Rebalance not ready',
+          'This portfolio has no published rebalance to review yet. Pull to refresh and try again.',
+        );
+        return;
+      }
       let payload = {
         userEmail, userBroker: broker,
         modelName: strategyDetails?.model_name,
         advisor: strategyDetails?.advisor,
-        model_id: latestRebalance?.model_Id,
-        userFund: options?.forceRefresh ? '0' : funds?.data?.availablecash,
+        model_id: rebalanceModelId,
+        // The server re-reads funds itself; never omit the field (an
+        // undefined value is dropped and the request is rejected).
+        userFund: options?.forceRefresh ? '0' : (funds?.data?.availablecash ?? '0'),
         ...(options?.forceRefresh ? {forceRefresh: true} : {}),
         ...availableFundsPayload(options),
       };
@@ -593,7 +614,15 @@ const MPPerformanceScreen = ({route}) => {
             setConfirmOrder(false);
           }
         })
-        .catch(() => { setCalculateLoading(false); });
+        .catch(error => {
+          setCalculateLoading(false);
+          const body = error?.response?.data || {};
+          Alert.alert(
+            'Could not prepare the rebalance',
+            body.message || body.keyError || body.error ||
+              'Please check your connection and try again.',
+          );
+        });
     }
   };
 
@@ -839,14 +868,33 @@ const MPPerformanceScreen = ({route}) => {
         tabIndex: index,
         routes,
         isActive,
+        methodology: {
+          definingUniverse: singleStrategyDetails?.definingUniverse,
+          researchOverview: singleStrategyDetails?.researchOverView,
+          constituentScreening: singleStrategyDetails?.constituentScreening,
+          weighting: singleStrategyDetails?.weighting,
+          rebalance: singleStrategyDetails?.rebalanceMethodologyText,
+          assetAllocation: singleStrategyDetails?.assetAllocationText,
+        },
+        targetAllocation: (latestRebalance?.adviceEntries || []).map(entry => ({
+          symbol: entry?.symbol,
+          weight: Number(entry?.value || 0) * 100,
+        })),
+        researchReports: researchReports.map(report => ({
+          id: report?.model_Id || report?.rr_link_mpf || report?.rebalanceDate,
+          date: report?.rebalanceDate,
+          url: report?.rr_link_mpf,
+        })),
         researchWebViewUrl,
       }}
       actions={{
         onGoBack: () => navigation.goBack(),
+        onNotifications: () => navigation.navigate('NotificationListScreen'),
         onSelectPricing: (period) => { userPickedPricingRef.current = true; setSelectedPricing(period); },
         onConsentOpen: handleConsentOpen,
         onTabIndexChange: setIndex,
         onInvestNow: handleInvestNow,
+        onOpenResearchReport: url => setResearchWebViewUrl(url),
         onCloseResearchWebView: () => setResearchWebViewUrl(null),
       }}
       slots={{

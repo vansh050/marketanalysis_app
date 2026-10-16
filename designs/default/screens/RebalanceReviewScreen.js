@@ -10,7 +10,7 @@ const OrderRow = ({order, side}) => (
     </View>
     <Text style={styles.orderSymbol} numberOfLines={1}>{order.symbol || order.tradingSymbol}</Text>
     <Text style={styles.orderQty}>Qty: {order.quantity}</Text>
-    <Text style={styles.orderPrice}>₹{Number(order.price || 0).toFixed(1)}</Text>
+    <Text style={styles.orderPrice}>₹{Number(order.rebalance_price || order.price || 0).toFixed(1)}</Text>
   </View>
 );
 
@@ -26,6 +26,7 @@ const RebalanceReviewScreen = ({viewModel, actions, slots}) => {
     reducingFunding,
     termsAccepted,
     isDummyBroker,
+    exitPortfolio,
   } = viewModel;
   const {LowFundsWarning} = slots;
 
@@ -33,7 +34,7 @@ const RebalanceReviewScreen = ({viewModel, actions, slots}) => {
     return (
       <View style={styles.center}>
         <ActivityIndicator size="large" color={designColor('1a237e')} />
-        <Text style={styles.loadingText}>Calculating rebalance...</Text>
+        <Text style={styles.loadingText}>{exitPortfolio ? 'Preparing exit preview...' : 'Calculating rebalance...'}</Text>
       </View>
     );
   }
@@ -72,7 +73,7 @@ const RebalanceReviewScreen = ({viewModel, actions, slots}) => {
         <TouchableOpacity onPress={actions.onBack} style={styles.backBtn}>
           <Text style={styles.backBtnText}>{'<'}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Review Rebalance</Text>
+        <Text style={styles.headerTitle}>{exitPortfolio ? 'Review Portfolio Exit' : 'Review Rebalance'}</Text>
         <View style={styles.headerSpacer} />
       </View>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -84,6 +85,12 @@ const RebalanceReviewScreen = ({viewModel, actions, slots}) => {
             </Text>
           )}
         </View>
+        {exitPortfolio && (
+          <View style={styles.exitNotice}>
+            <Text style={styles.exitNoticeTitle}>SELL-only model exit</Text>
+            <Text style={styles.exitNoticeText}>Only quantities attributed to this model are included. The portfolio remains active until every order is broker-confirmed; failed or partial quantities stay in Repair. Billing is unchanged.</Text>
+          </View>
+        )}
         {fundingConsent?.show && (
           <View style={styles.fundingConsentContainer}>
             <Text style={styles.fundingConsentTitle}>
@@ -137,7 +144,7 @@ const RebalanceReviewScreen = ({viewModel, actions, slots}) => {
             <View style={[styles.checkbox, termsAccepted && styles.checkboxChecked]}>
               {termsAccepted && <Text style={styles.checkmark}>✓</Text>}
             </View>
-            <Text style={styles.checkboxLabel}>I understand the risks and confirm these orders should be placed.</Text>
+            <Text style={styles.checkboxLabel}>{exitPortfolio ? 'I reviewed these SELL orders and confirm they should be placed.' : 'I understand the risks and confirm these orders should be placed.'}</Text>
           </TouchableOpacity>
         )}
       </ScrollView>
@@ -147,7 +154,7 @@ const RebalanceReviewScreen = ({viewModel, actions, slots}) => {
             style={[styles.executeBtn, !termsAccepted && styles.executeBtnDisabled]}
             onPress={actions.onExecute}
             disabled={!termsAccepted || loading || reducingFunding}>
-            <Text style={styles.executeBtnText}>{isDummyBroker ? 'Confirm Manual Execution' : 'Accept & Execute Rebalance'}</Text>
+            <Text style={styles.executeBtnText}>{isDummyBroker ? 'Confirm Manual Execution' : exitPortfolio ? 'Confirm & Place SELL Orders' : 'Accept & Execute Rebalance'}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -179,6 +186,9 @@ const styles = StyleSheet.create({
   scrollContent: {padding: 16, paddingBottom: 100},
   summaryBox: {padding: 14, backgroundColor: designColor('e8eaf6'), borderRadius: 12, marginBottom: 16, alignItems: 'center'},
   summaryText: {fontSize: 14, fontWeight: '600', color: designColor('1a237e')},
+  exitNotice: {padding: 14, backgroundColor: designColor('fff7ed'), borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: designColor('fdba74')},
+  exitNoticeTitle: {fontSize: 14, fontWeight: '700', color: designColor('9a3412'), marginBottom: 5},
+  exitNoticeText: {fontSize: 12, color: designColor('7c2d12'), lineHeight: 18},
   fundingConsentContainer: {padding: 14, backgroundColor: designColor('f8fafc'), borderRadius: 12, marginBottom: 16, borderWidth: 1, borderColor: designColor('cbd5e1')},
   fundingConsentTitle: {fontSize: 13, fontWeight: '700', color: designColor('0f172a'), lineHeight: 20},
   fundingConsentText: {fontSize: 12, color: designColor('475569'), lineHeight: 18, marginTop: 6, marginBottom: 12},

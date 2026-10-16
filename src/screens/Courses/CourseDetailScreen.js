@@ -259,6 +259,7 @@ export default function CourseDetailScreen() {
         onToggleModule: toggleModule,
         onLessonPress: handleLessonPress,
         onPlayerMessage: handlePlayerMessage,
+        onBack: () => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('MyCourses'),
       }}
       slots={{GumletPlayer, CoursePurchaseSheet}}
     />

@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import {parse} from '@babel/parser';
 import {createPublisherBatchDispatcher} from '../../utils/publisherBatchDispatch';
+const {tradesMissingQuantity, missingQuantityMessage} = require('../../utils/kiteQuantity');
 
 const files = ['AdviceScreenComponents/RebalanceModal.js', 'ModelPortfolioComponents/MPReviewTradeModal.js'];
 const findSubmit = node => {
@@ -34,6 +35,7 @@ test.each(files)('%s advances only after exact BUY permission and never reopens 
     fetchFreshKiteProtectionPrices:jest.fn().mockResolvedValue({}), symbolMap:{},
     refittedKiteBatchesRef:{current:new Set()}, refitPendingBatchRef:{current:jest.fn().mockResolvedValue(true)},
     finishKitePublisherRun:jest.fn(), Toast:{show:jest.fn()},
+    tradesMissingQuantity, missingQuantityMessage,
     generateHtmlForm:()=>'<form />', zerodhaApiKey:'test',
     startOrderPolling:poll, startKitePolling:poll,
     setHtmlContent:jest.fn(), setWebView:open, setLoading:jest.fn(), stopOrderPolling:jest.fn(),

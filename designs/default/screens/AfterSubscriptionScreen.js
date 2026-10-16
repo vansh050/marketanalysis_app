@@ -6,7 +6,7 @@ import {TabView} from 'react-native-tab-view';
 import {SafeAreaView as SafeAreaBoundary} from 'react-native-safe-area-context';
 import moment from 'moment';
 
-import {designColor, designFont} from '../../../src/design/literalTokens';
+import {designColor, designFont, designToken} from '../../../src/design/literalTokens';
 
 const screenWidth = Dimensions.get('window').width;
 const InfoPill = ({title, value, accent}) => (
@@ -506,15 +506,15 @@ const styles = StyleSheet.create({
   container: {flex: 1},
   safeArea: {flex: 1},
   content: {paddingBottom: 32, backgroundColor: designColor('f6f8fb')},
-  bottomSafeArea: {backgroundColor: designColor('fff')},
+  bottomSafeArea: {backgroundColor: designToken('afterSubscription.footer.backgroundColor')},
   bottomActions: {
     flexDirection: screenWidth < 360 ? 'column' : 'row',
     paddingHorizontal: 12,
     paddingTop: 10,
     paddingBottom: 12,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('afterSubscription.footer.backgroundColor'),
     borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: designColor('cbd5e1'),
+    borderColor: designToken('afterSubscription.footer.borderColor'),
     shadowColor: designColor('0f172a'),
     shadowOffset: {width: 0, height: -2},
     shadowOpacity: 0.12,
@@ -852,26 +852,28 @@ const styles = StyleSheet.create({
   progressFill: {height: 12, backgroundColor: designColor('2d7dfd'), borderRadius: 6},
 
   investBtn: {
-    backgroundColor: designColor('0e66ff'),
+    backgroundColor: designToken('afterSubscription.footer.primary.backgroundColor'),
     flex: 1,
-    borderRadius: 10,
+    borderRadius: 12,
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 48,
   },
-  investBtnText: {color: designColor('ffffff'), fontSize: 13, fontFamily: designFont('Poppins-SemiBold'), textAlign: 'center'},
+  investBtnText: {color: designToken('afterSubscription.footer.primary.textColor'), fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), textAlign: 'center'},
 
   exitBtn: {
-    backgroundColor: designColor('e89a69ff'),
-    borderRadius: 10,
+    backgroundColor: designToken('afterSubscription.footer.secondary.backgroundColor'),
+    borderWidth: 1,
+    borderColor: designToken('afterSubscription.footer.secondary.borderColor'),
+    borderRadius: 12,
     flex: 1,
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 48,
   },
-  exitBtnText: {color: designColor('ffffff'), fontSize: 13, fontFamily: designFont('Poppins-SemiBold'), textAlign: 'center'},
+  exitBtnText: {color: designToken('afterSubscription.footer.secondary.textColor'), fontSize: 14, fontFamily: designFont('Poppins-SemiBold'), textAlign: 'center'},
 
   handleWrap: {alignItems: 'center', marginTop: 14},
   handle: {width: 120, height: 4, borderRadius: 2, backgroundColor: designColor('0e2746')},

@@ -1,7 +1,10 @@
 import {useEffect} from 'react';
 import {withGst} from '../utils/gstHelpers';
 
-export function calculatePlanPaymentAmount({specificPlan = {}, selectedPlanType, selectedCard, appliedCoupon, appliedCouponId, configGst}) {
+export function calculatePlanPaymentAmount({specificPlan: planInput, selectedPlanType, selectedCard, appliedCoupon, appliedCouponId, configGst}) {
+  // A plan that has not loaded yet can arrive as null (a default only covers
+  // undefined); the investment modal crashed on Invest (2026-10-13).
+  const specificPlan = planInput || {};
   let base;
   if (selectedPlanType === 'recurring' && selectedCard) {
     const offer = appliedCoupon && specificPlan.offer_plans_details?.find(

@@ -90,7 +90,7 @@ import {
   unlockPersistedBrokerCredentials,
 } from '../../services/DeviceBrokerCredentialVault';
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../design/literalTokens';
 
 // Brokers that the broker's API requires to call from a whitelisted
 // static IP. Same set EgressIpCallout's internal dispatch uses, but
@@ -156,10 +156,6 @@ const EGRESS_BROKER_KEY = {
   'Arihant Capital': 'arihant',
   'DefinEdge Securities': 'definedge',
 };
-
-const REDIRECT_URL =
-  Config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL ||
-  'https://prod.alphaquark.in/stock-recommendation';
 
 /**
  * Encrypt a credential field with the same `ApiKeySecret` envelope
@@ -286,7 +282,13 @@ const buildOauthReauthExtras = (brokerName, stored, configData) => {
     // form path puts it for UI display only; the backend uses the
     // legacy DB-side names). Mirror of FyersConnect.js:343-355 reauth.
     if (stored.apiKey) extras.secretKey = enc(stored.apiKey);
-    if (stored.clientCode) extras.clientCode = stored.clientCode;
+    // The backend now resolves the App ID from `apiKey` (as the fresh-form
+    // path sends it) and the Fyers user ID from `clientCode`. Sending only
+    // clientCode (= user ID on current records) was rejected as a malformed
+    // App ID, so every reconnect failed its first attempt (Kyzen 2026-10-13).
+    if (stored.appId) extras.apiKey = enc(stored.appId);
+    const fyersClient = stored.fyersUserId || stored.clientCode;
+    if (fyersClient) extras.clientCode = fyersClient;
     return extras;
   }
   // Upstox / ICICI Direct / Hdfc Securities / Motilal Oswal: apiKey +
@@ -574,14 +576,22 @@ const Phase3SdkBrokerModal = ({
   // Web-parity setup guide (mirrors prod web BrokerConnectStepper content).
   // Broker brand paints only the monogram; actions use the app accent.
   const guideAccent =
+    designToken('brokerSheet.guideAccent') ||
     runtimeConfig?.mainColor ||
     runtimeConfig?.gradient2 ||
     runtimeConfig?.buttonColor ||
     designColor('0056b7');
+  // OAuth authorization codes are bound to the exact redirect URI. Resolve
+  // the callback from the active tenant first so branded apps never display
+  // one callback while exchanging against the platform production host.
+  const brokerConnectRedirectURL =
+    configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL ||
+    runtimeConfig?.REACT_APP_BROKER_CONNECT_REDIRECT_URL ||
+    Config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL ||
+    '';
   const guideConfig = getBrokerGuideConfig(brokerName, {
     whiteLabelText: Config?.REACT_APP_WHITE_LABEL_TEXT || 'AlphaQuark',
-    brokerConnectRedirectURL:
-      configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL || '',
+    brokerConnectRedirectURL,
     iciciRedirectUrl: `${server.ccxtServer.baseUrl}icici/auth-callback/${getTenantSubdomain(configData)}`,
     ccxtBaseUrl: server.ccxtServer.baseUrl,
   });
@@ -904,9 +914,28 @@ const Phase3SdkBrokerModal = ({
   // that the IP-whitelist checkbox above was the thing blocking them.
   const [unmetAck, setUnmetAck] = useState(false);
   const scrollRef = useRef(null);
+  const ackAnchorRef = useRef(null);
+  // Scroll the "I have whitelisted this IP" row itself into view (falls back
+  // to the top of the sheet if it cannot be measured) and flash it.
   const nudgeEgressAck = () => {
     setUnmetAck(true);
-    scrollRef.current?.scrollTo({y: 0, animated: true});
+    const scroll = scrollRef.current;
+    const anchor = ackAnchorRef.current;
+    const toTop = () => scroll?.scrollTo({y: 0, animated: true});
+    const content = scroll?.getInnerViewRef?.();
+    if (!scroll || !anchor?.measureLayout || !content) {
+      toTop();
+      return;
+    }
+    try {
+      anchor.measureLayout(
+        content,
+        (_x, y) => scroll.scrollTo({y: Math.max(0, y - 24), animated: true}),
+        toTop,
+      );
+    } catch (_) {
+      toTop();
+    }
   };
 
   if (!isVisible) return null;
@@ -1042,6 +1071,40 @@ const Phase3SdkBrokerModal = ({
 
   // OAuth phase — render WebView round-trip after form collected creds.
   if (oauthExtraBody) {
+    if (!brokerConnectRedirectURL) {
+      return (
+        <View style={styles.scrim} pointerEvents="box-none">
+          <Pressable
+            style={StyleSheet.absoluteFillObject}
+            onPress={() => {
+              setShowBrokerModal?.(false);
+              onClose?.();
+            }}
+          />
+          <View style={styles.panel}>
+            <Header title={`Connect ${brokerName}`} />
+            <ScrollView contentContainerStyle={styles.scrollPad}>
+              <View style={styles.errorBox}>
+                <Text style={styles.errorTitle}>Broker callback not configured</Text>
+                <Text style={styles.errorBody}>
+                  This app is missing its broker redirect URL. No broker login
+                  was started. Please contact support and try again after the
+                  tenant configuration is updated.
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.credentialVaultPrimary}
+                onPress={() => setOauthExtraBody(null)}>
+                <Text
+                  style={styles.credentialVaultPrimaryText}>
+                  Back to setup
+                </Text>
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </View>
+      );
+    }
     // Touch architecture (sibling-Pressable pattern):
     //   <View scrim>          ← dim background, no touch handler
     //     <Pressable absoluteFill /> ← BEHIND panel, catches taps in dim area → dismiss
@@ -1081,7 +1144,7 @@ const Phase3SdkBrokerModal = ({
           <Header title={`Connect ${brokerName}`} />
           <WebViewBrokerAuthFlow
             broker={brokerName}
-            redirectUrl={REDIRECT_URL}
+            redirectUrl={brokerConnectRedirectURL}
             extraExchangeBody={oauthExtraBody}
             onSuccess={onSuccess}
             onError={onError}
@@ -1185,6 +1248,7 @@ const Phase3SdkBrokerModal = ({
                   onAcknowledgeChange={(ready) => setEgressReady(!!ready)}
                   showUnmetAck={unmetAck}
                   onUnmetAckHandled={() => setUnmetAck(false)}
+                  ackAnchorRef={ackAnchorRef}
                 />
               </View>
             ) : null}
@@ -1284,10 +1348,7 @@ const Phase3SdkBrokerModal = ({
               </View>
             </View>
             <View
-              style={[styles.formWrap, !egressReady && styles.formWrapLocked]}
-              pointerEvents={
-                !egressReady && showEgressCallout ? 'none' : 'auto'
-              }>
+              style={[styles.formWrap, !egressReady && styles.formWrapLocked]}>
               {brokerName === 'Zerodha' ? (
                 <View style={styles.kiteSessionNotice}>
                   <Text style={[styles.kiteSessionNoticeTitle, {color: guideAccent}]}>KEEP YOUR KITE SESSION ACTIVE</Text>
@@ -1319,6 +1380,18 @@ const Phase3SdkBrokerModal = ({
                 onSuccess={onSuccess}
                 onError={onError}
               />
+              {!egressReady && showEgressCallout ? (
+                // The form ignores touches while the IP acknowledgment is
+                // unticked. Catch any tap on it (fields or Continue/Connect)
+                // and take the customer to the box they still need to tick.
+                <Pressable
+                  testID="egress-ack-lock-overlay"
+                  onPress={nudgeEgressAck}
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirm the IP whitelist first. Tap to go to the checkbox."
+                  style={StyleSheet.absoluteFill}
+                />
+              ) : null}
             </View>
           </ScrollView>)
         )}
@@ -1345,7 +1418,7 @@ const styles = StyleSheet.create({
     zIndex: 9999,
   },
   panel: {
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('brokerSheet.panel.backgroundColor'),
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     // Take nearly the full screen — the SDK widgets render rich content
@@ -1362,17 +1435,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: designColor('e0e0e0'),
+    borderBottomColor: designToken('brokerSheet.header.borderBottomColor'),
   },
   headerTitle: {
     flex: 1,
     fontSize: 16,
     fontWeight: '700',
-    color: designColor('1f2937'),
+    color: designToken('brokerSheet.headerTitle.color'),
+    fontFamily: designToken('brokerSheet.headerTitle.fontFamily'),
   },
   closeIcon: {
     fontSize: 20,
-    color: designColor('6b7280'),
+    color: designToken('brokerSheet.closeIcon.color'),
     paddingHorizontal: 8,
   },
   // formScroll fills the panel's remaining height (below the Header) so
@@ -1382,7 +1456,7 @@ const styles = StyleSheet.create({
   // with no callout/help (Dhan, AliceBlue) showing a blank body (bug 78).
   formScroll: {
     flex: 1,
-    backgroundColor: designColor('f4f7fb'),
+    backgroundColor: designToken('brokerSheet.formScroll.backgroundColor'),
   },
   scrollPad: {
     paddingTop: 12,
@@ -1401,10 +1475,10 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 18,
     overflow: 'hidden',
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('brokerSheet.formWrap.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('e2e8f0'),
-    shadowColor: designColor('0f172a'),
+    borderColor: designToken('brokerSheet.formWrap.borderColor'),
+    shadowColor: designToken('brokerSheet.formWrap.shadowColor'),
     shadowOpacity: 0.06,
     shadowRadius: 10,
     shadowOffset: {width: 0, height: 3},
@@ -1416,9 +1490,9 @@ const styles = StyleSheet.create({
     marginBottom: 2,
     padding: 13,
     borderRadius: 12,
-    backgroundColor: designColor('eff6ff'),
+    backgroundColor: designToken('brokerSheet.kiteSessionNotice.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('bfdbfe'),
+    borderColor: designToken('brokerSheet.kiteSessionNotice.borderColor'),
   },
   kiteSessionNoticeTitle: {
     fontSize: 11,
@@ -1427,7 +1501,7 @@ const styles = StyleSheet.create({
   },
   kiteSessionNoticeBody: {
     marginTop: 5,
-    color: designColor('334155'),
+    color: designToken('brokerSheet.kiteSessionNoticeBody.color'),
     fontSize: 13,
     lineHeight: 19,
   },
@@ -1449,7 +1523,9 @@ const styles = StyleSheet.create({
   formStepBadgeText: {color: designColor('ffffff'), fontSize: 13, fontWeight: '800'},
   formSectionCopy: {flex: 1},
   formSectionEyebrow: {fontSize: 10, fontWeight: '800', letterSpacing: 0.7},
-  formSectionTitle: {fontSize: 15, fontWeight: '800', color: designColor('172033'), marginTop: 2},
+  formSectionTitle: {fontSize: 15, fontWeight: '800', color: designToken('brokerSheet.formSectionTitle.color'), marginTop: 2,
+    fontFamily: designToken('brokerSheet.formSectionTitle.fontFamily'),
+  },
   // Disabled-pending-IP-whitelist state. A gentle dim (not the old
   // unexplained 0.45) PAIRED with the lockNotice banner above so the
   // form reads as "intentionally locked until you finish a step",
@@ -1461,13 +1537,13 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 12,
     padding: 12,
-    backgroundColor: designColor('fef3c7'),
-    borderColor: designColor('fcd34d'),
+    backgroundColor: designToken('brokerSheet.lockNotice.backgroundColor'),
+    borderColor: designToken('brokerSheet.lockNotice.borderColor'),
     borderWidth: 1,
     borderRadius: 10,
   },
   lockNoticeText: {
-    color: designColor('92400e'),
+    color: designToken('brokerSheet.lockNoticeText.color'),
     fontSize: 13,
     lineHeight: 19,
     fontWeight: '600',
@@ -1477,17 +1553,17 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 14,
     borderRadius: 12,
-    backgroundColor: designColor('eff6ff'),
+    backgroundColor: designToken('brokerSheet.credentialVaultCard.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('bfdbfe'),
+    borderColor: designToken('brokerSheet.credentialVaultCard.borderColor'),
   },
   credentialVaultTitle: {
-    color: designColor('1e3a8a'),
+    color: designToken('brokerSheet.credentialVaultTitle.color'),
     fontSize: 14,
     fontWeight: '800',
   },
   credentialVaultBody: {
-    color: designColor('334155'),
+    color: designToken('brokerSheet.credentialVaultBody.color'),
     fontSize: 12,
     lineHeight: 18,
     marginTop: 5,
@@ -1501,23 +1577,23 @@ const styles = StyleSheet.create({
   credentialVaultPrimary: {
     alignSelf: 'flex-start',
     borderRadius: 9,
-    backgroundColor: designColor('1d4ed8'),
+    backgroundColor: designToken('brokerSheet.credentialVaultPrimary.backgroundColor'),
     paddingHorizontal: 13,
     paddingVertical: 10,
   },
   credentialVaultPrimaryText: {
-    color: designColor('ffffff'),
+    color: designToken('brokerSheet.credentialVaultPrimaryText.color'),
     fontSize: 12,
     fontWeight: '700',
   },
   credentialVaultForget: {
-    color: designColor('b91c1c'),
+    color: designToken('brokerSheet.credentialVaultForget.color'),
     fontSize: 12,
     fontWeight: '700',
     padding: 8,
   },
   credentialVaultUnlocked: {
-    color: designColor('166534'),
+    color: designToken('brokerSheet.credentialVaultUnlocked.color'),
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1526,14 +1602,14 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   credentialVaultToggleMark: {
-    color: designColor('1d4ed8'),
+    color: designToken('brokerSheet.credentialVaultToggleMark.color'),
     fontSize: 18,
     lineHeight: 20,
     marginRight: 8,
   },
   credentialVaultToggleText: {
     flex: 1,
-    color: designColor('1e3a8a'),
+    color: designToken('brokerSheet.credentialVaultToggleText.color'),
     fontSize: 12,
     lineHeight: 18,
     fontWeight: '600',

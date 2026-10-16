@@ -11,22 +11,22 @@ import {
 import {XIcon, RefreshCw} from 'lucide-react-native';
 import useTokens from '../../theme/useTokens';
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designFont, designToken } from '../../design/literalTokens';
 import {isPastAttemptWithNothingBought} from '../../utils/pastAttemptSummary';
 
 const normalizedStatus = status =>
   String(status || '').trim().toUpperCase().replace(/_/g, ' ');
 
 const getStatusColor = (status) => {
-  if (!status) return {text: designColor('6b7280'), bg: designColor('f3f4f6')};
+  if (!status) return {text: designToken('pendingOrders.status.neutral.textColor'), bg: designToken('pendingOrders.status.neutral.backgroundColor')};
   const s = normalizedStatus(status);
   if (['COMPLETE', 'COMPLETED', 'TRADED', 'FILLED'].includes(s))
-    return {text: designColor('15803d'), bg: designColor('dcfce7')};
+    return {text: designToken('pendingOrders.status.success.textColor'), bg: designToken('pendingOrders.status.success.backgroundColor')};
   if (['OPEN', 'PENDING', 'TRANSIT', 'TRIGGER PENDING', 'AFTER MARKET ORDER REQ RECEIVED'].includes(s))
-    return {text: designColor('a16207'), bg: designColor('fef9c3')};
+    return {text: designToken('pendingOrders.status.pending.textColor'), bg: designToken('pendingOrders.status.pending.backgroundColor')};
   if (['REJECTED', 'CANCELLED', 'CANCELED', 'FAILED', 'FAILURE', 'NOT SENT', 'NOT OBSERVED'].includes(s))
-    return {text: designColor('b91c1c'), bg: designColor('fee2e2')};
-  return {text: designColor('374151'), bg: designColor('f3f4f6')};
+    return {text: designToken('pendingOrders.status.failure.textColor'), bg: designToken('pendingOrders.status.failure.backgroundColor')};
+  return {text: designToken('pendingOrders.status.other.textColor'), bg: designToken('pendingOrders.status.other.backgroundColor')};
 };
 
 const isOrderCancellable = (status) => {
@@ -101,8 +101,8 @@ const PendingOrdersModal = ({
                 {
                   backgroundColor:
                     (item.transactionType || '').toUpperCase() === 'BUY'
-                      ? designColor('f0fdf4')
-                      : designColor('fef2f2'),
+                      ? designToken('pendingOrders.txn.buy.backgroundColor')
+                      : designToken('pendingOrders.txn.sell.backgroundColor'),
                 },
               ]}>
               <Text
@@ -111,8 +111,8 @@ const PendingOrdersModal = ({
                   {
                     color:
                       (item.transactionType || '').toUpperCase() === 'BUY'
-                        ? designColor('15803d')
-                        : designColor('b91c1c'),
+                        ? designToken('pendingOrders.txn.buy.textColor')
+                        : designToken('pendingOrders.txn.sell.textColor'),
                   },
                 ]}>
                 {(item.transactionType || '').toUpperCase()}
@@ -158,7 +158,7 @@ const PendingOrdersModal = ({
           <View style={styles.header}>
             <Text style={styles.title}>Order Status</Text>
             <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-              <XIcon size={20} color={designColor('9ca3af')} />
+              <XIcon size={20} color={designToken('pendingOrders.closeIcon.color')} />
             </TouchableOpacity>
           </View>
 
@@ -232,7 +232,7 @@ const PendingOrdersModal = ({
                   disabled={refreshLoading}
                   style={styles.cancelErrorRefresh}>
                   {refreshLoading ? (
-                    <ActivityIndicator size="small" color={designColor('b91c1c')} />
+                    <ActivityIndicator size="small" color={designToken('pendingOrders.error.textColor')} />
                   ) : (
                     <Text style={styles.cancelErrorRefreshText}>Refresh</Text>
                   )}
@@ -254,10 +254,10 @@ const PendingOrdersModal = ({
                   disabled={cancelLoading}
                   style={[styles.actionButton, { backgroundColor: brandPrimary }, cancelLoading && styles.disabledButton]}>
                   {cancelLoading ? (
-                    <ActivityIndicator size="small" color={designColor('fff')} />
+                    <ActivityIndicator size="small" color={designToken('pendingOrders.actionButton.textColor')} />
                   ) : (
                     <View style={styles.actionRow}>
-                      <RefreshCw size={14} color={designColor('fff')} />
+                      <RefreshCw size={14} color={designToken('pendingOrders.actionButton.textColor')} />
                       <Text style={styles.actionButtonText}>Retry</Text>
                     </View>
                   )}
@@ -268,10 +268,10 @@ const PendingOrdersModal = ({
                   disabled={cancelLoading}
                   style={[styles.actionButton, { backgroundColor: brandPrimary }, cancelLoading && styles.disabledButton]}>
                   {cancelLoading ? (
-                    <ActivityIndicator size="small" color={designColor('fff')} />
+                    <ActivityIndicator size="small" color={designToken('pendingOrders.actionButton.textColor')} />
                   ) : (
                     <View style={styles.actionRow}>
-                      <RefreshCw size={14} color={designColor('fff')} />
+                      <RefreshCw size={14} color={designToken('pendingOrders.actionButton.textColor')} />
                       <Text style={styles.actionButtonText}>Cancel & Retry</Text>
                     </View>
                   )}
@@ -285,10 +285,10 @@ const PendingOrdersModal = ({
                 disabled={cancelLoading}
                 style={[styles.actionButton, { backgroundColor: brandPrimary }, cancelLoading && styles.disabledButton]}>
                 {cancelLoading ? (
-                  <ActivityIndicator size="small" color={designColor('fff')} />
+                  <ActivityIndicator size="small" color={designToken('pendingOrders.actionButton.textColor')} />
                 ) : (
                   <View style={styles.actionRow}>
-                    <RefreshCw size={14} color={designColor('fff')} />
+                    <RefreshCw size={14} color={designToken('pendingOrders.actionButton.textColor')} />
                     <Text style={styles.actionButtonText}>
                       {hasFailedSell
                         ? 'Review failed SELL'
@@ -313,20 +313,20 @@ const styles = StyleSheet.create({
     marginTop: 8,
     padding: 10,
     borderRadius: 8,
-    backgroundColor: designColor('fef2f2'),
+    backgroundColor: designToken('pendingOrders.error.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('fecaca'),
+    borderColor: designToken('pendingOrders.error.borderColor'),
   },
   cancelErrorText: {
     fontSize: 12,
     lineHeight: 17,
-    color: designColor('b91c1c'),
+    color: designToken('pendingOrders.error.textColor'),
     fontFamily: designFont('Poppins-Regular'),
   },
   cancelErrorRefresh: {alignSelf: 'flex-start', marginTop: 6, paddingVertical: 4},
   cancelErrorRefreshText: {
     fontSize: 12,
-    color: designColor('b91c1c'),
+    color: designToken('pendingOrders.error.textColor'),
     fontFamily: designFont('Poppins-SemiBold'),
     textDecorationLine: 'underline',
   },
@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   container: {
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('pendingOrders.surface.backgroundColor'),
     borderRadius: 12,
     width: '100%',
     maxWidth: 500,
@@ -354,7 +354,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 18,
     fontFamily: designFont('Poppins-SemiBold'),
-    color: designColor('111827'),
+    color: designToken('pendingOrders.text.color'),
   },
   closeBtn: {
     padding: 4,
@@ -370,17 +370,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderRadius: 8,
-    backgroundColor: designColor('eff6ff'),
+    backgroundColor: designToken('pendingOrders.summary.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('bfdbfe'),
+    borderColor: designToken('pendingOrders.summary.borderColor'),
   },
   attemptSummaryTitle: {
-    color: designColor('1e3a8a'),
+    color: designToken('pendingOrders.summary.titleColor'),
     fontSize: 12,
     fontFamily: designFont('Poppins-SemiBold'),
   },
   attemptSummaryMeta: {
-    color: designColor('64748b'),
+    color: designToken('pendingOrders.summary.metaColor'),
     fontSize: 10,
     fontFamily: designFont('Poppins-Regular'),
     marginTop: 2,
@@ -390,10 +390,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 12,
-    backgroundColor: designColor('f9fafb'),
+    backgroundColor: designToken('pendingOrders.row.backgroundColor'),
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: designColor('f3f4f6'),
+    borderColor: designToken('pendingOrders.row.borderColor'),
     marginBottom: 8,
   },
   orderInfo: {
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   orderSymbol: {
     fontFamily: designFont('Poppins-Medium'),
     fontSize: 13,
-    color: designColor('111827'),
+    color: designToken('pendingOrders.text.color'),
   },
   txnBadge: {
     paddingHorizontal: 6,
@@ -426,13 +426,13 @@ const styles = StyleSheet.create({
   },
   metaText: {
     fontSize: 11,
-    color: designColor('6b7280'),
+    color: designToken('pendingOrders.mutedText.color'),
     fontFamily: designFont('Poppins-Regular'),
   },
   orderMessage: {
     marginTop: 5,
     fontSize: 10,
-    color: designColor('b91c1c'),
+    color: designToken('pendingOrders.error.textColor'),
     fontFamily: designFont('Poppins-Regular'),
   },
   statusBadge: {
@@ -450,26 +450,26 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 13,
-    color: designColor('6b7280'),
+    color: designToken('pendingOrders.mutedText.color'),
     fontFamily: designFont('Poppins-Regular'),
   },
   emptySubText: {
     fontSize: 11,
-    color: designColor('9ca3af'),
+    color: designToken('pendingOrders.closeIcon.color'),
     fontFamily: designFont('Poppins-Regular'),
     marginTop: 4,
   },
   publisherNote: {
     marginBottom: 16,
     padding: 12,
-    backgroundColor: designColor('fffbeb'),
+    backgroundColor: designToken('pendingOrders.note.backgroundColor'),
     borderWidth: 1,
-    borderColor: designColor('fde68a'),
+    borderColor: designToken('pendingOrders.note.borderColor'),
     borderRadius: 8,
   },
   publisherNoteText: {
     fontSize: 12,
-    color: designColor('92400e'),
+    color: designToken('pendingOrders.note.textColor'),
     fontFamily: designFont('Poppins-Regular'),
   },
   actions: {
@@ -479,19 +479,19 @@ const styles = StyleSheet.create({
   closeButton: {
     flex: 1,
     paddingVertical: 10,
-    backgroundColor: designColor('f3f4f6'),
+    backgroundColor: designToken('pendingOrders.closeButton.backgroundColor'),
     borderRadius: 8,
     alignItems: 'center',
   },
   closeButtonText: {
     fontSize: 13,
     fontFamily: designFont('Poppins-Medium'),
-    color: designColor('374151'),
+    color: designToken('pendingOrders.closeButton.textColor'),
   },
   actionButton: {
     flex: 1,
     paddingVertical: 10,
-    backgroundColor: designColor('2563eb'),
+    backgroundColor: designToken('pendingOrders.actionButton.backgroundColor'),
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -507,7 +507,7 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontSize: 13,
     fontFamily: designFont('Poppins-SemiBold'),
-    color: designColor('fff'),
+    color: designToken('pendingOrders.actionButton.textColor'),
   },
 });
 

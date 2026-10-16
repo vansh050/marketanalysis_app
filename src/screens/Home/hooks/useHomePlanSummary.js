@@ -1,14 +1,15 @@
 /**
  * useHomePlanSummary — derives top MP + bespoke plan rows for the alphanomy
- * HomeScreen's "Model Portfolios" hero card and "Top Bespoke Plans" white
- * card. Mirrors `getAllStrategy` / `getAllBespoke` in
+ * HomeScreen's model-portfolio rail and "Top Bespoke Plans" card. Mirrors
+ * `getAllStrategy` / `getAllBespoke` in
  * `src/screens/Drawer/ModelPortfolioScreen.js` (same endpoints, same
  * advisorTag/userEmail dependencies, same auth headers) but stops at the
- * top plan from each list — no need to render the full catalog from Home.
+ * the published model-portfolio list plus the top bespoke summary.
  *
  * Returns:
  *   {
  *     heroPlan: <alphanomyPlanShape.shapeMpPlan return> | null,
+ *     modelPlans: <alphanomyPlanShape.shapeMpPlan return>[],
  *     bespokePlan: <alphanomyPlanShape.shapeBespokePlan return> | null,
  *   }
  *
@@ -34,11 +35,12 @@ import server from '../../../utils/serverConfig';
 import Config from '../../../utils/safeConfig';
 import { generateToken } from '../../../utils/SecurityTokenManager';
 import { shapeMpPlan, shapeBespokePlan } from '../../../utils/alphanomyPlanShape';
+import { groupBespokePlansByCategory } from '../../../utils/planCategories';
 
 const TIMEOUT_MS = 10000;
 
 const fetchCatalog = async (kind, advisorTag, userEmail, headerName) => {
-    if (!advisorTag || !userEmail) return [];
+    if (!advisorTag || !userEmail) {return [];}
     try {
         const res = await axios.get(
             `${server.server.baseUrl}api/admin/plan/${advisorTag}/${kind}/${userEmail}`,
@@ -81,7 +83,7 @@ export default function useHomePlanSummary({ userEmail, advisorTag, headerName }
                 fetchCatalog('model portfolio', advisorTag, userEmail, headerName),
                 fetchCatalog('bespoke', advisorTag, userEmail, headerName),
             ]);
-            if (cancelled) return;
+            if (cancelled) {return;}
             setMpList(mp);
             setBespokeList(bes);
         };
@@ -89,15 +91,15 @@ export default function useHomePlanSummary({ userEmail, advisorTag, headerName }
         return () => {
             cancelled = true;
         };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [userEmail, advisorTag, headerName, refreshNonce]);
 
     const refetch = () => setRefreshNonce(n => n + 1);
 
-    const heroPlan = useMemo(
-        () => shapeMpPlan((mpList || [])[0]),
+    const modelPlans = useMemo(
+        () => (mpList || []).map(plan => shapeMpPlan(plan)).filter(Boolean),
         [mpList],
     );
+    const heroPlan = modelPlans[0] || null;
     const bespokePlan = useMemo(
         () => shapeBespokePlan((bespokeList || [])[0]),
         [bespokeList],
@@ -106,5 +108,19 @@ export default function useHomePlanSummary({ userEmail, advisorTag, headerName }
     const heroPlanRaw = (mpList || [])[0] || null;
     const bespokePlanRaw = (bespokeList || [])[0] || null;
 
-    return { heroPlan, bespokePlan, heroPlanRaw, bespokePlanRaw, refetch };
+    // Every published bespoke plan, shaped, grouped by advisor-defined
+    // category (docs/BESPOKE_PLAN_CATEGORIES.md in the web repo).
+    const bespokePlans = useMemo(
+        () => (bespokeList || []).map(plan => shapeBespokePlan(plan)).filter(Boolean),
+        [bespokeList],
+    );
+    const bespokeCategoryGroups = useMemo(
+        () => groupBespokePlansByCategory(bespokePlans),
+        [bespokePlans],
+    );
+
+    return {
+        heroPlan, modelPlans, bespokePlan, heroPlanRaw, bespokePlanRaw,
+        bespokePlans, bespokeCategoryGroups, refetch,
+    };
 }

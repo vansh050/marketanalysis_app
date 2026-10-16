@@ -36,6 +36,12 @@ import {
   isBasketInFlightStatus,
 } from '../../utils/basketOrderState';
 import {getBasketBrokerOwnership} from '../../utils/basketBrokerOwnership';
+import eventEmitter from '../../components/EventEmitter';
+import {
+  DEEP_LINK_EXECUTE_EVENT,
+  claimDeepLinkExecuteTarget,
+  targetMatchesAdviceRow,
+} from '../../utils/deepLinkExecuteTarget';
 import useLTPStore from '../../components/AdviceScreenComponents/DynamicText/useLtpStore';
 
 import { designColor } from '../../design/literalTokens';
@@ -670,6 +676,47 @@ const BasketCard = ({
     (!isClosureBasket || isCustomerOpenPosition) &&
     !isCancelled &&
     !isClosed;
+
+  // WhatsApp/Telegram execute link, basket_execute surface (2026-10-10). The
+  // link's advice id matches `advice_reco_id` on this basket's legs. Runs the
+  // same handler as the card's Trade button, and only when that button would
+  // be enabled (same condition as designs/default/composites/BasketCard.js).
+  // While the entry authorization is still loading the card waits for the
+  // next announcement; a basket that can no longer be entered claims the link
+  // and says why instead of silently doing nothing. Execute links are minted
+  // for entry sends only, so closure baskets never match. Registered every
+  // render so the handler sees current state. See utils/deepLinkExecuteTarget.
+  useEffect(() => {
+    const handleDeepLinkTarget = target => {
+      if (target?.surface !== 'basket_execute' || isClosureBasket) return;
+      const legs = basket?.trades || [];
+      if (!legs.some(leg => targetMatchesAdviceRow(target, leg, 'basket_execute'))) {
+        return;
+      }
+      const notEnterable =
+        isExpired || isCancelled || isClosed || isCustomerOpenPosition ||
+        lifecycleBlocksEntry;
+      if (!notEnterable && (!entryAuthorization || isCheckingReconciliation)) {
+        return; // still loading — wait for the next announcement
+      }
+      if (!claimDeepLinkExecuteTarget(t => t === target)) return;
+      if (notEnterable || entryBlocked) {
+        Toast.show({
+          type: 'info',
+          text1: `${basketName || 'Basket'} can't be entered now`,
+          text2: notEnterable
+            ? 'This basket is no longer open for entry.'
+            : basketEntryGateMessage(entryAuthorization) || 'Entry is not allowed right now.',
+          visibilityTime: 7000,
+          position: 'bottom',
+        });
+        return;
+      }
+      handleTradeNowBasket();
+    };
+    eventEmitter.on(DEEP_LINK_EXECUTE_EVENT, handleDeepLinkTarget);
+    return () => eventEmitter.off(DEEP_LINK_EXECUTE_EVENT, handleDeepLinkTarget);
+  });
 
   // ---------- presentation delegation ----------
   const BasketCardPresentation = useComponent('composites.BasketCard');

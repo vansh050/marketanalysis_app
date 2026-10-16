@@ -124,3 +124,33 @@ describe('funding panel after the customer chose to attempt the buy', () => {
     expect(copy.title).toContain('Remaining funding: ₹500');
   });
 });
+
+test('a little cash still allows attempting the full target (Rs 7.20 vs Rs 501, 2026-10-13)', () => {
+  const review = getFundingReview(
+    {
+      customerAction: {code: 'EXECUTE', blocking: false},
+      fundingConsent: {
+        required: false, desiredAmount: 501, fundedAmount: 7.2, shortfall: 493.8,
+        options: ['reduce_to_funding', 'keep_intent', 'attempt_broker'],
+      },
+      fundingContinuation: {selected: true, choice: 'available_funds', targetAmount: 501, calculationBudget: 7.2, remainingFundingRequired: 493.8},
+    },
+    {},
+  );
+  expect(review.fundedAmount).toBe(7.2);
+  expect(review.canAttemptWithInsufficientFunds).toBe(true);
+  expect(review.canContinueWithAvailableFunds).toBe(true);
+});
+
+test('once the attempt was chosen it is not offered again', () => {
+  const review = getFundingReview(
+    {
+      customerAction: {code: 'EXECUTE', blocking: false},
+      fundingConsent: {required: false, desiredAmount: 501, fundedAmount: 7.2, shortfall: 493.8, options: ['reduce_to_funding', 'keep_intent', 'attempt_broker']},
+      fundingContinuation: {selected: true, choice: 'attempt_broker', targetAmount: 501, calculationBudget: 7.2, remainingFundingRequired: 493.8},
+    },
+    {},
+  );
+  expect(review.canAttemptWithInsufficientFunds).toBe(false);
+  expect(review.attemptingDespiteShortfall).toBe(true);
+});

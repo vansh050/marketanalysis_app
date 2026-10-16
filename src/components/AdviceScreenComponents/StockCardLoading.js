@@ -54,19 +54,19 @@ const StockCardLoading = ({
   setOpenIgnoreTradeModel = () => {},
   setStockIgnoreId = () => {},
   tradeId = '',
-
+  
 }) => {
 
-
+  
   const isBuyAction = action.toLowerCase() === 'buy';
   const [inputPrice, setInputPrice] = useState(Price);
   const [market, setMarket] = useState(orderTypeDisplay(OrderType));
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false); 
   const [modalVisible, setModalVisible] = useState(false);
   const shouldShowReadMore = rationale.length > 60;
   const [showFullSymbol, setShowFullSymbol] = useState(false);
 
-  const [ltp, setLtp] = useState([]);
+  const [ltp, setLtp] = useState([]); 
   const [socket, setSocket] = useState(null);
   const [loadingcart,setloadingcart]=useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -89,7 +89,7 @@ const StockCardLoading = ({
 
   const handleInputChange = (text) => {
     setInputPrice(text);
-    handleLimitOrderInputChange(text);
+    handleLimitOrderInputChange(text); 
   };
 
   const toggleExpanded = () => {
@@ -115,7 +115,7 @@ const StockCardLoading = ({
   const handleCloseSymbolCard = () => {
     setShowFullSymbol(false);
   };
-
+  
   const handleTouchOutside = () => {
     setShowFullSymbol(false);
     Keyboard.dismiss(); // Dismiss keyboard if it is open
@@ -143,7 +143,7 @@ const StockCardLoading = ({
           <> */}
         <View style={styles.header}>
           <View style={styles.stockInfo}>
-
+       
               <View onPress={() => handleSymbolClick(symbol)} style={{ flexDirection: 'row', alignItems: 'center' }}>
                 {isLoading ? (
                   <FadeLoading
@@ -161,7 +161,7 @@ const StockCardLoading = ({
                   </>
                 )}
               </View>
-
+          
             {isLoading ? (
     <FadeLoading
       style={{ width: 50, height: 10, marginTop: 5 }} // Adjust width for price loading
@@ -179,7 +179,7 @@ const StockCardLoading = ({
         </View>
       ) : (
         <>
-
+   
           <Text style={styles.ltp}>{getLTPForSymbol(symbol) ? `₹${getLTPForSymbol(symbol)}` : '₹--'}</Text>
         </>
       )}
@@ -197,7 +197,7 @@ const StockCardLoading = ({
                 duration={500}
               />
             ) : (
-
+            
           <View style={styles.actionContainer}>
           <View style={[styles.action, isBuyAction ? styles.buyAction : styles.sellAction]}>
             <Text style={[styles.actionText, isBuyAction ? styles.buyActiontext : styles.sellActiontext]}>
@@ -215,12 +215,12 @@ const StockCardLoading = ({
                 duration={500}
               />
             ) : (
-
+   
               <Text style={[{fontSize: 11}, isBuyAction ? { color: designColor('73be4a') } : { color: designColor('ff0000') }]}>
-
+            
             </Text>
-            )}
-          </View>
+            )} 
+          </View> 
         </View>
         {isLoading ? (
               <FadeLoading
@@ -230,7 +230,7 @@ const StockCardLoading = ({
                 duration={500}
               />
             ) : (
-
+   
               <View style={{ flexDirection: 'column', }}>
               <Text style={{ paddingHorizontal:15,marginTop:5,textAlign:'left', fontFamily: designFont('Poppins-Light'), fontSize: 12, color: designColor('858585') }}>
                 <Text style={{color:designColor('4c4c4c'),fontFamily:designFont('Poppins-Regular')}}>Rationale : </Text>
@@ -242,9 +242,9 @@ const StockCardLoading = ({
                 </Text>
               </Text>
             </View>
-            )}
+            )} 
 
-
+        
   {isLoading ? (
               <FadeLoading
                 style={{ justifyContent:'center', width: screenWidth*0.70, height: 55,marginTop:10, marginLeft:15}} // Adjust width for price loading
@@ -259,7 +259,7 @@ const StockCardLoading = ({
                 <Text style={styles.labelMarket}>{market}</Text>
                 </View>
                 {OrderType === 'LIMIT' ? (
-                  <View style={styles.inputContainer}>
+                  <View style={styles.inputContainer}> 
                     <Text style={styles.currencySymbol}>₹ </Text>
                     <TextInput
                       value={inputPrice ? `${inputPrice.toString()}` : ''}
@@ -271,7 +271,7 @@ const StockCardLoading = ({
                 ) : (
                   <Text style={styles.valueMarket}>{OrderType === 'MARKET' && Exchange === -1 ? Exchange : '----'}</Text>
                 )}
-
+      
               </View>
               <View style={styles.quantitySection}>
                 <View style={styles.detailColumn}>
@@ -310,7 +310,7 @@ const StockCardLoading = ({
                 </Text>
               </View>
             </View>
-            )}
+            )}   
         {isLoading ? (
               <FadeLoading
                 style={{ width: screenWidth*0.30, height: 10,marginTop:5, marginLeft:15}} // Adjust width for price loading
@@ -336,7 +336,7 @@ const StockCardLoading = ({
               <View style={styles.buttonsContainer}>
               <TouchableOpacity
                 style={styles.discardBtn}
-                onPress={() => handleIgnoreTradePress(id)}
+                onPress={() => handleIgnoreTradePress(id)} 
               >
               <BanIcon color={designColor('49484c')} size={26} />
               </TouchableOpacity>
@@ -345,7 +345,7 @@ const StockCardLoading = ({
                 onPress={() => handleTradePress(symbol, tradeId, action)}
               >
                 <Text style={styles.tradeBtnText}>Trade Now</Text>
-
+      
               </TouchableOpacity>
               <TouchableOpacity
               activeOpacity={0.8}
@@ -362,13 +362,13 @@ const StockCardLoading = ({
               (<PlusIcon size={16} color={'white'} />) // Show plus icon when isSelected is false
             )}
         <Text style={styles.addButtonText}>
-          {isSelected ? 'Undo Add' : 'Add to Cart'}
+          {isSelected ? 'Undo Add' : 'Add to Cart'} 
         </Text>
                     </>
-                  )}
-
+                  )}  
+      
       </TouchableOpacity>
-
+         
             </View>
             )}
 
@@ -391,7 +391,7 @@ const StockCardLoading = ({
             </View>
           </View>
         </Modal>
-
+   
         </View>
     </TouchableWithoutFeedback>
   );
@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
     marginHorizontal:5,
     width: screenWidth * 0.87,// Use percentage for responsiveness
     maxWidth: screenWidth-10,
-
+ 
   },
   loadingaddcart: {
     flexDirection: 'row',
@@ -423,7 +423,7 @@ const styles = StyleSheet.create({
     marginHorizontal:10,
     height:40,
     width:50,
-
+ 
   },
   loadingtradenow: {
     flexDirection: 'row',
@@ -432,7 +432,7 @@ const styles = StyleSheet.create({
     marginHorizontal:10,
     height:40,
     width:50,
-
+   
   },
   undoButton: {
     backgroundColor: designColor('e6626f'), // red background for undo button
@@ -460,7 +460,7 @@ const styles = StyleSheet.create({
   ltp: {
     color: designColor('262727'),
     fontSize: 18,
-
+ 
     fontWeight: 'bold',
   },
   actionContainer: {
@@ -474,7 +474,7 @@ const styles = StyleSheet.create({
     padding: 1,
   },
   symbolCard: {
-
+    
   },
   buyAction: {
     backgroundColor: designColor('16a085'),
@@ -600,7 +600,7 @@ const styles = StyleSheet.create({
     fontFamily: designFont('Poppins-Regular'),
     fontWeight: '400',
     alignSelf:'flex-start',
-
+ 
     color: designColor('262727'),
   },
   value2: {

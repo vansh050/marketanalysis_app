@@ -34,12 +34,22 @@
 import React, {useState} from 'react';
 import {Modal, View, Text, TouchableOpacity, ScrollView, StyleSheet} from 'react-native';
 
-import { designColor } from '../../design/literalTokens';
+import { designToken } from '../../design/literalTokens';
 
-const AngelOneCautionaryWarning = ({reauthConfig, onClose, children}) => {
+const AngelOneCautionaryWarning = ({
+  reauthConfig,
+  onClose,
+  onCancel,
+  onAck,
+  visible = true,
+  children,
+}) => {
   const skipWarning = !!reauthConfig;
   const [acked, setAcked] = useState(skipWarning);
+  const controlled = typeof onAck === 'function';
+  const close = onCancel || onClose;
 
+  if (!visible) return controlled ? null : children;
   if (acked) return children;
 
   return (
@@ -47,7 +57,7 @@ const AngelOneCautionaryWarning = ({reauthConfig, onClose, children}) => {
       visible
       transparent
       animationType="fade"
-      onRequestClose={onClose}>
+      onRequestClose={close}>
       <View style={styles.scrim}>
         <View style={styles.sheet}>
           <ScrollView showsVerticalScrollIndicator={false}>
@@ -86,13 +96,13 @@ const AngelOneCautionaryWarning = ({reauthConfig, onClose, children}) => {
             <View style={styles.actions}>
               <TouchableOpacity
                 style={styles.cancelBtn}
-                onPress={onClose}
+                onPress={close}
                 activeOpacity={0.8}>
                 <Text style={styles.cancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.proceedBtn}
-                onPress={() => setAcked(true)}
+                onPress={() => controlled ? onAck() : setAcked(true)}
                 activeOpacity={0.85}>
                 <Text style={styles.proceedText}>
                   Got it — Connect Angel One
@@ -109,11 +119,11 @@ const AngelOneCautionaryWarning = ({reauthConfig, onClose, children}) => {
 const styles = StyleSheet.create({
   scrim: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    backgroundColor: designToken('angelWarningSheet.scrim.backgroundColor'),
     justifyContent: 'flex-end',
   },
   sheet: {
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('angelWarningSheet.sheet.backgroundColor'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
@@ -130,13 +140,13 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: designColor('fef3c7'),
+    backgroundColor: designToken('angelWarningSheet.iconBubble.backgroundColor'),
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   iconText: {
-    color: designColor('92400e'),
+    color: designToken('angelWarningSheet.iconText.color'),
     fontSize: 22,
     fontWeight: '700',
   },
@@ -144,23 +154,23 @@ const styles = StyleSheet.create({
     flex: 1,
     fontSize: 17,
     fontWeight: '700',
-    color: designColor('1f2937'),
+    color: designToken('angelWarningSheet.title.color'),
   },
   sectionTitle: {
     fontSize: 14,
     fontWeight: '600',
-    color: designColor('1f2937'),
+    color: designToken('angelWarningSheet.sectionTitle.color'),
     marginBottom: 6,
   },
   body: {
     fontSize: 13,
-    color: designColor('4b5563'),
+    color: designToken('angelWarningSheet.body.color'),
     lineHeight: 19,
     marginBottom: 12,
   },
   calloutBlue: {
-    backgroundColor: designColor('eff6ff'),
-    borderColor: designColor('bfdbfe'),
+    backgroundColor: designToken('angelWarningSheet.calloutBlue.backgroundColor'),
+    borderColor: designToken('angelWarningSheet.calloutBlue.borderColor'),
     borderWidth: 1,
     borderRadius: 10,
     padding: 12,
@@ -169,12 +179,12 @@ const styles = StyleSheet.create({
   calloutTitle: {
     fontSize: 12,
     fontWeight: '600',
-    color: designColor('1e40af'),
+    color: designToken('angelWarningSheet.calloutTitle.color'),
     marginBottom: 8,
   },
   calloutBullet: {
     fontSize: 12,
-    color: designColor('1d4ed8'),
+    color: designToken('angelWarningSheet.calloutBullet.color'),
     lineHeight: 19,
     marginBottom: 4,
   },
@@ -187,26 +197,26 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: designColor('9ca3af'),
+    borderColor: designToken('angelWarningSheet.cancelBtn.borderColor'),
     alignItems: 'center',
     marginRight: 10,
   },
   cancelText: {
     fontSize: 14,
     fontWeight: '600',
-    color: designColor('374151'),
+    color: designToken('angelWarningSheet.cancelText.color'),
   },
   proceedBtn: {
     flex: 2,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: designColor('1a237e'),
+    backgroundColor: designToken('angelWarningSheet.proceedBtn.backgroundColor'),
     alignItems: 'center',
   },
   proceedText: {
     fontSize: 14,
     fontWeight: '600',
-    color: designColor('ffffff'),
+    color: designToken('angelWarningSheet.proceedText.color'),
   },
 });
 

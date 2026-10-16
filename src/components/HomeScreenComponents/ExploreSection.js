@@ -24,29 +24,29 @@ const ExploreSection = ({
   const themeColor = config?.themeColor || designColor('0056b7');
 
   const exploreItems = [
-    {
-      name: "Blogs",
-      icon: "rss-feed",
+    { 
+      name: "Blogs", 
+      icon: "rss-feed", 
       gradientColors: [designColor('8a2be2'), designColor('9370db')],
-      description: "Articles"
+      description: "Articles" 
     },
-    {
-      name: "Videos",
-      icon: "play-circle-fill",
+    { 
+      name: "Videos", 
+      icon: "play-circle-fill", 
       gradientColors: [designColor('ff4500'), designColor('ff7f50')],
-      description: "Watch"
+      description: "Watch" 
     },
-    {
-      name: "PDFs",
-      icon: "picture-as-pdf",
+    { 
+      name: "PDFs", 
+      icon: "picture-as-pdf", 
       gradientColors: [designColor('32cd32'), designColor('90ee90')],
-      description: "Docs"
+      description: "Docs" 
     },
-    {
-      name: "News",
-      icon: "newspaper",
+    { 
+      name: "News", 
+      icon: "newspaper", 
       gradientColors: [designColor('1e90ff'), designColor('87cefa')],
-      description: "Updates"
+      description: "Updates" 
     },
   ];
 
@@ -95,7 +95,7 @@ const ExploreSection = ({
                   <Icon name={item.icon} size={20} color={designColor('ffffff')} />
                 </View>
                 <Text style={styles.cardTitle}>{item.name}</Text>
-
+            
               </LinearGradient>
             </TouchableOpacity>
           ))}

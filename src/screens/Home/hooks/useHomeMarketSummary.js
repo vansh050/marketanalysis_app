@@ -391,6 +391,11 @@ export default function useHomeMarketSummary() {
         if (!h || typeof h !== 'object') {
             return { currentPnl: 0, invested: 0, currentValue: 0, returnsPct: 0 };
         }
+        // The broker call failed (e.g. expired token): never present that as
+        // a real Rs 0 portfolio. `failed` lets a design show a reconnect state.
+        if (h.fetchFailed && !h.staleAsOf) {
+            return { currentPnl: 0, invested: 0, currentValue: 0, returnsPct: 0, failed: true, failureMessage: h.message || '' };
+        }
         const invested = Number(h.totalinvvalue) || 0;
         const currentValue = Number(h.totalholdingvalue) || 0;
         // Prefer the server-supplied totals (already accounts for any
@@ -406,6 +411,10 @@ export default function useHomeMarketSummary() {
             : invested > 0
             ? (currentPnl / invested) * 100
             : 0;
+        // Last good figures shown while the broker can't be reached.
+        if (h.fetchFailed) {
+            return { currentPnl, invested, currentValue, returnsPct, failed: true, failureMessage: h.message || '', staleAsOf: h.staleAsOf };
+        }
         return { currentPnl, invested, currentValue, returnsPct };
     }, [allHoldingsData]);
 

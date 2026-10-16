@@ -29,12 +29,18 @@ import {NativeModules, Platform} from 'react-native';
 import axios from 'axios';
 import {getAuth} from '@react-native-firebase/auth';
 import NavigationService from '../components/NatificationServiceNav';
+import eventEmitter from '../components/EventEmitter';
+import {parseRedirectLink} from './redirectLink';
+import {getTenantSubdomain} from './variantHelper';
 import server from './serverConfig';
 import {getAuthedHeaders} from './courseAuthHeaders';
 
 // Functional deep-link (rebalance/execute) target stashed for the destination
 // screen to auto-open — the RN mirror of the web's sessionStorage handoff.
 export const PENDING_DEEPLINK_KEY = 'pending_functional_deeplink';
+// Emitted after the stash is written, so a Home screen that is ALREADY focused
+// (navigate('Home') does not re-run its focus effect) still consumes it.
+export const PENDING_DEEPLINK_EVENT = 'pendingFunctionalDeepLink';
 
 const CAMPAIGN_KEY = 'campaign_attribution';
 const REFERRER_READ_KEY = 'install_referrer_read_v1';
@@ -212,32 +218,66 @@ export function routeSmartLinkDestination(dl) {
 
 /**
  * Resolve a functional deep-link token (rebalance/execute) against the Node
- * backend. Requires the customer to be signed in — the server enforces a
- * Firebase identity-match. Returns {success, surface, model_name, unique_id,
- * advisor_tag, broker, ...} or null.
- * NOTE(app team): confirm `server.baseUrl` (server.alphaquark.in) is the host
- * that serves aq_backend `POST /api/deep-link/resolve` in this build's env.
+ * backend `POST /api/deep-link/resolve`. Requires the customer to be signed in
+ * — the server enforces a Firebase identity-match. Returns
+ * `{success: true, surface, model_name, unique_id, ...}` on success, or
+ * `{success: false, error}` where `error` is the server code
+ * (`token_expired`, `identity_mismatch`, `already_used`, `token_not_found`,
+ * a 402 billing code, …) or `network_error`.
  */
-async function resolveFunctionalDeepLink(token) {
+export async function resolveFunctionalDeepLink(token) {
   try {
     const headers = await getAuthedHeaders();
     const {data} = await axios.post(
-      `${server.baseUrl}api/deep-link/resolve`,
+      `${server.server.baseUrl}api/deep-link/resolve`,
       {token},
       {headers, timeout: 15000},
     );
-    return data && data.success ? data : null;
+    return data && data.success
+      ? data
+      : {success: false, error: data?.error || 'resolve_failed'};
   } catch (e) {
-    return null;
+    const status = e?.response?.status;
+    return {
+      success: false,
+      error: e?.response?.data?.error || (status ? `http_${status}` : 'network_error'),
+      status,
+    };
+  }
+}
+
+/** Customer-facing text for a failed resolve (shown on Home). */
+export function deepLinkResolveErrorMessage(error, status) {
+  switch (error) {
+    case 'token_expired':
+      return 'This link has expired. Open the latest recommendation in the app.';
+    case 'identity_mismatch':
+      return 'This link belongs to a different account. Sign in with the account it was sent to.';
+    case 'already_used':
+      return 'This recommendation was already actioned from its link. Check your orders.';
+    case 'token_not_found':
+      return 'This link is not valid for this app.';
+    case 'no_identity':
+      return 'Confirm the email on your account (Account Settings) once, then reopen the link.';
+    case 'login_required':
+    case 'invalid_id_token':
+      return 'Please sign in again, then reopen the link.';
+    default:
+      if (status === 402) {
+        return 'Plan access is paused until payment is confirmed.';
+      }
+      return 'We could not open that link. Your recommendations are below.';
   }
 }
 
 /**
  * Handle a functional deep link (rebalance/execute) that arrived via /l/ with a
- * `?t=<token>`. Signed-out → stash token + go to sign-in (resume post-login).
- * Signed-in → resolve, stash the resolved target under PENDING_DEEPLINK_KEY, and
- * navigate to the surface; the destination screen reads + clears the stash on
- * focus (mirrors web sessionStorage["aq_deeplink_rebalance"]).
+ * `?t=<token>`. Signed-out → stash the token + go to sign-in; HomeScreen
+ * resolves it after login. Signed-in → resolve, stash the resolved target (or
+ * the error) under PENDING_DEEPLINK_KEY, and land on Home. HomeScreen consumes
+ * the stash on focus and hands execute surfaces to the matching card via
+ * `utils/deepLinkExecuteTarget.js` (Phase 2, 2026-10-10 — before this the app
+ * only navigated to the notification list and never opened the trade).
  */
 async function handleFunctionalDeepLink(token) {
   const user = getAuth().currentUser;
@@ -249,25 +289,26 @@ async function handleFunctionalDeepLink(token) {
     setTimeout(() => NavigationService.navigate('SignIn'), 300);
     return;
   }
-  const resolved = await resolveFunctionalDeepLink(token);
-  if (!resolved) {
-    setTimeout(() => NavigationService.navigate('Home'), 300);
-    return;
-  }
+  const result = await resolveFunctionalDeepLink(token);
   await AsyncStorage.setItem(
     PENDING_DEEPLINK_KEY,
-    JSON.stringify({token, resolved}),
+    JSON.stringify(
+      result?.success
+        ? {token, resolved: result}
+        : {token, resolved: null, error: result?.error, status: result?.status},
+    ),
   );
-  const surface = String(resolved.surface || '');
-  if (surface === 'broker_reauth') {
+  if (result?.success && String(result.surface || '') === 'broker_reauth') {
     setTimeout(() => NavigationService.navigate('SubscriptionScreen'), 350);
     return;
   }
-  // rebalance / rebalance_execute / trade_execute / basket_execute → the rebalance
-  // surface. TODO(app team): on 'Home' focus, read PENDING_DEEPLINK_KEY and open
-  // the rebalance for resolved.model_name / resolved.unique_id via the same flow
-  // as RebalanceNotificationComponent, then AsyncStorage.removeItem(PENDING_DEEPLINK_KEY).
-  setTimeout(() => NavigationService.navigate('Home'), 350);
+  // rebalance / rebalance_execute / trade_execute / basket_execute (and any
+  // error) → Home, where the cards live. HomeScreen reads the stash on focus
+  // and on PENDING_DEEPLINK_EVENT.
+  setTimeout(() => {
+    NavigationService.navigate('Home');
+    eventEmitter.emit(PENDING_DEEPLINK_EVENT);
+  }, 350);
 }
 
 /**
@@ -276,7 +317,7 @@ async function handleFunctionalDeepLink(token) {
  */
 export async function handleSmartLink(url) {
   const parsed = parseSmartLink(url);
-  if (!parsed) return false;
+  if (!parsed) return handleRedirectLink(url);
   await captureCampaign(parsed.utm, {source: 'deeplink', tenant: parsed.tenant});
   if (parsed.t) {
     // Functional deep-link (rebalance/execute) — resolve + route natively.
@@ -284,5 +325,26 @@ export async function handleSmartLink(url) {
   } else {
     routeSmartLinkDestination(parsed.dl);
   }
+  return true;
+}
+
+/**
+ * WhatsApp advice button on the existing UTILITY template
+ * (`https://app.alphaquark.in/api/redirect/<tenant>~<token>` or
+ * `/api/redirect/<advisor domain>`), opened natively via the app's App Link /
+ * Universal Link claim (2026-10-10). Execute → the same functional deep-link
+ * flow as `/l/…?t=`; generic → the recommendations Home. A link for another
+ * tenant is ignored (the OS should never route one here). See redirectLink.js.
+ */
+async function handleRedirectLink(url) {
+  const link = parseRedirectLink(url);
+  if (!link) return false;
+  if (link.kind === 'execute') {
+    const mine = String(getTenantSubdomain() || '').toLowerCase();
+    if (mine && link.tenant !== mine) return false;
+    await handleFunctionalDeepLink(link.token);
+    return true;
+  }
+  routeSmartLinkDestination('stock-recommendation');
   return true;
 }

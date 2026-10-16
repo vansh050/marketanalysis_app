@@ -2260,11 +2260,18 @@ const getAllTrades = (options = {}) => {
   }, [userDetails, configData]);
 
   useEffect(() => {
-    if (userEmail && configData) {
+    if (!userEmail) return;
+
+    // Entitlement routing has a build/runtime tenant fallback and must not
+    // wait for the legacy stored advisor-config bundle. A valid signed-in
+    // user can otherwise sit forever on an unresolved Plans state after a
+    // dev reload or a partially repaired login record.
+    getModelPortfolioStrategyDetails();
+
+    if (configData) {
       fetchVideos();
       getAllTrades();
       getAllNotifcations();
-      getModelPortfolioStrategyDetails();
     }
   }, [userEmail, configData]);
 
@@ -2478,6 +2485,29 @@ const getAllTrades = (options = {}) => {
         configData,
         userEmail,
       );
+      if (allHoldings?.fetchFailed) {
+        // Keep showing the last good figures, marked stale with their time,
+        // instead of nothing (Kyzen, 2026-10-13). An all-zero snapshot may be
+        // an earlier build's cached error, so it is not presented as a value.
+        const snapshot = await loadBrokerHoldingsSummary(userEmail, broker).catch(() => null);
+        const hasValue = s =>
+          Number(s?.totalholdingvalue) > 0 || Number(s?.totalinvvalue) > 0;
+        // Prefer this phone's last good figures; otherwise the server's copy
+        // (new phone, reinstall, or a cache an older build overwrote).
+        const local = hasValue(snapshot?.summary)
+          ? {summary: snapshot.summary, asOf: snapshot.refreshedAt || null}
+          : null;
+        const server = hasValue(allHoldings.lastKnown)
+          ? {summary: allHoldings.lastKnown, asOf: allHoldings.lastKnown.asOf || null}
+          : null;
+        const best = local || server;
+        setAllHoldingsData(
+          best
+            ? {...best.summary, fetchFailed: true, message: allHoldings.message, staleAsOf: best.asOf}
+            : allHoldings,
+        );
+        return null;
+      }
       if (allHoldings) {
         const refreshedAt = new Date().toISOString();
         setAllHoldingsData(allHoldings);

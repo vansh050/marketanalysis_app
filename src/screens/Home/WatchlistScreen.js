@@ -29,10 +29,11 @@ import {useTrade} from '../TradeContext';
 import {useConfig} from '../../context/ConfigContext';
 import {useComponent} from '../../design/useDesign';
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../design/literalTokens';
 
 // WatchlistRow uses useLTPStore (Zustand) for live prices — must stay in container
 const WatchlistRow = ({item}) => {
+
   const livePriceRaw = useLTPStore(state => state.ltps[item.symbol]);
   const livePrice = Number(livePriceRaw) || 0;
   const cmp = Number(livePrice) || 0;
@@ -47,13 +48,13 @@ const WatchlistRow = ({item}) => {
         paddingVertical: 14,
         paddingHorizontal: 16,
         borderBottomWidth: 1,
-        borderColor: designColor('c8c8c8'),
-        borderBottomColor: designColor('ececec'),
+        borderColor: designToken('watchlist.rowBorder'),
+        borderBottomColor: designToken('watchlist.rowDivider'),
       }}>
       <View>
         <Text
           style={{
-            color: designColor('222'),
+            color: designToken('watchlist.rowText'),
             fontSize: 14,
             fontFamily: designFont('Poppins-Medium'),
             marginBottom: 2,
@@ -65,7 +66,7 @@ const WatchlistRow = ({item}) => {
         <Text
           style={{
             fontSize: 10,
-            color: designColor('888'),
+            color: designToken('watchlist.rowMuted'),
             fontFamily: designFont('HelveticaNeue'),
             marginTop: 2,
             maxWidth: 170,
@@ -74,7 +75,7 @@ const WatchlistRow = ({item}) => {
           <Text
             style={{
               fontSize: 8,
-              color: designColor('888'),
+              color: designToken('watchlist.rowMuted'),
               fontFamily: designFont('HelveticaNeue'),
               marginHorizontal: 4,
               marginTop: -2,
@@ -87,7 +88,7 @@ const WatchlistRow = ({item}) => {
       <View style={{flex: 1, alignItems: 'flex-end'}}>
         <Text
           style={{
-            color: designColor('222'),
+            color: designToken('watchlist.rowText'),
             fontSize: 14,
             fontFamily: designFont('Poppins-Medium'),
             letterSpacing: 0.25,

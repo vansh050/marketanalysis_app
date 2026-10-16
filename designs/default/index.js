@@ -137,6 +137,7 @@ import CustomTabbarMPPerformance from './composites/CustomTabbarMPPerformance';
 import EmptyStateMP from './composites/EmptyStateMP';
 import ModelPFCard from './composites/ModelPFCard';
 import MPCard from './composites/MPCard';
+import PortfolioSummaryCard from './composites/PortfolioSummaryCard';
 
 // Courses (2026-05-23) — LiveKit viewer composite (placeholder; see file header for activation)
 import LiveRoom from './composites/LiveRoom';
@@ -253,6 +254,7 @@ const variant = {
         'composites.EmptyStateMP': EmptyStateMP,
         'composites.ModelPFCard': ModelPFCard,
         'composites.MPCard': MPCard,
+        'composites.PortfolioSummaryCard': PortfolioSummaryCard,
         // Screens (Phase I — Model Portfolio)
         'screens.ModelPortfolioScreen': ModelPortfolioScreen,
         'screens.MPPerformanceScreen': MPPerformanceScreen,

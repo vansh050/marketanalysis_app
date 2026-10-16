@@ -553,6 +553,7 @@ const currentName = currentTabRoute?.name || "";
 // `Home` and `HomeS` now mount MainTabNavigator directly.
 const Navigation = ({userEmail, isAuthenticated}) => {
   const auth = getAuth();
+  const navLayout = useNavigationLayout();
   const [user, setUser] = useState(null);
   const [email, setEmail] = useState(null);
   const [isCheckingAuth, setIsCheckingAuth] = useState(true);
@@ -642,12 +643,10 @@ const Navigation = ({userEmail, isAuthenticated}) => {
           options={{headerShown: false}}
         />
         {/*
-          Phone-first login flow (Onboarding video carousel → PhoneLogin
-          capture), gated by config.phoneFirstLoginEnabled (default OFF).
-          Registration here is inert — SplashScreen only navigation.replace()s
-          to 'Onboarding' when the advisor has opted in; otherwise these
-          screens are simply never routed to. See SplashScreen.js +
-          ConfigContext.js.
+          Phone-first login flow (Onboarding carousel → PhoneLogin capture).
+          The default activation is gated by config.phoneFirstLoginEnabled;
+          a tenant manifest may explicitly require its bundled onboarding via
+          preLoginPolicy. See SplashScreen.js + ConfigContext.js.
         */}
         <Stack.Screen
           name="Onboarding"
@@ -782,12 +781,12 @@ const Navigation = ({userEmail, isAuthenticated}) => {
         <Stack.Screen
           name="MyCourses"
           component={MyCoursesScreen}
-          options={{headerShown: true, title: 'Courses'}}
+          options={{headerShown: navLayout.chrome.coursesNativeHeader, title: 'Courses'}}
         />
         <Stack.Screen
           name="CourseDetail"
           component={CourseDetailScreen}
-          options={{headerShown: true, title: 'Course'}}
+          options={{headerShown: navLayout.chrome.coursesNativeHeader, title: 'Course'}}
         />
         <Stack.Screen
           name="Broker Setting"

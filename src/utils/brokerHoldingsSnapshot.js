@@ -60,3 +60,4 @@ export const loadBrokerHoldingsSummary = async (email, broker) => {
   const snapshot = await read(SUMMARY_KEY);
   return belongsToAccount(snapshot, email, broker) ? snapshot : null;
 };
+

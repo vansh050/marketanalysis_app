@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Text, StyleSheet } from 'react-native';
 import WebSocketManager from './WebSocketManager';
 
-import { designColor, designFont } from '../../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../../design/literalTokens';
 
 const HoldingDynamicText = React.memo(
   ({ symbol, exchange, investedAmount = 0, quantity = 0, type, isClosed = false }) => {
@@ -39,7 +39,7 @@ const HoldingDynamicText = React.memo(
       : 0;
 
     const pnlColor =
-      profitOrLoss > 0 ? designColor('338d72') : profitOrLoss < 0 ? designColor('ef344a') : designColor('a0a0a0');
+      profitOrLoss > 0 ? designToken('holdingText.success') : profitOrLoss < 0 ? designToken('holdingText.danger') : designToken('holdingText.textMuted');
 
     // Fetch live LTP
     useEffect(() => {

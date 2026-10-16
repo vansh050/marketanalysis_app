@@ -9,7 +9,7 @@
 
 import { StyleSheet } from 'react-native';
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../design/literalTokens';
 
 const styles = StyleSheet.create({
   container: {
@@ -210,7 +210,7 @@ const styles = StyleSheet.create({
   },
   flatListContainerpos: {
     flex: 1,
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('portfolio.surface'),
   },
   card: {
     marginHorizontal: 20,
@@ -342,7 +342,7 @@ const styles = StyleSheet.create({
   stockName: {
     fontSize: 14,
     fontFamily: designFont('Satoshi-Medium'),
-    color: designColor('333'),
+    color: designToken('portfolio.text2'),
     marginLeft: 10,
   },
   change: {
@@ -355,26 +355,26 @@ const styles = StyleSheet.create({
   },
   qtyAvg2: {
     fontSize: 12,
-    color: 'black',
+    color: designToken('portfolio.text'),
     fontFamily: designFont('Satoshi-Medium'),
   },
   qtyAvgblue: {
     fontSize: 14,
-    color: designColor('6791ea'),
+    color: designToken('portfolio.accent'),
     fontFamily: designFont('Satoshi-Medium'),
   },
   invested: {
     fontSize: 14,
-    color: designColor('a0a0a0'),
+    color: designToken('portfolio.textMuted'),
   },
   invested1: {
     fontSize: 14,
-    color: 'black',
+    color: designToken('portfolio.text'),
     fontFamily: designFont('Satoshi-Medium'),
   },
   ltp: {
     fontSize: 14,
-    color: designColor('a0a0a0'),
+    color: designToken('portfolio.textMuted'),
     fontFamily: designFont('Satoshi-Medium'),
   },
   ltp1: {
@@ -484,9 +484,9 @@ const styles = StyleSheet.create({
   listItem: {
     paddingHorizontal: 20,
     paddingVertical: 12,
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('portfolio.surface'),
     borderBottomWidth: 1,
-    borderBottomColor: designColor('ebebeb'),
+    borderBottomColor: designToken('portfolio.border'),
   },
   amountText: {
     fontSize: 16,

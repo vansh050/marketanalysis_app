@@ -300,7 +300,7 @@ const RebalanceChangeDetailModal = ({
             <>
               {tableData.length > 0 ? (
                 <>
-                  <View style={[styles.tableHeaderContainer, {backgroundColor: gradient2}]}>
+                  <View style={[styles.tableHeaderContainer, {backgroundColor: gradient2}]}> 
                     <View style={styles.tableHeader}>
                       <Text style={[styles.headerCell, styles.headerCellStock]}>
                         Stocks

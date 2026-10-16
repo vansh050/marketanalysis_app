@@ -28,7 +28,15 @@ import {
     MAX_TABS,
 } from './screenCatalog';
 
-const DEFAULT_CHROME = {legacyToolbar: true, tabBarHeight: 60};
+// coursesNativeHeader: show the native stack header on MyCourses/CourseDetail.
+// A design whose course screens draw their own header (Kyzen) sets false.
+const DEFAULT_CHROME = {legacyToolbar: true, tabBarHeight: 60, coursesNativeHeader: true};
+const DEFAULT_PRE_LOGIN_POLICY = 'backend';
+// 'legacy' keeps the historical auth navigation (Log Out replaces the current
+// route with Login; Reset Password's back always opens Login). 'stack-safe'
+// resets the stack on Log Out (hardware back cannot return to a signed-in
+// screen) and lets Reset Password go back. Opt-in per variant manifest.
+const DEFAULT_AUTH_NAVIGATION = 'legacy';
 
 const slug = title =>
     String(title || 'section')
@@ -170,13 +178,33 @@ export function resolveNavigation(manifest, {defaultManifest = {}, flags = {}} =
             Number.isFinite(height) && height >= 40 && height <= 120
                 ? height
                 : DEFAULT_CHROME.tabBarHeight,
+        coursesNativeHeader:
+            typeof chromeIn.coursesNativeHeader === 'boolean'
+                ? chromeIn.coursesNativeHeader
+                : DEFAULT_CHROME.coursesNativeHeader,
     };
+
+    const preLoginPolicy = ['backend', 'always'].includes(m.preLoginPolicy)
+        ? m.preLoginPolicy
+        : DEFAULT_PRE_LOGIN_POLICY;
+    if (m.preLoginPolicy && preLoginPolicy !== m.preLoginPolicy) {
+        warnings.push(`invalid_pre_login_policy:${m.preLoginPolicy}`);
+    }
+
+    const authNavigation = ['legacy', 'stack-safe'].includes(m.authNavigation)
+        ? m.authNavigation
+        : DEFAULT_AUTH_NAVIGATION;
+    if (m.authNavigation && authNavigation !== m.authNavigation) {
+        warnings.push(`invalid_auth_navigation:${m.authNavigation}`);
+    }
 
     return {
         tabs,
         initialRouteName: initial.routeName,
         moreSections: resolveMore(m.moreMenu, flags, warnings),
         preLoginRoute: resolvePreLogin(m.preLogin, warnings),
+        preLoginPolicy,
+        authNavigation,
         chrome,
         warnings,
     };

@@ -68,6 +68,56 @@ describe('extractLatestModelPortfolioOrderResults', () => {
     }));
   });
 
+  test('an open or unconfirmed sell at the broker is never NOT SENT', () => {
+    // moneyman/testaccount 2026-10-12: VRFILMS SELL rested OPEN at Zerodha.
+    const attemptWith = orders => extractLatestModelPortfolioOrderAttempt({
+      publisherAttempt: {
+        created_at: '2026-10-12T08:16:30Z',
+        attempt_id: 'attempt-1',
+        unique_id: 'unique-1',
+        plan_id: 'plan-1',
+        legs: [
+          {symbol: 'VRFILMS', type: 'SELL', quantity: 1},
+          {symbol: 'UCOBANK-EQ', type: 'BUY', quantity: 3},
+        ],
+        orders,
+      },
+    }).orders;
+    const linked = attemptWith([
+      {leg_index: 0, symbol: 'VRFILMS', side: 'SELL', requested_quantity: 1,
+        state: 'bound', broker_status: 'OPEN', broker_order_id: '261012151003859'},
+      {leg_index: 1, symbol: 'UCOBANK', side: 'BUY', requested_quantity: 3,
+        state: 'not_observed', broker_status: 'NOT_OBSERVED'},
+    ]);
+    expect(linked[0]).toEqual(expect.objectContaining({
+      orderStatus: 'OPEN', orderId: '261012151003859',
+    }));
+    expect(linked[0].orderStatusMessage).toMatch(/^Open at Zerodha/);
+    expect(linked[1]).toEqual(expect.objectContaining({orderStatus: 'NOT_OBSERVED'}));
+    expect(linked[1].orderStatusMessage).toMatch(/No matching broker order/);
+
+    const unlinked = attemptWith([
+      {leg_index: 0, symbol: 'VRFILMS', side: 'SELL', requested_quantity: 1, state: 'active'},
+    ]);
+    expect(unlinked[0].orderStatus).toBe('AWAITING BROKER');
+    expect(unlinked[0].orderStatusMessage).toMatch(/Don't place it again/);
+  });
+
+  test('a broker rejection shows the broker message', () => {
+    const [order] = extractLatestModelPortfolioOrderAttempt({
+      publisherAttempt: {
+        created_at: '2026-09-23T04:10:00Z',
+        attempt_id: 'a', unique_id: 'u', plan_id: 'p',
+        legs: [{symbol: 'LIQUIDCASE-EQ', type: 'BUY', quantity: 6087}],
+        orders: [{leg_index: 0, symbol: 'LIQUIDCASE', side: 'BUY', requested_quantity: 6087,
+          state: 'failed', broker_status: 'REJECTED', broker_order_id: '1',
+          terminal_message: 'Insufficient funds. Margin required'}],
+      },
+    }).orders;
+    expect(order.orderStatus).toBe('REJECTED');
+    expect(order.orderStatusMessage).toBe('Insufficient funds. Margin required');
+  });
+
   test('keeps an older actionable publisher attempt ahead of a newer sell-only row', () => {
     const attempt = extractLatestModelPortfolioOrderAttempt({
       advice_executed: {

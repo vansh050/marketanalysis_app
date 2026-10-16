@@ -325,8 +325,15 @@ export const getConfigData = async (retryCount = 3) => {
           ...(parsedConfig.config || {}),
           REACT_APP_HEADER_NAME:
             parsedConfig?.config?.REACT_APP_HEADER_NAME || Config.REACT_APP_HEADER_NAME,
+          // Last resort: the tenant name. ~30 call sites send this as the
+          // `advisor` of ccxt requests; a fork whose env omits the tag sent
+          // none and /rebalance/calculate answered 400 "advisor is missing"
+          // (Kyzen 2026-10-13: Accept rebalance stuck on "Checking broker").
           REACT_APP_ADVISOR_SPECIFIC_TAG:
-            parsedConfig?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG || Config.REACT_APP_ADVISOR_SPECIFIC_TAG,
+            parsedConfig?.config?.REACT_APP_ADVISOR_SPECIFIC_TAG ||
+            Config.REACT_APP_ADVISOR_SPECIFIC_TAG ||
+            parsedConfig?.config?.REACT_APP_HEADER_NAME ||
+            Config.REACT_APP_HEADER_NAME,
           REACT_APP_DIGIO_CHECK:
             parsedConfig?.config?.REACT_APP_DIGIO_CHECK || Config.REACT_APP_DIGIO_CHECK,
         },

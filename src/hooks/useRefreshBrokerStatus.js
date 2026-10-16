@@ -129,7 +129,9 @@ export function useRefreshBrokerStatus(userEmail) {
         {
           headers: {
             'Content-Type': 'application/json',
-            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME,
+            'X-Advisor-Subdomain': configData?.config?.REACT_APP_HEADER_NAME ||
+              Config.REACT_APP_X_ADVISOR_SUBDOMAIN ||
+              Config.REACT_APP_HEADER_NAME,
             'aq-encrypted-key': generateToken(
               Config.REACT_APP_AQ_KEYS,
               Config.REACT_APP_AQ_SECRET,

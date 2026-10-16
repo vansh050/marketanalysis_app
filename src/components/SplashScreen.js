@@ -22,13 +22,15 @@ export default function SplashScreen() {
   const hasRoutedRef = useRef(false);
   const screenWidth = Dimensions.get('window').width;
   const navigation = useNavigation();
-  // First pre-login screen of the phone-first flow comes from the variant's
-  // navigation manifest (`preLogin`); default = Onboarding carousel. Ref so
+  // The pre-login route and activation policy come from the variant's
+  // navigation manifest; default = backend-gated Onboarding carousel. Refs so
   // the delayed auth callback below reads it fresh (manifest is fixed per
   // build, but keep the ref pattern consistent with the config refs).
-  const {preLoginRoute} = useNavigationLayout();
+  const {preLoginRoute, preLoginPolicy} = useNavigationLayout();
   const preLoginRouteRef = useRef(preLoginRoute);
+  const preLoginPolicyRef = useRef(preLoginPolicy);
   preLoginRouteRef.current = preLoginRoute;
+  preLoginPolicyRef.current = preLoginPolicy;
 
   // Get logo from database via ConfigContext
   const config = useConfig();
@@ -220,11 +222,15 @@ export default function SplashScreen() {
       } else {
         const unauthenticatedTimer = setTimeout(async () => {
           pendingTimers.delete(unauthenticatedTimer);
-          // Phone-first login flow — per-advisor opt-in (default OFF, see
-          // ConfigContext.js). Loading/off/error all resolve to the
-          // standard Login screen, matching the app's existing behavior.
-          const phoneFirst = await resolvePhoneFirstLoginEnabled();
-          navigateOnce(phoneFirst ? preLoginRouteRef.current : 'Login');
+          // Most tenants retain the per-advisor backend gate. A tenant whose
+          // bundled design explicitly owns mandatory onboarding may opt in
+          // through `preLoginPolicy: 'always'` without waiting for config.
+          const policyAlways = preLoginPolicyRef.current === 'always';
+          const backendEnabled = policyAlways
+            ? false
+            : await resolvePhoneFirstLoginEnabled();
+          const showPreLogin = policyAlways || backendEnabled;
+          navigateOnce(showPreLogin ? preLoginRouteRef.current : 'Login');
         }, 2000);
         pendingTimers.add(unauthenticatedTimer);
       }

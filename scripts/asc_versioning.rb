@@ -50,11 +50,32 @@ token = JWT.encode(
   private_key, 'ES256', { kid: key_id, typ: 'JWT' }
 )
 
+# App Store Connect returns transient 500s / read timeouts (2026-10-16 every
+# CI iOS build died on one). Retry idempotent GETs; never retry a POST.
+ASC_RETRY_WAITS = [10, 20, 40, 60].freeze
+ASC_NETWORK_ERRORS = [Net::OpenTimeout, Net::ReadTimeout, Errno::ECONNRESET,
+                      Errno::ECONNREFUSED, EOFError, OpenSSL::SSL::SSLError].freeze
+def asc_http_with_retry(retryable)
+  waits = retryable ? ASC_RETRY_WAITS.dup : []
+  loop do
+    begin
+      res = yield
+      transient = res.code.to_i >= 500 || res.code.to_i == 429
+      return res unless transient && !waits.empty?
+      warn "ASC #{res.code}; retrying in #{waits.first}s"
+    rescue *ASC_NETWORK_ERRORS => e
+      raise if waits.empty?
+      warn "ASC #{e.class}; retrying in #{waits.first}s"
+    end
+    sleep waits.shift
+  end
+end
+
 def asc_get(path, token)
   uri = URI("https://api.appstoreconnect.apple.com#{path}")
   req = Net::HTTP::Get.new(uri)
   req['Authorization'] = "Bearer #{token}"
-  res = Net::HTTP.start(uri.host, uri.port, use_ssl: true) { |http| http.request(req) }
+  res = asc_http_with_retry(true) { Net::HTTP.start(uri.host, uri.port, use_ssl: true, read_timeout: 60) { |http| http.request(req) } }
   abort "ASC API error #{res.code} for #{path}: #{res.body}" unless res.code.to_i.between?(200, 299)
   JSON.parse(res.body)
 end

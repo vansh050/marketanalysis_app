@@ -350,7 +350,7 @@ const StockCard = ({ viewModel, actions, slots }) => {
                 <View style={[styles.row1, {paddingVertical: 2}]}>
                   <View style={{flexDirection: 'row', alignItems: 'center'}}>
                     <Text style={styles.slPtLabel}>
-                      P&L since advice ₹{entryPrice.toFixed(2)}{' '}
+                      P&L since recommendation ₹{entryPrice.toFixed(2)}{' '}
                     </Text>
                     <Text style={[styles.slPtValue, {color: pnl >= 0 ? '#16A34A' : '#DC2626'}]}>
                       {pnl >= 0 ? '₹' : '-₹'}{Math.abs(pnl).toFixed(2)}
@@ -465,7 +465,7 @@ const StockCard = ({ viewModel, actions, slots }) => {
                   </TouchableOpacity>
                 </View>
               ) : (
-                <View style={[styles.actionButtons, {marginBottom: 10}]}>
+                <View style={[styles.actionButtons, {marginBottom: 10}]}> 
                   <TouchableOpacity
                     onPress={() =>
                       onAddToCart(

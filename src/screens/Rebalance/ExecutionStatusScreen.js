@@ -51,7 +51,7 @@ const ExecutionStatusScreen = () => {
   const {
     portfolio, userEmail, broker, brokerCredentials,
     orders, modelId, modelName, advisor, uniqueId, caPendingInfo,
-    planId, planVersion, planHash,
+    planId, planVersion, planHash, exitPortfolio = false,
   } = route.params || {};
 
   const showAlert = useModalStore((state) => state.showAlert);
@@ -271,6 +271,7 @@ const ExecutionStatusScreen = () => {
         marketGateOpen,
         successCount,
         failedCount,
+        exitPortfolio,
       }}
       actions={{
         onBack: () => { if (!executing) navigation.goBack(); },

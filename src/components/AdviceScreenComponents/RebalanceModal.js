@@ -2,6 +2,7 @@ import {availableFundsOptions, fundingPanelCopy, getFundingReview, insufficientF
 import { isPublisherExecutionComplete, includeUnconfirmedPublisherLegs } from '../../utils/publisherCompletionAuthority';
 import {createPublisherBatchDispatcher} from '../../utils/publisherBatchDispatch';
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import {useNavigation} from '@react-navigation/native';
 import {PUBLISHER_ACK_TIMEOUT_MS, isPublisherActivationAcknowledged} from '../../utils/publisherAcknowledgement';
 import {
   Modal,
@@ -42,7 +43,7 @@ import {
   isPendingSellAuthorizationCalculation,
 } from '../../utils/rebalanceHelpers';
 import useModalStore from '../../GlobalUIModals/modalStore';
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../design/literalTokens';
 const { height: screenHeight } = Dimensions.get('window');
 import StepProgressBar from '../../UIComponents/RebalanceAdvicesUI/StepProgressBar';
 import { useTrade } from '../../screens/TradeContext';
@@ -79,6 +80,7 @@ import {heldBuysTitle, heldBuysBody} from '../../utils/heldBuys';
 import { resolveRebalancePlanCorrelation } from '../../utils/rebalancePlanCorrelation';
 import {planRefusalMessage} from '../../utils/planRefusalMessage';
 import {fetchFunds} from '../../FunctionCall/fetchFunds';
+import {kiteQuantity, missingQuantityMessage, tradesMissingQuantity} from '../../utils/kiteQuantity';
 import {
   SELL_GATE_POLL_INTERVAL_MS,
   SELL_GATE_TIMEOUT_MS,
@@ -141,6 +143,7 @@ const RebalanceModal = ({
   publisherBuyContinuation,
   onPublisherContinuationConsumed,
 }) => {
+  const navigation = useNavigation();
   const { brokerStatus, configData } = useTrade();
   const openBrokerModal = useModalStore(state => state.openModal);
   // Hoist `allowAfterHoursOrders` to the top of the component body so it's
@@ -467,6 +470,8 @@ const RebalanceModal = ({
     activeCalculatedPortfolioData?.allocationExplanation;
   const showUnaffordableTargetsExplanation =
     allocationExplanation?.code === 'TARGET_SHARES_UNAFFORDABLE';
+
+
   const formatAllocationMoney = value =>
     Number(value || 0).toLocaleString('en-IN', {
       minimumFractionDigits: 2,
@@ -538,7 +543,14 @@ const RebalanceModal = ({
     Alert.alert(
       rebalanceContract?.presentation?.title || 'Investment amount needs review',
       `Your full plan needs ₹${Number(fundingConsent?.desiredAmount || 0).toLocaleString('en-IN')} but only ₹${Number(fundingConsent?.fundedAmount || 0).toLocaleString('en-IN')} is available today (cash + sale proceeds). Add ₹${Number(fundingConsent?.shortfall || 0).toLocaleString('en-IN')}${canContinue ? ' to include everything, or continue with available funds for this calculation' : canAttempt ? ', or review the target stocks and attempt the buy. The broker may reject orders that exceed your buying power' : ' to your broker, then calculate again'}. Your investment target stays unchanged.`,
-      canContinue
+      canContinue && canAttempt
+        ? [
+            // Android shows at most three buttons; tapping outside dismisses.
+            {text: 'Add funds instead', onPress: showAddFundsInstructions},
+            {text: 'Use available funds', onPress: continueWithAvailableFunds},
+            {text: 'Attempt full target', onPress: attemptWithInsufficientFunds},
+          ]
+        : canContinue
         ? [
             {text: 'Not now', style: 'cancel'},
             {text: 'Add funds instead', onPress: showAddFundsInstructions},
@@ -554,6 +566,7 @@ const RebalanceModal = ({
             {text: 'Not now', style: 'cancel'},
             {text: 'How to add funds', onPress: showAddFundsInstructions},
           ],
+      {cancelable: true},
     );
   };
 
@@ -885,6 +898,31 @@ const RebalanceModal = ({
   const alreadyAlignedMarkedRef = useRef(false);
   const hasPendingSellAuthorization =
     isPendingSellAuthorizationCalculation(activeCalculatedPortfolioData);
+
+  // Every target stock was skipped for a low budget (e.g. a broker with no
+  // investment amount yet): offer the fix instead of a dead-end 'Go Back'.
+  // The target is fine but the broker holds too little cash to buy even one
+  // share (2026-10-13: target ₹501, ₹7.20 available). Name the real cause and
+  // offer add-funds help, not 'increase your investment amount'.
+  const fundsShortfallBlocks =
+    !fundingConsent?.required &&
+    !hasPendingSellAuthorization &&
+    Number(fundingConsent?.shortfall) > 0 &&
+    (hasSkippedStocks || showUnaffordableTargetsExplanation);
+  const needsInvestmentUpdate =
+    !fundingConsent?.required &&
+    !hasPendingSellAuthorization &&
+    !fundsShortfallBlocks &&
+    (hasSkippedStocks || showUnaffordableTargetsExplanation);
+  const rupee = value =>
+    Number(value || 0).toLocaleString('en-IN', {maximumFractionDigits: 2});
+  const openUpdateInvestment = () => {
+    handleClose();
+    navigation.navigate('AfterSubscriptionScreen', {
+      fileName: storeModalName,
+      openModifyInvestment: true,
+    });
+  };
   const isAlreadyAlignedCalculation = Boolean(
     dataArray.length === 0 &&
       !hasPendingSellAuthorization &&
@@ -1207,7 +1245,8 @@ const RebalanceModal = ({
         exchange: resolved.exchange,
         ltp,
         price: orderPrice,
-        quantity: parseInt(stock.quantity, 10) || 1,
+        // Never invent a quantity; the Kite launch below is blocked when one is missing.
+        quantity: kiteQuantity(stock) || 0,
         tag: tradeTag,
       });
       console.log('[RebalanceModal] Basket item:', JSON.stringify(basketItem));
@@ -1399,6 +1438,11 @@ const RebalanceModal = ({
           publisherFullLegsRef.current, publisherAttemptRef.current, batch, activationId,
         ),
         open: async () => {
+          const missingQty = tradesMissingQuantity(batch);
+          if (missingQty.length) {
+            Toast.show({type: 'error', text1: 'Quantity needed', text2: missingQuantityMessage(missingQty), visibilityTime: 7000});
+            return false;
+          }
           const basket = buildKiteBasket(batch, freshProtectionPrices);
           const htmlForm = generateHtmlForm(basket, zerodhaApiKey);
           currentKiteBatchIndexRef.current = index;
@@ -2292,7 +2336,10 @@ const RebalanceModal = ({
               trades: payload.trades,
             },
             // skipReview + presentResult=false — host owns both UIs.
-            { skipReview: true, presentResult: false },
+            // Return once orders are placed: poll still-open orders for at most
+            // 20s in total, then show them as pending (status modal + backend
+            // queue keep reconciling). Was 3 min per open order (2026-10-05).
+            { skipReview: true, presentResult: false, pollTimeoutMs: 20000 },
           );
           // 2026-05-07: SDK now passes through ccxt's original
           // `orderStatus` / `errorCode` / `message_aq` /
@@ -2845,7 +2892,10 @@ const RebalanceModal = ({
           //   SDK overlay's `phase: 'result'` never transitions back
           //   to `idle` once the result fires, so the Modal stays
           //   mounted indefinitely).
-          { skipReview: true, presentResult: false },
+          // Return once orders are placed: poll still-open orders for at most
+            // 20s in total, then show them as pending (status modal + backend
+            // queue keep reconciling). Was 3 min per open order (2026-10-05).
+            { skipReview: true, presentResult: false, pollTimeoutMs: 20000 },
         );
         // 2026-05-07: pass through SDK rows verbatim. The SDK now
         // preserves ccxt's original `orderStatus` / `errorCode` /
@@ -3564,7 +3614,9 @@ const RebalanceModal = ({
               <Text
                 style={[
                   styles.cellText,
-                  item.orderType === 'BUY' ? styles.buyOrder : styles.sellOrder,
+                  item.orderType === 'BUY'
+                    ? styles.buyOrder
+                    : styles.sellOrder,
                 ]}>
                 {item.orderType}
               </Text>
@@ -3972,14 +4024,18 @@ const RebalanceModal = ({
       onRequestClose={handleClose}
       hardwareAccelerated={true}>
       <SafeAreaView style={styles.modalOverlay}>
-        <View style={[styles.modalContainer, { width: width * 1 }]}>
+        <View
+          style={[
+            styles.modalContainer,
+            {width: width * 1},
+          ]}>
           {webView ? (
             <View style={{ flex: 1, backgroundColor: 'white', padding: 10 }}>
               <View style={{ alignContent: 'flex-end', alignItems: 'flex-end' }}>
                 <TouchableOpacity
                   onPress={handlePublisherClose}
                   style={styles.closeButton}>
-                  <XIcon size={24} color={designColor('000')} />
+                  <XIcon size={24} color={designToken('rebalance.closeIcon')} />
                 </TouchableOpacity>
               </View>
               <WebView
@@ -4040,7 +4096,7 @@ const RebalanceModal = ({
                     <TouchableOpacity
                       onPress={handleClose}
                       style={styles.closeButton}>
-                      <XIcon size={24} color={designColor('000')} />
+                      <XIcon size={24} color={designToken('rebalance.closeIcon')} />
                     </TouchableOpacity>
                   </View>
 
@@ -4152,7 +4208,7 @@ const RebalanceModal = ({
                       style={[
                         styles.rowContainerhead,
                         {
-                          backgroundColor: designColor('fff'),
+                          backgroundColor: designToken('rebalance.headerRow.background'),
                           paddingVertical: 8,
                           borderRadius: 8,
                           marginHorizontal: 20,
@@ -4251,6 +4307,8 @@ const RebalanceModal = ({
                           ? 'Choose how to fund your full plan'
                           : hasPendingSellAuthorization
                           ? 'Sell Authorization Still Pending'
+                          : fundsShortfallBlocks
+                          ? 'Add funds to continue'
                           : showUnaffordableTargetsExplanation
                           ? 'Target Allocation Is Not Yet Reachable'
                           : hasSkippedStocks
@@ -4260,7 +4318,7 @@ const RebalanceModal = ({
                       <Text
                         style={{
                           fontFamily: designFont('Poppins-Regular'),
-                          color: 'rgba(0,0,0,0.6)',
+                          color: designToken('rebalanceNotice.bodyColor'),
                           textAlign: 'center',
                           marginBottom: 24,
                           fontSize: 14,
@@ -4271,6 +4329,8 @@ const RebalanceModal = ({
                           ? `Your full plan remains ₹${Number(fundingConsent.desiredAmount || 0).toLocaleString('en-IN')}. Add ₹${Number(fundingConsent.shortfall || 0).toLocaleString('en-IN')} to your broker, or continue with available funds. Your investment target stays unchanged.`
                           : hasPendingSellAuthorization
                           ? `The sell orders reviewed earlier were not confirmed by ${activeCalculatedPortfolioData?._sellAuthorizationBroker || broker || 'your broker'}, so this rebalance is not complete and your portfolio is not yet aligned. Authorize those stocks for selling, then return and retry. Dependent buy orders remain unplaced until the sells complete.`
+                          : fundsShortfallBlocks
+                          ? `Your investment target is ₹${rupee(fundingConsent.desiredAmount)}, but your broker shows only ₹${rupee(fundingConsent.fundedAmount)} available, which cannot buy even one share at the target weights. Add ₹${rupee(fundingConsent.shortfall)} to your broker${fundingConsent.canAttemptWithInsufficientFunds ? ', or review the stocks for your full target and attempt the buy — your broker may reject orders above your buying power' : ', then calculate again'}. Your investment target stays unchanged and nothing has been placed.`
                           : showUnaffordableTargetsExplanation
                           ? 'The current model budget cannot buy even one share of the target stocks at their target weights. No orders were placed, so this portfolio is not aligned yet. Go back and increase the investment amount or review the allocation before trying again.'
                           : hasSkippedStocks
@@ -4286,17 +4346,23 @@ const RebalanceModal = ({
                                 setOpenRebalanceModal(false);
                                 setShowOtherBrokerModel(true);
                               }
+                            : fundsShortfallBlocks
+                            ? (fundingConsent.canAttemptWithInsufficientFunds
+                                ? attemptWithInsufficientFunds
+                                : showAddFundsInstructions)
+                            : needsInvestmentUpdate
+                            ? openUpdateInvestment
                             : handleClose
                         }
                         style={{
-                          backgroundColor: designColor('000'),
+                          backgroundColor: designToken('rebalanceNotice.button.backgroundColor'),
                           paddingHorizontal: 24,
                           paddingVertical: 12,
                           borderRadius: 8,
                         }}>
                         <Text
                           style={{
-                            color: designColor('fff'),
+                            color: designToken('rebalanceNotice.button.textColor'),
                             fontFamily: designFont('Poppins-Medium'),
                             fontSize: 14,
                           }}>
@@ -4304,9 +4370,29 @@ const RebalanceModal = ({
                             ? 'Review funding options'
                             : hasPendingSellAuthorization
                             ? 'Retry Sell Authorization'
+                            : fundsShortfallBlocks
+                            ? (fundingConsent.canAttemptWithInsufficientFunds
+                                ? 'Review stocks and attempt buy'
+                                : 'How to add funds')
+                            : needsInvestmentUpdate
+                            ? 'Update investment amount'
                             : 'Go Back'}
                         </Text>
                       </TouchableOpacity>
+                      {fundsShortfallBlocks && fundingConsent.canAttemptWithInsufficientFunds ? (
+                        <TouchableOpacity onPress={showAddFundsInstructions} style={{marginTop: 14, padding: 6}}>
+                          <Text style={{color: designToken('rebalanceNotice.bodyColor'), fontFamily: designFont('Poppins-Medium'), fontSize: 13}}>
+                            How to add funds
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
+                      {needsInvestmentUpdate || fundsShortfallBlocks ? (
+                        <TouchableOpacity onPress={handleClose} style={{marginTop: 4, padding: 6}}>
+                          <Text style={{color: designToken('rebalanceNotice.bodyColor'), fontFamily: designFont('Poppins-Medium'), fontSize: 13}}>
+                            Go back
+                          </Text>
+                        </TouchableOpacity>
+                      ) : null}
                     </>
                   ) : heldBuys ? (
                     <>
@@ -4336,7 +4422,7 @@ const RebalanceModal = ({
                       <Text
                         style={{
                           fontFamily: designFont('Poppins-Regular'),
-                          color: 'rgba(0,0,0,0.6)',
+                          color: designToken('rebalanceNotice.bodyColor'),
                           textAlign: 'center',
                           marginBottom: 24,
                           fontSize: 14,
@@ -4369,14 +4455,16 @@ const RebalanceModal = ({
                             );
                           }}
                           style={{
-                            backgroundColor: designColor('000'),
+                            backgroundColor: designToken(
+                              'rebalanceNotice.button.backgroundColor',
+                            ),
                             paddingHorizontal: 24,
                             paddingVertical: 12,
                             borderRadius: 8,
                           }}>
                           <Text
                             style={{
-                              color: designColor('fff'),
+                              color: designToken('rebalanceNotice.button.textColor'),
                               fontFamily: designFont('Poppins-Medium'),
                               fontSize: 14,
                             }}>
@@ -4389,7 +4477,7 @@ const RebalanceModal = ({
                         style={{marginTop: 8, padding: 6}}>
                         <Text
                           style={{
-                            color: 'rgba(0,0,0,0.6)',
+                            color: designToken('rebalanceNotice.bodyColor'),
                             fontFamily: designFont('Poppins-Medium'),
                             fontSize: 13,
                           }}>
@@ -4627,7 +4715,10 @@ const RebalanceModal = ({
                     ]}
                     disabled={!marketGateOpen || loading || awaitingOrderStatus}>
                     {loading || awaitingOrderStatus ? (
-                      <ActivityIndicator size="small" color={designColor('fff')} />
+                      <ActivityIndicator
+                        size="small"
+                        color={designToken('rebalance.spinner')}
+                      />
                     ) : (
                       <Text style={styles.nextStepButtonText}>
                         {!marketGateOpen ? 'Market is Closed' : 'Place Order'}
@@ -4892,11 +4983,11 @@ const styles = StyleSheet.create({
 
   notecontainer: {
     borderWidth: 1,
-    borderColor: designColor('f9a825'),
+    borderColor: designToken('rebalance.notecontainer.borderColor'),
     borderRadius: 8,
     padding: 12,
     margin: 16,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('rebalance.notecontainer.backgroundColor'),
   },
   buttonDisabled: {
     backgroundColor: designColor('7f9cbf'),
@@ -4909,7 +5000,7 @@ const styles = StyleSheet.create({
   },
   noteText: {
     fontSize: 11,
-    color: designColor('333'),
+    color: designToken('rebalance.noteText.color'),
     fontFamily: designFont('Poppins-Regular'),
     lineHeight: 20,
   },
@@ -4922,49 +5013,49 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: designColor('cbd5e1'),
+    borderColor: designToken('rebalance.fundingConsentContainer.borderColor'),
     borderRadius: 8,
     padding: 12,
-    backgroundColor: designColor('f8fafc'),
+    backgroundColor: designToken('rebalance.fundingConsentContainer.backgroundColor'),
   },
   fundingConsentTitle: {
-    color: designColor('0f172a'),
+    color: designToken('rebalance.fundingConsentTitle.color'),
     fontSize: 13,
     fontWeight: '600',
     lineHeight: 20,
   },
   fundingConsentText: {
-    color: designColor('475569'),
+    color: designToken('rebalance.fundingConsentText.color'),
     fontSize: 11,
     lineHeight: 18,
     marginTop: 4,
     marginBottom: 10,
   },
   fundingPrimaryButton: {
-    backgroundColor: designColor('0f172a'),
+    backgroundColor: designToken('rebalance.fundingPrimaryButton.backgroundColor'),
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 12,
     alignItems: 'center',
   },
   fundingPrimaryButtonText: {
-    color: designColor('ffffff'),
+    color: designToken('rebalance.fundingPrimaryButtonText.color'),
     fontSize: 12,
     fontWeight: '600',
     textAlign: 'center',
   },
   fundingSecondaryButton: {
     borderWidth: 1,
-    borderColor: designColor('cbd5e1'),
+    borderColor: designToken('rebalance.fundingSecondaryButton.borderColor'),
     borderRadius: 8,
     paddingVertical: 10,
     paddingHorizontal: 12,
     alignItems: 'center',
     marginTop: 8,
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('rebalance.fundingSecondaryButton.backgroundColor'),
   },
   fundingSecondaryButtonText: {
-    color: designColor('334155'),
+    color: designToken('rebalance.fundingSecondaryButtonText.color'),
     fontSize: 12,
     fontWeight: '600',
   },
@@ -4979,10 +5070,10 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     paddingVertical: 12,
     paddingHorizontal: 16,
-    backgroundColor: designColor('f9fafb'),
+    backgroundColor: designToken('rebalance.brokerDisconnectedFooter.backgroundColor'),
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: designColor('e5e7eb'),
+    borderColor: designToken('rebalance.brokerDisconnectedFooter.borderColor'),
   },
   fundsContainer: {
     flexDirection: 'row',
@@ -4994,17 +5085,17 @@ const styles = StyleSheet.create({
   },
   fundLabel: {
     fontSize: 12,
-    color: designColor('6b7280'),
+    color: designToken('rebalance.fundLabel.color'),
     fontWeight: '500',
   },
   fundValue: {
     fontSize: 16,
-    color: designColor('111827'),
+    color: designToken('rebalance.fundValue.color'),
     fontWeight: '600',
   },
 
   confirmButton: {
-    backgroundColor: designColor('0056b7'),
+    backgroundColor: designToken('rebalance.confirmButton.backgroundColor'),
     paddingHorizontal: 28,
     paddingVertical: 12,
     borderRadius: 8,
@@ -5012,7 +5103,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   confirmButtonText: {
-    color: 'white',
+    color: designToken('rebalance.confirmButtonText.color'),
     fontSize: 14,
     fontWeight: '600',
   },
@@ -5022,9 +5113,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 10,
     alignItems: 'center',
+    backgroundColor: designToken('rebalance.rowContainerhead.backgroundColor'),
+    borderColor: designToken('rebalance.rowContainerhead.borderColor'),
   },
   nextStepButton: {
-    backgroundColor: designColor('0056b7'),
+    backgroundColor: designToken('rebalance.nextStepButton.backgroundColor'),
     marginHorizontal: 20,
     paddingVertical: 10,
     borderRadius: 8,
@@ -5033,7 +5126,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   nextStepButtonText: {
-    color: 'white',
+    color: designToken('rebalance.nextStepButtonText.color'),
     fontSize: 14,
     fontWeight: '600',
   },
@@ -5056,7 +5149,7 @@ const styles = StyleSheet.create({
   headerTexthead: {
     fontFamily: designFont('Poppins-SemiBold'),
     fontSize: 12,
-    color: designColor('333'),
+    color: designToken('rebalance.headerTexthead.color'),
     textAlign: 'center',
   },
   // NEW: Styles for warning message and skipped stocks
@@ -5117,11 +5210,11 @@ const styles = StyleSheet.create({
   },
 
   buyOrder: {
-    color: designColor('0056b7'),
+    color: designToken('rebalance.buyOrder.color'),
     alignSelf: 'flex-start',
   },
   sellOrder: {
-    color: 'red',
+    color: designToken('rebalance.sellOrder.color'),
   },
   cell: {
     borderWidth: 1,
@@ -5131,13 +5224,13 @@ const styles = StyleSheet.create({
   },
   symbol: {
     alignSelf: 'flex-start',
-    color: 'black',
+    color: designToken('rebalance.symbol.color'),
     flexDirection: 'column',
     fontFamily: designFont('Poppins-Medium'),
   },
   qty: {
     alignSelf: 'center',
-    color: 'black',
+    color: designToken('rebalance.qty.color'),
     flexDirection: 'column',
     fontFamily: designFont('Poppins-Regular'),
   },
@@ -5163,16 +5256,17 @@ const styles = StyleSheet.create({
     height: 30,
     padding: 2,
     marginHorizontal: 4,
-    color: designColor('0d0c22'),
+    color: designToken('rebalance.quantityInput.color'),
     fontSize: 12,
     textAlign: 'center',
     borderWidth: 1,
-    borderColor: designColor('e9e8e8'),
+    borderColor: designToken('rebalance.quantityInput.borderColor'),
     borderRadius: 7,
+    backgroundColor: designToken('rebalance.quantityInput.backgroundColor'),
   },
 
   modalContainer: {
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('rebalance.modalContainer.backgroundColor'),
     maxHeight: screenHeight,
     shadowColor: designColor('000'),
     shadowOffset: { width: 0, height: 2 },
@@ -5214,7 +5308,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderColor: designColor('e8e8e8'),
+    borderColor: designToken('rebalance.rowContainer.borderColor'),
     paddingHorizontal: 16,
   },
 });

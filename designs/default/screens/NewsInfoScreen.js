@@ -37,14 +37,14 @@ const NewsInfoScreen = ({viewModel, actions, slots}) => {
          type={'newsscreen'}
        />
       </View>
-
+      
       <View style={styles.middleSection}>
         <Text style={styles.headerCardlabel}>Date</Text>
         <Text style={styles.headerCardPriceDate} numberOfLines={1} ellipsizeMode="tail">
           {group?.date}
         </Text>
       </View>
-
+      
       <View style={[styles.section]}>
         <Text style={styles.headerCardlabel}>Sentiment</Text>
         <Text style={styles.headerCardsentiment}>07</Text>
@@ -70,7 +70,7 @@ const NewsInfoScreen = ({viewModel, actions, slots}) => {
       numColumns={3} // Set 3 columns
       keyExtractor={(item, index) => index.toString()}
       columnWrapperStyle={styles.row}
-
+    
       contentContainerStyle={{marginHorizontal:0}}
       renderItem={({ item, index }) => (
         <TouchableOpacity
@@ -86,7 +86,7 @@ const NewsInfoScreen = ({viewModel, actions, slots}) => {
     </View>
   </View>
 </View>)
-
+             
             ))}
           </View>
         ))
@@ -156,7 +156,7 @@ const styles = StyleSheet.create({
   },
   headerCardlabel: {
     color:'white',
-
+    
     fontFamily:designFont('Satoshi-Medium'),
     fontSize:14,
 
@@ -173,7 +173,7 @@ const styles = StyleSheet.create({
   },
   Mainsummary:{
     borderWidth:1,
-
+  
     borderColor:designColor('000'),
     borderRadius:10,
     marginHorizontal:20,
@@ -181,7 +181,7 @@ const styles = StyleSheet.create({
   },
   MainnewsLink:{
     borderWidth:1,
-
+   
     borderColor:designColor('000'),
     borderRadius:10,
     marginHorizontal:20,
@@ -231,7 +231,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical:4,
     backgroundColor:designColor('fff'),
-
+ 
   },
   modalContainer: {
     flex: 1,
@@ -321,7 +321,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius:20,
     borderTopRightRadius:20,
     backgroundColor: designColor('fff'),
-
+ 
     padding: 20,
   },
   modalTitle: {
@@ -346,11 +346,11 @@ const styles = StyleSheet.create({
     alignSelf:'center',
     alignContent:'center',
     alignItems:'center',
-
+    
     marginVertical: 5,
     padding:5,
     marginHorizontal:5,
-
+   
   },
   row: {
     justifyContent: "space-between",

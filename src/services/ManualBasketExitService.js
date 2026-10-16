@@ -42,3 +42,4 @@ export const previewManualBasketExit = (basketId, configData) =>
 
 export const applyManualBasketExit = (payload, configData) =>
   post('apply', payload, configData);
+

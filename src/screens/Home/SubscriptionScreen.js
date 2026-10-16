@@ -29,6 +29,7 @@ import {
 
 import {designColor} from '../../design/literalTokens';
 import {useComponent} from '../../design/useDesign';
+import {classifyFundsResponse} from '../../utils/brokerSessionValidator';
 
 
 // Module-scoped `Dimensions.get('window')` was frozen at RN init time
@@ -48,6 +49,7 @@ const SubscriptionScreen = () => {
     confirmedFunds,
     fundsLoading,
     fundsError,
+    funds,
     setBroker,
     brokerStatus,
     configData,
@@ -341,6 +343,14 @@ const SubscriptionScreen = () => {
     snapshot: displayFunds,
     loading: fundsLoading,
   });
+  // The broker rejected the saved login (e.g. Upstox 'Invalid token') even
+  // though the stored expiry date has not passed. Positive evidence only:
+  // the latest funds check failed AND the classifier calls it an expired
+  // session; a transient outage never flips this (Kyzen, 2026-10-13).
+  const brokerSessionRejected = Boolean(
+    fundsError &&
+      classifyFundsResponse(funds, brokerStatus, broker).reason === 'TOKEN_EXPIRED',
+  );
   const cashVerification = fundsVerificationText({
     snapshot: displayFunds,
     loading: fundsLoading,
@@ -429,6 +439,7 @@ const SubscriptionScreen = () => {
       viewModel={{
         gradient1, gradient2, loading, brokerStatus, userDetails, broker,
         userEmail, themeColor, cashText, cashVerification, refreshing,
+        brokerSessionRejected,
       }}
       actions={{
         onBack: handleBack,

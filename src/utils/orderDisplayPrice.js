@@ -18,3 +18,4 @@ export const resolveTradeExitPrice = trade => {
   const resolved = [trade.exitPrice, trade.tradedPrice].find(isUsablePrice);
   return resolved === undefined ? '-' : String(resolved);
 };
+

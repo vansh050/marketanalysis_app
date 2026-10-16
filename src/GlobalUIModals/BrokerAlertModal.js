@@ -20,7 +20,7 @@ import {
 } from 'lucide-react-native';
 import useModalStore from './modalStore';
 
-import { designColor, designFont } from '../design/literalTokens';
+import { designColor, designFont, designToken } from '../design/literalTokens';
 
 const {width: SCREEN_WIDTH, height: SCREEN_HEIGHT} = Dimensions.get('screen');
 
@@ -69,32 +69,32 @@ const BrokerAlertModal = () => {
     switch (alertType) {
       case 'success':
         return {
-          icon: <CheckCircle size={48} color={designColor('22c55e')} />,
-          bgColor: designColor('dcfce7'),
-          borderColor: designColor('22c55e'),
-          titleColor: designColor('15803d'),
+          icon: <CheckCircle size={48} color={designToken('brokerAlert.success')} />,
+          bgColor: designToken('brokerAlert.successSoft'),
+          borderColor: designToken('brokerAlert.success'),
+          titleColor: designToken('brokerAlert.successStrong'),
         };
       case 'warning':
         return {
-          icon: <AlertTriangle size={48} color={designColor('f59e0b')} />,
-          bgColor: designColor('fef3c7'),
-          borderColor: designColor('f59e0b'),
-          titleColor: designColor('b45309'),
+          icon: <AlertTriangle size={48} color={designToken('brokerAlert.warning')} />,
+          bgColor: designToken('brokerAlert.warningSoft'),
+          borderColor: designToken('brokerAlert.warning'),
+          titleColor: designToken('brokerAlert.warning2'),
         };
       case 'info':
         return {
-          icon: <Info size={48} color={designColor('3b82f6')} />,
-          bgColor: designColor('dbeafe'),
-          borderColor: designColor('3b82f6'),
-          titleColor: designColor('1d4ed8'),
+          icon: <Info size={48} color={designToken('brokerAlert.accent')} />,
+          bgColor: designToken('brokerAlert.accentSoft'),
+          borderColor: designToken('brokerAlert.accent'),
+          titleColor: designToken('brokerAlert.accent2'),
         };
       case 'error':
       default:
         return {
-          icon: <AlertCircle size={48} color={designColor('ef4444')} />,
-          bgColor: designColor('fee2e2'),
-          borderColor: designColor('ef4444'),
-          titleColor: designColor('dc2626'),
+          icon: <AlertCircle size={48} color={designToken('brokerAlert.danger')} />,
+          bgColor: designToken('brokerAlert.dangerSoft'),
+          borderColor: designToken('brokerAlert.danger'),
+          titleColor: designToken('brokerAlert.danger2'),
         };
     }
   };
@@ -104,14 +104,14 @@ const BrokerAlertModal = () => {
   const getButtonStyle = () => {
     switch (alertType) {
       case 'success':
-        return {backgroundColor: designColor('22c55e')};
+        return {backgroundColor: designToken('brokerAlert.success')};
       case 'warning':
-        return {backgroundColor: designColor('f59e0b')};
+        return {backgroundColor: designToken('brokerAlert.warning')};
       case 'info':
-        return {backgroundColor: designColor('3b82f6')};
+        return {backgroundColor: designToken('brokerAlert.accent')};
       case 'error':
       default:
-        return {backgroundColor: designColor('ef4444')};
+        return {backgroundColor: designToken('brokerAlert.danger')};
     }
   };
 
@@ -136,7 +136,7 @@ const BrokerAlertModal = () => {
           ]}>
           {/* Close button */}
           <TouchableOpacity style={styles.closeButton} onPress={hideAlert}>
-            <X size={20} color={designColor('666')} />
+            <X size={20} color={designToken('brokerAlert.textSecondary')} />
           </TouchableOpacity>
 
           {/* Icon */}
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
   },
   modalContainer: {
     width: SCREEN_WIDTH * 0.85,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('brokerAlert.surface'),
     borderRadius: 16,
     padding: 24,
     alignItems: 'center',
@@ -226,7 +226,7 @@ const styles = StyleSheet.create({
   message: {
     fontSize: 15,
     fontFamily: designFont('Poppins-Regular'),
-    color: designColor('4b5563'),
+    color: designToken('brokerAlert.textSecondary2'),
     textAlign: 'center',
     lineHeight: 22,
     marginBottom: 20,
@@ -240,7 +240,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   okButtonText: {
-    color: designColor('fff'),
+    color: designToken('brokerAlert.surface'),
     fontSize: 16,
     fontFamily: designFont('Poppins-SemiBold'),
     fontWeight: '600',

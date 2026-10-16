@@ -3,7 +3,7 @@ import {Text, StyleSheet} from 'react-native';
 import WebSocketManager from './WebSocketManager';
 import {calculatePositionPnl} from '../../../utils/positionPnl';
 
-import { designColor, designFont } from '../../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../../design/literalTokens';
 
 const PortfolioPositionText = React.memo(
   ({
@@ -69,10 +69,10 @@ const PortfolioPositionText = React.memo(
 
     const pnlColor =
       profitOrLoss > 0
-        ? designColor('338d72')
+        ? designToken('positionText.success')
         : profitOrLoss < 0
-          ? designColor('ef344a')
-          : designColor('a0a0a0');
+          ? designToken('positionText.danger')
+          : designToken('positionText.textMuted');
 
     const formatWithSign = value => {
       if (value > 0) return `+₹${value.toFixed(2)}`;
@@ -147,7 +147,7 @@ const PortfolioPositionText = React.memo(
     } else {
       return (
         <Text
-          style={{fontSize: 14, color: designColor('000'), fontFamily: designFont('Satoshi-Medium')}}>
+          style={{fontSize: 14, color: designToken('positionText.text'), fontFamily: designFont('Satoshi-Medium')}}>
           {price ? `₹${price?.toFixed(2)}` : '₹-'}
         </Text>
       );
@@ -159,27 +159,27 @@ const styles = StyleSheet.create({
   price: {
     fontSize: 14,
     fontFamily: designFont('Satoshi-Bold'),
-    color: 'black',
+    color: designToken('positionText.text'),
   },
   newsscreen: {
-    color: designColor('626262'),
+    color: designToken('positionText.textSecondary'),
     fontFamily: designFont('Satoshi-Medium'),
     fontSize: 18,
   },
   watchlist: {
-    color: designColor('000'),
+    color: designToken('positionText.text'),
     fontFamily: designFont('Satoshi-Medium'),
     fontSize: 14,
   },
   portfolio: {
     fontSize: 14,
-    color: designColor('a0a0a0'),
+    color: designToken('positionText.textMuted'),
     fontFamily: designFont('Satoshi-Medium'),
   },
   Aftersub: {
     fontSize: 12,
     fontFamily: designFont('Satoshi-Medium'),
-    color: 'black',
+    color: designToken('positionText.text'),
   },
   change: {
     fontSize: 12,
@@ -190,7 +190,7 @@ const styles = StyleSheet.create({
   },
   poschangeValue: {
     fontSize: 14,
-    color: designColor('16a085'),
+    color: designToken('positionText.success2'),
     fontFamily: designFont('Satoshi-Medium'),
     justifyContent: 'flex-end',
     alignContent: 'flex-end',
@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
   },
   negchangeValue: {
     fontSize: 14,
-    color: designColor('e6626f'),
+    color: designToken('positionText.danger2'),
     fontFamily: designFont('Satoshi-Medium'),
     justifyContent: 'flex-end',
     alignContent: 'flex-end',

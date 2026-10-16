@@ -72,6 +72,7 @@ import {
   submitDurableOrder,
 } from '../../services/DurableOrderService';
 import {sellOrdersForAuth} from '../../utils/sellAuthOrders';
+import {kiteQuantity, missingQuantityMessage, tradesMissingQuantity} from '../../utils/kiteQuantity';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -1179,6 +1180,11 @@ const AddToCartModal = ({
       return;
     }
 
+    const missingQty = tradesMissingQuantity(stockDetails);
+    if (missingQty.length) {
+      Toast.show({type: 'error', text1: 'Quantity needed', text2: missingQuantityMessage(missingQty), visibilityTime: 7000});
+      return;
+    }
     const basket = stockDetails.map(stock => {
       // Scripmaster-resolved symbol/exchange (-EQ strip, BE→BSE, etc).
       const resolved = resolveZerodhaSymbol(stock, symbolMap);
@@ -1209,7 +1215,7 @@ const AddToCartModal = ({
       // reaches Kite as 150 shares, not 2. Single stocks have no `Lots`
       // field and stay unchanged (their quantity is already shares).
       const kiteShares =
-        (parseInt(stock.quantity, 10) || 1) *
+        kiteQuantity(stock) *
         (parseInt(stock.Lots || stock.lots || 1, 10) || 1);
 
       const basketItem = convertToBasketItem('Zerodha', stock, symbolMap, {

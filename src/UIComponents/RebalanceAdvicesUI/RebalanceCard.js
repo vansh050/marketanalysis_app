@@ -28,11 +28,16 @@ import {
 } from '../../utils/accountRecoveryUx';
 import {findResolvedModelForRecommendation} from '../../utils/rebalanceReconciliation';
 import eventEmitter from '../../components/EventEmitter';
+import {
+  DEEP_LINK_EXECUTE_EVENT,
+  claimDeepLinkExecuteTarget,
+  targetMatchesModel,
+} from '../../utils/deepLinkExecuteTarget';
 import LinearGradient from 'react-native-linear-gradient';
 import RenderHTML from 'react-native-render-html';
 import Config from 'react-native-config';
 import {useNavigation} from '@react-navigation/native';
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../design/literalTokens';
 const Alpha100 = require('../../assets/mpf_1.png');
 const screenWidth = Dimensions.get('window').width;
 
@@ -64,6 +69,11 @@ import {cancelOrder} from '../../services/BrokerOrderBookAPI';
 import {useTrade} from '../../screens/TradeContext';
 import {isFundsErrorOrMissing} from '../../utils/rebalanceHelpers';
 import {acceptTimingStart, acceptTimingMark} from '../../utils/acceptTiming';
+
+// Side padding and corner radius of the card body; a design aligns them with
+// its own cards (Kyzen: 16 / 12). Unset (null) keeps 10 / 6. Tokens compile to strings.
+const CARD_PADDING_X = Number(designToken('rebalanceCard.content.paddingHorizontal')) || 10;
+const CARD_RADIUS = Number(designToken('rebalanceCard.borderRadius')) || 6;
 import {
   useRefreshBrokerStatus,
   BROKER_PROBE_REUSE_MS,
@@ -131,6 +141,7 @@ const RebalanceCard = ({
     modelPortfolioStrategyfinal,
     modelPortfolioRepairTrades,
     repairReconciliation,
+    isDatafetchinRepair,
   } = useTrade();
   const angelOneApiKey = configData?.config.REACT_APP_ANGEL_ONE_API_KEY;
   const zerodhaApiKey = configData?.config.REACT_APP_ZERODHA_API_KEY;
@@ -147,6 +158,8 @@ const RebalanceCard = ({
   const mainColor = config?.mainColor || designColor('4caaa0');
   const gradient1 = config?.gradient1 || designColor('002651');
   const gradient2 = config?.gradient2 || designColor('0672edff');
+  // Named host token (null default = keep the advisor's runtime gradient colour).
+  const primaryButtonText = designToken('rebalanceCard.primaryButton.textColor') || gradient2;
   const CardborderWidth = config?.CardborderWidth || 0;
   const cardElevation = config?.cardElevation || 3;
   const cardverticalmargin = config?.cardverticalmargin || 3;
@@ -465,7 +478,10 @@ const RebalanceCard = ({
         orderAttempt.source === 'publisher' &&
         orderResults.length > 0 &&
         orderResults.every(order =>
-          ['NOT SENT', 'NOT OBSERVED'].includes(
+          // AWAITING BROKER = opened in Kite, no order id yet. The endpoint
+          // reads the order book first and resolves only on evidence, so a
+          // live order keeps the attempt open (it is never auto-retried).
+          ['NOT SENT', 'NOT OBSERVED', 'AWAITING BROKER'].includes(
             String(order?.orderStatus || '').toUpperCase().replace(/_/g, ' '),
           ),
         );
@@ -886,14 +902,26 @@ const RebalanceCard = ({
           : {promise: probePromise, expectedBroker: earlyBroker};
       };
       if (!result || result.cancelled || result.skipped) return;
-      if (result.accountRecovery?.blocked) {
+      // A blocked recovery can arrive account-level OR only on this model's
+      // get-repair row (Kyzen QA 2026-10-14: YESBANK ownership conflict on
+      // models[0].accountRecovery, account-level 'ready'). Use whichever is
+      // blocked — same fallback as the pending badge — so the tap opens the
+      // holdings review / names the real reason instead of "order status is
+      // pending".
+      const sameModel = item =>
+        String(item?.modelName ?? '').replace(/_/g, ' ').trim().toLowerCase() ===
+        String((typeof modelName === 'string' ? modelName : modelName?.name) ?? '').replace(/_/g, ' ').trim().toLowerCase();
+      const blockedRecovery = result.accountRecovery?.blocked
+        ? result.accountRecovery
+        : (result?.models || []).find(item => sameModel(item) && item?.accountRecovery?.blocked)?.accountRecovery;
+      if (blockedRecovery?.blocked) {
         if (!(await confirmSession())) return;
-        const action = result.accountRecovery.nextAction?.code;
+        const action = blockedRecovery.nextAction?.code;
         if (action === 'reconnect') {
           pendingActionRef.current = {allowFresh, broker, jwtToken};
           setOpenTokenExpireModel?.(true);
         } else if (action === 'review_holdings' &&
-          holdingsReviewCanResolve(result.accountRecovery)) {
+          holdingsReviewCanResolve(blockedRecovery)) {
           setStoreModalName(modelName);
           setModelPortfolioModelId(data?.model_Id);
           await handleCheckStatus(await confirmSession());
@@ -901,8 +929,8 @@ const RebalanceCard = ({
           // Includes `review_holdings` when a holdings edit cannot settle the
           // block. Naming the real reason beats sending the customer to a
           // screen whose only button re-triggers the same refusal.
-          Toast.show({type: 'info', text1: accountRecoveryTitle(result.accountRecovery),
-            text2: result.accountRecovery.message || 'Please refresh once broker verification completes.'});
+          Toast.show({type: 'info', text1: accountRecoveryTitle(blockedRecovery),
+            text2: blockedRecovery.message || 'Please refresh once broker verification completes.'});
         }
         return;
       }
@@ -1132,26 +1160,55 @@ const RebalanceCard = ({
       const myName = typeof modelName === 'string' ? modelName : modelName?.name;
       if (normalize(payload.modelName) === normalize(myName)) {
         payload._claimed = true;
-        // Mirror the Accept Rebalance button exactly (same handler pair) —
-        // handleChangeCheck opens the conditionally-mounted change-detail
-        // modal, which is safe to re-open repeatedly. Jumping straight to
-        // handleAcceptClick re-showed the always-mounted preference Modal,
-        // which renders BLANK on re-show under the new architecture and
-        // freezes the screen behind an invisible window.
-        if (isRepairMode) {
-          handleRepairDiscovery();
-        } else if (isPendingVerification) {
-          handlePendingRefresh();
-        } else {
-          handleChangeCheck();
-        }
+        runAcceptRebalanceButton();
       }
     };
+    // WhatsApp/Telegram execute link (rebalance / rebalance_execute surface,
+    // 2026-10-10). Same action as the Accept button, but only once this card's
+    // repair state has loaded (otherwise a Repair could be opened as a fresh
+    // Calculate) and never while a flow is already opening. An unready card
+    // simply waits for the next announcement. See utils/deepLinkExecuteTarget.
+    const handleDeepLinkTarget = target => {
+      const myName = typeof modelName === 'string' ? modelName : modelName?.name;
+      if (!targetMatchesModel(target, myName)) return;
+      if (isDatafetchinRepair || loading || actionOpeningRef.current) return;
+      if (!claimDeepLinkExecuteTarget(t => t === target)) return;
+      if (isRebalanceExecuted) {
+        Toast.show({
+          type: 'info',
+          text1: 'Rebalance already executed',
+          text2: `${myName || 'This portfolio'} is up to date. No orders were placed.`,
+          visibilityTime: 6000,
+          position: 'bottom',
+        });
+        return;
+      }
+      runAcceptRebalanceButton();
+    };
     eventEmitter.on('openRebalanceFlow', handleOpenRebalanceFlow);
+    eventEmitter.on(DEEP_LINK_EXECUTE_EVENT, handleDeepLinkTarget);
     return () => {
       eventEmitter.off('openRebalanceFlow', handleOpenRebalanceFlow);
+      eventEmitter.off(DEEP_LINK_EXECUTE_EVENT, handleDeepLinkTarget);
     };
   });
+
+  // Mirror the Accept Rebalance button exactly (same handler pair) —
+  // handleChangeCheck opens the conditionally-mounted change-detail modal,
+  // which is safe to re-open repeatedly. Jumping straight to handleAcceptClick
+  // re-showed the always-mounted preference Modal, which renders BLANK on
+  // re-show under the new architecture and freezes the screen behind an
+  // invisible window. Shared by the Portfolio-tab "Invest" event and the
+  // execute deep link.
+  function runAcceptRebalanceButton() {
+    if (isRepairMode) {
+      handleRepairDiscovery();
+    } else if (isPendingVerification) {
+      handlePendingRefresh();
+    } else {
+      handleChangeCheck();
+    }
+  }
 
   const handleChangeCheck = () => {
     try {
@@ -1336,18 +1393,19 @@ const RebalanceCard = ({
         <LinearGradient
           colors={
             isRebalanceExecuted
-              ? [designColor('9ca3af'), designColor('6b7280')]
+              ? [designToken('rebalanceCard.executed.gradientStart'), designToken('rebalanceCard.executed.gradientEnd')]
               : isPartiallyExecuted
-                ? [designColor('2a2a2a'), designColor('de8846')]
+                ? [designToken('rebalanceCard.partial.gradientStart'), designToken('rebalanceCard.partial.gradientEnd')]
                 : isPendingVerification
-                  ? [designColor('2a2a2a'), designColor('d4a843')]
+                  ? [designToken('rebalanceCard.pending.gradientStart'), designToken('rebalanceCard.pending.gradientEnd')]
                   : isRepairMode
-                    ? [designColor('2a2a2a'), designColor('de8846')]
-                    : [gradient1, gradient2]
+                    ? [designToken('rebalanceCard.repair.gradientStart'), designToken('rebalanceCard.repair.gradientEnd')]
+                    // null default = the advisor's runtime gradient1/gradient2.
+                    : [designToken('rebalanceCard.default.gradientStart') || gradient1, designToken('rebalanceCard.default.gradientEnd') || gradient2]
           }
           start={{x: 0, y: 1}}
           end={{x: 1, y: 1}}
-          style={[styles.cardContainer, {borderRadius: isExpanded ? 0 : 6, opacity: (isRebalanceExecuted || isPartiallyExecuted || isPendingVerification) ? 0.85 : 1}]}>
+          style={[styles.cardContainer, {borderRadius: isExpanded ? 0 : CARD_RADIUS, opacity: (isRebalanceExecuted || isPartiallyExecuted || isPendingVerification) ? 0.85 : 1}]}>
           <View style={styles.cardContent}>
             <View style={styles.textContent}>
               <Text style={styles.titleText}>{modelName}</Text>
@@ -1419,7 +1477,7 @@ const RebalanceCard = ({
             style={{
               paddingVertical: 5,
             }}>
-            <View style={{ paddingHorizontal: 10 }}>
+            <View style={{ paddingHorizontal: CARD_PADDING_X }}>
               <Text
                 style={{
                   color: designColor('dbd8d8'),
@@ -1434,7 +1492,6 @@ const RebalanceCard = ({
                   color: 'rgba(255, 255, 255, 0.9)',
                   fontSize: 14,
                   fontFamily: designFont('Satoshi-Bold'),
-                  marginLeft: 5,
                 }}>
                 ₹ {Number.parseFloat(mininvestvalue).toFixed(2)}
               </Text>
@@ -1453,7 +1510,7 @@ const RebalanceCard = ({
           {isPartiallyExecuted && (
             <View style={{alignItems: 'center', marginBottom: 4, marginTop: 4}}>
               <View style={{backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12}}>
-                <Text style={{color: designColor('de8846'), fontSize: 12, fontFamily: designFont('Satoshi-Medium')}}>
+                <Text style={{color: designToken('rebalanceCard.partial.badgeText'), fontSize: 12, fontFamily: designFont('Satoshi-Medium')}}>
                   Partially Executed
                 </Text>
               </View>
@@ -1483,7 +1540,7 @@ const RebalanceCard = ({
               flexDirection: 'row',
               justifyContent: 'space-between',
               gap: 12,
-              paddingHorizontal: 10,
+              paddingHorizontal: CARD_PADDING_X,
               marginTop: 10,
             }}>
             <TouchableOpacity
@@ -1509,12 +1566,12 @@ const RebalanceCard = ({
               style={[
                 styles.button,
                 isPendingVerification && {borderWidth: 1, borderColor: designColor('eab308')},
-                isRebalanceExecuted && {backgroundColor: designColor('d1d5db')},
+                isRebalanceExecuted && {backgroundColor: designToken('rebalanceCard.executed.buttonBackground')},
               ]}>
               {loading || pendingRefreshLoading ? (
                 <View style={{flexDirection: 'row', alignItems: 'center', justifyContent: 'center'}}>
-                  <ActivityIndicator size={14} color={gradient2} />
-                  <Text style={[styles.buttonText, {color: gradient2, marginLeft: 6}]}>Checking broker...</Text>
+                  <ActivityIndicator size={14} color={primaryButtonText} />
+                  <Text style={[styles.buttonText, {color: primaryButtonText, marginLeft: 6}]}>Checking broker...</Text>
                 </View>
               ) : (
                 <View
@@ -1525,7 +1582,7 @@ const RebalanceCard = ({
                     alignItems: 'center',
                     alignSelf: 'center',
                   }}>
-                  <Text style={[styles.buttonText, {color: isRebalanceExecuted ? designColor('6b7280') : gradient2}]}>
+                  <Text style={[styles.buttonText, {color: isRebalanceExecuted ? designToken('rebalanceCard.executed.buttonText') : primaryButtonText}]}>
                     {isRebalanceExecuted
                       ? 'Rebalance Executed'
                       : requiresFreshRebalance
@@ -1619,18 +1676,18 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     flexDirection: 'row',
-    paddingHorizontal: 10,
+    paddingHorizontal: CARD_PADDING_X,
     flex: 1,
   },
   viewMoreButton: {
     flex: 1,
-    backgroundColor: 'rgba(232, 232, 232, 0.58)',
+    backgroundColor: designToken('rebalanceCard.secondaryButton.backgroundColor'),
     borderRadius: 3,
     paddingVertical: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  viewMoreText: {color: designColor('fff'), fontSize: 12, fontFamily: designFont('Poppins-Medium')},
+  viewMoreText: {color: designToken('rebalanceCard.secondaryButton.textColor'), fontSize: 12, fontFamily: designFont('Poppins-Medium')},
   textContent: {
     flex: 1,
   },
@@ -1680,7 +1737,7 @@ const styles = StyleSheet.create({
   },
   button: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 1)',
+    backgroundColor: designToken('rebalanceCard.primaryButton.backgroundColor'),
     borderRadius: 3,
     paddingVertical: 8,
     alignItems: 'center',

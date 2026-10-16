@@ -15,6 +15,7 @@ const ExecutionStatusScreen = ({viewModel, actions}) => {
     marketGateOpen,
     successCount,
     failedCount,
+    exitPortfolio,
   } = viewModel;
   return (
     <View style={styles.container}>
@@ -22,7 +23,7 @@ const ExecutionStatusScreen = ({viewModel, actions}) => {
         <TouchableOpacity onPress={actions.onBack} style={styles.backBtn} disabled={executing}>
           <Text style={[styles.backBtnText, executing && styles.disabledBack]}>{'<'}</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Trade Details</Text>
+        <Text style={styles.headerTitle}>{exitPortfolio ? 'Portfolio Exit Status' : 'Trade Details'}</Text>
         <View style={styles.headerSpacer} />
       </View>
       <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -41,7 +42,7 @@ const ExecutionStatusScreen = ({viewModel, actions}) => {
         {state === 'done' && (
           <View style={[styles.statusBox, failedCount === 0 ? styles.statusSuccess : styles.statusPartial]}>
             <Text style={styles.statusTitle}>
-              {failedCount === 0 ? 'All Orders Placed' : `${successCount} Placed, ${failedCount} Failed`}
+              {failedCount === 0 ? (exitPortfolio ? 'Exit Orders Placed' : 'All Orders Placed') : `${successCount} Placed, ${failedCount} Failed`}
             </Text>
           </View>
         )}
@@ -58,7 +59,7 @@ const ExecutionStatusScreen = ({viewModel, actions}) => {
             </View>
             <Text style={styles.orderSymbol} numberOfLines={1}>{order.symbol || order.tradingSymbol}</Text>
             <Text style={styles.orderQty}>Qty: {order.quantity}</Text>
-            <Text style={styles.orderPrice}>₹{Number(order.price || 0).toFixed(1)}</Text>
+            <Text style={styles.orderPrice}>₹{Number(order.rebalance_price || order.price || 0).toFixed(1)}</Text>
           </View>
         ))}
         {state === 'done' && results.map((result, index) => (

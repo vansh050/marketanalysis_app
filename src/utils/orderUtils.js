@@ -9,6 +9,7 @@ import {
     isOrderSuccess,
     isOrderPending,
     isOrderCancelled,
+    isOrderManuallyPlaced,
 } from './orderStatusUtils';
 
 import { designColor } from '../design/literalTokens';
@@ -56,7 +57,8 @@ export const formatOrderDate = (isoDate) => {
  * a future PR may replace these with token-driven equivalents.
  */
 export const getStatusColors = (status) => {
-    if (isOrderSuccess(status)) {
+    // Customer-recorded execution reads as done, not as waiting.
+    if (isOrderSuccess(status) || isOrderManuallyPlaced(status)) {
         return { color1: designColor('f0ffe8'), color2: designColor('16a085') };
     }
     if (isOrderPending(status)) {

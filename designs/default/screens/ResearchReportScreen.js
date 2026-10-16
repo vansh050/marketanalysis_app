@@ -3,7 +3,7 @@ import {View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView, Acti
 import {FileText, Search, Download, Filter, Calendar, ChevronLeft} from 'lucide-react-native';
 import LinearGradient from 'react-native-linear-gradient';
 
-import {designColor, designFont} from '../../../src/design/literalTokens';
+import { designColor, designFont, designToken } from '../../../src/design/literalTokens';
 
 const ResearchReportScreen = ({viewModel, actions}) => {
   const {
@@ -24,7 +24,7 @@ const ResearchReportScreen = ({viewModel, actions}) => {
    style={styles.headerGradient}>
         <View style={styles.headerRow}>
           <TouchableOpacity style={styles.backButton} onPress={onBack}>
-      <ChevronLeft size={24} color={designColor('000')} />
+      <ChevronLeft size={24} color={designToken('researchReport.text')} />
     </TouchableOpacity>
           <Text style={styles.headerTitle}>Research Report</Text>
         </View>
@@ -32,20 +32,20 @@ const ResearchReportScreen = ({viewModel, actions}) => {
       {/* Search & Date Bar */}
       <View style={styles.searchRow}>
         <View style={styles.searchBox}>
-          <Search size={16} color={designColor('98aec7')} />
+          <Search size={16} color={designToken('researchReport.accent')} />
           <TextInput
             style={styles.searchInput}
             placeholder="Search by names, price"
-            placeholderTextColor={designColor('a9b6d2')}
+            placeholderTextColor={designToken('researchReport.placeholder')}
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
           <TouchableOpacity style={styles.sortButton} onPress={toggleSortMenu}>
-            <Filter size={18} color={designColor('93aad2')} />
+            <Filter size={18} color={designToken('researchReport.accent2')} />
           </TouchableOpacity>
         </View>
         <TouchableOpacity style={[styles.dateFilterBtn, { backgroundColor: mainColor }]} onPress={toggleDateFilter}>
-          <Calendar size={17} color={designColor('fff')} />
+          <Calendar size={17} color={designToken('researchReport.surface')} />
           <Text style={styles.dateFilterText}>Date</Text>
         </TouchableOpacity>
       </View>
@@ -64,7 +64,7 @@ const ResearchReportScreen = ({viewModel, actions}) => {
               placeholder="YYYY-MM-DD"
               value={startDate}
               onChangeText={setStartDate}
-              placeholderTextColor={designColor('999')}
+              placeholderTextColor={designToken('researchReport.placeholder2')}
             />
             <Text style={styles.dateLabel}>End Date</Text>
             <TextInput
@@ -72,7 +72,7 @@ const ResearchReportScreen = ({viewModel, actions}) => {
               placeholder="YYYY-MM-DD"
               value={endDate}
               onChangeText={setEndDate}
-              placeholderTextColor={designColor('999')}
+              placeholderTextColor={designToken('researchReport.placeholder2')}
             />
             <View style={styles.dateFilterActions}>
               <TouchableOpacity style={styles.clearButton} onPress={clearDateFilter}>
@@ -108,7 +108,7 @@ const ResearchReportScreen = ({viewModel, actions}) => {
       )}
       {/* Active Filters Display */}
       {(startDate || endDate || sortOrder !== 'latest') && (
-        <ScrollView
+        <ScrollView 
           horizontal
   style={{ maxHeight: 40 }}
   contentContainerStyle={{ alignItems: 'center' }}
@@ -141,7 +141,7 @@ const ResearchReportScreen = ({viewModel, actions}) => {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         {loading ? (
           <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={designColor('407bff')} />
+            <ActivityIndicator size="large" color={designToken('researchReport.accent3')} />
             <Text style={styles.loadingText}>Loading research reports...</Text>
           </View>
         ) : filteredSymbols.length > 0 ? (
@@ -193,9 +193,9 @@ const ResearchReportScreen = ({viewModel, actions}) => {
                   disabled={loadingRowIndex === report._id}
                 >
                   {loadingRowIndex === report._id ? (
-                    <ActivityIndicator size="small" color={designColor('045dff')} />
+                    <ActivityIndicator size="small" color={designToken('researchReport.accent4')} />
                   ) : (
-                    <Download size={18} color={designColor('045dff')} />
+                    <Download size={18} color={designToken('researchReport.accent4')} />
                   )}
                 </TouchableOpacity>
               </View>
@@ -203,7 +203,7 @@ const ResearchReportScreen = ({viewModel, actions}) => {
           })
         ) : (
           <View style={styles.emptyContainer}>
-            <FileText size={48} color={designColor('ccc')} />
+            <FileText size={48} color={designToken('researchReport.textMuted')} />
             <Text style={styles.emptyTitle}>
               {symbolsWithLTP.length > 0 ? 'No Results Found' : 'No Research Reports Available'}
             </Text>
@@ -219,7 +219,7 @@ const ResearchReportScreen = ({viewModel, actions}) => {
   );
 };
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: designColor('f4f8fe') },
+  safeArea: { flex: 1, backgroundColor: designToken('researchReport.surface2') },
   headerGradient: {
     borderBottomLeftRadius: 16,
     borderBottomRightRadius: 16,
@@ -238,7 +238,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     flex: 1,
-    color: designColor('fff'),
+    color: designToken('researchReport.surface'),
     fontWeight: '600',
     fontSize: 18,
     letterSpacing: 0.1,
@@ -246,7 +246,7 @@ const styles = StyleSheet.create({
   headerAvatar: {
     width: 30,
     height: 30,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('researchReport.surface'),
     borderRadius: 15,
     marginLeft: 9,
   },
@@ -260,10 +260,10 @@ const styles = StyleSheet.create({
   },
   searchBox: {
     flexDirection: 'row',
-    backgroundColor: designColor('f4f8fe'),
+    backgroundColor: designToken('researchReport.surface2'),
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: designColor('dbe7ff'),
+    borderColor: designToken('researchReport.accentSoft'),
     alignItems: 'center',
     flex: 1,
     paddingHorizontal: 7,
@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 14,
-    color: designColor('1f2b38'),
+    color: designToken('researchReport.text2'),
     fontWeight: '400',
     marginLeft: 7,
   },
@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
   },
   dateFilterBtn: {
     flexDirection: 'row',
-    backgroundColor: designColor('045dff'),
+    backgroundColor: designToken('researchReport.accent4'),
     borderRadius: 5,
     paddingHorizontal: 13,
     height: 42,
@@ -291,13 +291,13 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   dateFilterText: {
-    color: designColor('fff'),
+    color: designToken('researchReport.surface'),
     fontWeight: '500',
     fontSize: 14,
     marginLeft: 5,
   },
   sortMenu: {
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('researchReport.surface'),
     borderRadius: 12,
     padding: 16,
     marginTop: 12,
@@ -314,16 +314,16 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   sortOptionActive: {
-    backgroundColor: designColor('e0e3eb'),
+    backgroundColor: designToken('researchReport.surfaceMuted'),
     fontWeight: '600',
   },
   sortOptionText: {
     fontSize: 16,
-    color: designColor('374151'),
+    color: designToken('researchReport.text3'),
     fontFamily: designFont('Helvetica Neue'),
   },
   sortOptionTextActive: {
-    color: designColor('407bff'),
+    color: designToken('researchReport.accent3'),
   },
 activeFiltersWrap: {
   flexDirection: 'row',
@@ -334,14 +334,14 @@ activeFiltersWrap: {
 
 
 filterChip: {
-  backgroundColor: designColor('f4f8fe'),
+  backgroundColor: designToken('researchReport.surface2'),
   borderRadius: 15,
   paddingHorizontal: 12,
   paddingVertical: 4, // Increase slightly for vertical spacing without making chip too tall
   marginHorizontal: 6,
   justifyContent: 'center',
   borderWidth: 1,
-  borderColor: designColor('dbe7ff'),
+  borderColor: designToken('researchReport.accentSoft'),
   alignSelf: 'flex-start', // So multiple chips wrap nicely without stretching full width
   minHeight: 28,            // Explicit height to avoid large height
   height: 28,               // Fix height to 28 for uniformity
@@ -349,46 +349,46 @@ filterChip: {
   alignItems: 'center',     // Vertically center text
 },
 filterChipText: {
-  color: designColor('374151'),
+  color: designToken('researchReport.text3'),
   fontSize: 13,
   fontWeight: '600',
   lineHeight: 18,           // Control line height for text vertical size
 },
 
   dateInput: {
-    backgroundColor: designColor('f4f8fe'),
+    backgroundColor: designToken('researchReport.surface2'),
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: designColor('dbe7ff'),
+    borderColor: designToken('researchReport.accentSoft'),
     paddingHorizontal: 12,
     height: 42,
     fontSize: 16,
-    color: designColor('222'),
+    color: designToken('researchReport.text4'),
     marginBottom: 8,
   },
   sectionLabel: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: designColor('f4f8fe'),
+    backgroundColor: designToken('researchReport.surface2'),
     paddingHorizontal: 16,
     paddingTop: 18,
     paddingBottom: 3,
     marginBottom: 6,
   },
   monthLabel: {
-    color: designColor('284879'),
+    color: designToken('researchReport.text5'),
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.3,
   },
   reportsLabel: {
-    color: designColor('6983a3'),
+    color: designToken('researchReport.accent5'),
     fontSize: 13,
     fontWeight: '500',
   },
   scrollView: {
     flex: 1,
-    backgroundColor: designColor('f4f8fe'),
+    backgroundColor: designToken('researchReport.surface2'),
   },
   scrollContent: {
     paddingBottom: 18,
@@ -396,7 +396,7 @@ filterChipText: {
   reportCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('researchReport.surface'),
     borderRadius: 10,
     marginHorizontal: 12,
     marginTop: 5,
@@ -407,10 +407,10 @@ filterChipText: {
     shadowColor: designColor('89abc6'),
     shadowOpacity: 0.09,
   },
-  reportSymbol: { color: designColor('284879'), fontWeight: '600', fontSize: 15, marginBottom: 2 },
-  reportNSE: { color: designColor('7ba2cb'), fontSize: 11, fontWeight: '400' },
+  reportSymbol: { color: designToken('researchReport.text5'), fontWeight: '600', fontSize: 15, marginBottom: 2 },
+  reportNSE: { color: designToken('researchReport.accent6'), fontSize: 11, fontWeight: '400' },
   reportLTP: {
-    color: designColor('68859d'),
+    color: designToken('researchReport.accent7'),
     fontSize: 13,
     fontWeight: '500',
     marginBottom: 6,
@@ -424,15 +424,15 @@ filterChipText: {
     minWidth: 50,
     alignItems: 'center',
   },
-  buyChip: { backgroundColor: designColor('def7ec') },
-  sellChip: { backgroundColor: designColor('fad3d5') },
-  mixedChip: { backgroundColor: designColor('e5e7eb') },
+  buyChip: { backgroundColor: designToken('researchReport.successSoft') },
+  sellChip: { backgroundColor: designToken('researchReport.dangerSoft') },
+  mixedChip: { backgroundColor: designToken('researchReport.surfaceMuted2') },
   tradeChipText: { fontSize: 13, fontWeight: '700' },
-  buyChipText: { color: designColor('21a862') },
-  sellChipText: { color: designColor('e22525') },
-  mixedChipText: { color: designColor('6b7280') },
+  buyChipText: { color: designToken('researchReport.success') },
+  sellChipText: { color: designToken('researchReport.danger') },
+  mixedChipText: { color: designToken('researchReport.textSecondary') },
   reportDate: {
-    color: designColor('98a7bf'),
+    color: designToken('researchReport.accent8'),
     fontSize: 9,
     fontWeight: '500',
   },
@@ -447,7 +447,7 @@ filterChipText: {
   loadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: designColor('666'),
+    color: designToken('researchReport.textSecondary2'),
   },
   emptyContainer: {
     flex: 1,
@@ -458,18 +458,18 @@ filterChipText: {
   emptyTitle: {
     fontSize: 20,
     fontWeight: '600',
-    color: designColor('374151'),
+    color: designToken('researchReport.text3'),
     marginTop: 16,
     marginBottom: 8,
   },
   emptyDescription: {
     fontSize: 16,
-    color: designColor('6b7280'),
+    color: designToken('researchReport.textSecondary'),
     textAlign: 'center',
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('researchReport.surface'),
   },
   modalHeader: {
     flexDirection: 'row',
@@ -478,8 +478,8 @@ filterChipText: {
     paddingHorizontal: 16,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: designColor('e0e3eb'),
-    backgroundColor: designColor('fff'),
+    borderBottomColor: designToken('researchReport.surfaceMuted'),
+    backgroundColor: designToken('researchReport.surface'),
   },
   closeButton: {
     padding: 8,
@@ -487,7 +487,7 @@ filterChipText: {
   modalTitle: {
     fontSize: 18,
     fontWeight: '600',
-    color: designColor('111827'),
+    color: designToken('researchReport.text6'),
   },
   webView: {
     flex: 1,
@@ -496,21 +496,21 @@ filterChipText: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: designColor('f8fafc'),
+    backgroundColor: designToken('researchReport.surface3'),
   },
   pdfLoadingText: {
     marginTop: 16,
     fontSize: 16,
-    color: designColor('666'),
+    color: designToken('researchReport.textSecondary2'),
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(40,58,95,0.12)',
     justifyContent: 'center',
     alignItems: 'center',
-  },backButton: { padding: 4,borderRadius:5, backgroundColor: designColor('fff'),marginRight:10 },
+  },backButton: { padding: 4,borderRadius:5, backgroundColor: designToken('researchReport.surface'),marginRight:10 },
   dateFilterPanel: {
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('researchReport.surface'),
     borderRadius: 12,
     padding: 18,
     width: 285,
@@ -522,19 +522,19 @@ filterChipText: {
   },
   dateLabel: {
     fontSize: 14,
-    color: designColor('6b7280'),
+    color: designToken('researchReport.textSecondary'),
     marginBottom: 4,
     marginTop: 11,
   },
   dateInput: {
-    backgroundColor: designColor('f4f8fe'),
+    backgroundColor: designToken('researchReport.surface2'),
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: designColor('dbe7ff'),
+    borderColor: designToken('researchReport.accentSoft'),
     paddingHorizontal: 12,
     height: 42,
     fontSize: 16,
-    color: designColor('222'),
+    color: designToken('researchReport.text4'),
     marginBottom: 8,
   },
   dateFilterActions: {
@@ -544,24 +544,24 @@ filterChipText: {
     gap: 11,
   },
   clearButton: {
-    backgroundColor: designColor('407bff'),
+    backgroundColor: designToken('researchReport.accent3'),
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 8,
   },
   clearButtonText: {
-    color: designColor('fff'),
+    color: designToken('researchReport.surface'),
     fontSize: 14,
     fontWeight: '600',
   },
   closeButton: {
-    backgroundColor: designColor('e0e3eb'),
+    backgroundColor: designToken('researchReport.surfaceMuted'),
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 8,
   },
   closeButtonText: {
-    color: designColor('374151'),
+    color: designToken('researchReport.text3'),
     fontSize: 14,
     fontWeight: '600',
   },

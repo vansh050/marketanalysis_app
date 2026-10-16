@@ -50,6 +50,12 @@ export const TAB_CATALOG = Object.freeze({
  * object the container passes to the resolver (runtime show/hide only).
  */
 export const MORE_ITEM_CATALOG = Object.freeze({
+    resetPassword: {label: 'Reset password', icon: 'lock', route: 'ResetPassword'},
+    notificationPreferences: {
+        label: 'Notification preferences',
+        icon: 'bell',
+        action: 'notificationPreferences',
+    },
     brokerAccount: {label: 'Broker Account', icon: 'link', route: 'Broker Setting'},
     mySubscription: {label: 'My Subscription', icon: 'crown', route: 'MySubscriptionsScreen'},
     linkAccount: {
@@ -97,4 +103,12 @@ export const PRE_LOGIN_CATALOG = Object.freeze({
 });
 
 /** Top-level manifest keys. A variant may override only these. */
-export const MANIFEST_KEYS = Object.freeze(['tabs', 'initialTab', 'moreMenu', 'preLogin', 'chrome']);
+export const MANIFEST_KEYS = Object.freeze([
+    'tabs',
+    'initialTab',
+    'moreMenu',
+    'preLogin',
+    'preLoginPolicy',
+    'authNavigation',
+    'chrome',
+]);

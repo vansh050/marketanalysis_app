@@ -62,6 +62,7 @@ import EgressIpCallout from './EgressIpCallout';
 import BrokerWalkthroughPlayer from './BrokerWalkthroughPlayer';
 import { useTrade } from '../../screens/TradeContext';
 import { useConfig } from '../../context/ConfigContext';
+import useTokens from '../../theme/useTokens';
 
 import { designColor } from '../../design/literalTokens';
 import { brokerDisplayConfig } from '../../config/brokerDisplayConfig';
@@ -99,35 +100,35 @@ const RichText = ({ text, style, boldStyle }) => {
   );
 };
 
-const SetupGuideCard = React.memo(({config, accent, broker, onVideo}) => {
+const SetupGuideCard = React.memo(({config, accent, broker, onVideo, skin}) => {
   const guideSteps = config.guideSteps || [];
   if (!config.portalUrl && guideSteps.length === 0) return null;
 
   return (
-    <View style={styles.guideCard}>
-      <Text style={styles.guideTitle}>
+    <View style={[styles.guideCard, skin.guideCard]}>
+      <Text style={[styles.guideTitle, skin.title]}>
         {config.guideTitle || 'How to get your API key'}
       </Text>
       {!!config.walkthroughVideoId && (
         <TouchableOpacity
-          style={[styles.videoCta, {borderColor: accent}]}
+          style={[styles.videoCta, skin.elevatedCard, {borderColor: accent}]}
           onPress={() => onVideo(config.walkthroughVideoId)}
           accessibilityRole="button"
           accessibilityLabel={`Watch ${broker} walkthrough video`}>
           <View style={[styles.videoCtaIcon, {backgroundColor: accent}]}>
-            <PlayCircle size={22} color={designColor('fff')} />
+            <PlayCircle size={22} color={skin.primaryText.color} />
           </View>
           <View style={{flex: 1}}>
             <Text style={[styles.videoCtaTitle, {color: accent}]}>Watch the setup video</Text>
-            <Text style={styles.videoCtaSubtitle}>
+            <Text style={[styles.videoCtaSubtitle, skin.secondaryText]}>
               Follow along with a short walkthrough instead of reading the steps.
             </Text>
           </View>
         </TouchableOpacity>
       )}
-      <View style={[styles.oneTimeNotice, {borderColor: accent}]}>
+      <View style={[styles.oneTimeNotice, skin.elevatedCard, {borderColor: accent}]}>
         <Text style={[styles.oneTimeNoticeTitle, {color: accent}]}>ONE-TIME BROKER SETUP</Text>
-        <Text style={styles.oneTimeNoticeText}>
+        <Text style={[styles.oneTimeNoticeText, skin.secondaryText]}>
           You normally create these API credentials only once. Later reconnects
           usually just need your broker User ID, password and any required OTP.
         </Text>
@@ -137,29 +138,37 @@ const SetupGuideCard = React.memo(({config, accent, broker, onVideo}) => {
           <View style={[styles.guideStepNum, {borderColor: accent}]}>
             <Text style={[styles.guideStepNumText, {color: accent}]}>{index + 1}</Text>
           </View>
-          <RichText text={step} style={styles.guideStepText} boldStyle={styles.guideStepBold} />
+          <RichText
+            text={step}
+            style={[styles.guideStepText, skin.secondaryText]}
+            boldStyle={[styles.guideStepBold, skin.title]}
+          />
         </View>
       ))}
       {!!config.redirectUrl && (
         <TouchableOpacity
-          style={styles.redirectRow}
+          style={[styles.redirectRow, skin.elevatedCard]}
           onPress={() => Clipboard.setString(config.redirectUrl)}>
-          <Text style={styles.redirectLabel}>Redirect URL (tap to copy)</Text>
+          <Text style={[styles.redirectLabel, skin.mutedText]}>Redirect URL (tap to copy)</Text>
           <Text style={[styles.redirectValue, {color: accent}]} numberOfLines={1}>
             {config.redirectUrl}
           </Text>
         </TouchableOpacity>
       )}
       {!!config.note && (
-        <RichText text={config.note} style={styles.guideNote} boldStyle={styles.guideStepBold} />
+        <RichText
+          text={config.note}
+          style={[styles.guideNote, skin.mutedText]}
+          boldStyle={[styles.guideStepBold, skin.title]}
+        />
       )}
       <View style={styles.guideActionsRow}>
         {!!config.portalUrl && (
           <TouchableOpacity
             style={[styles.portalBtn, {backgroundColor: accent}]}
             onPress={() => Linking.openURL(config.portalUrl)}>
-            <ExternalLink size={14} color={designColor('fff')} />
-            <Text style={styles.portalBtnText}>{config.portalLabel || 'Open broker portal'}</Text>
+            <ExternalLink size={14} color={skin.primaryText.color} />
+            <Text style={[styles.portalBtnText, skin.primaryText]}>{config.portalLabel || 'Open broker portal'}</Text>
           </TouchableOpacity>
         )}
         {!!config.walkthroughVideoId && (
@@ -177,7 +186,7 @@ const SetupGuideCard = React.memo(({config, accent, broker, onVideo}) => {
   );
 });
 
-const DeviceTotpControl = React.memo(({deviceTotp, accent, loading}) => {
+const DeviceTotpControl = React.memo(({deviceTotp, accent, loading, skin}) => {
   if (!deviceTotp?.enabled) return null;
   const setup = deviceTotp.setup || {};
   const showSetup =
@@ -186,7 +195,7 @@ const DeviceTotpControl = React.memo(({deviceTotp, accent, loading}) => {
     (setup.steps?.length > 0 || setup.portalUrl);
 
   return (
-    <View style={styles.deviceTotpCard}>
+    <View style={[styles.deviceTotpCard, skin.deviceCard]}>
       <TouchableOpacity
         onPress={deviceTotp.onToggleSave}
         disabled={loading || deviceTotp.hasSaved}
@@ -199,7 +208,7 @@ const DeviceTotpControl = React.memo(({deviceTotp, accent, loading}) => {
           {deviceTotp.protectLabel || 'Protect this TOTP key on this phone'}
         </Text>
       </TouchableOpacity>
-      <Text style={styles.deviceTotpText}>
+      <Text style={[styles.deviceTotpText, skin.secondaryText]}>
         {deviceTotp.hasSaved
           ? deviceTotp.savedLabel ||
             'Saved only in this device keychain. Biometric or device passcode is required before it can be used.'
@@ -207,8 +216,8 @@ const DeviceTotpControl = React.memo(({deviceTotp, accent, loading}) => {
             'The key is stored only in the protected device keychain and cannot migrate to another phone.'}
       </Text>
       {showSetup && (
-        <View style={styles.deviceTotpSetup}>
-          <Text style={styles.deviceTotpSetupTitle}>
+        <View style={[styles.deviceTotpSetup, skin.deviceSetup]}>
+          <Text style={[styles.deviceTotpSetupTitle, skin.title]}>
             {setup.title || 'How to create your TOTP key'}
           </Text>
           {(setup.steps || []).map((step, index) => (
@@ -220,16 +229,16 @@ const DeviceTotpControl = React.memo(({deviceTotp, accent, loading}) => {
               </View>
               <RichText
                 text={step}
-                style={styles.deviceTotpSetupText}
-                boldStyle={styles.guideStepBold}
+                style={[styles.deviceTotpSetupText, skin.secondaryText]}
+                boldStyle={[styles.guideStepBold, skin.title]}
               />
             </View>
           ))}
           {!!setup.note && (
             <RichText
               text={setup.note}
-              style={styles.deviceTotpSetupNote}
-              boldStyle={styles.guideStepBold}
+              style={[styles.deviceTotpSetupNote, skin.warningCard]}
+              boldStyle={[styles.guideStepBold, skin.title]}
             />
           )}
           {!!setup.portalUrl && (
@@ -237,8 +246,8 @@ const DeviceTotpControl = React.memo(({deviceTotp, accent, loading}) => {
               style={[styles.deviceTotpSetupButton, {backgroundColor: accent}]}
               onPress={() => Linking.openURL(setup.portalUrl)}
               accessibilityRole="button">
-              <ExternalLink size={14} color={designColor('fff')} />
-              <Text style={styles.portalBtnText}>
+              <ExternalLink size={14} color={skin.primaryText.color} />
+              <Text style={[styles.portalBtnText, skin.primaryText]}>
                 {setup.portalLabel || 'Open TOTP setup'}
               </Text>
             </TouchableOpacity>
@@ -293,6 +302,7 @@ const BrokerConnectStepperSheet = ({
 }) => {
   const { configData } = useTrade();
   const appConfig = useConfig();
+  const tokens = useTokens();
   const insets = useSafeAreaInsets();
   const [secureShown, setSecureShown] = useState({});
   const [walkthroughVideoId, setWalkthroughVideoId] = useState(null);
@@ -327,6 +337,38 @@ const BrokerConnectStepperSheet = ({
     appConfig?.buttonColor ||
     designColor('0056b7');
   const isOtp = phase === 'otp';
+  const colors = tokens.colors;
+  const type = tokens.typography;
+  const skin = useMemo(() => ({
+    screen: {backgroundColor: colors.surface.base},
+    header: {borderBottomColor: colors.border.default},
+    backButton: {borderColor: colors.border.default, backgroundColor: colors.surface.card},
+    backIcon: colors.text.muted,
+    title: {color: colors.text.primary, fontFamily: type.title.fontFamily},
+    secondaryText: {color: colors.text.secondary, fontFamily: type.body.fontFamily},
+    mutedText: {color: colors.text.muted, fontFamily: type.caption.fontFamily},
+    chip: {backgroundColor: colors.surface.elevated},
+    chipText: {color: colors.text.muted, fontFamily: type.subtitle.fontFamily},
+    chipTextActive: {color: colors.brand.onBrand},
+    divider: {backgroundColor: colors.border.default},
+    guideCard: {backgroundColor: colors.surface.card, borderColor: colors.border.default},
+    elevatedCard: {backgroundColor: colors.surface.elevated, borderColor: colors.border.default},
+    input: {
+      backgroundColor: colors.surface.card,
+      borderColor: colors.border.default,
+      color: colors.text.primary,
+      fontFamily: type.body.fontFamily,
+    },
+    deviceCard: {backgroundColor: colors.surface.elevated, borderColor: colors.border.focus},
+    deviceSetup: {borderTopColor: colors.border.default},
+    warningCard: {color: colors.text.secondary, backgroundColor: colors.status.warningBg},
+    errorCard: {backgroundColor: colors.status.dangerBg, borderColor: colors.status.danger},
+    errorText: {color: colors.status.danger},
+    footer: {backgroundColor: colors.surface.base, borderTopColor: colors.border.default},
+    footerBack: {backgroundColor: colors.surface.card, borderColor: colors.border.default},
+    primaryText: {color: colors.brand.onBrand, fontFamily: type.button.fontFamily},
+    disabledButton: {backgroundColor: colors.surface.elevated},
+  }), [colors, type]);
 
   const handleSubmit = () => {
     if (loading) return;
@@ -387,15 +429,15 @@ const BrokerConnectStepperSheet = ({
       visible={!!isVisible}
       onClose={loading ? () => {} : onClose}
     >
-      <View style={[styles.fullScreen, { paddingTop: insets.top }]}>
+      <View style={[styles.fullScreen, skin.screen, { paddingTop: insets.top }]}>
         {/* ── Header ─────────────────────────────────────────── */}
-        <View style={styles.headerRow}>
+        <View style={[styles.headerRow, skin.header]}>
           <TouchableOpacity
             onPress={loading ? undefined : onClose}
-            style={styles.backBtn}
+            style={[styles.backBtn, skin.backButton]}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <ChevronLeft size={22} color={designColor('6b7280')} />
+            <ChevronLeft size={22} color={skin.backIcon} />
           </TouchableOpacity>
           {brokerLogo ? (
             <View style={styles.logoTile} testID="broker-connect-logo">
@@ -414,23 +456,23 @@ const BrokerConnectStepperSheet = ({
             </LinearGradient>
           )}
           <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
+            <Text style={[styles.headerTitle, skin.title]} numberOfLines={1}>
               Connect {broker}
             </Text>
-            <Text style={styles.headerSub}>Secure broker connection</Text>
+            <Text style={[styles.headerSub, skin.mutedText]}>Secure broker connection</Text>
           </View>
         </View>
 
         {/* ── Step chips ─────────────────────────────────────── */}
         {!config.hideStepChips && <View style={styles.stepChipsRow}>
-          <View style={[styles.stepChip, !isOtp && { backgroundColor: accent }]}>
-            <Text style={[styles.stepChipText, !isOtp && styles.stepChipTextActive]}>
+          <View style={[styles.stepChip, skin.chip, !isOtp && { backgroundColor: accent }]}>
+            <Text style={[styles.stepChipText, skin.chipText, !isOtp && styles.stepChipTextActive, !isOtp && skin.chipTextActive]}>
               1 · Credentials
             </Text>
           </View>
-          <View style={styles.stepDivider} />
-          <View style={[styles.stepChip, isOtp && { backgroundColor: accent }]}>
-            <Text style={[styles.stepChipText, isOtp && styles.stepChipTextActive]}>
+          <View style={[styles.stepDivider, skin.divider]} />
+          <View style={[styles.stepChip, skin.chip, isOtp && { backgroundColor: accent }]}>
+            <Text style={[styles.stepChipText, skin.chipText, isOtp && styles.stepChipTextActive, isOtp && skin.chipTextActive]}>
               2 · OTP
             </Text>
           </View>
@@ -448,6 +490,7 @@ const BrokerConnectStepperSheet = ({
               accent={accent}
               broker={broker}
               onVideo={openWalkthrough}
+              skin={skin}
             />
           )}
 
@@ -462,6 +505,7 @@ const BrokerConnectStepperSheet = ({
                 deviceTotp={deviceTotp}
                 accent={accent}
                 loading={loading}
+                skin={skin}
               />
             )}
             {fields.map((f, i) => {
@@ -472,13 +516,13 @@ const BrokerConnectStepperSheet = ({
               // add/remove fields as server state resolves, and an index key
               // would hand one field's native text to a different field.
               <View key={fieldKey}>
-                <Text style={styles.label}>{f.label} *</Text>
+                <Text style={[styles.label, skin.secondaryText]}>{f.label} *</Text>
                 <View style={styles.inputRow}>
                   <TextInput
                     ref={node => {
                       inputRefs.current[fieldKey] = node;
                     }}
-                    style={[styles.input, { flex: 1 }]}
+                    style={[styles.input, skin.input, { flex: 1 }]}
                     // `uncontrolled` fields own their native text. On a busy
                     // JS thread (large accounts), a controlled `value` that
                     // the parent rewrites (uppercase / digits-only) races the
@@ -488,7 +532,7 @@ const BrokerConnectStepperSheet = ({
                       : { value: f.value })}
                     onChangeText={f.onChange}
                     placeholder={f.placeholder || `Enter your ${f.label}`}
-                    placeholderTextColor={designColor('9ca3af')}
+                    placeholderTextColor={colors.text.muted}
                     secureTextEntry={!!f.password && !revealPassword}
                     autoCapitalize={f.autoCapitalize || 'none'}
                     autoCorrect={false}
@@ -528,8 +572,8 @@ const BrokerConnectStepperSheet = ({
                     </TouchableOpacity>
                   )}
                 </View>
-                {!!f.error && <Text style={styles.fieldError}>{f.error}</Text>}
-                {!f.error && !!f.hint && <Text style={styles.fieldHint}>{f.hint}</Text>}
+                {!!f.error && <Text style={[styles.fieldError, skin.errorText]}>{f.error}</Text>}
+                {!f.error && !!f.hint && <Text style={[styles.fieldHint, skin.mutedText]}>{f.hint}</Text>}
               </View>
               );
             })}
@@ -538,21 +582,22 @@ const BrokerConnectStepperSheet = ({
                 deviceTotp={deviceTotp}
                 accent={accent}
                 loading={loading}
+                skin={skin}
               />
             )}
             </>
           ) : (
             <View>
-              <Text style={styles.otpHint}>
+              <Text style={[styles.otpHint, skin.secondaryText]}>
                 {otp?.sentToText ||
                   'Enter the OTP sent to your registered mobile/email.'}
               </Text>
               <TextInput
-                style={[styles.input, styles.otpInput]}
+                style={[styles.input, skin.input, styles.otpInput]}
                 value={otp?.value || ''}
                 onChangeText={otp?.onChange}
                 placeholder="Enter OTP"
-                placeholderTextColor={designColor('9ca3af')}
+                placeholderTextColor={colors.text.muted}
                 keyboardType="number-pad"
                 maxLength={8}
                 editable={!loading}
@@ -576,14 +621,14 @@ const BrokerConnectStepperSheet = ({
                 </TouchableOpacity>
               )}
               {!!otp?.expiryHint && (
-                <Text style={styles.expiryHint}>{otp.expiryHint}</Text>
+                <Text style={[styles.expiryHint, skin.mutedText]}>{otp.expiryHint}</Text>
               )}
             </View>
           )}
 
           {!!error && (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>{error}</Text>
+            <View style={[styles.errorBox, skin.errorCard]}>
+              <Text style={[styles.errorText, skin.errorText]}>{error}</Text>
             </View>
           )}
           {!!alternateAction?.onPress && (
@@ -599,14 +644,14 @@ const BrokerConnectStepperSheet = ({
         </ScrollView>
 
         {/* ── Footer ─────────────────────────────────────────── */}
-        <View style={[styles.footer, { paddingBottom: 12 + insets.bottom }]}>
+        <View style={[styles.footer, skin.footer, { paddingBottom: 12 + insets.bottom }]}>
           {isOtp && !!onBackStep && (
             <TouchableOpacity
-              style={styles.footerBackBtn}
+              style={[styles.footerBackBtn, skin.footerBack]}
               onPress={onBackStep}
               disabled={loading}
             >
-              <Text style={styles.footerBackText}>Back</Text>
+              <Text style={[styles.footerBackText, skin.secondaryText]}>Back</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
@@ -614,14 +659,15 @@ const BrokerConnectStepperSheet = ({
               styles.submitBtn,
               { backgroundColor: accent },
               !submitEnabled && styles.submitBtnDisabled,
+              !submitEnabled && skin.disabledButton,
             ]}
             onPress={handleSubmit}
             disabled={!submitEnabled}
           >
             {loading ? (
-              <ActivityIndicator color={designColor('ffffff')} />
+              <ActivityIndicator color={skin.primaryText.color} />
             ) : (
-              <Text style={styles.submitBtnText}>{submitLabel}</Text>
+              <Text style={[styles.submitBtnText, skin.primaryText]}>{submitLabel}</Text>
             )}
           </TouchableOpacity>
         </View>

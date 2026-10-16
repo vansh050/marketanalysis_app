@@ -12,13 +12,14 @@
  *   2. Add an import + entry in this file.
  *   3. Set `DESIGN_VARIANT=<variant>` in `.env`.
  *
- * The active variant is resolved at `<DesignProvider>` mount time by
+ * The active variant is resolved by
  * `src/design/resolveDesign.js`. Resolution order:
  *   1. DesignProvider's `variant` prop (mostly for tests)
  *   2. `DESIGN_VARIANT` env var
- *   3. `APP_VARIANT` env var (warning suppressed if no matching folder —
+ *   3. Statically registered runtime advisor design (AlphaB2B master only)
+ *   4. `APP_VARIANT` env var (warning suppressed if no matching folder —
  *      APP_VARIANT is a business-config selector, not a design selector)
- *   4. `default`
+ *   5. `default`
  *
  * See docs/DESIGN_SYSTEM_ARCHITECTURE.md § Registry and § Variant selection.
  * ============================================================================

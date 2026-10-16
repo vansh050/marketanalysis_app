@@ -34,7 +34,7 @@ import {FyersTpinModal} from '../DdpiModal';
 import Config from 'react-native-config';
 import {OtherBrokerModel} from '../DdpiModal';
 import {generateToken} from '../../utils/SecurityTokenManager';
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken} from '../../design/literalTokens';
 import {sellOrdersForAuth} from '../../utils/sellAuthOrders';
 const RebalanceAdviceContent = React.memo(
   ({
@@ -122,6 +122,13 @@ const RebalanceAdviceContent = React.memo(
     const [isSwitchOn, setIsSwitchOn] = useState(false);
     // Grouping the data in pairs of two
     const {width: screenWidth} = useWindowDimensions();
+    // A design with fixed side margins sets rebalanceAdvices.cardSideInset so
+    // the card lines up with its other cards (Kyzen: 24). Unset keeps 94%.
+    // The +10 offsets RebalanceCard's own marginRight.
+    const cardSideInset = Number(designToken('rebalanceAdvices.cardSideInset'));
+    const homeCardWidth = Number.isFinite(cardSideInset) && cardSideInset >= 0
+      ? screenWidth - 2 * cardSideInset + 10
+      : screenWidth * 0.94;
     const groupedData = [];
     const [stockDetails, setStockDetails] = useState([]);
 
@@ -485,7 +492,7 @@ const RebalanceAdviceContent = React.memo(
         <View
           style={[
             styles.cardContainerReb,
-            {width: screenWidth * 0.94, marginVertical: type === 'All' ? 5 : 0},
+            {width: homeCardWidth, marginVertical: type === 'All' ? 5 : 0},
           ]}>
           {item && (
             <RebalanceCard

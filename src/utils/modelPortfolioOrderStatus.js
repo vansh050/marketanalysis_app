@@ -17,14 +17,48 @@ const timeOf = entry => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const BROKER_OPEN_STATUSES = [
+  'OPEN', 'PENDING', 'TRANSIT', 'TRIGGER PENDING', 'OPEN PENDING',
+  'VALIDATION PENDING', 'PUT ORDER REQ RECEIVED', 'MODIFY PENDING',
+  'AFTER MARKET ORDER REQ RECEIVED', 'AMO REQ RECEIVED',
+];
+
+// Claim state is broker evidence (ccxt publisher_allocation_journal):
+// `not_observed` (broker_status NOT_OBSERVED) = a full order-book read
+// found no order for this leg;
+// `active` / `bound` = the leg was opened in Kite and may be live there.
+// Only the first is "not sent". moneyman/testaccount 2026-10-12: an OPEN
+// VRFILMS SELL resting at Zerodha rendered "NOT SENT — no matching broker
+// order" and offered "Review failed SELL", inviting a duplicate sell.
 const publisherStatus = claim => {
   if (claim?.broker_status) return claim.broker_status;
   const state = String(claim?.state || '').toLowerCase();
+  if (state === 'not_observed') return 'NOT SENT';
   if (state === 'complete') return 'COMPLETE';
   if (state === 'failed') return 'REJECTED';
   if (state === 'prepared') return 'READY TO SUBMIT';
   if (claim?.broker_order_id) return 'PENDING';
+  if (state === 'active' || state === 'bound' || state === 'partial') {
+    return 'AWAITING BROKER';
+  }
   return 'NOT SENT';
+};
+
+const publisherStatusMessage = (rawStatus, brokerName = 'Zerodha') => {
+  const status = String(rawStatus || '').trim().toUpperCase().replace(/_/g, ' ');
+  if (status === 'NOT SENT' || status === 'NOT OBSERVED') {
+    return 'No matching broker order was found for this approved leg.';
+  }
+  if (status === 'READY TO SUBMIT') {
+    return `This frozen buy is ready to open in ${brokerName}.`;
+  }
+  if (status === 'AWAITING BROKER') {
+    return `Opened in ${brokerName} — waiting for the broker to confirm this order. Don't place it again.`;
+  }
+  if (BROKER_OPEN_STATUSES.includes(status)) {
+    return `Open at ${brokerName} — waiting to be filled. Don't place it again.`;
+  }
+  return undefined;
 };
 
 const publisherOrders = attempt => {
@@ -41,11 +75,7 @@ const publisherOrders = attempt => {
       legIndex: claim.leg_index,
       averagePrice: claim.average_price,
       orderStatusMessage:
-        publisherStatus(claim) === 'NOT SENT'
-          ? 'No matching broker order was found for this approved leg.'
-          : publisherStatus(claim) === 'READY TO SUBMIT'
-            ? 'This frozen buy is ready to open in Zerodha.'
-          : undefined,
+        claim.terminal_message || publisherStatusMessage(publisherStatus(claim)),
     });
   if (legs.length > 0) {
     return legs.map((leg, index) => {

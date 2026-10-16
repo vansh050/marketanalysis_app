@@ -35,6 +35,15 @@ const resolveVariant = ({
 const literalPath = variant =>
   path.join(ROOT, 'designs', variant, 'tokens', 'literals.json');
 
+// Named design tokens for shared host surfaces (designs/<variant>/tokens/
+// hostTokens.json): a flat {"<surface>.<role>": "<value>"} map. The default
+// design defines every name with today's value; a variant may override only
+// names the default defines. designToken('<name>') call sites compile to the
+// merged value, so module-level StyleSheets get per-variant values with no
+// runtime branch. See docs/DESIGN_SYSTEM_ARCHITECTURE.md § Named host tokens.
+const hostTokenPath = variant =>
+  path.join(ROOT, 'designs', variant, 'tokens', 'hostTokens.json');
+
 const readLiteralFile = target => {
   if (!fs.existsSync(target)) {return {};}
   return JSON.parse(fs.readFileSync(target, 'utf8'));
@@ -52,7 +61,17 @@ const loadOverrides = options => {
   const colors = Object.fromEntries(
     Object.entries(parsed.colors || {}).map(([key, value]) => [key.toLowerCase(), value]),
   );
-  return {variant, colors, fonts: parsed.fonts || {}};
+  const defaultTokens = readLiteralFile(hostTokenPath('default'));
+  const variantTokens =
+    variant === 'default' ? {} : readLiteralFile(hostTokenPath(variant));
+  const unknown = Object.keys(variantTokens).filter(key => !(key in defaultTokens));
+  if (unknown.length) {
+    throw new Error(
+      `designs/${variant}/tokens/hostTokens.json overrides names the default design does not define: ${unknown.join(', ')}`,
+    );
+  }
+  const tokens = {...defaultTokens, ...variantTokens};
+  return {variant, colors, fonts: parsed.fonts || {}, tokens};
 };
 
 const getDesignLiteralCacheKey = options => {
@@ -61,8 +80,8 @@ const getDesignLiteralCacheKey = options => {
   hash.update(`variant:${variant}\0`);
   hash.update(fs.readFileSync(__filename));
 
-  const files = [literalPath('default')];
-  if (variant !== 'default') {files.push(literalPath(variant));}
+  const files = [literalPath('default'), hostTokenPath('default')];
+  if (variant !== 'default') {files.push(literalPath(variant), hostTokenPath(variant));}
   for (const file of files) {
     hash.update(`\0file:${path.relative(ROOT, file)}\0`);
     if (fs.existsSync(file)) {hash.update(fs.readFileSync(file));}
@@ -77,6 +96,7 @@ const designLiteralsPlugin = ({ types: t }) => ({
     this.designLiteralImports = [];
     this.designColorNames = new Set();
     this.designFontNames = new Set();
+    this.designTokenNames = new Set();
     this.designLiteralOverrides = loadOverrides({envPath: this.opts?.envPath});
   },
   visitor: {
@@ -87,6 +107,7 @@ const designLiteralsPlugin = ({ types: t }) => ({
         const imported = specifier.imported?.name;
         if (imported === 'designColor') {this.designColorNames.add(specifier.local.name);}
         if (imported === 'designFont') {this.designFontNames.add(specifier.local.name);}
+        if (imported === 'designToken') {this.designTokenNames.add(specifier.local.name);}
       }
       this.designLiteralImports.push(pathRef);
     },
@@ -100,6 +121,23 @@ const designLiteralsPlugin = ({ types: t }) => ({
         }
         const override = this.designLiteralOverrides.colors[key];
         pathRef.replaceWith(t.stringLiteral(override || `#${key}`));
+      } else if (this.designTokenNames.has(callee.name)) {
+        const name = args[0].value;
+        const tokens = this.designLiteralOverrides.tokens;
+        if (!Object.prototype.hasOwnProperty.call(tokens, name)) {
+          throw pathRef.buildCodeFrameError(
+            `Unknown designToken "${name}" — define it in designs/default/tokens/hostTokens.json`,
+          );
+        }
+        // null = "unset": emit `undefined` (React Native ignores an undefined
+        // style value, and `undefined || fallback` takes the fallback). Never
+        // stringify it — "null" is an invalid colour/font name.
+        const value = tokens[name];
+        pathRef.replaceWith(
+          value === null || value === undefined
+            ? t.identifier('undefined')
+            : t.stringLiteral(String(value)),
+        );
       } else if (this.designFontNames.has(callee.name)) {
         const font = args[0].value;
         pathRef.replaceWith(t.stringLiteral(this.designLiteralOverrides.fonts[font] || font));

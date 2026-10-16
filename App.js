@@ -31,6 +31,7 @@ import server from './src/utils/serverConfig';
 import {TradeProvider} from './src/screens/TradeContext';
 import {ConfigProvider} from './src/context/ConfigContext';
 import SupportWidget from './src/components/SupportWidget/SupportWidget';
+import themedToastConfig from './src/components/themedToastConfig';
 import {GstConfigProvider} from './src/context/GstConfigContext';
 import eventEmitter from './src/components/EventEmitter';
 import {
@@ -303,7 +304,7 @@ const App = () => {
                             userEmail={userEmail}
                             isAuthenticated={!!user}
                           />
-                          <Toast />
+                          <Toast config={themedToastConfig} />
                         </SafeAreaView>
                         <ModalManager />
                         <BrokerAlertModal />
@@ -321,7 +322,7 @@ const App = () => {
                             userEmail={userEmail}
                             isAuthenticated={!!user}
                           />
-                          <Toast />
+                          <Toast config={themedToastConfig} />
                         </SafeAreaView>
                         <ModalManager />
                         <BrokerAlertModal />

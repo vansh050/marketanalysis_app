@@ -10,6 +10,7 @@
 import React, { useCallback, useState } from 'react';
 import { InteractionManager, Platform } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
+import notifee from '@notifee/react-native';
 import axios from 'axios';
 import { useConfig } from '../../context/ConfigContext';
 import APP_VARIANTS from '../../utils/Config';
@@ -27,6 +28,8 @@ import {
     Trash2,
     UserPlus,
     MessageSquare,
+    LockKeyhole,
+    BellRing,
 } from 'lucide-react-native';
 
 import { getAuth } from '@react-native-firebase/auth';
@@ -60,6 +63,8 @@ const MORE_ICONS = {
     trash: Trash2,
     userPlus: UserPlus,
     messageSquare: MessageSquare,
+    lock: LockKeyhole,
+    bell: BellRing,
 };
 
 // "Change Manager" lets a user switch which advisor/RA they sit under — only
@@ -237,9 +242,19 @@ const AccountSettingsScreen = ({ navigation }) => {
 
     const ACTIONS = {
         linkAccount: handleLinkExistingAccount,
+        notificationPreferences: async () => {
+            try {
+                await notifee.openNotificationSettings();
+            } catch (error) {
+                console.warn('[Account] Unable to open notification settings:', error?.message);
+            }
+        },
     };
 
     const toMenuItem = item => ({
+        // Catalog key — additive; lets a variant relabel or group a row
+        // without forking the catalog (Kyzen profile, Figma 2021:636).
+        key: item.key,
         icon: MORE_ICONS[item.icon] || Link,
         label: item.label,
         onPress: item.action
@@ -248,6 +263,18 @@ const AccountSettingsScreen = ({ navigation }) => {
                 ? handleDeleteAccount
                 : () => handleMenuPress(item.route),
         ...(item.destructive ? { isLogout: true } : {}),
+        // A presentation that supports it asks before signing out; the row's
+        // onPress runs only after the customer confirms.
+        ...(item.key === 'logout'
+            ? {
+                confirm: {
+                    title: 'Log out?',
+                    message: 'You will need to sign in again to see your portfolio and recommendations.',
+                    confirmLabel: 'Log out',
+                    cancelLabel: 'Cancel',
+                },
+            }
+            : {}),
     });
 
     const menuItems = navLayout.moreSections
@@ -315,6 +342,7 @@ const AccountSettingsScreen = ({ navigation }) => {
                     // Default presentation doesn't surface an Edit affordance
                     // and ignores this action.
                     onEditProfile: () => setShowProfileModal(true),
+                    onOpenNotificationPreferences: ACTIONS.notificationPreferences,
                 }}
             />
             <ProfileModal

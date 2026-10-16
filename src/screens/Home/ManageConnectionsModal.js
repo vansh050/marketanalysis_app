@@ -11,7 +11,6 @@ import {
 } from 'react-native';
 import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
-import BackupStaticIp from '../../components/BrokerConnectionModal/BackupStaticIp';
 import Toast from 'react-native-toast-message';
 import server from '../../utils/serverConfig';
 import Config from 'react-native-config';
@@ -24,7 +23,6 @@ import { registerCallback } from '../../utils/brokerAuth';
 import {
   handleSmartReauth,
   flipPrimaryBroker,
-  markBrokerExpired,
 } from '../../utils/reauthHelpers';
 import {
   getServerBrokerReconnectState,
@@ -34,8 +32,9 @@ import {getAccountEmail} from '../../utils/accountEmail';
 import {startAccountReconciliation} from '../../services/ModelPortfolioService';
 import {removeDeviceTotp} from '../../services/DeviceTotpVault';
 import {removePersistedBrokerCredentials} from '../../services/DeviceBrokerCredentialVault';
+import { designToken } from '../../design/literalTokens';
+import BackupStaticIp from '../../components/BrokerConnectionModal/BackupStaticIp';
 
-import { designColor } from '../../design/literalTokens';
 
 // Backend `connected_brokers[].broker` → ModalManager switch key. Keep in
 // sync with src/GlobalUIModals/ModalManager.js. Brokers not listed here
@@ -293,25 +292,15 @@ const ManageConnectionsModal = ({
 
     setReauthing(brokerName);
     try {
-      // Step 1: Flip primary to this broker up-front. Clicking Reconnect
-      // is the user's signal that they want this broker to be active,
-      // even if they back out of the OAuth step that follows. Mirrors
-      // web subscription.js:161 (setPrimaryBrokerRequest).
-      await flipPrimaryBroker(brokerName, userEmail, configData);
-
-      // Step 1b: Mark broker as `status=expired` so UI shows "Re-auth
-      // needed" until the subsequent OAuth/credentials flow succeeds.
-       // The per-broker connect-broker route will overwrite to 'connected'
-       // on success; on failure / back-out the expired state correctly
-       // sticks. Without this, brokers with future-dated token_expire
-       // (e.g. AliceBlue's hardcoded +24h) lingered as "Connected" even
-       // after a failed reconnect.
-       // DefinEdge skipped: its reauth-url short-circuits with
-       // `alreadyConnected` when the session is live, and flipping
-       // status=expired up-front would defeat that check.
-       if (brokerName !== 'DefinEdge Securities') {
-         await markBrokerExpired(brokerName, userEmail, configData);
-       }
+      // Kyzen QA 2026-10-14: Reconnect changes NOTHING on the account
+      // until the login succeeds. It used to flip primary_broker up-front
+      // and mark the broker status=expired; a backed-out or abandoned
+      // login then left an expired broker as primary and labelled a live
+      // session "Session Expired" (Fyers, token still valid). A successful
+      // login makes the broker primary server-side (SDK exchange-token
+      // always sets primary_broker; legacy connect routes do too). A dead
+      // session is shown by the live funds check (brokerSessionRejected on
+      // the Broker connection screen), i.e. on positive evidence only.
 
       // Step 2: Try the smart credential-reauth path (Upstox/ICICI/HDFC/
       // Motilal/Fyers). It hits /reauth-url, decrypts stored creds, and
@@ -331,6 +320,9 @@ const ManageConnectionsModal = ({
         // Refresh broker status + close ManageConnections; show a
         // success toast.
         console.log('[ManageConnections] silent/active OK:', brokerName, result.alreadyConnected ? '(already connected)' : '(refreshed)');
+        // No login screen ran, so no connect route made it primary. The
+        // session is confirmed live — switch now.
+        await flipPrimaryBroker(brokerName, userEmail, configData);
         try {
           if (typeof Toast?.show === 'function') {
             Toast.show({
@@ -417,7 +409,7 @@ const ManageConnectionsModal = ({
             }
           >
             {switching === item.broker ? (
-              <ActivityIndicator size="small" color={designColor('0056b7')} />
+              <ActivityIndicator size="small" color={designToken('manageConnections.accent')} />
             ) : (
               <Text style={styles.switchBtnText}>Switch</Text>
             )}
@@ -440,7 +432,7 @@ const ManageConnectionsModal = ({
           }
         >
           {reauthing === item.broker ? (
-            <ActivityIndicator size="small" color={item.is_expired ? designColor('fff') : designColor('0056b7')} />
+            <ActivityIndicator size="small" color={item.is_expired ? designToken('manageConnections.surface') : designToken('manageConnections.accent')} />
           ) : (
             <Text style={item.is_expired ? styles.reconnectBtnText : styles.reauthBtnText}>
               {item.is_expired ? 'Reconnect' : 'Re-auth'}
@@ -458,7 +450,7 @@ const ManageConnectionsModal = ({
           }
         >
           {removing === item.broker ? (
-            <ActivityIndicator size="small" color={designColor('dc2626')} />
+            <ActivityIndicator size="small" color={designToken('manageConnections.danger')} />
           ) : (
             <Text style={styles.disconnectBtnText}>Remove</Text>
           )}
@@ -509,7 +501,7 @@ const ManageConnectionsModal = ({
 
           {loading ? (
             <View style={styles.loadingContainer}>
-              <ActivityIndicator size="large" color={designColor('0056b7')} />
+              <ActivityIndicator size="large" color={designToken('manageConnections.accent')} />
             </View>
           ) : connections.length === 0 ? (
             <View style={styles.emptyContainer}>
@@ -544,7 +536,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   container: {
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('manageConnections.surface'),
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     maxHeight: '80%',
@@ -556,23 +548,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: designColor('e5e7eb'),
+    borderBottomColor: designToken('manageConnections.border'),
   },
   title: {
     fontSize: 20,
     fontWeight: '700',
-    color: designColor('111827'),
+    color: designToken('manageConnections.text'),
   },
   closeBtn: {
     padding: 4,
   },
   closeBtnText: {
     fontSize: 20,
-    color: designColor('6b7280'),
+    color: designToken('manageConnections.textSecondary'),
   },
   subtitle: {
     fontSize: 14,
-    color: designColor('6b7280'),
+    color: designToken('manageConnections.textSecondary'),
     paddingHorizontal: 20,
     paddingTop: 12,
     lineHeight: 20,
@@ -587,7 +579,7 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: designColor('6b7280'),
+    color: designToken('manageConnections.textSecondary'),
   },
   list: {
     paddingHorizontal: 20,
@@ -599,7 +591,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: designColor('e5e7eb'),
+    borderBottomColor: designToken('manageConnections.border'),
   },
   connectionInfo: {
     flex: 1,
@@ -611,48 +603,48 @@ const styles = StyleSheet.create({
   brokerName: {
     fontSize: 16,
     fontWeight: '600',
-    color: designColor('111827'),
+    color: designToken('manageConnections.text'),
   },
   activeBadge: {
-    backgroundColor: designColor('dcfce7'),
+    backgroundColor: designToken('manageConnections.successSoft'),
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
   },
   activeBadgeText: {
     fontSize: 12,
-    color: designColor('166534'),
+    color: designToken('manageConnections.successStrong'),
     fontWeight: '500',
   },
   credentialsBadge: {
-    backgroundColor: designColor('fef3c7'),
+    backgroundColor: designToken('manageConnections.warningSoft'),
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
   },
   credentialsBadgeText: {
     fontSize: 12,
-    color: designColor('92400e'),
+    color: designToken('manageConnections.warningStrong'),
     fontWeight: '500',
   },
   expiredBadge: {
-    backgroundColor: designColor('fef3c7'),
+    backgroundColor: designToken('manageConnections.warningSoft'),
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: designColor('f59e0b'),
+    borderColor: designToken('manageConnections.warning'),
   },
   expiredBadgeText: {
     fontSize: 12,
-    color: designColor('92400e'),
+    color: designToken('manageConnections.warningStrong'),
     fontWeight: '600',
   },
   reconnectBtn: {
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 6,
-    backgroundColor: designColor('f59e0b'),
+    backgroundColor: designToken('manageConnections.warning'),
     minWidth: 84,
     alignItems: 'center',
     justifyContent: 'center',
@@ -662,7 +654,7 @@ const styles = StyleSheet.create({
   },
   reconnectBtnText: {
     fontSize: 13,
-    color: designColor('fff'),
+    color: designToken('manageConnections.surface'),
     fontWeight: '600',
   },
   reauthBtn: {
@@ -670,15 +662,15 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: designColor('0056b7'),
-    backgroundColor: designColor('fff'),
+    borderColor: designToken('manageConnections.accent'),
+    backgroundColor: designToken('manageConnections.surface'),
     minWidth: 72,
     alignItems: 'center',
     justifyContent: 'center',
   },
   reauthBtnText: {
     fontSize: 13,
-    color: designColor('0056b7'),
+    color: designToken('manageConnections.accent'),
     fontWeight: '600',
   },
   actionButtons: {
@@ -693,14 +685,14 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: designColor('0056b7'),
+    borderColor: designToken('manageConnections.accent'),
   },
   switchBtnDisabled: {
     opacity: 0.5,
   },
   switchBtnText: {
     fontSize: 13,
-    color: designColor('0056b7'),
+    color: designToken('manageConnections.accent'),
     fontWeight: '500',
   },
   disconnectBtn: {
@@ -708,14 +700,14 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: designColor('dc2626'),
+    borderColor: designToken('manageConnections.danger'),
   },
   disconnectBtnDisabled: {
     opacity: 0.5,
   },
   disconnectBtnText: {
     fontSize: 13,
-    color: designColor('dc2626'),
+    color: designToken('manageConnections.danger'),
     fontWeight: '500',
   },
   addBrokerBtn: {
@@ -725,19 +717,19 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
     borderStyle: 'dashed',
-    borderColor: designColor('0056b7'),
+    borderColor: designToken('manageConnections.accent'),
     alignItems: 'center',
     backgroundColor: 'rgba(0, 86, 183, 0.06)',
   },
   addBrokerBtnText: {
     fontSize: 14,
     fontWeight: '600',
-    color: designColor('0056b7'),
+    color: designToken('manageConnections.accent'),
   },
   doneBtn: {
     marginHorizontal: 20,
     marginTop: 16,
-    backgroundColor: designColor('0056b7'),
+    backgroundColor: designToken('manageConnections.accent'),
     paddingVertical: 14,
     borderRadius: 8,
     alignItems: 'center',
@@ -745,7 +737,7 @@ const styles = StyleSheet.create({
   doneBtnText: {
     fontSize: 16,
     fontWeight: '600',
-    color: designColor('fff'),
+    color: designToken('manageConnections.surface'),
   },
 });
 

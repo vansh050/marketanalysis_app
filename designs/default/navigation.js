@@ -52,5 +52,8 @@ export default {
     ],
     // Only used when advisor config enables phone-first login.
     preLogin: ['onboardingCarousel', 'phoneLogin'],
+    // `backend` preserves the fleet default: the advisor config decides
+    // whether the pre-login sequence is shown.
+    preLoginPolicy: 'backend',
     chrome: {legacyToolbar: true, tabBarHeight: 60},
 };

@@ -107,10 +107,10 @@ const WishSearch = ({viewModel, actions}) => {
                     }).filter(item => item)
                 }
                 search
-
+         
                 labelField="label"
                 valueField="label"
-
+             
                 placeholder={!entry.isFocus ? 'Select symbol' : ''}
                 searchPlaceholder="Search..."
                 value={entry.selectedSymbol}
@@ -131,9 +131,9 @@ const WishSearch = ({viewModel, actions}) => {
                   const updated = [...adviceDerivativesEntries];
                   updated[index].selectedSymbol = item.label;
                   updated[index].isFocus = false;
-
+                
                   setAdviceDerivativesEntries(updated);
-
+                
                   handleDerivativesSymbolSelect(
                     index,
                     item,
@@ -145,21 +145,21 @@ const WishSearch = ({viewModel, actions}) => {
                   const sym=item?.value;
                   console.log('symmmmkm',sym);
                   setsymbolfno(sym);
-
+                                  
                   const entry = updated[index];
                   if (entry.selectedSymbol && entry.strike && optionType) {
                     entry.optionType = optionType;
                     addFnoResult(entry);
                   }
                 }}
-
+                
                 onChangeText={(text) => {
                   const updatedEntries = [...adviceDerivativesEntries];
                   updatedEntries[index].symbol = text;
                   handleDerivativesInputChange(index, text);
                 }}
                 renderItem={(item) => <DropdownRenderItem text={item.label} />}
-
+    
               />
               {/* Strike Price Dropdown (same styling, mock data example) */}
               <Dropdown
@@ -196,7 +196,7 @@ const WishSearch = ({viewModel, actions}) => {
                     addFnoResult(entry);
                   }
                 }}
-
+                
                 onFocus={() => setFocusedIndex(`strike-${index}`)}
                 onBlur={() => setFocusedIndex(null)}
                 renderItem={(item) => <DropdownRenderItem text={item.label} />}
@@ -218,19 +218,19 @@ const WishSearch = ({viewModel, actions}) => {
                 value={optionType}
                 onChange={(item) => {
                   setOptionType(item.value);
-
+                
                   const updated = [...adviceDerivativesEntries];
                   updated[index].optionType = item.value;
                   setAdviceDerivativesEntries(updated);
-
+                
                   // Check if all 3 values exist, then add to fnoResults
                   const entry = updated[index];
-
+                 
                   if (entry.selectedSymbol && entry.strike && item.value) {
                     addFnoResult(entry);
                   }
                 }}
-
+                
                 renderItem={(item) => <DropdownRenderItem text={item.label} />}
                 onFocus={() => setFocusedIndex(`option-${index}`)}
                 onBlur={() => setFocusedIndex(null)}
@@ -388,7 +388,7 @@ const styles = StyleSheet.create({
     color: designColor('333'),
     backgroundColor: designColor('fafafa'),
   },
-
+  
   searchButton: {
     backgroundColor: designColor('4b75f2'),
     borderRadius: 6,
@@ -426,12 +426,12 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     alignSelf: 'flex-start', // prevent stretching in row
   },
-
+  
   stockMarketText: {
     color: designColor('76a9ea'),
     fontSize: 12,
   }
-,
+,  
   stockCompany: {
     fontSize: 12,
     fontFamily:designFont('Satoshi-Regular'),
@@ -454,12 +454,12 @@ const styles = StyleSheet.create({
     flex: 0.4,
     marginRight: 5,
   },
-
+  
   strikeDropdown: {
     flex: 0.3,
     marginRight: 5,
   },
-
+  
   optionTypeDropdown: {
     flex: 0.3,
   },
@@ -470,7 +470,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     marginTop: 10,
   },
-
+  
   backButton: {
     padding: 6,
     marginRight: 10,
@@ -478,7 +478,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     elevation: 2,
   },
-
+  
   tabWrapper: {
     flexDirection: 'row',
     backgroundColor: designColor('eaeaea'),
@@ -487,7 +487,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'space-between',
   },
-
+  
   tabButton: {
     paddingVertical: 8,
     flex:1,
@@ -497,21 +497,21 @@ const styles = StyleSheet.create({
     alignSelf:'center',
 
   },
-
+  
   activeTabButton: {
     backgroundColor: designColor('3d0e55'),
   },
-
+  
   tabButtonText: {
     fontSize: 14,
     color: designColor('333'),
     fontWeight: '500',
   },
-
+  
   activeTabButtonText: {
     color: designColor('fff'),
     fontWeight: '600',
   }
-
+  
 });
 export default WishSearch;

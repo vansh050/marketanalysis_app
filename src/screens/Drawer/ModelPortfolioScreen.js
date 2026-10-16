@@ -48,11 +48,20 @@ import {
 } from '../../utils/advisorContentProfile';
 
 import { designColor, designFont } from '../../design/literalTokens';
+import {attachCategoryImages, groupBespokePlansByCategory} from '../../utils/planCategories';
+import usePlanCategoryImages from '../../hooks/usePlanCategoryImages';
 
 const {width, width: ScreenWidth} = Dimensions.get('window');
 
 const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
-  const {userDetails, broker, getUserDeatils, configData} = useTrade();
+  const {
+    userDetails,
+    broker,
+    getUserDeatils,
+    configData,
+    modelPortfolioStrategyfinal,
+    modelPortfolioEntitlementsLoaded,
+  } = useTrade();
 
   const config = useConfig();
   const tokens = useTokens();
@@ -88,12 +97,35 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
   // Default presentation ignores `alphanomyPlans`.
   const alphanomyPlans = React.useMemo(
       () => ({
-          mp: (allStrategy || []).map((p) => shapeMpPlan(p)).filter(Boolean),
+          mp: (allStrategy || []).map((p) => {
+            const shaped = shapeMpPlan(p);
+            if (!shaped) return null;
+            const planName = String(p?.name || p?.model_name || '')
+              .toLowerCase()
+              .replace(/%20/g, ' ')
+              .replace(/\s+/g, '_')
+              .trim();
+            const isSubscribed = (modelPortfolioStrategyfinal || []).some((portfolio) =>
+              String(portfolio?.model_name || '')
+                .toLowerCase()
+                .replace(/%20/g, ' ')
+                .replace(/\s+/g, '_')
+                .trim() === planName,
+            );
+            return {...shaped, isSubscribed, subscriptionReady: modelPortfolioEntitlementsLoaded};
+          }).filter(Boolean),
           bespoke: (allBespoke || []).map((p) => shapeBespokePlan(p)).filter(Boolean),
       }),
-      [allStrategy, allBespoke],
+      [allStrategy, allBespoke, modelPortfolioStrategyfinal, modelPortfolioEntitlementsLoaded],
   );
   const [loading, setLoading] = useState();
+  // undefined = all bespoke plans; a name or null (uncategorised) = filtered.
+  const [bespokeCategoryFilter, setBespokeCategoryFilter] = useState(undefined);
+  const categoryImages = usePlanCategoryImages(getTenantSubdomain(configData));
+  const bespokeCategoryGroups = React.useMemo(
+    () => attachCategoryImages(groupBespokePlansByCategory(alphanomyPlans.bespoke), categoryImages),
+    [alphanomyPlans.bespoke, categoryImages],
+  );
   const [modalVisible, setModalVisible] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [OpenSubscribeModel, setOpenSubscribeModel] = useState(false);
@@ -366,7 +398,22 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
     const tabKey =
       params.kind === 'bespoke' ? 'bespoke' : 'modelportfolio';
     const tabIdx = routes.findIndex(r => r.key === tabKey);
-    if (tabIdx >= 0 && tabIdx !== index) setIndex(tabIdx);
+    // The Bespoke tab only exists once the bespoke catalogue has loaded, so a
+    // cold navigate from Home arrives before it. Keep the params until the
+    // target tab exists — this effect re-runs when `routes` changes — instead
+    // of clearing them and landing on the first tab.
+    if (tabIdx < 0) return;
+    if (tabIdx !== index) setIndex(tabIdx);
+    // Category entry point from Home (docs/BESPOKE_PLAN_CATEGORIES.md, web
+    // repo): `bespokeCategory` is a category name, or null for uncategorised
+    // plans. Absent = show every bespoke plan.
+    if (params.kind === 'bespoke') {
+      setBespokeCategoryFilter(
+        Object.prototype.hasOwnProperty.call(params, 'bespokeCategory')
+          ? params.bespokeCategory
+          : undefined,
+      );
+    }
 
     // 2. Action processing (subscribe / viewMore)
     const wantsSubscribe = params.subscribe === true;
@@ -379,6 +426,7 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
           subscribe: undefined,
           viewMore: undefined,
           planName: undefined,
+          bespokeCategory: undefined,
         });
       }
       return;
@@ -406,6 +454,7 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
         subscribe: undefined,
         viewMore: undefined,
         planName: undefined,
+        bespokeCategory: undefined,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -742,10 +791,15 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
         userName,
         config,
         alphanomyPlans,
+        bespokeCategoryGroups,
+        bespokeCategoryFilter,
       }}
       actions={{
         onGoBack: () => navigation.goBack(),
+        onHeaderBack: () => type === 'tab' ? navigation.navigate('Home') : navigation.goBack(),
+        onNotifications: () => navigation.navigate('NotificationListScreen'),
         onTabIndexChange: setIndex,
+        onBespokeCategoryChange: setBespokeCategoryFilter,
         onCloseModal: () => setModalVisible(false),
         // Alphanomy variant: tapping Subscribe Now on a shaped plan card
         // resolves the raw plan from allStrategy/allBespoke by id and fires

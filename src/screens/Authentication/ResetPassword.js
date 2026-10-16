@@ -26,6 +26,7 @@ import { generateToken } from '../../utils/SecurityTokenManager';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
+import { useNavigationLayout } from '../../navigation/useNavigationLayout';
 
 const ResetPasswordScreen = () => {
     const config = useConfig();
@@ -33,6 +34,7 @@ const ResetPasswordScreen = () => {
     const iconColor = mainColor || themeColor || 'rgba(100, 199, 59, 1)';
 
     const navigation = useNavigation();
+    const { authNavigation } = useNavigationLayout();
     const [email, setEmail] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -125,7 +127,14 @@ const ResetPasswordScreen = () => {
                 onEmailChange: setEmail,
                 onSubmit: handleResetPassword,
                 onDismissError: dismissError,
-                onNavigateBack: () => navigation.navigate('Login'),
+                // Back returns to wherever Reset password was opened from
+                // (Profile when signed in, Login when signed out). Login is
+                // only the fallback when there is no screen to go back to.
+                // 'stack-safe' (variant opt-in) goes back; 'legacy' opens Login.
+                onNavigateBack: () =>
+                    authNavigation === 'stack-safe' && navigation.canGoBack()
+                        ? navigation.goBack()
+                        : navigation.navigate('Login'),
             }}
         />
     );

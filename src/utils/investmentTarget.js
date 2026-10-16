@@ -27,3 +27,4 @@ export function investmentEntry({ mode, entered, preview, includePnl, dateTime }
     changeMode: 'full', changeAmount: null, dateTime,
   };
 }
+

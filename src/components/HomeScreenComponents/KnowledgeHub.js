@@ -414,6 +414,10 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
                 type, maxItems, gradient1, gradient2, mainColor, activeTab,
                 videos, blogs, pdf, modalVisible, title, currentUrl,
                 selectedVideo, videoModalVisible, insightsUrl: advisorContent.insightsUrl,
+                // Per-advisor courses gate (AdvisorConfig.courses_enabled via
+                // /api/app-advisor/get). A design shows a Courses entry only
+                // when this is true and wires it to actions.onOpenCourses.
+                coursesEnabled: config?.coursesEnabled === true,
             }}
             actions={{
                 handleViewAllPress, handleTabPress, handleContentPress,
@@ -421,6 +425,10 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
                 onStateChange, formatFileSize,
                 onBack: () => navigation.goBack(),
                 onOpenInsights: handleOpenInsights,
+                // Explicit courses destination. handleViewAllPress is the
+                // "view all" of the ACTIVE tab (videos / blogs / PDFs), so a
+                // Courses control must not reuse it.
+                onOpenCourses: () => navigation.navigate('MyCourses'),
             }}
             slots={{WebLink: LinkOpeningWeb}}
         />

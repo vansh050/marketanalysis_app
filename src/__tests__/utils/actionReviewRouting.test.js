@@ -42,6 +42,8 @@ const setup=(models=[])=>{
   hasRepairTrades:false,
   accountRecoveryTitle,holdingsReviewCanResolve,isPublisherLegTerminal,
   onReviewRebalance:jest.fn().mockResolvedValue(true),
+  // RebalanceAdvices module export (39fe03e2); resolves true = proceed.
+  confirmNewPortfolioIfNeeded:jest.fn().mockResolvedValue(true),
   classifyFundsResponse:()=>({ok:true}), funds:{data:{availablecash:100}},
  };
  for(const key of ['setStoreModalName','setModelPortfolioModelId','setisChangeModal','setLoading','setOpenTokenExpireModel',

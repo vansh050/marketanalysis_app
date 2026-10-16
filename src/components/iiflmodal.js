@@ -374,8 +374,8 @@ const IIFLModal = ({
 
   return (
     <CrossPlatformOverlay visible={isVisible} onClose={handleClose}>
-      <View style={[styles.fullScreen, {paddingTop: insets.top}]}>
-        <View style={[styles.header, {backgroundColor: accent}]}>
+      <View style={[styles.fullScreen, {paddingTop: insets.top}]}> 
+        <View style={[styles.header, {backgroundColor: accent}]}> 
           <TouchableOpacity
             onPress={handleClose}
             style={styles.headerAction}

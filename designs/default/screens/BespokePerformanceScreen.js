@@ -69,8 +69,10 @@ const Alpha100 = require('../../../src/assets/alpha-100.png');
 const defaultScreenWidth = Dimensions.get('window').width;
 const defaultScreenHeight = Dimensions.get('window').height;
 
-/* ---------- Main Presentation ---------- */
-const BespokePerformanceScreen = ({ viewModel, actions, slots }) => {
+// Single source of the presentation's prop defaults, shared by the screen
+// and BespokePerformanceModals (variants reuse the modal block so payment,
+// order and subscribe flows are wired exactly once).
+export const resolveBespokeProps = (viewModel, actions, slots) => {
     const vm = viewModel || {};
     const act = actions || {};
     const {
@@ -82,7 +84,6 @@ const BespokePerformanceScreen = ({ viewModel, actions, slots }) => {
         CustomTabBarMPPerformance,
         ConsentPopup,
     } = slots || {};
-    const insets = useSafeAreaInsets();
 
     const {
         modelName = '',
@@ -162,6 +163,395 @@ const BespokePerformanceScreen = ({ viewModel, actions, slots }) => {
         getSingleStrategyDetails = () => {},
         onHandleTabLayout = () => () => {},
     } = act;
+    return {
+        vm,
+        act,
+        PaymentSuccessModal,
+        UserStrategySubscribeModal,
+        MPInvestNowModal,
+        MPReviewTradeModal,
+        RecommendationSuccessModal,
+        CustomTabBarMPPerformance,
+        ConsentPopup,
+        modelName,
+        config,
+        strategyDetails,
+        latestRebalance,
+        planDetails,
+        specificPlan,
+        userEmail,
+        broker,
+        userDetails,
+        subscribed,
+        subscriptionStatus,
+        isActive,
+        pricingOptions,
+        selectedPricing,
+        currentPrice,
+        originalPrice,
+        discount,
+        tabIndex,
+        routes,
+        screenWidth,
+        screenHeight,
+        chartData,
+        colorMap,
+        confirmOrder,
+        calculatedPortfolioData,
+        calculatedLoading,
+        dataArray,
+        paymentModal,
+        paymentSuccess,
+        openStrategy,
+        openSuccessModal,
+        OpenSubscribeModel,
+        orderPlacementResponse,
+        lastSubmittedTrades,
+        selectedCard,
+        isConsentPopupOpen,
+        clientCode,
+        apiKey,
+        secretKey,
+        jwtToken,
+        configGst,
+        configGstWithText,
+        serverBaseUrl,
+        gradient1,
+        gradient2,
+        mainColor,
+        onGoBack,
+        onOpenResearchReports,
+        onTabIndexChange,
+        onSelectedPricingChange,
+        onInvestNow,
+        onCloseInvestNowModal,
+        onCloseReviewTrade,
+        onConsentAccept,
+        onSetConfirmOrder,
+        onSetPaymentSuccess,
+        onSetPaymentModal,
+        onSetSelectedCard,
+        onSetOpenSubscribeModel,
+        onSetOpenSucessModal,
+        onSetOrderPlacementResponse,
+        onSetLastSubmittedTrades,
+        onSetOpenTokenExpireModel,
+        onSetBrokerModel,
+        onSetSelectedPlanType,
+        onSetOneTimeAmount,
+        onSetOneTimeDurationPlan,
+        onSetIsConsentPopupOpen,
+        onSetShowPaymentFail,
+        onCalculateRebalance,
+        getAllStrategy,
+        getSingleStrategyDetails,
+        onHandleTabLayout,
+    };
+};
+
+// Payment / order / subscribe modals of the bespoke detail screen. Exported so
+// a variant presentation renders the exact same money-path wiring.
+export const BespokePerformanceModals = ({ viewModel, actions, slots }) => {
+    const {
+        vm,
+        act,
+        PaymentSuccessModal,
+        UserStrategySubscribeModal,
+        MPInvestNowModal,
+        MPReviewTradeModal,
+        RecommendationSuccessModal,
+        CustomTabBarMPPerformance,
+        ConsentPopup,
+        modelName,
+        config,
+        strategyDetails,
+        latestRebalance,
+        specificPlan,
+        userEmail,
+        broker,
+        userDetails,
+        subscribed,
+        subscriptionStatus,
+        isActive,
+        pricingOptions,
+        selectedPricing,
+        currentPrice,
+        originalPrice,
+        discount,
+        tabIndex,
+        routes,
+        screenWidth,
+        screenHeight,
+        chartData,
+        colorMap,
+        confirmOrder,
+        calculatedPortfolioData,
+        calculatedLoading,
+        dataArray,
+        paymentModal,
+        paymentSuccess,
+        openStrategy,
+        openSuccessModal,
+        OpenSubscribeModel,
+        orderPlacementResponse,
+        lastSubmittedTrades,
+        selectedCard,
+        isConsentPopupOpen,
+        clientCode,
+        apiKey,
+        secretKey,
+        jwtToken,
+        configGst,
+        configGstWithText,
+        serverBaseUrl,
+        gradient1,
+        gradient2,
+        mainColor,
+        onGoBack,
+        onOpenResearchReports,
+        onTabIndexChange,
+        onSelectedPricingChange,
+        onInvestNow,
+        onCloseInvestNowModal,
+        onCloseReviewTrade,
+        onConsentAccept,
+        onSetConfirmOrder,
+        onSetPaymentSuccess,
+        onSetPaymentModal,
+        onSetSelectedCard,
+        onSetOpenSubscribeModel,
+        onSetOpenSucessModal,
+        onSetOrderPlacementResponse,
+        onSetLastSubmittedTrades,
+        onSetOpenTokenExpireModel,
+        onSetBrokerModel,
+        onSetSelectedPlanType,
+        onSetOneTimeAmount,
+        onSetOneTimeDurationPlan,
+        onSetIsConsentPopupOpen,
+        onSetShowPaymentFail,
+        onCalculateRebalance,
+        getAllStrategy,
+        getSingleStrategyDetails,
+        onHandleTabLayout,
+    } = resolveBespokeProps(viewModel, actions, slots);
+    // The detail fetch can fail or still be in flight; the catalogue plan is
+    // the same Plan document, so the modals never receive a null plan.
+    const planDetails = vm.planDetails || specificPlan || null;
+    return (
+        <>
+            {paymentModal && (
+                <MPInvestNowModal
+                    visible={paymentModal}
+                    onClose={onCloseInvestNowModal}
+                    userEmail={userEmail}
+                    broker={broker}
+                    plans={planDetails}
+                    setShowPaymentFail={onSetShowPaymentFail}
+                    latestRebalance={latestRebalance}
+                    strategyDetails={planDetails}
+                    plandata={planDetails}
+                    handleCardClick={act.onHandleCardClickSelect}
+                    selectedCard={selectedCard}
+                    getStrategyDetails={() => getSingleStrategyDetails(modelName)}
+                    setPaymentSuccess={onSetPaymentSuccess}
+                    getAllStrategy={getAllStrategy}
+                    specificPlan={planDetails}
+                    specificPlanDetails={planDetails}
+                    setPaymentModal={onSetPaymentModal}
+                    userDetails={userDetails}
+                    fileName={modelName}
+                    isSubscribed={planDetails?.subscription}
+                    setOpenTokenExpireModel={onSetOpenTokenExpireModel}
+                    selectedPlanType={vm.selectedPlanType}
+                    setSelectedPlanType={onSetSelectedPlanType}
+                    onetimeamount={vm.oneTimeAmount}
+                    setOneTimeAmount={onSetOneTimeAmount}
+                    oneTimeDurationPlan={vm.oneTimeDurationPlan}
+                    setOneTimeDurationPlan={onSetOneTimeDurationPlan}
+                />
+            )}
+
+            {paymentSuccess === true ? (
+                <PaymentSuccessModal
+                    specificPlan={specificPlan}
+                    specificPlanDetails={specificPlan}
+                    setPaymentSuccess={onSetPaymentSuccess}
+                    setPaymentModal={onSetPaymentModal}
+                    setSelectedCard={onSetSelectedCard}
+                    setOpenSubscribeModel={onSetOpenSubscribeModel}
+                />
+            ) : null}
+
+            {openStrategy && (
+                <MPReviewTradeModal
+                    visible={openStrategy}
+                    onCloseReviewTrade={onCloseReviewTrade}
+                    confirmOrder={confirmOrder}
+                    userEmail={userEmail}
+                    strategyDetails={strategyDetails}
+                    setconfirmOrder={onSetConfirmOrder}
+                    userDetails={userDetails}
+                    dataArray={latestRebalance?.adviceEntries}
+                    totalArray={dataArray}
+                    latestRebalance={latestRebalance}
+                    fileName={strategyDetails?.model_name}
+                    broker={broker}
+                    setOrderPlacementResponse={onSetOrderPlacementResponse}
+                    setLastSubmittedTrades={onSetLastSubmittedTrades}
+                    setOpenSubscribeModel={onSetOpenSubscribeModel}
+                    setOpenSucessModal={onSetOpenSucessModal}
+                    openSuccessModal={openSuccessModal}
+                    calculatedLoading={calculatedLoading}
+                    calculatedPortfolioData={calculatedPortfolioData}
+                    calculateRebalance={onCalculateRebalance}
+                />
+            )}
+
+            {openSuccessModal && (
+                <RecommendationSuccessModal
+                    openSuccessModal={openSuccessModal}
+                    setOpenSucessModal={onSetOpenSucessModal}
+                    orderPlacementResponse={orderPlacementResponse}
+                    originalStockDetails={lastSubmittedTrades}
+                />
+            )}
+
+            {OpenSubscribeModel === true && latestRebalance !== null ? (
+                <UserStrategySubscribeModal
+                    visible={OpenSubscribeModel}
+                    onClose={() => onSetOpenSubscribeModel(false)}
+                    setOpenSubscribeModel={onSetOpenSubscribeModel}
+                    userEmail={userEmail}
+                    getStrategyDetails={getAllStrategy}
+                    strategyDetails={strategyDetails}
+                    fileName={vm.fileName}
+                    latestRebalance={latestRebalance}
+                    userDetails={userDetails}
+                    setOpenSucessModal={onSetOpenSucessModal}
+                    setOrderPlacementResponse={onSetOrderPlacementResponse}
+                    setBrokerModel={onSetBrokerModel}
+                    BrokerModel={vm.BrokerModel}
+                    clientCode={clientCode}
+                    apiKey={apiKey}
+                    secretKey={secretKey}
+                    jwtToken={jwtToken}
+                    broker={broker}
+                    setOpenTokenExpireModel={onSetOpenTokenExpireModel}
+                />
+            ) : null}
+        </>
+    );
+};
+
+// Plan content normalised the way this screen renders it (key features as
+// [{label, description}], key benefits as text); bad admin shapes become empty.
+export const bespokePlanSections = (plan) => {
+    const rawFeatures = plan?.keyFeature;
+    const features = Array.isArray(rawFeatures)
+        ? rawFeatures.filter(f => f && (f.label || f.description))
+        : [];
+    const rawBenefits = plan?.keyBenefit;
+    const benefits = typeof rawBenefits === 'string'
+        ? rawBenefits
+        : Array.isArray(rawBenefits)
+            ? rawBenefits.join('\n')
+            : '';
+    return {
+        features,
+        benefits,
+        investmentManagement: (plan?.investmentManagement || '').trim(),
+        researchInvestment: (plan?.researchInvestment || '').trim(),
+    };
+};
+
+/* ---------- Main Presentation ---------- */
+const BespokePerformanceScreen = ({ viewModel, actions, slots }) => {
+    const {
+        vm,
+        act,
+        PaymentSuccessModal,
+        UserStrategySubscribeModal,
+        MPInvestNowModal,
+        MPReviewTradeModal,
+        RecommendationSuccessModal,
+        CustomTabBarMPPerformance,
+        ConsentPopup,
+        modelName,
+        config,
+        strategyDetails,
+        latestRebalance,
+        planDetails,
+        specificPlan,
+        userEmail,
+        broker,
+        userDetails,
+        subscribed,
+        subscriptionStatus,
+        isActive,
+        pricingOptions,
+        selectedPricing,
+        currentPrice,
+        originalPrice,
+        discount,
+        tabIndex,
+        routes,
+        screenWidth,
+        screenHeight,
+        chartData,
+        colorMap,
+        confirmOrder,
+        calculatedPortfolioData,
+        calculatedLoading,
+        dataArray,
+        paymentModal,
+        paymentSuccess,
+        openStrategy,
+        openSuccessModal,
+        OpenSubscribeModel,
+        orderPlacementResponse,
+        lastSubmittedTrades,
+        selectedCard,
+        isConsentPopupOpen,
+        clientCode,
+        apiKey,
+        secretKey,
+        jwtToken,
+        configGst,
+        configGstWithText,
+        serverBaseUrl,
+        gradient1,
+        gradient2,
+        mainColor,
+        onGoBack,
+        onOpenResearchReports,
+        onTabIndexChange,
+        onSelectedPricingChange,
+        onInvestNow,
+        onCloseInvestNowModal,
+        onCloseReviewTrade,
+        onConsentAccept,
+        onSetConfirmOrder,
+        onSetPaymentSuccess,
+        onSetPaymentModal,
+        onSetSelectedCard,
+        onSetOpenSubscribeModel,
+        onSetOpenSucessModal,
+        onSetOrderPlacementResponse,
+        onSetLastSubmittedTrades,
+        onSetOpenTokenExpireModel,
+        onSetBrokerModel,
+        onSetSelectedPlanType,
+        onSetOneTimeAmount,
+        onSetOneTimeDurationPlan,
+        onSetIsConsentPopupOpen,
+        onSetShowPaymentFail,
+        onCalculateRebalance,
+        getAllStrategy,
+        getSingleStrategyDetails,
+        onHandleTabLayout,
+    } = resolveBespokeProps(viewModel, actions, slots);
+    const insets = useSafeAreaInsets();
 
     // The Plan selected from the catalogue is the authoritative presentation
     // record. It is available synchronously and carries the current logo and
@@ -505,106 +895,7 @@ const BespokePerformanceScreen = ({ viewModel, actions, slots }) => {
                 )}
             </View>
 
-            {paymentModal && (
-                <MPInvestNowModal
-                    visible={paymentModal}
-                    onClose={onCloseInvestNowModal}
-                    userEmail={userEmail}
-                    broker={broker}
-                    plans={planDetails}
-                    setShowPaymentFail={onSetShowPaymentFail}
-                    latestRebalance={latestRebalance}
-                    strategyDetails={planDetails}
-                    plandata={planDetails}
-                    handleCardClick={act.onHandleCardClickSelect}
-                    selectedCard={selectedCard}
-                    getStrategyDetails={() => getSingleStrategyDetails(modelName)}
-                    setPaymentSuccess={onSetPaymentSuccess}
-                    getAllStrategy={getAllStrategy}
-                    specificPlan={planDetails}
-                    specificPlanDetails={planDetails}
-                    setPaymentModal={onSetPaymentModal}
-                    userDetails={userDetails}
-                    fileName={modelName}
-                    isSubscribed={planDetails?.subscription}
-                    setOpenTokenExpireModel={onSetOpenTokenExpireModel}
-                    selectedPlanType={vm.selectedPlanType}
-                    setSelectedPlanType={onSetSelectedPlanType}
-                    onetimeamount={vm.oneTimeAmount}
-                    setOneTimeAmount={onSetOneTimeAmount}
-                    oneTimeDurationPlan={vm.oneTimeDurationPlan}
-                    setOneTimeDurationPlan={onSetOneTimeDurationPlan}
-                />
-            )}
-
-            {paymentSuccess === true ? (
-                <PaymentSuccessModal
-                    specificPlan={specificPlan}
-                    specificPlanDetails={specificPlan}
-                    setPaymentSuccess={onSetPaymentSuccess}
-                    setPaymentModal={onSetPaymentModal}
-                    setSelectedCard={onSetSelectedCard}
-                    setOpenSubscribeModel={onSetOpenSubscribeModel}
-                />
-            ) : null}
-
-            {openStrategy && (
-                <MPReviewTradeModal
-                    visible={openStrategy}
-                    onCloseReviewTrade={onCloseReviewTrade}
-                    confirmOrder={confirmOrder}
-                    userEmail={userEmail}
-                    strategyDetails={strategyDetails}
-                    setconfirmOrder={onSetConfirmOrder}
-                    userDetails={userDetails}
-                    dataArray={latestRebalance?.adviceEntries}
-                    totalArray={dataArray}
-                    latestRebalance={latestRebalance}
-                    fileName={strategyDetails?.model_name}
-                    broker={broker}
-                    setOrderPlacementResponse={onSetOrderPlacementResponse}
-                    setLastSubmittedTrades={onSetLastSubmittedTrades}
-                    setOpenSubscribeModel={onSetOpenSubscribeModel}
-                    setOpenSucessModal={onSetOpenSucessModal}
-                    openSuccessModal={openSuccessModal}
-                    calculatedLoading={calculatedLoading}
-                    calculatedPortfolioData={calculatedPortfolioData}
-                    calculateRebalance={onCalculateRebalance}
-                />
-            )}
-
-            {openSuccessModal && (
-                <RecommendationSuccessModal
-                    openSuccessModal={openSuccessModal}
-                    setOpenSucessModal={onSetOpenSucessModal}
-                    orderPlacementResponse={orderPlacementResponse}
-                    originalStockDetails={lastSubmittedTrades}
-                />
-            )}
-
-            {OpenSubscribeModel === true && latestRebalance !== null ? (
-                <UserStrategySubscribeModal
-                    visible={OpenSubscribeModel}
-                    onClose={() => onSetOpenSubscribeModel(false)}
-                    setOpenSubscribeModel={onSetOpenSubscribeModel}
-                    userEmail={userEmail}
-                    getStrategyDetails={getAllStrategy}
-                    strategyDetails={strategyDetails}
-                    fileName={vm.fileName}
-                    latestRebalance={latestRebalance}
-                    userDetails={userDetails}
-                    setOpenSucessModal={onSetOpenSucessModal}
-                    setOrderPlacementResponse={onSetOrderPlacementResponse}
-                    setBrokerModel={onSetBrokerModel}
-                    BrokerModel={vm.BrokerModel}
-                    clientCode={clientCode}
-                    apiKey={apiKey}
-                    secretKey={secretKey}
-                    jwtToken={jwtToken}
-                    broker={broker}
-                    setOpenTokenExpireModel={onSetOpenTokenExpireModel}
-                />
-            ) : null}
+            <BespokePerformanceModals viewModel={viewModel} actions={actions} slots={slots} />
         </SafeAreaView>
     );
 };

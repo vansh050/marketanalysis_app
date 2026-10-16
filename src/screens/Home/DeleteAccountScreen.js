@@ -95,6 +95,19 @@ const DeleteAccountScreen = ({navigation}) => {
           'Your session has expired. Sign in again and retry deleting your account.',
           [{text: 'OK', onPress: () => navigation.replace('Login')}],
         );
+      } else if (data?.code === 'EMAIL_VERIFICATION_REQUIRED') {
+        // Apple "Hide My Email": the sign-in has no email, and deletion acts
+        // only on a verified email (aq_backend d7028fc9). Confirm it once with
+        // the existing one-time code, then the customer retries.
+        setDeleting(false);
+        Alert.alert(
+          'Confirm your email first',
+          data?.message || 'Confirm the email on your account, then try again.',
+          [
+            {text: 'Cancel', style: 'cancel'},
+            {text: 'Confirm email', onPress: () => navigation.navigate('EmailScreenAppleLogin', {onSubmit: () => {}})},
+          ],
+        );
       } else {
         setDeleting(false);
         Alert.alert('Could not delete account', data?.message || 'Something went wrong. Please try again.');

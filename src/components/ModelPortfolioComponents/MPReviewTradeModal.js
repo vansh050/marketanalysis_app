@@ -76,6 +76,7 @@ import {
 } from '../../utils/rebalanceContract';
 import {planRefusalMessage} from '../../utils/planRefusalMessage';
 import {throwIfSdkNotSent} from '../../utils/sdkNotSent';
+import {kiteQuantity, missingQuantityMessage, tradesMissingQuantity} from '../../utils/kiteQuantity';
 
 const isSdkExecuteAdviceEnabled = () => {
   const v = String(Config?.REACT_APP_USE_SDK_EXECUTE_ADVICE || '').trim().toLowerCase();
@@ -1203,7 +1204,8 @@ const MPReviewTradeModal = ({
         exchange: resolved.exchange,
         ltp,
         price: orderPrice,
-        quantity: parseInt(stock.quantity, 10) || 1,
+        // Never invent a quantity; the Kite launch below is blocked when one is missing.
+        quantity: kiteQuantity(stock) || 0,
       });
       console.log('[ZerodhaPublisher] Basket item:', JSON.stringify(basketItem));
       return basketItem;
@@ -1226,6 +1228,11 @@ const MPReviewTradeModal = ({
         publisherFullLegsRef.current, publisherAttemptRef.current, batch, activationId,
       ),
       open: async () => {
+        const missingQty = tradesMissingQuantity(batch);
+        if (missingQty.length) {
+          Toast.show({type: 'error', text1: 'Quantity needed', text2: missingQuantityMessage(missingQty), visibilityTime: 7000});
+          return false;
+        }
         const basket = buildKiteBasket(batch, freshProtectionPrices);
         const htmlContent = generateHtmlForm(basket, zerodhaApiKey);
         // Whole-basket polling: settling on the first visible order closed

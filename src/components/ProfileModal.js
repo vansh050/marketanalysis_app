@@ -28,7 +28,7 @@ import Config from 'react-native-config';
 import {generateToken} from '../utils/SecurityTokenManager';
 import {useTrade} from '../screens/TradeContext';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
-import { designColor } from '../design/literalTokens';
+import { designToken } from '../design/literalTokens';
 const {width: screenWidth, height: screenHeight} = Dimensions.get('window');
 const commonHeight = screenHeight * 0.06;
 
@@ -266,7 +266,7 @@ const ProfileModal = ({
               accessibilityLabel="Close"
               style={styles.closeButton}
               onPress={closeProfileModal}>
-              <XIcon size={22} color={designColor('222')} />
+              <XIcon size={22} color={designToken('profile.text')} />
             </TouchableOpacity>
           </View>
 
@@ -286,7 +286,7 @@ const ProfileModal = ({
                       cx="43"
                       cy="43"
                       r={radius}
-                      stroke={designColor('eef2f6')}
+                      stroke={designToken('profile.border')}
                       strokeWidth="8"
                       fill="transparent"
                     />
@@ -310,8 +310,8 @@ const ProfileModal = ({
                         y1="0%"
                         x2="100%"
                         y2="0%">
-                        <Stop offset="0%" stopColor="rgba(0, 86, 183, 1)" />
-                        <Stop offset="100%" stopColor="rgba(0, 38, 81, 1)" />
+                        <Stop offset="0%" stopColor={designToken('profile.progress.gradientStart')} />
+                        <Stop offset="100%" stopColor={designToken('profile.progress.gradientEnd')} />
                       </LinearGradient>
                     </Defs>
                   </Svg>
@@ -335,7 +335,7 @@ const ProfileModal = ({
                         navigation.navigate('UpdateEmailScreen');
                       }}
                       style={styles.updateEmailButton}>
-                      <Pencil size={14} color={designColor('0056b7')} />
+                      <Pencil size={14} color={designToken('profile.accent')} />
                       <Text style={styles.updateEmailText}>Update</Text>
                     </TouchableOpacity>
                   </View>
@@ -353,7 +353,7 @@ const ProfileModal = ({
                     value={userName}
                     onChangeText={setUserName}
                     placeholder="Enter your name"
-                    placeholderTextColor={designColor('9ca3af')}
+                    placeholderTextColor={designToken('profile.placeholder')}
                   />
                 </View>
 
@@ -381,7 +381,7 @@ const ProfileModal = ({
                       onChangeText={setUserPhoneNumber}
                       keyboardType="phone-pad"
                       placeholder="Enter phone"
-                      placeholderTextColor={designColor('9ca3af')}
+                      placeholderTextColor={designToken('profile.placeholder')}
                     />
                   </View>
                 </View>
@@ -393,7 +393,7 @@ const ProfileModal = ({
                     value={userTelegram}
                     onChangeText={setUserTelegram}
                     placeholder="Enter Telegram username"
-                    placeholderTextColor={designColor('9ca3af')}
+                    placeholderTextColor={designToken('profile.placeholder')}
                   />
                 </View>
 
@@ -406,7 +406,7 @@ const ProfileModal = ({
                         value={searchQuery}
                         onChangeText={setSearchQuery}
                         style={styles.countrySearchInput}
-                        placeholderTextColor={designColor('9aa0a6')}
+                        placeholderTextColor={designToken('profile.placeholder2')}
                       />
                       <TouchableOpacity
                         style={styles.countryClose}
@@ -454,7 +454,7 @@ const ProfileModal = ({
               accessibilityRole="button"
               accessibilityLabel="Save profile">
               {loading ? (
-                <ActivityIndicator size="small" color={designColor('fff')} />
+                <ActivityIndicator size="small" color={designToken('profile.surface')} />
               ) : (
                 <>
                   {/* <Icon
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   container: {
-    backgroundColor: designColor('f8fafc'),
+    backgroundColor: designToken('profile.surface2'),
     borderTopLeftRadius: 18,
     borderTopRightRadius: 18,
     paddingTop: 12,
@@ -506,13 +506,13 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: designColor('0056b7'),
+    backgroundColor: designToken('profile.accent'),
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
   avatarInitial: {
-    color: designColor('fff'),
+    color: designToken('profile.surface'),
     fontWeight: '700',
     fontSize: 18,
   },
@@ -522,11 +522,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 16,
     fontWeight: '700',
-    color: designColor('0f172a'),
+    color: designToken('profile.text2'),
   },
   subtitle: {
     fontSize: 12,
-    color: designColor('6b7280'),
+    color: designToken('profile.textSecondary'),
     marginTop: 4,
   },
   closeButton: {
@@ -540,7 +540,7 @@ const styles = StyleSheet.create({
     paddingBottom: 18,
   },
   card: {
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('profile.surface'),
     borderRadius: 12,
     padding: 14,
     marginTop: 8,
@@ -562,18 +562,18 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: designColor('f8fafc'),
+    backgroundColor: designToken('profile.surface2'),
     justifyContent: 'center',
     alignItems: 'center',
   },
   progressInnerNumber: {
     fontSize: 16,
     fontWeight: '700',
-    color: designColor('0056b7'),
+    color: designToken('profile.accent'),
   },
   progressInnerLabel: {
     fontSize: 10,
-    color: designColor('6b7280'),
+    color: designToken('profile.textSecondary'),
   },
   form: {
     marginTop: 6,
@@ -583,18 +583,18 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 12,
-    color: designColor('6b7280'),
+    color: designToken('profile.textSecondary'),
     marginBottom: 4,
   },
   inputBox: {
     borderWidth: 1,
-    borderColor: designColor('e5e7eb'),
+    borderColor: designToken('profile.border2'),
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: Platform.OS === 'ios' ? 12 : 8,
     fontSize: 15,
-    color: designColor('111827'),
-    backgroundColor: designColor('fff'),
+    color: designToken('profile.text3'),
+    backgroundColor: designToken('profile.surface'),
   },
   row: {
     flexDirection: 'row',
@@ -609,23 +609,23 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginRight: 10,
     borderWidth: 1,
-    borderColor: designColor('e5e7eb'),
+    borderColor: designToken('profile.border2'),
     borderRadius: 10,
-    backgroundColor: designColor('ffffff'),
+    backgroundColor: designToken('profile.surface3'),
     minWidth: 88,
     justifyContent: 'space-between',
   },
   countryText: {
     fontSize: 15,
-    color: designColor('111827'),
+    color: designToken('profile.text3'),
     marginRight: 6,
   },
   countryListWrap: {
     marginTop: 12,
     borderWidth: 1,
-    borderColor: designColor('e6e9ef'),
+    borderColor: designToken('profile.border3'),
     borderRadius: 10,
-    backgroundColor: designColor('fff'),
+    backgroundColor: designToken('profile.surface'),
     maxHeight: 210,
     overflow: 'hidden',
   },
@@ -635,7 +635,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: designColor('f1f5f9'),
+    borderBottomColor: designToken('profile.border4'),
   },
   countrySearchInput: {
     flex: 1,
@@ -643,7 +643,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     paddingHorizontal: 8,
     borderRadius: 6,
-    backgroundColor: designColor('f8fafc'),
+    backgroundColor: designToken('profile.surface2'),
   },
   countryClose: {
     padding: 6,
@@ -655,30 +655,30 @@ const styles = StyleSheet.create({
   countryItem: {
     paddingVertical: 10,
     paddingHorizontal: 12,
-    borderBottomColor: designColor('f1f5f9'),
+    borderBottomColor: designToken('profile.border4'),
     borderBottomWidth: 1,
   },
   countryItemText: {
     fontSize: 14,
-    color: designColor('111827'),
+    color: designToken('profile.text3'),
   },
   footer: {
     paddingHorizontal: 18,
     paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: designColor('eef2f6'),
-    backgroundColor: designColor('f8fafc'),
+    borderTopColor: designToken('profile.border'),
+    backgroundColor: designToken('profile.surface2'),
   },
   saveButton: {
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: designColor('0056b7'),
+    backgroundColor: designToken('profile.accent'),
     paddingVertical: 12,
     borderRadius: 10,
   },
   saveButtonText: {
-    color: designColor('fff'),
+    color: designToken('profile.surface'),
     fontSize: 16,
     fontWeight: '700',
   },
@@ -697,10 +697,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
-    backgroundColor: designColor('ebf5ff'),
+    backgroundColor: designToken('profile.accentSoft'),
   },
   updateEmailText: {
-    color: designColor('0056b7'),
+    color: designToken('profile.accent'),
     fontSize: 12,
     fontWeight: '600',
     marginLeft: 4,

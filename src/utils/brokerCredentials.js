@@ -10,6 +10,8 @@
 import CryptoJS from 'react-native-crypto-js';
 
 const PASSPHRASE = 'ApiKeySecret';
+// Fyers App IDs end in a 3-digit app-type suffix ("-200" for trading apps).
+const FYERS_APP_ID = /^[A-Z0-9]+-\d{3}$/i;
 
 export const decryptBrokerCredential = (encrypted) => {
   if (!encrypted) return '';
@@ -44,11 +46,25 @@ export const getStoredBrokerCreds = (userDetails, brokerName) => {
   if (!entry) return null;
 
   if (brokerName === 'Fyers') {
-    // Field-naming inversion. See FyersConnect.js:345-355.
+    // Two stored layouts exist. Legacy: DB clientCode = App ID. Current
+    // (backend /fyers/update-key since the -200 guard): DB apiKey = App ID
+    // (plain or AES) and DB clientCode = the Fyers user ID. Pick the App
+    // ID by its "-NNN" shape so a reconnect never sends the user ID as the
+    // App ID (rejected "malformed appId (not -200)" — Kyzen 2026-10-13).
+    const plainOrDecrypted = (v) => {
+      if (!v) return '';
+      const s = String(v);
+      return s.startsWith('U2FsdGVk') ? decryptBrokerCredential(s) : s;
+    };
+    const candidates = [plainOrDecrypted(entry.apiKey), entry.clientCode || ''];
+    const appId = candidates.find((v) => FYERS_APP_ID.test(v)) || entry.clientCode || '';
+    const fyersUserId = entry.clientCode && entry.clientCode !== appId ? entry.clientCode : '';
     return {
       apiKey: decryptBrokerCredential(entry.secretKey),    // OAuth secret
-      secretKey: entry.clientCode || '',         // clientId (plaintext)
+      secretKey: appId,                                    // App ID (form field naming)
       clientCode: entry.clientCode || '',
+      appId,
+      fyersUserId,
     };
   }
 

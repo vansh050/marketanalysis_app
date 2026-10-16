@@ -13,7 +13,7 @@ import VersionCheck from 'react-native-version-check';
 import { useConfig } from './context/ConfigContext';
 import DeviceInfo from 'react-native-device-info';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import semver from 'semver';
+import {isAppVersionOlder} from './utils/appVersion';
 
 import { designColor } from './design/literalTokens';
 
@@ -91,9 +91,9 @@ export const checkForAppUpdate = async (serverVersion) => {
       }
     }
 
-    if (latestVersion && semver.valid(currentVersion) && semver.valid(latestVersion)) {
+    if (latestVersion) {
       return {
-        updateAvailable: semver.lt(currentVersion, latestVersion),
+        updateAvailable: isAppVersionOlder(currentVersion, latestVersion),
         currentVersion,
         latestVersion,
       };
@@ -164,12 +164,8 @@ const UpdateAppModal = ({visible, onClose, serverVersion}) => {
     // optional dismissible nudge.
     let isMandatory = config?.forceUpdate !== false;
     const minV = pickPlatformVersion(config, 'minAppVersion');
-    if (
-      minV &&
-      semver.valid(minV) &&
-      semver.valid(result.currentVersion)
-    ) {
-      isMandatory = semver.lt(result.currentVersion, minV);
+    if (minV) {
+      isMandatory = isAppVersionOlder(result.currentVersion, minV);
     }
 
     // Optional nudges respect the 48h "Maybe Later" cooldown; mandatory ignores it.
@@ -207,8 +203,8 @@ const UpdateAppModal = ({visible, onClose, serverVersion}) => {
 
     let isMandatory = config?.forceUpdate !== false;
     const minV = pickPlatformVersion(config, 'minAppVersion');
-    if (minV && semver.valid(minV) && semver.valid(result.currentVersion)) {
-      isMandatory = semver.lt(result.currentVersion, minV);
+    if (minV) {
+      isMandatory = isAppVersionOlder(result.currentVersion, minV);
     }
     setMandatory(isMandatory);
     if (result.latestVersion) setLatestVersion(result.latestVersion);

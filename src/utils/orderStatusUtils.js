@@ -71,6 +71,8 @@ export const isOrderPending = (status) =>
  * Manual placement is user-confirmed, but is intentionally kept separate
  * from broker-confirmed execution and generic pending statuses.
  */
+export const MANUALLY_PLACED_LABEL = 'Placed manually';
+
 export const isOrderManuallyPlaced = (status) => {
   if (!status || typeof status !== 'string') return false;
   const normalized = status.toLowerCase().trim();
@@ -140,6 +142,12 @@ export const isManagerClosedZeroFill = (order) => {
  * @returns {'Complete'|'Pending'|'Rejected'|'Cancelled'|'Partial'|'Awaiting broker confirmation'|'Not sent'|string}
  */
 export const getOrderStatusDisplay = (status) => {
+  // A customer-recorded execution ("I placed this manually") is grouped with
+  // pending in the shared vocabulary because the broker has not confirmed it,
+  // but the customer did place it. Labelling it "Pending" told a markup
+  // customer (2026-10-13) that sells already gone from his holdings were
+  // still open. Display only — the classification is unchanged.
+  if (isOrderManuallyPlaced(status)) return MANUALLY_PLACED_LABEL;
   const normalized = normalizeOrderStatus(status);
   if (normalized === 'unknown') {
     // An empty status is not an unclassifiable broker status — it is a row that

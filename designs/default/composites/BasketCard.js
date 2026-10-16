@@ -177,7 +177,7 @@ const TradeItem = ({ item, index, isInGrid, isExpanded, onToggle }) => {
             <Text style={styles.alwaysVisibleText}>
               {qtyValue != null ? `${isBuy ? 'Lot' : 'Exit Lot'} ${qtyValue}` : ''}
               {lotSize ? ` · Lot size ${lotSize}` : ''}
-              {displayPrice != null ? ` · ${isBuy ? 'Advice ₹' : 'Exit ₹'}${String(displayPrice)}` : ''}
+              {displayPrice != null ? ` · ${isBuy ? 'Recommendation ₹' : 'Exit ₹'}${String(displayPrice)}` : ''}
               {` · ${currentLtp != null ? `LTP ₹${String(currentLtp)}` : 'LTP unavailable'}`}
             </Text>
           </View>

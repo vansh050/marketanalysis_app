@@ -4,6 +4,7 @@
  * Ported from prod-alphaquark-github for feature parity.
  */
 import axios from 'axios';
+import {withOrderPlaceResults} from '../utils/orderPlaceRows';
 import Config from 'react-native-config';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
@@ -169,7 +170,8 @@ export async function placeOrders(payload, configData) {
     },
     timeout: 120000,
   });
-  return response.data;
+  // Node replies with `response`; callers read `results` (see orderPlaceRows).
+  return withOrderPlaceResults(response.data);
 }
 
 /**

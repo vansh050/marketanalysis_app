@@ -14,7 +14,7 @@ import server from '../../utils/serverConfig';
 import { BarChart2, TrendingUp, TrendingDown } from 'lucide-react-native';
 import { useTrade } from '../../screens/TradeContext';
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designFont, designToken } from '../../design/literalTokens';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -81,7 +81,9 @@ const fetchWithTimeout = async (url, options = {}) => {
   }
 };
 
-const PerformanceChart = ({ modelName, advisor }) => {
+// showTitle=false lets a design that already titles the card (e.g. Kyzen's
+// "Performance vs index") omit the chart's own "Performance" heading.
+const PerformanceChart = ({ modelName, advisor, showTitle = true }) => {
   const { configData } = useTrade();
   const [selectedIndex] = useState('^NSEI');
   const [allAlignedData, setAllAlignedData] = useState([]);
@@ -359,10 +361,10 @@ const PerformanceChart = ({ modelName, advisor }) => {
   if (loading) {
     return (
       <View style={{ padding: 40, alignItems: 'center' }}>
-        <ActivityIndicator size="large" color={designColor('0070d0')} />
+        <ActivityIndicator size="large" color={designToken('perfChart.color.0070d0')} />
         <Text
           style={{
-            color: designColor('888'),
+            color: designToken('perfChart.color.888'),
             fontFamily: designFont('Poppins-Regular'),
             fontSize: 12,
             marginTop: 12,
@@ -376,7 +378,7 @@ const PerformanceChart = ({ modelName, advisor }) => {
   if (error) {
     return (
       <View style={{ padding: 16, alignItems: 'center' }}>
-        <Text style={{ color: designColor('d00'), fontFamily: designFont('Poppins-Medium') }}>
+        <Text style={{ color: designToken('perfChart.color.d00'), fontFamily: designFont('Poppins-Medium') }}>
           {error}
         </Text>
         <TouchableOpacity
@@ -385,12 +387,12 @@ const PerformanceChart = ({ modelName, advisor }) => {
           style={{
             marginTop: 12,
             borderWidth: 1,
-            borderColor: designColor('0070d0'),
+            borderColor: designToken('perfChart.borderColor.0070d0'),
             borderRadius: 8,
             paddingHorizontal: 18,
             paddingVertical: 8,
           }}>
-          <Text style={{color: designColor('0070d0'), fontFamily: designFont('Poppins-Medium')}}>
+          <Text style={{color: designToken('perfChart.color.0070d0'), fontFamily: designFont('Poppins-Medium')}}>
             Try again
           </Text>
         </TouchableOpacity>
@@ -407,10 +409,10 @@ const PerformanceChart = ({ modelName, advisor }) => {
           paddingHorizontal: 20,
           paddingVertical: 40,
         }}>
-        <BarChart2 size={48} color={designColor('888')} style={{ marginBottom: 16 }} />
+        <BarChart2 size={48} color={designToken('perfChart.color.888')} style={{ marginBottom: 16 }} />
         <Text
           style={{
-            color: designColor('000'),
+            color: designToken('perfChart.color.000'),
             fontFamily: designFont('Poppins-SemiBold'),
             fontSize: 16,
             marginBottom: 8,
@@ -419,7 +421,7 @@ const PerformanceChart = ({ modelName, advisor }) => {
         </Text>
         <Text
           style={{
-            color: designColor('666'),
+            color: designToken('perfChart.color.666'),
             fontFamily: designFont('Poppins-Regular'),
             fontSize: 14,
             textAlign: 'center',
@@ -483,20 +485,22 @@ const PerformanceChart = ({ modelName, advisor }) => {
   return (
     <View style={{ paddingTop: 4 }}>
       {/* Header */}
-      <Text
-        style={{
-          fontFamily: designFont('Poppins-SemiBold'),
-          fontSize: 15,
-          color: designColor('1a1a1a'),
-          marginBottom: 4,
-        }}>
-        Performance
-      </Text>
+      {showTitle ? (
+        <Text
+          style={{
+            fontFamily: designFont('Poppins-SemiBold'),
+            fontSize: 15,
+            color: designToken('perfChart.color.1a1a1a'),
+            marginBottom: 4,
+          }}>
+          Performance
+        </Text>
+      ) : null}
       <Text
         style={{
           fontFamily: designFont('Poppins-Regular'),
           fontSize: 11,
-          color: designColor('888'),
+          color: designToken('perfChart.color.888'),
           marginBottom: 12,
           lineHeight: 16,
         }}>
@@ -513,32 +517,32 @@ const PerformanceChart = ({ modelName, advisor }) => {
           {stats.indexReturn != null && <View
             style={{
               flex: 1,
-              backgroundColor: stats.portfolioReturn >= 0 ? designColor('f0fdf4') : designColor('fef2f2'),
+              backgroundColor: stats.portfolioReturn >= 0 ? designToken('perfChart.backgroundColor.f0fdf4') : designToken('perfChart.backgroundColor.fef2f2'),
               borderRadius: 10,
               padding: 12,
               borderWidth: 1,
-              borderColor: stats.portfolioReturn >= 0 ? designColor('dcfce7') : designColor('fecaca'),
+              borderColor: stats.portfolioReturn >= 0 ? designToken('perfChart.borderColor.dcfce7') : designToken('perfChart.borderColor.fecaca'),
             }}>
             <Text
               style={{
                 fontFamily: designFont('Poppins-Regular'),
                 fontSize: 10,
-                color: designColor('666'),
+                color: designToken('perfChart.color.666'),
                 marginBottom: 4,
               }}>
               Portfolio
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {stats.portfolioReturn >= 0 ? (
-                <TrendingUp size={14} color={designColor('16a34a')} />
+                <TrendingUp size={14} color={designToken('perfChart.color.16a34a')} />
               ) : (
-                <TrendingDown size={14} color={designColor('dc2626')} />
+                <TrendingDown size={14} color={designToken('perfChart.color.dc2626')} />
               )}
               <Text
                 style={{
                   fontFamily: designFont('Poppins-SemiBold'),
                   fontSize: 16,
-                  color: stats.portfolioReturn >= 0 ? designColor('16a34a') : designColor('dc2626'),
+                  color: stats.portfolioReturn >= 0 ? designToken('perfChart.color.16a34a') : designToken('perfChart.color.dc2626'),
                   marginLeft: 4,
                 }}>
                 {stats.portfolioReturn >= 0 ? '+' : ''}
@@ -550,32 +554,32 @@ const PerformanceChart = ({ modelName, advisor }) => {
           {stats.alpha != null && <View
             style={{
               flex: 1,
-              backgroundColor: stats.indexReturn >= 0 ? designColor('f0fdf4') : designColor('fef2f2'),
+              backgroundColor: stats.indexReturn >= 0 ? designToken('perfChart.backgroundColor.f0fdf4') : designToken('perfChart.backgroundColor.fef2f2'),
               borderRadius: 10,
               padding: 12,
               borderWidth: 1,
-              borderColor: stats.indexReturn >= 0 ? designColor('dcfce7') : designColor('fecaca'),
+              borderColor: stats.indexReturn >= 0 ? designToken('perfChart.borderColor.dcfce7') : designToken('perfChart.borderColor.fecaca'),
             }}>
             <Text
               style={{
                 fontFamily: designFont('Poppins-Regular'),
                 fontSize: 10,
-                color: designColor('666'),
+                color: designToken('perfChart.color.666'),
                 marginBottom: 4,
               }}>
               {selectedIndex === '^NSEI' ? 'Nifty 50' : selectedIndex}
             </Text>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               {stats.indexReturn >= 0 ? (
-                <TrendingUp size={14} color={designColor('16a34a')} />
+                <TrendingUp size={14} color={designToken('perfChart.color.16a34a')} />
               ) : (
-                <TrendingDown size={14} color={designColor('dc2626')} />
+                <TrendingDown size={14} color={designToken('perfChart.color.dc2626')} />
               )}
               <Text
                 style={{
                   fontFamily: designFont('Poppins-SemiBold'),
                   fontSize: 16,
-                  color: stats.indexReturn >= 0 ? designColor('16a34a') : designColor('dc2626'),
+                  color: stats.indexReturn >= 0 ? designToken('perfChart.color.16a34a') : designToken('perfChart.color.dc2626'),
                   marginLeft: 4,
                 }}>
                 {stats.indexReturn >= 0 ? '+' : ''}
@@ -587,17 +591,17 @@ const PerformanceChart = ({ modelName, advisor }) => {
           <View
             style={{
               flex: 1,
-              backgroundColor: stats.alpha >= 0 ? designColor('eff6ff') : designColor('fef2f2'),
+              backgroundColor: stats.alpha >= 0 ? designToken('perfChart.backgroundColor.eff6ff') : designToken('perfChart.backgroundColor.fef2f2'),
               borderRadius: 10,
               padding: 12,
               borderWidth: 1,
-              borderColor: stats.alpha >= 0 ? designColor('dbeafe') : designColor('fecaca'),
+              borderColor: stats.alpha >= 0 ? designToken('perfChart.borderColor.dbeafe') : designToken('perfChart.borderColor.fecaca'),
             }}>
             <Text
               style={{
                 fontFamily: designFont('Poppins-Regular'),
                 fontSize: 10,
-                color: designColor('666'),
+                color: designToken('perfChart.color.666'),
                 marginBottom: 4,
               }}>
               Alpha
@@ -606,7 +610,7 @@ const PerformanceChart = ({ modelName, advisor }) => {
               style={{
                 fontFamily: designFont('Poppins-SemiBold'),
                 fontSize: 16,
-                color: stats.alpha >= 0 ? designColor('2563eb') : designColor('dc2626'),
+                color: stats.alpha >= 0 ? designToken('perfChart.color.2563eb') : designToken('perfChart.color.dc2626'),
               }}>
               {stats.alpha >= 0 ? '+' : ''}
               {stats.alpha.toFixed(2)}%
@@ -635,13 +639,13 @@ const PerformanceChart = ({ modelName, advisor }) => {
                 paddingVertical: 6,
                 paddingHorizontal: 14,
                 borderRadius: 20,
-                backgroundColor: isActive ? designColor('1a1a1a') : designColor('f5f5f5'),
+                backgroundColor: isActive ? designToken('perfChart.backgroundColor.1a1a1a') : designToken('perfChart.backgroundColor.f5f5f5'),
               }}>
               <Text
                 style={{
                   fontFamily: designFont('Poppins-Medium'),
                   fontSize: 12,
-                  color: isActive ? designColor('fff') : designColor('666'),
+                  color: isActive ? designToken('perfChart.color.fff') : designToken('perfChart.color.666'),
                 }}>
                 {period.label}
               </Text>
@@ -652,12 +656,12 @@ const PerformanceChart = ({ modelName, advisor }) => {
       {/* Chart Card */}
       <View
         style={{
-          backgroundColor: designColor('fff'),
+          backgroundColor: designToken('perfChart.backgroundColor.fff'),
           borderRadius: 14,
           elevation: 3,
           paddingTop: 12,
           paddingBottom: 6,
-          shadowColor: designColor('000'),
+          shadowColor: designToken('perfChart.shadowColor.000'),
           shadowOffset: { width: 0, height: 2 },
           shadowOpacity: 0.08,
           shadowRadius: 8,
@@ -672,39 +676,39 @@ const PerformanceChart = ({ modelName, advisor }) => {
             curved
             thickness={2.5}
             thickness2={2}
-            color1={designColor('07bad1')}
-            color2={designColor('ff6347')}
+            color1={designToken('perfChart.value.07bad1')}
+            color2={designToken('perfChart.value.ff6347')}
             hideDataPoints
             areaChart
-            startFillColor={designColor('07bad1')}
-            endFillColor={designColor('07bad1')}
+            startFillColor={designToken('perfChart.startFillColor.07bad1')}
+            endFillColor={designToken('perfChart.endFillColor.07bad1')}
             startOpacity={0.18}
             endOpacity={0.012}
             yAxisOffset={yMin}
             maxValue={Math.max(1, yMax - yMin)}
             noOfSections={4}
             yAxisColor="transparent"
-            xAxisColor="rgba(0,0,0,0.08)"
+            xAxisColor={designToken('perfChart.xAxisColor.rgba_0_0_0_0_08')}
             rulesType="dashed"
-            rulesColor="rgba(0,0,0,0.05)"
+            rulesColor={designToken('perfChart.rulesColor.rgba_0_0_0_0_05')}
             initialSpacing={6}
             endSpacing={6}
             yAxisLabelWidth={34}
             yAxisTextStyle={{
-              color: designColor('9aa0a6'),
+              color: designToken('perfChart.color.9aa0a6'),
               fontSize: 9,
               fontFamily: designFont('Poppins-Regular'),
             }}
             xAxisLabelTextStyle={{
-              color: designColor('9aa0a6'),
+              color: designToken('perfChart.color.9aa0a6'),
               fontSize: 9,
               fontFamily: designFont('Poppins-Regular'),
             }}
             pointerConfig={{
               pointerStripHeight: chartHeight,
-              pointerStripColor: 'rgba(0,0,0,0.12)',
+              pointerStripColor: designToken('perfChart.pointerStripColor.rgba_0_0_0_0_12'),
               pointerStripWidth: 1,
-              pointerColor: designColor('07bad1'),
+              pointerColor: designToken('perfChart.pointerColor.07bad1'),
               radius: 4,
               pointerLabelWidth: 150,
               pointerLabelHeight: 80,
@@ -716,7 +720,7 @@ const PerformanceChart = ({ modelName, advisor }) => {
                 return (
                   <View
                     style={{
-                      backgroundColor: 'rgba(0,0,0,0.88)',
+                      backgroundColor: designToken('perfChart.backgroundColor.rgba_0_0_0_0_88'),
                       paddingHorizontal: 12,
                       paddingVertical: 8,
                       borderRadius: 10,
@@ -724,7 +728,7 @@ const PerformanceChart = ({ modelName, advisor }) => {
                     }}>
                     {hasBenchmark && <Text
                       style={{
-                        color: 'rgba(255,255,255,0.7)',
+                        color: designToken('perfChart.color.rgba_255_255_255_0_7'),
                         fontSize: 10,
                         fontFamily: designFont('Poppins-Regular'),
                         marginBottom: 3,
@@ -739,7 +743,7 @@ const PerformanceChart = ({ modelName, advisor }) => {
                     </Text>}
                     <Text
                       style={{
-                        color: designColor('07bad1'),
+                        color: designToken('perfChart.color.07bad1'),
                         fontSize: 12,
                         fontFamily: designFont('Poppins-SemiBold'),
                       }}>
@@ -747,7 +751,7 @@ const PerformanceChart = ({ modelName, advisor }) => {
                     </Text>
                     <Text
                       style={{
-                        color: designColor('ff6347'),
+                        color: designToken('perfChart.color.ff6347'),
                         fontSize: 12,
                         fontFamily: designFont('Poppins-SemiBold'),
                       }}>
@@ -774,14 +778,14 @@ const PerformanceChart = ({ modelName, advisor }) => {
               style={{
                 width: 16,
                 height: 3,
-                backgroundColor: designColor('07bad1'),
+                backgroundColor: designToken('perfChart.backgroundColor.07bad1'),
                 marginRight: 6,
                 borderRadius: 2,
               }}
             />
             <Text
               style={{
-                color: designColor('555'),
+                color: designToken('perfChart.color.555'),
                 fontFamily: designFont('Poppins-Medium'),
                 fontSize: 11,
               }}>
@@ -794,14 +798,14 @@ const PerformanceChart = ({ modelName, advisor }) => {
               style={{
                 width: 16,
                 height: 3,
-                backgroundColor: designColor('ff6347'),
+                backgroundColor: designToken('perfChart.backgroundColor.ff6347'),
                 marginRight: 6,
                 borderRadius: 2,
               }}
             />
             <Text
               style={{
-                color: designColor('555'),
+                color: designToken('perfChart.color.555'),
                 fontFamily: designFont('Poppins-Medium'),
                 fontSize: 11,
               }}>

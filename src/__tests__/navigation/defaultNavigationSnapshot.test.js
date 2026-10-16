@@ -29,8 +29,10 @@ test('tabs, order, labels and first tab match the pre-manifest app', () => {
     ['More', 'More', 'action'],
   ]);
   expect(layout.initialRouteName).toBe('Home');
-  expect(layout.chrome).toEqual({legacyToolbar: true, tabBarHeight: 60});
+  expect(layout.chrome).toEqual({legacyToolbar: true, tabBarHeight: 60, coursesNativeHeader: true});
   expect(layout.preLoginRoute).toBe('Onboarding');
+  expect(layout.preLoginPolicy).toBe('backend');
+  expect(layout.authNavigation).toBe('legacy');
   expect(layout.warnings).toEqual([]);
 });
 

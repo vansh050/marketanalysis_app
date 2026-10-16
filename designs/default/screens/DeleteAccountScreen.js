@@ -26,7 +26,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { ChevronLeft, AlertTriangle } from 'lucide-react-native';
-import {designColor} from '../../../src/design/literalTokens';
+import { designToken } from '../../../src/design/literalTokens';
 
 const CONFIRM_WORD = 'DELETE';
 
@@ -41,7 +41,7 @@ const DeleteAccountScreen = ({viewModel, actions}) => {
           onPress={actions.onBack}
           style={styles.backBtn}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <ChevronLeft size={24} color={designColor('101828')} />
+          <ChevronLeft size={24} color={designToken('deleteAccount.text')} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Delete Account</Text>
         <View style={{ width: 24 }} />
@@ -63,8 +63,8 @@ const DeleteAccountScreen = ({viewModel, actions}) => {
           />
         ) : preview?.hasActiveSubscription ? (
           <View style={[styles.warnCard, styles.subWarn]}>
-            <AlertTriangle size={20} color={designColor('b54708')} />
-            <Text style={[styles.warnText, { color: designColor('b54708') }]}>
+            <AlertTriangle size={20} color={designToken('deleteAccount.warning')} />
+            <Text style={[styles.warnText, { color: designToken('deleteAccount.warning') }]}>
               You have an active subscription
               {preview?.activePlanNames?.length
                 ? ` (${preview.activePlanNames.join(', ')})`
@@ -90,7 +90,7 @@ const DeleteAccountScreen = ({viewModel, actions}) => {
         <Text style={styles.sectionLabel}>What we must keep</Text>
         <Text style={styles.note}>
           As required by SEBI (5-year record retention) and tax law, your
-          advice records and invoices are retained in anonymised form. Your
+          recommendation records and invoices are retained in anonymised form. Your
           email address is released, so you may register again later as a new
           account with no prior history.
         </Text>
@@ -106,7 +106,7 @@ const DeleteAccountScreen = ({viewModel, actions}) => {
           autoCorrect={false}
           editable={!deleting}
           style={styles.input}
-          placeholderTextColor={designColor('98a2b3')}
+          placeholderTextColor={designToken('deleteAccount.placeholder')}
         />
 
         <TouchableOpacity
@@ -114,10 +114,10 @@ const DeleteAccountScreen = ({viewModel, actions}) => {
           disabled={!canDelete}
           style={[
             styles.deleteBtn,
-            { backgroundColor: canDelete ? danger : designColor('f2c4c0') },
+            { backgroundColor: canDelete ? danger : designToken('deleteAccount.danger') },
           ]}>
           {deleting ? (
-            <ActivityIndicator color={designColor('fff')} />
+            <ActivityIndicator color={designToken('deleteAccount.surface')} />
           ) : (
             <Text style={styles.deleteBtnText}>Delete my account</Text>
           )}
@@ -137,7 +137,7 @@ const DeleteAccountScreen = ({viewModel, actions}) => {
 };
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: designColor('ffffff') },
+  safe: { flex: 1, backgroundColor: designToken('deleteAccount.surface2') },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -145,41 +145,41 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: designColor('eaecf0'),
+    borderBottomColor: designToken('deleteAccount.border'),
   },
   backBtn: { padding: 2 },
-  headerTitle: { fontSize: 17, fontWeight: '600', color: designColor('101828') },
+  headerTitle: { fontSize: 17, fontWeight: '600', color: designToken('deleteAccount.text') },
   body: { padding: 16, paddingBottom: 40 },
   warnCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: designColor('fef3f2'),
+    backgroundColor: designToken('deleteAccount.surfaceMuted'),
     borderRadius: 12,
     padding: 12,
     marginBottom: 16,
     gap: 10,
   },
-  subWarn: { backgroundColor: designColor('fffaeb') },
-  warnText: { flex: 1, fontSize: 14, lineHeight: 20, color: designColor('b42318') },
+  subWarn: { backgroundColor: designToken('deleteAccount.warningSoft') },
+  warnText: { flex: 1, fontSize: 14, lineHeight: 20, color: designToken('deleteAccount.danger2') },
   sectionLabel: {
     fontSize: 13,
     fontWeight: '700',
-    color: designColor('101828'),
+    color: designToken('deleteAccount.text'),
     marginTop: 18,
     marginBottom: 8,
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
-  bullet: { fontSize: 14, lineHeight: 22, color: designColor('344054'), marginBottom: 4 },
-  note: { fontSize: 13, lineHeight: 20, color: designColor('475467') },
+  bullet: { fontSize: 14, lineHeight: 22, color: designToken('deleteAccount.text2'), marginBottom: 4 },
+  note: { fontSize: 13, lineHeight: 20, color: designToken('deleteAccount.accent') },
   input: {
     borderWidth: 1,
-    borderColor: designColor('d0d5dd'),
+    borderColor: designToken('deleteAccount.border2'),
     borderRadius: 10,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
-    color: designColor('101828'),
+    color: designToken('deleteAccount.text'),
     marginBottom: 20,
   },
   deleteBtn: {
@@ -188,7 +188,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  deleteBtnText: { color: designColor('ffffff'), fontSize: 16, fontWeight: '700' },
+  deleteBtnText: { color: designToken('deleteAccount.surface2'), fontSize: 16, fontWeight: '700' },
   cancelBtn: { paddingVertical: 16, alignItems: 'center' },
   cancelBtnText: { fontSize: 15, fontWeight: '600' },
 });

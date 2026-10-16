@@ -66,6 +66,13 @@ const LogoutScreen = ({ navigation }) => {
         }
     }, [config?.googleIosClientId, config?.googleWebClientId]);
 
+    // Reset the whole stack to Login. `replace` only swapped this screen, so
+    // Home/Profile stayed underneath and the hardware back button returned to
+    // a signed-in screen after logout.
+    const goToLogin = () => {
+        navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
+    };
+
     useEffect(() => {
         const handleLogout = async () => {
             try {
@@ -88,10 +95,10 @@ const LogoutScreen = ({ navigation }) => {
                 setBroker(null);
                 setstockRecoNotExecutedfinal([]);
                 setModelPortfolioStrategyfinal([]);
-                navigation.replace('Login');
+                goToLogin();
             } catch (error) {
                 console.error('Error signing out: ', error);
-                navigation.replace('Login');
+                goToLogin();
             }
         };
         handleLogout();

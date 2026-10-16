@@ -187,6 +187,7 @@ const SignUpRADetails = ({ route }) => {
                 onCreateAccount: handleCreateAccount,
                 onSuccessModalOk,
                 onCloseSuccessModal: () => setSuccessModalVisible(false),
+                onNavigateToLogin: () => navigation.replace('Login'),
             }}
         />
     );

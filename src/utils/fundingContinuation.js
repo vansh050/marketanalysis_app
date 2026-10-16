@@ -35,9 +35,11 @@ export const getFundingReview = (contract, calculation) => {
   const canContinueWithAvailableFunds = Boolean(
     consent?.options?.includes('keep_intent') && fundedAmount > 0,
   );
+  // Offered whenever the server lists attempt_broker — including with a little
+  // cash (2026-10-13: Rs 7.20 vs a Rs 501 target, where the available-funds
+  // basket bought nothing). The broker makes the accept/reject decision.
   const canAttemptWithInsufficientFunds = Boolean(
     consent?.options?.includes('attempt_broker') &&
-    fundedAmount <= 0 &&
     continuation?.choice !== 'attempt_broker',
   );
   // The customer already chose "Review stocks and attempt buy": the orders on

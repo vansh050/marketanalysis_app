@@ -44,7 +44,7 @@ const RebalanceReviewScreen = () => {
   const Presentation = useComponent('screens.RebalanceReviewScreen');
   const navigation = useNavigation();
   const route = useRoute();
-  const { portfolio, userEmail, broker, brokerCredentials } = route.params || {};
+  const { portfolio, userEmail, broker, brokerCredentials, exitPortfolio = false, exitReason = '' } = route.params || {};
   const showAlert = useModalStore((state) => state.showAlert);
 
   const modelName = portfolio?.modelName || portfolio?.model_name;
@@ -97,6 +97,7 @@ const RebalanceReviewScreen = () => {
         userBroker: broker || 'DummyBroker',
         userFund: '0',
         flag,
+        ...(exitPortfolio ? {exitPortfolio: true, exitReason} : {}),
         ...(options?.forceRefresh ? {forceRefresh: true} : {}),
         ...availableFundsPayload(options),
       };
@@ -186,7 +187,7 @@ const RebalanceReviewScreen = () => {
       setErrorMsg(e.response?.data?.message || e.message || 'Failed to calculate rebalance');
     }
     setLoading(false);
-  }, [userEmail, modelName, advisor, modelId, broker, brokerCredentials]);
+  }, [userEmail, modelName, advisor, modelId, broker, brokerCredentials, exitPortfolio, exitReason]);
 
   // ── Auto-calculate when preference selected ──
   useEffect(() => {
@@ -308,6 +309,7 @@ const RebalanceReviewScreen = () => {
       planId,
       planVersion,
       planHash,
+      exitPortfolio,
     });
   };
 
@@ -344,6 +346,7 @@ const RebalanceReviewScreen = () => {
         reducingFunding,
         termsAccepted,
         isDummyBroker,
+        exitPortfolio,
       }}
       actions={{
         onRetry: () => calculateRebalance(rebalanceFlag),
