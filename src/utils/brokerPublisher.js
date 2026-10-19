@@ -181,7 +181,7 @@ export function getBrokerAppName(broker) {
  * because -EQ subscribes to NSE but the stock is BSE-primary → no live LTP).
  *
  * @param {string[]} symbols - trading symbols from advice (may include `-EQ`).
- * @returns {Promise<Record<string, {zerodha_symbol:string, exchange:string, lot_size:number, ltp:number|null}>>}
+ * @returns {Promise<Record<string, {zerodha_symbol:string, exchange:string, lot_size:number, ltp:number|null, tick_size:number|null}>>}
  */
 export async function convertSymbolsToZerodha(symbols) {
   const unique = [...new Set((symbols || []).filter(Boolean))];
@@ -220,6 +220,12 @@ export async function convertSymbolsToZerodha(symbols) {
           exchange: r.exchange,
           lot_size: r.lot_size,
           ltp: typeof r.ltp === 'number' ? r.ltp : null,
+          // Exact instrument tick (rupees) from the server scrip master;
+          // null when unknown or from an older server.
+          tick_size:
+            typeof r.tick_size === 'number' && r.tick_size > 0
+              ? r.tick_size
+              : null,
         };
       }
     });
@@ -273,6 +279,7 @@ export function resolveZerodhaSymbol(stock, symbolMap) {
     tradingsymbol,
     exchange,
     cachedLtp: info?.ltp ?? null,
+    tickSize: info?.tick_size ?? null,
   };
 }
 
@@ -485,7 +492,7 @@ function mapKiteProductType(productType, exchange) {
  * The default here is nearest-tick — appropriate for applyKiteMarketProtection
  * which already applies a 1.0% (equity) or 1.5% (derivative) buffer.
  */
-export function roundToKiteTick(price, mode = 'nearest') {
+export function roundToKiteTick(price, mode = 'nearest', instrumentTick = null) {
   if (!Number.isFinite(price) || price <= 0) return price;
   let tick;
   if (price > 20000) tick = 5.0;
@@ -494,6 +501,11 @@ export function roundToKiteTick(price, mode = 'nearest') {
   else if (price > 1000) tick = 0.1;
   else if (price >= 250) tick = 0.05;
   else tick = 0.01;
+  // NSE assigns ticks per stock, so the band alone can be too fine: YATHARTH
+  // at ~₹979 has a ₹0.10 tick (talsi, 2026-10-19, rejected "multiples of the
+  // tick size"). Ticks are nested multiples — the coarser one is valid.
+  const exact = parseFloat(instrumentTick);
+  if (Number.isFinite(exact) && exact > 0 && exact > tick) tick = exact;
   let rounded;
   if (mode === 'ceil') rounded = Math.ceil(price / tick) * tick;
   else if (mode === 'floor') rounded = Math.floor(price / tick) * tick;
@@ -683,7 +695,12 @@ export async function fetchFreshKiteProtectionPrices(
  *   const baseOrder = { tradingsymbol, exchange, order_type: 'MARKET', ... };
  *   return applyKiteMarketProtection(baseOrder, ltp, stock.transactionType);
  */
-export function applyKiteMarketProtection(baseOrder, ltp, transactionType) {
+export function applyKiteMarketProtection(
+  baseOrder,
+  ltp,
+  transactionType,
+  instrumentTick = null,
+) {
   if (!baseOrder || baseOrder.order_type !== 'MARKET') return baseOrder;
   const ltpNumeric = parseFloat(ltp) || 0;
   if (ltpNumeric <= 0) return baseOrder;
@@ -710,6 +727,7 @@ export function applyKiteMarketProtection(baseOrder, ltp, transactionType) {
   const limitPrice = roundToKiteTick(
     rawBuffered,
     isBuy ? 'ceil' : 'floor',
+    instrumentTick,
   );
   // Kite Publisher does not reliably accept LIMIT+CNC+IOC basket legs. The
   // production web flow uses DAY for every exchange; keep mobile identical.
@@ -785,6 +803,7 @@ export function convertToBasketItem(broker, stock, symbolMap, overrides = {}) {
       const bufferedPrice = roundToKiteTick(
         rawBuffered,
         isBuy ? 'ceil' : 'floor',
+        symbolInfo.tick_size,
       );
       // Hold it inside the circuit band when the broker reported one. This
       // touches ONLY the price synthesised here for a MARKET leg; an explicit

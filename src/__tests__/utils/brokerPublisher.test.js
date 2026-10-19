@@ -511,3 +511,37 @@ describe('circuit-band clamp', () => {
     expect(clampToCircuitBand(0, true, {upper: 10})).toBe(0);
   });
 });
+
+describe('instrument tick from convert-symbol (talsi YATHARTH, 2026-10-19)', () => {
+  test('roundToKiteTick uses the coarser instrument tick', () => {
+    expect(roundToKiteTick(981.52, 'ceil')).toBe(981.55);
+    expect(roundToKiteTick(981.52, 'ceil', 0.1)).toBe(981.6);
+    expect(roundToKiteTick(981.52, 'floor', 0.1)).toBe(981.5);
+    expect(roundToKiteTick(1185.27, 'ceil', 0.05)).toBe(1185.3);
+    expect(roundToKiteTick(981.52, 'ceil', null)).toBe(981.55);
+    expect(roundToKiteTick(981.52, 'ceil', 'junk')).toBe(981.55);
+  });
+
+  test('resolveZerodhaSymbol exposes tickSize', () => {
+    const symbolMap = {'YATHARTH-EQ': {zerodha_symbol: 'YATHARTH', exchange: 'NSE', ltp: 978.6, tick_size: 0.1}};
+    expect(resolveZerodhaSymbol({tradingSymbol: 'YATHARTH-EQ'}, symbolMap).tickSize).toBe(0.1);
+    expect(resolveZerodhaSymbol({tradingSymbol: 'OTHER-EQ'}, symbolMap).tickSize).toBeNull();
+  });
+
+  test('applyKiteMarketProtection snaps to the instrument tick', () => {
+    const order = {tradingsymbol: 'YATHARTH', exchange: 'NSE', transaction_type: 'BUY', order_type: 'MARKET', product: 'CNC'};
+    // 971.8 × 1.01 = 981.518 → ₹0.05 band gives 981.55; the ₹0.10 tick gives 981.60.
+    expect(applyKiteMarketProtection(order, 971.8, 'BUY').price).toBe(981.55);
+    expect(applyKiteMarketProtection(order, 971.8, 'BUY', 0.1).price).toBe(981.6);
+  });
+
+  test('convertToBasketItem uses the symbol map tick for MARKET legs', () => {
+    const symbolMap = {'YATHARTH-EQ': {zerodha_symbol: 'YATHARTH', exchange: 'NSE', ltp: 971.8, tick_size: 0.1}};
+    const item = convertToBasketItem(
+      'Zerodha',
+      {tradingSymbol: 'YATHARTH-EQ', exchange: 'NSE', transactionType: 'BUY', quantity: 7, orderType: 'MARKET', productType: 'DELIVERY', ltp: 971.8},
+      symbolMap,
+    );
+    expect(item).toMatchObject({order_type: 'LIMIT', price: 981.6});
+  });
+});

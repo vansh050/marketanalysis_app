@@ -1289,7 +1289,12 @@ const UserStrategySubscribeModal = ({
         baseOrder.readonly = true;
       }
       // MARKET → LIMIT-IOC with 1% market-protection buffer for GSM/T2T/BE stocks.
-      const protectedOrder = applyKiteMarketProtection(baseOrder, ltp, stock.transactionType);
+      const protectedOrder = applyKiteMarketProtection(
+        baseOrder,
+        ltp,
+        stock.transactionType,
+        resolved.tickSize,
+      );
       console.log('BaseOrder:', protectedOrder);
       return protectedOrder;
     });
