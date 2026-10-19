@@ -1,3 +1,12 @@
 <resources>
     <string name="app_name">Market Analysis Academy</string>
+    <string name="CodePushPublicKey">-----BEGIN PUBLIC KEY-----
+MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA5RGLZXAX3ZhTXPQgXFIY
+nmhFJ51KoBfD5Y+F42+MKIOsbJ1gHxeOzFRibVjPKDrXCSiIGlwXhim9s1gwW+be
+Gaz6ccz7fXzUm9bJ3s7Rp49tXhdJFGCTm8ezNeFxPjf5ibnDfGwQkwIJJBmHQ45J
+bmEq08HA85QwuRatSIhKwfb6MQSatpa6e4Gt4ErtR3py/InQ4j/lqVHJ2QRAKj2k
+AhaqqhFK0Z6/Llvst/XY99pWZAVyy1R9ACR8QYxXsF5CLSk7ohzfwsK8SdxVrAgn
+wFj1pC2Azi6ucit70wEyMP5fqiRGL9Xs4kBKNpmlukH86Sf78o6+Nglnq/5x/iYc
+BQIDAQAB
+-----END PUBLIC KEY-----</string>
 </resources>

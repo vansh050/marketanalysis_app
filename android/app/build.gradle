@@ -22,7 +22,7 @@ def enableProguardInReleaseBuilds = false
 def jscFlavor = 'org.webkit:android-jsc:+'
 // OTA plumbing is shared, but this fork intentionally has no baked-in
 // deployment. Supply a MarketAnalysis-specific key at build time if enabled.
-def codePushDeploymentKey = project.findProperty("CODEPUSH_DEPLOYMENT_KEY") ?: System.getenv("CODEPUSH_DEPLOYMENT_KEY") ?: ""
+def codePushDeploymentKey = project.findProperty("CODEPUSH_DEPLOYMENT_KEY") ?: System.getenv("CODEPUSH_DEPLOYMENT_KEY") ?: "Z5vCO7OEVXVJrwggMv-WGtG0w2itNy7_jWqPVl"
 
 android {
     namespace "com.aq.marketanalysis"

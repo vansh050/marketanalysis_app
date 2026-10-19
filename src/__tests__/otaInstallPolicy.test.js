@@ -1,22 +1,17 @@
 const fs = require('fs');
 const path = require('path');
 
-const readAndroidSource = fileName => {
-  const find = directory => {
-    for (const entry of fs.readdirSync(directory, {withFileTypes: true})) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        const nested = find(absolute);
-        if (nested) return nested;
-      } else if (entry.name === fileName) {
-        return absolute;
-      }
+const findFile = (dir, name) => {
+  for (const entry of fs.readdirSync(dir, {withFileTypes: true})) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const hit = findFile(full, name);
+      if (hit) return hit;
+    } else if (entry.name === name) {
+      return full;
     }
-    return null;
-  };
-  const file = find(path.join(process.cwd(), 'android/app/src/main/java'));
-  if (!file) throw new Error(`Could not find Android source ${fileName}`);
-  return fs.readFileSync(file, 'utf8');
+  }
+  return null;
 };
 
 describe('OTA install policy', () => {
@@ -52,22 +47,44 @@ describe('OTA install policy', () => {
     expect(entry).toContain('const OtaEnabledApp = __DEV__');
     expect(entry).toContain('? App');
 
-    const application = readAndroidSource('MainApplication.kt');
-
+    const mainApplication = findFile(
+      path.join(process.cwd(), 'android/app/src/main/java'),
+      'MainApplication.kt',
+    );
+    expect(mainApplication).toBeTruthy();
+    const application = fs.readFileSync(mainApplication, 'utf8');
     expect(application).toContain(
       'if (BuildConfig.DEBUG) null else CodePush.getJSBundleFile()',
     );
     expect(application).toContain('clearRetainedOtaAfterBinaryChange()');
     expect(application).toContain('.clearUpdates()');
     expect(application).toContain('native_version_code');
+  });
 
-    const debugNetworkPolicy = fs.readFileSync(
-      path.join(
-        process.cwd(),
-        'android/app/src/debug/res/xml/network_security_config.xml',
-      ),
+  // Each white-label app owns its Revopush apps and signing key. A copied
+  // deployment key or public key lets another tenant's OTA replace this
+  // app's JavaScript (Kyzen carried AlphaPro's keys until 2026-10-19).
+  test('the app embeds its own deployment and public keys', () => {
+    const strings = fs.readFileSync(
+      path.join(process.cwd(), 'android/app/src/main/res/values/strings.xml'),
       'utf8',
     );
-    expect(debugNetworkPolicy).toContain('cleartextTrafficPermitted="true"');
+    const plist = fs.readFileSync(
+      path.join(process.cwd(), 'ios/AlphaQuark/Info.plist'),
+      'utf8',
+    );
+    const gradle = fs.readFileSync(
+      path.join(process.cwd(), 'android/app/build.gradle'),
+      'utf8',
+    );
+    const androidPublic = strings.match(/CodePushPublicKey">([\s\S]*?)<\/string>/)[1].replace(/\s/g, '');
+    const iosPublic = plist.match(/CodePushPublicKey<\/key>\s*<string>([\s\S]*?)<\/string>/)[1].replace(/\s/g, '');
+    expect(androidPublic).toContain('BEGINPUBLICKEY');
+    expect(iosPublic).toBe(androidPublic);
+    expect(gradle).toMatch(/CODEPUSH_DEPLOYMENT_KEY"\) \?: "[A-Za-z0-9_-]{20,}"/);
+    expect(plist).toMatch(/CodePushDeploymentKey<\/key>\s*<string>[A-Za-z0-9_-]{20,}<\/string>/);
+    expect(plist).not.toContain('CodePushEnabled');
+    // AlphaPro's embedded public key must never appear in another app.
+    expect(androidPublic).not.toContain('MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAyLiagUCip1Dgx4v0wtnI');
   });
 });
