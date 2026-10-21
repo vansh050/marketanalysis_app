@@ -68,4 +68,6 @@ if [[ "$(read_value REACT_APP_HEADER_NAME)" != "$expected_tenant" ]]; then
   exit 1
 fi
 
+bash "$(dirname "$0")/check_env_secrets.sh" "$env_file"
+
 echo "Mobile runtime configuration is present for $expected_variant."

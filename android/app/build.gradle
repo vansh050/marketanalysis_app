@@ -172,3 +172,31 @@ dependencies {
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
 apply plugin: "com.google.gms.google-services"
 apply from: "../../node_modules/@revopush/react-native-code-push/android/codepush.gradle"
+
+// react-native-config bakes every env value into the APK/AAB as plain text.
+// Refuse a release build whose env file holds a credential (2026-10-22: a
+// GitHub token shipped inside AlphaPro 3.9.194). Same check as
+// scripts/check_env_secrets.sh; prints key names only.
+tasks.register("checkEnvForSecrets") {
+    doLast {
+        def envName = System.getenv("ENVFILE") ?: System.getProperty("ENVFILE") ?: ".env"
+        def envFile = new File(envName)
+        if (!envFile.isAbsolute()) envFile = new File(rootProject.projectDir.parentFile, envName)
+        if (!envFile.exists()) return
+        def pattern = ~/github_pat_|gh[pousr]_[A-Za-z0-9]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY|AKIA[0-9A-Z]{16}/
+        def badKeys = []
+        envFile.eachLine { line ->
+            def eq = line.indexOf("=")
+            if (eq > 0 && !line.trim().startsWith("#") && (line.substring(eq + 1) =~ pattern).find()) {
+                badKeys << line.substring(0, eq).trim()
+            }
+        }
+        if (badKeys) {
+            throw new GradleException("${envName} holds credential-like values (${badKeys.join(', ')}). " +
+                "Remove them: the app must not ship them.")
+        }
+    }
+}
+tasks.configureEach { task ->
+    if (task.name == "preReleaseBuild") task.dependsOn("checkEnvForSecrets")
+}
