@@ -50,6 +50,12 @@ import axios from 'axios';
 import eventEmitter from '../components/EventEmitter';
 import {getAuth} from '@react-native-firebase/auth';
 import server from './serverConfig';
+import {
+  isIssuedAppSessionToken,
+  issuedTokenAllowedFor,
+  clearAppSessionToken,
+  getStaticToken,
+} from './appSessionToken';
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -131,6 +137,111 @@ async function resolveFirebaseToken(forceRefresh = false) {
   return request;
 }
 
+
+// ---------------------------------------------------------------------------
+// App-session token support (see ./appSessionToken.js)
+// ---------------------------------------------------------------------------
+function readHeader(headers, name) {
+  try {
+    if (!headers) return undefined;
+    if (typeof headers.get === 'function') {
+      const v = headers.get(name);
+      if (v !== undefined && v !== null) return v;
+    }
+    const lower = name.toLowerCase();
+    const key = Object.keys(headers).find(k => k.toLowerCase() === lower);
+    return key ? headers[key] : undefined;
+  } catch (_) {
+    return undefined;
+  }
+}
+
+function writeHeader(config, name, value) {
+  config.headers = config.headers || {};
+  const headers = config.headers;
+  if (typeof headers.set === 'function') {
+    headers.set(name, value);
+    return;
+  }
+  const lower = name.toLowerCase();
+  const key = Object.keys(headers).find(k => k.toLowerCase() === lower);
+  headers[key || name] = value;
+}
+
+let appVersionHeader;
+function getAppVersionHeader() {
+  if (appVersionHeader !== undefined) return appVersionHeader;
+  appVersionHeader = null;
+  try {
+    const mod = require('react-native-device-info');
+    const DeviceInfo = (mod && mod.default) || mod;
+    const version = DeviceInfo && DeviceInfo.getVersion && DeviceInfo.getVersion();
+    const build = DeviceInfo && DeviceInfo.getBuildNumber && DeviceInfo.getBuildNumber();
+    if (version && version !== 'unknown') {
+      appVersionHeader = build && build !== 'unknown' ? `${version}+${build}` : String(version);
+    }
+  } catch (_) {
+    appVersionHeader = null;
+  }
+  return appVersionHeader;
+}
+
+/**
+ * An issued token may only travel to Node/ccxt for the tenant it was minted
+ * for. Anywhere else it is replaced by the static token; when it is allowed,
+ * the config is marked so a 401 can fall back to static exactly once.
+ */
+function applyAppSessionPolicy(config) {
+  const value = readHeader(config.headers, 'aq-encrypted-key');
+  if (!value || !isIssuedAppSessionToken(value)) return;
+  const reqTenant = readHeader(config.headers, 'X-Advisor-Subdomain');
+  if (issuedTokenAllowedFor(config.url, value, reqTenant)) {
+    config.__aqIssuedToken = value;
+    return;
+  }
+  const fallback = getStaticToken();
+  if (fallback) writeHeader(config, 'aq-encrypted-key', fallback);
+}
+
+// Messages our own auth layers return when they reject `aq-encrypted-key`
+// BEFORE any route handler runs (Node headerMiddleware, ccxt
+// common/decorators.py validate_token). A non-idempotent request is only
+// replayed on this evidence, never on a 401 a handler produced after doing
+// work (e.g. a broker session failure mid-order).
+const TOKEN_REJECTION_MESSAGES = new Set([
+  'invalid token',
+  'token has expired',
+  'missing authorization token',
+  'authorization header is missing',
+]);
+
+export function isTokenRejection401(error) {
+  try {
+    if (error?.response?.status !== 401) return false;
+    const data = error.response.data || {};
+    const code = String(data.code || '').toUpperCase();
+    if (/^(APP_SESSION|INVALID_APP_SESSION|AQ_TOKEN)/.test(code)) return true;
+    const msg = String(data.error || data.message || '').trim().toLowerCase();
+    return TOKEN_REJECTION_MESSAGES.has(msg);
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * The request carried an issued token and got 401: drop the cached token
+ * and replay once with the static token. GET/HEAD/OPTIONS always; other
+ * methods only when the body proves the token itself was rejected.
+ */
+export function shouldRetryWithStatic(error) {
+  const config = error?.config;
+  if (!config || !config.__aqIssuedToken || config.__aqStaticRetried) return false;
+  if (error?.response?.status !== 401) return false;
+  const method = String(config.method || 'get').toLowerCase();
+  if (method === 'get' || method === 'head' || method === 'options') return true;
+  return isTokenRejection401(error);
+}
+
 /** Server code for "the token proves a different customer than you asked for". */
 export const IDENTITY_MISMATCH_CODE = 'MF_CUSTOMER_IDENTITY_MISMATCH';
 
@@ -164,7 +275,18 @@ export function installAuthTokenInterceptor() {
   axios.interceptors.request.use(
     async config => {
       try {
+        applyAppSessionPolicy(config);
+      } catch (_) {
+        // Never let the app-session policy break a request.
+      }
+      try {
         if (!isTrackedApiUrl(config && config.url)) return config;
+        try {
+          const appVersion = getAppVersionHeader();
+          if (appVersion && !readHeader(config.headers, 'X-App-Version')) {
+            writeHeader(config, 'X-App-Version', appVersion);
+          }
+        } catch (_) {}
         if (hasExistingAuthHeader(config)) return config;
 
         const token = await resolveFirebaseToken(false);
@@ -184,6 +306,21 @@ export function installAuthTokenInterceptor() {
     response => response,
     async error => {
       const config = error?.config;
+      // App-session fallback: an issued token was rejected → static, once.
+      try {
+        if (shouldRetryWithStatic(error)) {
+          const fallback = getStaticToken();
+          if (fallback) {
+            clearAppSessionToken();
+            config.__aqStaticRetried = true;
+            delete config.__aqIssuedToken;
+            writeHeader(config, 'aq-encrypted-key', fallback);
+            return axios(config);
+          }
+        }
+      } catch (_) {
+        // fall through to the existing handling
+      }
       const method = String(config?.method || 'get').toLowerCase();
       if (
         error?.response?.status === 401 &&

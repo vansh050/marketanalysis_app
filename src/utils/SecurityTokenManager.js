@@ -2,6 +2,10 @@
 import sign from 'jwt-encode';
 import Config from 'react-native-config';
 import { decode } from 'react-native-pure-jwt';
+import {
+  getIssuedAppSessionToken,
+  setStaticTokenProvider,
+} from './appSessionToken';
  
 // Get environment variables
 const AQ_KEY = Config.REACT_APP_AQ_KEYS;
@@ -105,11 +109,33 @@ class SecurityTokenManager {
   }
 }
 
-// Export utility functions that can be used directly
-export const generateToken = (apiKey,secretKey) => {
+// The static, client-signed token — exactly what generateToken() returned
+// before the app-session migration. Used directly by the 401 fallback.
+export const generateStaticToken = (apiKey,secretKey) => {
   const manager = SecurityTokenManager.getInstance();
   return manager.generateServiceToken(apiKey,secretKey);
 };
+
+// Export utility functions that can be used directly.
+//
+// App-session migration (see ./appSessionToken.js): when a server-issued
+// per-user token is held for the signed-in user and has > 120 s left, it is
+// returned instead of the static token — but ONLY when the caller asked for
+// the app's own key pair. Anything else, and every failure path, returns the
+// static token unchanged. Stays synchronous; never waits for a fetch.
+export const generateToken = (apiKey,secretKey) => {
+  try {
+    if (apiKey && secretKey && apiKey === AQ_KEY && secretKey === AQ_SECRET) {
+      const issued = getIssuedAppSessionToken();
+      if (issued) return issued;
+    }
+  } catch (_) {
+    // fall through to the static token
+  }
+  return generateStaticToken(apiKey,secretKey);
+};
+
+setStaticTokenProvider(() => generateStaticToken(AQ_KEY, AQ_SECRET));
 
 export const verifyToken = (token,secretKey) => {
   const manager = SecurityTokenManager.getInstance();

@@ -8,6 +8,11 @@ import axios from 'axios';
 // our own API calls (observe-mode only, backend enforces nothing yet).
 // See src/utils/authTokenInterceptor.js.
 import './src/utils/authTokenInterceptor';
+// App-session tokens: server-issued short-lived per-user `aq-encrypted-key`
+// replacing the static client-signed token where available. Never blocks a
+// request; falls back to static. Kill switch REACT_APP_APP_SESSION_TOKENS=false.
+// See src/utils/appSessionToken.js.
+import {initAppSessionTokens} from './src/utils/appSessionToken';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
 import {getAuth, onAuthStateChanged} from '@react-native-firebase/auth';
 import crashlytics from '@react-native-firebase/crashlytics';
@@ -47,6 +52,9 @@ import SdkProviderRoot, {
   isSdkIntegrationEnabled,
 } from './src/sdk/SdkProviderRoot';
 import {useComponent} from './src/design/useDesign';
+
+// Once per JS runtime, at module load (before the first render's requests).
+initAppSessionTokens();
 
 // Module-level wrappers — hoisted out of the App body so their component
 // identity is STABLE across App re-renders. Declaring them inline inside the
