@@ -318,6 +318,9 @@ const BasketTradeModal = ({
             symbol={item.tradingSymbol || ''}
             orderType={item.orderType}
             exchange={item.exchange}
+            limitPrice={item.price}
+            triggerPrice={item.triggerPrice}
+            transactionType={item.transactionType}
             advisedPrice={0}
             stockDetails={stockDetails}
         />

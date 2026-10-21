@@ -37,6 +37,8 @@ const AdviceCartScreen = ({ broker }) => {
         segment: stock.Segment,
         productType: stock.ProductType,
         orderType: stock.OrderType,
+        // SL (stop-limit) entry: the trigger travels with the leg to the broker.
+        triggerPrice: stock.TriggerPrice || stock.triggerPrice || 0,
         transactionType:stock.Type,
         price: stock.Price,
         quantity: stock.Quantity,

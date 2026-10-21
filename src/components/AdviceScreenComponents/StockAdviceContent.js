@@ -205,6 +205,8 @@ const StockAdviceContent = React.memo(
                 segment: stock.Segment,
                 productType: stock.ProductType,
                 orderType: stock.OrderType,
+                // SL (stop-limit) entry: the trigger travels with the leg to the broker.
+                triggerPrice: stock.TriggerPrice || stock.triggerPrice || 0,
                 price: stock.Price,
                 quantity: stock.Quantity,
                 priority: stock.Priority,
@@ -376,6 +378,7 @@ const StockAdviceContent = React.memo(
               advisedRangeLower={item.Advised_Range_Lower}
               advisedRangeHigher={item.Advised_Range_Higher}
               OrderType={item.OrderType}
+              triggerPrice={item.TriggerPrice ?? item.triggerPrice}
               quantity={item.Quantity}
               date={item.date}
               rationale={item.rationale}

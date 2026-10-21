@@ -1,5 +1,16 @@
 # Design System Migration — Progress Log
 
+## 2026-10-21 — SL trigger value on the stock card
+
+- **Phase**: post-Phase-I presentation maintenance.
+- **Surfaces touched**: `designs/default/composites/StockCard.js` (value line
+  shows `Trigger ₹T · Limit ₹L` for an `SL` reco with a positive trigger),
+  container `src/UIComponents/StockAdvicesUI/StockCard.js` (new `triggerPrice`
+  prop forwarded in the viewModel).
+- **Verdict changes**: none. Data arrives only through the viewModel;
+  `npm run audit:design` passes with baseline 0.
+- **Regressions**: none; other order types render as before.
+
 > **Chronological work log for the swappable-UI design-system migration.** Companion to `DESIGN_SYSTEM_ARCHITECTURE.md` (design source of truth) and `DESIGN_COMPONENT_AUDIT.md` (per-surface inventory). Mirrors `PHASE3_PROGRESS.md` in spirit.
 >
 > Every commit that touches design-system surfaces gets an entry here. Same rule as Phase 3 — undocumented deltas block the next delta.

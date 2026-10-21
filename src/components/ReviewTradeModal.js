@@ -665,6 +665,9 @@ const ReviewTradeModal = ({
               symbol={symbol || ""}
               orderType={item.orderType}
               exchange={exe}
+              limitPrice={item.price}
+              triggerPrice={item.triggerPrice}
+              transactionType={item.transactionType}
               advisedPrice={iniprice || 0}
               stockDetails={stockDetails}
             />

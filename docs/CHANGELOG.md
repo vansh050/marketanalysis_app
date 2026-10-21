@@ -1,5 +1,30 @@
 # Changelog
 
+## 2026-10-21 — SL (stop-limit) trigger entry orders carry their trigger
+
+- Advisors send single-stock recos as `SL` entries (`OrderType: "SL"`,
+  `Price` = limit, `triggerPrice`). The app dropped the trigger when building
+  cart/order objects, and the Kite Publisher path replaced the SL limit with
+  the LTP. Web was fixed the same way (prod-alphaquark-github `b48e58c`);
+  ccxt already refuses a stop order with no trigger or a crossed trigger.
+- Trigger carried (`triggerPrice: TriggerPrice || triggerPrice || 0`):
+  `StockAdvices.js` (3 builders), `StockAdviceContent.js`,
+  `AdviceCartScreen.js`, `IgnoreTradesScreen.js` (2), `BasketCard.js`;
+  `basketUtils.buildBasket` reads both spellings.
+- Kite Publisher single-stock callers (`StockAdvices.js`, `AddtoCartModal.js`,
+  `IgnoreTradesScreen.js`, `ReviewZerodhaTradeModal.js`): SL keeps the advisor
+  limit and passes `triggerPrice`; new `brokerPublisher.stopOrderProblem`
+  blocks the basket (error toast) when the trigger is missing or already
+  crossed. Unreadable LTP never blocks. Model-portfolio callers unchanged.
+- Display: stock card shows `Trigger ₹T · Limit ₹L` (`StockAdviceContent.js` →
+  `StockCard.js` → `designs/default/composites/StockCard.js`);
+  `orderTypeDisplay('SL')` = `Trigger order`; `ReviewTradeText` SL row
+  ("Buy only if price rises to ₹T (limit ₹L), valid today"), props passed from
+  `ReviewTradeModal.js`, `ReviewZerodhaTradeModal.js`, `BasketTradeModal.js`.
+- Docs: APP_ARCHITECTURE §4.5.3, DESIGN_MIGRATION_PROGRESS.
+- Tests: `brokerPublisher.test.js` SL block (guard, basket item, caller
+  contract).
+
 ## 2026-10-16 — Second whitelisted IP (OVH) on the connect sheet and Manage Connections
 
 - Customers can now whitelist a second static IP (OVH Mumbai) beside their

@@ -32,7 +32,7 @@ import CryptoJS from 'react-native-crypto-js';
 import IIFLReviewTradeModal from '../IIFLReviewTradeModal';
 import WebSocketManager from './DynamicText/WebSocketManager';
 import { getLastKnownPrice } from './DynamicText/websocketPrice';
-import { validateStockExchanges, convertToBasketItem, fetchFreshKiteProtectionPrices, resolveZerodhaSymbol } from '../../utils/brokerPublisher';
+import { validateStockExchanges, convertToBasketItem, fetchFreshKiteProtectionPrices, resolveZerodhaSymbol, stopOrderProblem } from '../../utils/brokerPublisher';
 import useZerodhaSymbolMap from '../../hooks/useZerodhaSymbolMap';
 import {useRefreshBrokerStatus} from '../../hooks/useRefreshBrokerStatus';
 import {isFundsErrorOrMissing} from '../../utils/rebalanceHelpers';
@@ -1942,6 +1942,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       Toast.show({type: 'error', text1: 'Quantity needed', text2: missingQuantityMessage(missingQty), visibilityTime: 7000});
       return false;
     }
+    const stopLegs = [];
     const basket = trades.map(stock => {
       // Scripmaster-resolved symbol/exchange (-EQ strip, BE→BSE, etc).
       const resolved = resolveZerodhaSymbol(stock, symbolMap);
@@ -1958,11 +1959,19 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
           : resolved.cachedLtp || 0);
       let orderPrice = 0;
 
-      if (stock.orderType === 'LIMIT') {
+      // SL (stop-limit) keeps the advisor's limit; only MARKET uses the LTP.
+      if (stock.orderType === 'LIMIT' || stock.orderType === 'SL') {
         orderPrice = parseFloat(stock.price || 0);
-      } else if (stock.orderType === 'MARKET' || stock.orderType === 'SL') {
+      } else if (stock.orderType === 'MARKET') {
         orderPrice = ltp && ltp !== '-' ? parseFloat(ltp) : 0;
       }
+      stopLegs.push({
+        symbol: resolved.tradingsymbol || stock.tradingSymbol,
+        transactionType: stock.transactionType,
+        orderType: stock.orderType,
+        triggerPrice: stock.triggerPrice,
+        ltp,
+      });
 
       // Kite Publisher expects SHARES. Basket legs carry quantity in LOTS
       // plus the `Lots` lot-size field — multiply so a 2-lot NIFTY leg
@@ -1979,12 +1988,18 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
         price: orderPrice,
         quantity: kiteShares,
         tag: getKitePublisherTag(stock),
+        triggerPrice: stock.triggerPrice,
       });
 
       console.log('[ZerodhaPublisher] Basket item:', JSON.stringify(basketItem));
 
       return basketItem;
     });
+    const stopProblem = stopOrderProblem(stopLegs);
+    if (stopProblem) {
+      Toast.show({type: 'error', text1: 'Trigger order not placed', text2: stopProblem, visibilityTime: 7000});
+      return false;
+    }
     const htmlContent = generateHtmlForm(basket, apiKey);
     setHtmlContent(htmlContent);
 
@@ -2318,6 +2333,8 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
                 ? 'CARRYFORWARD'
                 : stock.ProductType, //
             orderType: stock.OrderType,
+            // SL (stop-limit) entry: the trigger travels with the leg to the broker.
+            triggerPrice: stock.TriggerPrice || stock.triggerPrice || 0,
             price: stock.Price,
             quantity: stock.Quantity,
             priority: stock.Priority,
@@ -2838,6 +2855,8 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
                   ? 'CARRYFORWARD'
                   : updatedStock.ProductType,
               orderType: updatedStock.OrderType,
+              // SL (stop-limit) entry: the trigger travels with the leg to the broker.
+              triggerPrice: updatedStock.TriggerPrice || updatedStock.triggerPrice || 0,
               price: updatedStock.Price,
               quantity: updatedStock.Quantity,
               priority: updatedStock.Priority || 1,
@@ -3283,6 +3302,8 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
             ? 'CARRYFORWARD'
             : updatedStock.ProductType,
         orderType: updatedStock.OrderType,
+        // SL (stop-limit) entry: the trigger travels with the leg to the broker.
+        triggerPrice: updatedStock.TriggerPrice || updatedStock.triggerPrice || 0,
         price: updatedStock.Price,
         quantity: updatedStock.Quantity,
         priority: updatedStock.Priority || 1,

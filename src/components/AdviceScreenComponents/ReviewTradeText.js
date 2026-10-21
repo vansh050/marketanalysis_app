@@ -6,7 +6,7 @@ import useLTPStore from "./DynamicText/useLtpStore";
 import { designColor, designFont } from '../../design/literalTokens';
 // WebSocket Manager remains the same
 
-const ReviewTradeText = React.memo(({ symbol, orderType, exchange, limitPrice }) => {
+const ReviewTradeText = React.memo(({ symbol, orderType, exchange, limitPrice, triggerPrice, transactionType }) => {
   const price = useLTPStore((state) => state.ltps[symbol]);
 
   // Ensure price is always a number or null
@@ -34,6 +34,27 @@ const ReviewTradeText = React.memo(({ symbol, orderType, exchange, limitPrice })
             </Text>
           </View>
         );
+
+      case "SL": {
+        // Stop-limit (trigger) entry: the order waits at the broker until
+        // the price reaches the trigger, then works as a limit order.
+        const trigger = Number(triggerPrice);
+        const isSell = String(transactionType || "").toUpperCase() === "SELL";
+        return (
+          <View>
+            <View style={styles.row}>
+              <Text style={styles.cellTextmktprice}>₹{formatted}</Text>
+              <Text style={styles.mutedText}> (Trigger)</Text>
+            </View>
+            {trigger > 0 ? (
+              <Text style={styles.mutedText}>
+                {isSell ? "Sell only if price falls to" : "Buy only if price rises to"} ₹{trigger}
+                {Number(limitPrice) > 0 ? ` (limit ₹${limitPrice})` : ""}, valid today
+              </Text>
+            ) : null}
+          </View>
+        );
+      }
 
       case "BUY":
       case "SELL":

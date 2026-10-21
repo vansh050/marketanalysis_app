@@ -37,6 +37,8 @@ const StockCard = React.memo(
     planList,
     rationale = '',
     OrderType = '',
+    // SL (stop-limit) entry trigger; undefined for every other order type.
+    triggerPrice,
     OptionType = '',
     segment = '',
     strike = '',
@@ -248,6 +250,7 @@ const StockCard = React.memo(
       advisedRangeHigher,
       advisedRangeCondition,
       OrderType,
+      triggerPrice,
       OptionType,
       segment,
       strike,

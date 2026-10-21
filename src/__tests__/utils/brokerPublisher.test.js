@@ -38,6 +38,7 @@ import {
   getPublisherWebViewBaseUrl,
   resolveZerodhaSymbol,
   roundToKiteTick,
+  stopOrderProblem,
 } from '../../utils/brokerPublisher';
 import fs from 'fs';
 import path from 'path';
@@ -543,5 +544,88 @@ describe('instrument tick from convert-symbol (talsi YATHARTH, 2026-10-19)', () 
       symbolMap,
     );
     expect(item).toMatchObject({order_type: 'LIMIT', price: 981.6});
+  });
+});
+
+describe('SL (stop-limit) trigger orders on the Kite Publisher path', () => {
+  const leg = overrides => ({
+    symbol: 'PVRINOX',
+    transactionType: 'BUY',
+    orderType: 'SL',
+    triggerPrice: 1430,
+    ltp: 1400,
+    ...overrides,
+  });
+
+  test('a BUY below its trigger and a SELL above it pass', () => {
+    expect(stopOrderProblem([leg()])).toBeNull();
+    expect(
+      stopOrderProblem([leg({transactionType: 'SELL', ltp: 1450})]),
+    ).toBeNull();
+  });
+
+  test('a crossed trigger blocks with the price comparison', () => {
+    expect(stopOrderProblem([leg({ltp: 1431})])).toBe(
+      'Price of PVRINOX has already crossed the trigger (₹1431 vs ₹1430), ' +
+        'so this trigger order can no longer be placed.',
+    );
+    expect(
+      stopOrderProblem([leg({transactionType: 'SELL', ltp: 1430})]),
+    ).toMatch(/already crossed the trigger/);
+  });
+
+  test('a missing trigger blocks', () => {
+    expect(stopOrderProblem([leg({triggerPrice: 0})])).toBe(
+      'PVRINOX is a trigger order but has no trigger price.',
+    );
+    expect(stopOrderProblem([leg({triggerPrice: undefined})])).toMatch(
+      /no trigger price/,
+    );
+  });
+
+  test('an unreadable LTP never blocks, and non-SL legs are ignored', () => {
+    expect(stopOrderProblem([leg({ltp: 0})])).toBeNull();
+    expect(stopOrderProblem([leg({ltp: '-'})])).toBeNull();
+    expect(
+      stopOrderProblem([{symbol: 'X', orderType: 'LIMIT', ltp: 5}]),
+    ).toBeNull();
+    expect(stopOrderProblem(null)).toBeNull();
+  });
+
+  test('the basket item keeps the advisor limit and carries the trigger', () => {
+    const item = convertToBasketItem(
+      'Zerodha',
+      {
+        tradingSymbol: 'PVRINOX',
+        exchange: 'NSE',
+        transactionType: 'BUY',
+        orderType: 'SL',
+        price: 1435,
+        triggerPrice: 1430,
+        quantity: 2,
+        productType: 'DELIVERY',
+      },
+      {},
+      {price: 1435, ltp: 1400, triggerPrice: 1430},
+    );
+    expect(item).toMatchObject({
+      order_type: 'SL',
+      price: 1435,
+      trigger_price: 1430,
+    });
+  });
+
+  test('single-stock Publisher callers keep the SL limit and run the guard', () => {
+    [
+      'components/ReviewZerodhaTradeModal.js',
+      'screens/Drawer/IgnoreTradesScreen.js',
+      'components/AdviceScreenComponents/StockAdvices.js',
+      'components/AdviceScreenComponents/AddtoCartModal.js',
+    ].forEach(file => {
+      const source = fs.readFileSync(path.join(__dirname, '../..', file), 'utf8');
+      expect(source).toContain('stopOrderProblem(');
+      expect(source).toContain('triggerPrice: stock.triggerPrice');
+      expect(source).not.toContain("stock.orderType === 'MARKET' || stock.orderType === 'SL'");
+    });
   });
 });

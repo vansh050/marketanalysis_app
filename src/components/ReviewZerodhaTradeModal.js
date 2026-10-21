@@ -26,7 +26,7 @@ import { generateToken } from '../utils/SecurityTokenManager';
 import { useTrade } from '../screens/TradeContext';
 import { useConfig } from '../context/ConfigContext';
 import Toast from 'react-native-toast-message';
-import { validateStockExchanges, fetchFreshKiteProtectionPrices, getPublisherWebViewBaseUrl, resolveZerodhaSymbol, convertToBasketItem } from '../utils/brokerPublisher';
+import { validateStockExchanges, stopOrderProblem, fetchFreshKiteProtectionPrices, getPublisherWebViewBaseUrl, resolveZerodhaSymbol, convertToBasketItem } from '../utils/brokerPublisher';
 import { computeTradeVariant } from '../utils/tradeVariant';
 import useZerodhaSymbolMap from '../hooks/useZerodhaSymbolMap';
 import useKitePublisherPolling from '../hooks/useKitePublisherPolling';
@@ -755,6 +755,36 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
       return;
     }
 
+    // Trigger (SL) legs: refuse before anything is persisted when the trigger
+    // is missing or the market already crossed it. Unreadable LTP never blocks.
+    const stopProblem = stopOrderProblem(
+      taggedStockDetails.map(stock => {
+        const resolved = resolveZerodhaSymbol(stock, symbolMap);
+        const liveLtp =
+          getLastKnownPrice(resolved.tradingsymbol) ||
+          getLastKnownPrice(stock.tradingSymbol);
+        return {
+          symbol: resolved.tradingsymbol || stock.tradingSymbol,
+          transactionType: stock.transactionType,
+          orderType: stock.orderType,
+          triggerPrice: stock.triggerPrice,
+          ltp:
+            liveLtp && liveLtp !== '-' && parseFloat(liveLtp) > 0
+              ? liveLtp
+              : resolved.cachedLtp || 0,
+        };
+      }),
+    );
+    if (stopProblem) {
+      Toast.show({
+        type: 'error',
+        text1: 'Trigger order not placed',
+        text2: stopProblem,
+        visibilityTime: 7000,
+      });
+      return;
+    }
+
     let existingAttempt = null;
     try {
       existingAttempt = parseZerodhaPublisherAttempt(
@@ -896,10 +926,10 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
         ? liveLtp
         : resolved.cachedLtp || 0);
     const ltpNumeric = ltp && ltp !== "-" ? parseFloat(ltp) : 0;
-    const orderPrice = stock.orderType === "LIMIT"
-      ? parseFloat(stock.price || 0)
-      : stock.orderType === "SL"
-        ? ltpNumeric
+    // SL (stop-limit) keeps the advisor's limit, same as LIMIT.
+    const orderPrice =
+      stock.orderType === "LIMIT" || stock.orderType === "SL"
+        ? parseFloat(stock.price || 0)
         : 0;
 
     // If the stock is in 'NFO' or 'BFO', update with fetched data. The
@@ -954,6 +984,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
       price: orderPrice,
       quantity: finalQuantity,
       tag: getKitePublisherTag(stock),
+      triggerPrice: stock.triggerPrice,
     });
     console.log('[ZerodhaPublisher] final basket item:', JSON.stringify(basketItem));
     return basketItem;
@@ -1408,6 +1439,9 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
         symbol={symbol || ""}
         orderType={item.orderType}
         exchange={exe}
+        limitPrice={item.price}
+        triggerPrice={item.triggerPrice}
+        transactionType={item.transactionType}
         advisedPrice={iniprice || 0}
         stockDetails={stockDetails}
       />

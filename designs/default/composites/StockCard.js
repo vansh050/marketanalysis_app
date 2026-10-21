@@ -18,7 +18,7 @@
  *     advisedRangeLower, advisedRangeHigher,
  *     advisedRangeCondition,
  *     // order
- *     OrderType, OptionType, segment, strike, searchSymbol, Exchange,
+ *     OrderType, triggerPrice, OptionType, segment, strike, searchSymbol, Exchange,
  *     Price, cmp, quantity,
  *     stopLoss, profitTarget,
  *     closurestatus,
@@ -108,6 +108,7 @@ const StockCard = ({ viewModel, actions, slots }) => {
     advisedRangeHigher = '',
     advisedRangeCondition = true,
     OrderType = '',
+    triggerPrice,
     OptionType = '',
     segment = '',
     strike = '',
@@ -288,7 +289,11 @@ const StockCard = ({ viewModel, actions, slots }) => {
                     {adviceHeaderLabel({action, orderType: OrderType, price: Price, stopLoss, profitTarget})}
                   </Text>
                   <Text style={styles.value1}>
-                    {OrderType === 'LIMIT' ? `₹${Price}` : orderTypeDisplay(OrderType)}
+                    {OrderType === 'SL' && Number(triggerPrice) > 0
+                      ? `Trigger ₹${triggerPrice} · Limit ₹${Price}`
+                      : OrderType === 'LIMIT'
+                      ? `₹${Price}`
+                      : orderTypeDisplay(OrderType)}
                   </Text>
                 </View>
 

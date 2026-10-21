@@ -93,7 +93,7 @@ export function buildBasket(trades, broker) {
     orderType: trade.orderType || trade.OrderType || 'MARKET',
     productType: trade.productType || trade.ProductType || 'DELIVERY',
     price: parseFloat(trade.price || trade.Price || 0),
-    triggerPrice: parseFloat(trade.triggerPrice || 0),
+    triggerPrice: parseFloat(trade.triggerPrice || trade.TriggerPrice || 0),
     priority: trade.priority || index,
     tradeId: trade.tradeId,
     zerodhaTradeId: trade.zerodhaTradeId,

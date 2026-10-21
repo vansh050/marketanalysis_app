@@ -62,6 +62,48 @@ export function validateStockExchanges(stockDetails) {
   return {valid: missing.length === 0, missing};
 }
 
+const STOP_ORDER_TYPES = new Set(['SL', 'SL_M', 'SL-M', 'STOP']);
+
+function formatRupees(value) {
+  return String(Number(Number(value).toFixed(2)));
+}
+
+/**
+ * Pre-flight check for trigger (stop-limit, "SL") legs before a Kite basket
+ * opens. An SL leg must carry a positive trigger, and the market must not have
+ * crossed it yet (a BUY waits for the price to RISE to the trigger, a SELL for
+ * it to FALL to it). ccxt refuses the same cases server-side; this mirrors it
+ * on the Publisher path, which never reaches ccxt before Kite.
+ *
+ * legs: [{symbol|tradingSymbol, transactionType|type, orderType, triggerPrice, ltp}]
+ * Returns a user-facing message for the first problem, or null. An unreadable
+ * LTP (0 / NaN) never blocks; only positive evidence of a crossed trigger does.
+ */
+export function stopOrderProblem(legs) {
+  for (const leg of legs || []) {
+    const orderType = String(leg?.orderType || '').toUpperCase();
+    if (!STOP_ORDER_TYPES.has(orderType)) continue;
+    const symbol = leg.symbol || leg.tradingSymbol || '(unknown)';
+    const trigger = parseFloat(leg.triggerPrice);
+    if (!(trigger > 0)) {
+      return `${symbol} is a trigger order but has no trigger price.`;
+    }
+    const ltp = parseFloat(leg.ltp);
+    if (!(ltp > 0)) continue;
+    const side = String(leg.transactionType || leg.type || 'BUY').toUpperCase();
+    const crossed =
+      (side === 'BUY' && ltp >= trigger) || (side === 'SELL' && ltp <= trigger);
+    if (crossed) {
+      return (
+        `Price of ${symbol} has already crossed the trigger ` +
+        `(₹${formatRupees(ltp)} vs ₹${formatRupees(trigger)}), so this ` +
+        'trigger order can no longer be placed.'
+      );
+    }
+  }
+  return null;
+}
+
 export const BROKER_PUBLISHER_CONFIG = {
   Zerodha: {
     scriptUrl: 'https://kite.trade/publisher.js?v=3',

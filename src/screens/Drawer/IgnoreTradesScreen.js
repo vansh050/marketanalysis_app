@@ -30,7 +30,8 @@ import CustomToolbar from '../../components/CustomToolbar';
 import MPCard from '../../components/ModelPortfolioComponents/MPCard';
 import {getAuth} from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
-import { convertToBasketItem, fetchFreshKiteProtectionPrices, validateStockExchanges } from '../../utils/brokerPublisher';
+import { convertToBasketItem, fetchFreshKiteProtectionPrices, validateStockExchanges, stopOrderProblem } from '../../utils/brokerPublisher';
+import {getLastKnownPrice} from '../../components/AdviceScreenComponents/DynamicText/websocketPrice';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import EmptyMP from '../../assets/emptyModelPortfolio.svg';
 import {Alert} from 'react-native';
@@ -764,6 +765,33 @@ const IgnoreTradesScreen = () => {
       const freshProtectionPrices = await fetchFreshKiteProtectionPrices(
         stockDetails,
       );
+      // Trigger (SL) legs: refuse before the breadcrumb is stored when the
+      // trigger is missing or the market already crossed it. Unreadable LTP
+      // never blocks.
+      const stopProblem = stopOrderProblem(
+        stockDetails.map(stock => {
+          const symbol = String(stock.tradingSymbol || stock.symbol || '');
+          const liveLtp =
+            getLastKnownPrice(symbol.replace(/-EQ$/, '')) ||
+            getLastKnownPrice(symbol);
+          return {
+            symbol,
+            transactionType: stock.transactionType,
+            orderType: stock.orderType,
+            triggerPrice: stock.triggerPrice,
+            ltp: liveLtp && liveLtp !== '-' ? liveLtp : 0,
+          };
+        }),
+      );
+      if (stopProblem) {
+        Toast.show({
+          type: 'error',
+          text1: 'Trigger order not placed',
+          text2: stopProblem,
+          visibilityTime: 7000,
+        });
+        return;
+      }
       // Store variant-tagged stockDetails in AsyncStorage
       await AsyncStorage.setItem(
         'stockDetailsZerodhaOrder',
@@ -778,15 +806,17 @@ const IgnoreTradesScreen = () => {
         const ltp = Number(freshProtectionPrices?.[adviceSymbol]) || 0;
         let orderPrice = 0;
 
-        if (stock.orderType === 'LIMIT') {
+        // SL (stop-limit) keeps the advisor's limit; only MARKET uses the LTP.
+        if (stock.orderType === 'LIMIT' || stock.orderType === 'SL') {
           orderPrice = stock.limitPrice || parseFloat(stock.price) || 0;
-        } else if (stock.orderType === 'MARKET' || stock.orderType === 'SL') {
+        } else if (stock.orderType === 'MARKET') {
           orderPrice = ltp !== '-' ? parseFloat(ltp) : 0;
         }
 
         const basketItem = convertToBasketItem('Zerodha', stock, undefined, {
           price: orderPrice,
           quantity: kiteQuantity(stock),
+          triggerPrice: stock.triggerPrice,
         });
 
         console.log('[ZerodhaPublisher] Basket item:', JSON.stringify(basketItem));
@@ -1213,6 +1243,8 @@ const IgnoreTradesScreen = () => {
             segment: stock.Segment,
             productType: stock.ProductType,
             orderType: stock.OrderType,
+            // SL (stop-limit) entry: the trigger travels with the leg to the broker.
+            triggerPrice: stock.TriggerPrice || stock.triggerPrice || 0,
             price: stock.Price,
             quantity: stock.Quantity,
             priority: stock.Priority,
@@ -1459,6 +1491,8 @@ const IgnoreTradesScreen = () => {
           segment: trade.Segment,
           productType: trade.ProductType,
           orderType: trade.OrderType,
+          // SL (stop-limit) entry: the trigger travels with the leg to the broker.
+          triggerPrice: trade.TriggerPrice || trade.triggerPrice || 0,
           price: trade.Price,
           quantity: trade.Quantity,
           priority: trade.Priority || 1,

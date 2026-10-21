@@ -30,7 +30,7 @@
 const ORDER_TYPE_DISPLAY_MAP = {
   MARKET: 'Market',
   LIMIT: 'Limit',
-  SL: 'Stop Loss',
+  SL: 'Trigger order',
   SL_M: 'Stop Loss Market',
   GTT: 'GTT',
   GTT_OCO: 'GTT OCO',
@@ -53,7 +53,7 @@ function normalizeOrderTypeKey(orderType) {
  *
  *   orderTypeDisplay('MARKET')  -> 'Market'
  *   orderTypeDisplay('LIMIT')   -> 'Limit'
- *   orderTypeDisplay('SL')      -> 'Stop Loss'
+ *   orderTypeDisplay('SL')      -> 'Trigger order' (stop-limit entry)
  *   orderTypeDisplay('SL-M')    -> 'Stop Loss Market'
  *   orderTypeDisplay('SL_M')    -> 'Stop Loss Market'
  *   orderTypeDisplay('GTT')     -> 'GTT'

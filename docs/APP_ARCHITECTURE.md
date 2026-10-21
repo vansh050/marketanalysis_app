@@ -923,6 +923,45 @@ This three-tier fallback means rebalance/MP get the AMO badge without any ccxt-i
 - **Pre-flight market-closed banner.** A "Market is closed — your order will be parked as AMO and execute at next open" banner on the review-trade modal was discussed but deferred. Users with `allowAfterHoursOrders=false` are already blocked at review; users with the flag ON have explicitly opted in but currently get no pre-flight warning — that's the gap the banner would close, but it's separate scope.
 - **Persisting `variant` in `traderecos` collection.** Not done — the field is purely a request-scoped echo. If a future product surface needs to filter past trades by AMO status, the collection schema would need a deliberate migration.
 
+### 4.5.3 SL (stop-limit) trigger entry orders (2026-10-21)
+
+Advisors can send a single-stock recommendation as an `SL` entry: the reco
+carries `OrderType: "SL"`, `Price` (the limit) and lowercase `triggerPrice`
+(older and F&O docs may carry `TriggerPrice`). The order must reach the broker
+as SL with its trigger and wait there as TRIGGER PENDING.
+
+- **Carrying the trigger.** Every builder that maps a reco into a cart/order
+  object sets `triggerPrice: <src>.TriggerPrice || <src>.triggerPrice || 0`
+  right after `orderType`: `StockAdvices.js` (select-all, single add-to-cart,
+  Trade Now), `StockAdviceContent.js`, `AdviceCartScreen.js`,
+  `IgnoreTradesScreen.js` (two builders), `UIComponents/StockAdvicesUI/BasketCard.js`.
+  `basketUtils.buildBasket` reads `triggerPrice || TriggerPrice`. The place-order
+  payloads spread these objects, so the field reaches Node/ccxt unchanged.
+  ccxt refuses a stop order with a missing trigger or a trigger already crossed.
+- **Kite Publisher (single-stock).** `StockAdvices.js`, `AddtoCartModal.js`,
+  `IgnoreTradesScreen.js` and `ReviewZerodhaTradeModal.js` used to send the LTP
+  as the SL price, which threw away the advisor's limit. They now send the
+  advisor limit (`parseFloat(stock.price)`) and pass `triggerPrice` to
+  `convertToBasketItem`, which emits `order_type: 'SL'` + `trigger_price`.
+  Model-portfolio callers (`RebalanceModal.js`, `MPReviewTradeModal.js`) are
+  unchanged; rebalance legs are never SL.
+- **Pre-Kite guard.** `brokerPublisher.stopOrderProblem(legs)` returns a
+  message (or null) when an SL leg has no positive trigger, or the LTP has
+  already crossed it (BUY: `ltp >= trigger`; SELL: `ltp <= trigger`). An
+  unreadable LTP (0 / NaN / `-`) never blocks. The four single-stock callers run
+  it before the basket opens (and, where a recovery breadcrumb is stored, before
+  that write) and show a `Trigger order not placed` error toast.
+- **Display.** `StockCard` (container `UIComponents/StockAdvicesUI/StockCard.js`
+  → viewModel → `designs/default/composites/StockCard.js`) shows
+  `Trigger ₹<trigger> · Limit ₹<Price>` for an SL reco with a positive trigger.
+  `adviceDisplay.orderTypeDisplay('SL')` reads `Trigger order`.
+  `ReviewTradeText` renders an SL row with "Buy only if price rises to ₹T
+  (limit ₹L), valid today" (SELL: "falls to"); `ReviewTradeModal`,
+  `ReviewZerodhaTradeModal` and `BasketTradeModal` pass `limitPrice`,
+  `triggerPrice` and `transactionType` on their per-item rows.
+- **Tests.** `src/__tests__/utils/brokerPublisher.test.js` — "SL (stop-limit)
+  trigger orders on the Kite Publisher path".
+
 ### 4.6 Order Status Normalization
 
 **File:** `src/utils/orderStatusUtils.js`

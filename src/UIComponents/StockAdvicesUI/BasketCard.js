@@ -374,6 +374,8 @@ const BasketCard = ({
     return {
       exchange: basketItem.Exchange || 'NFO',
       orderType: basketItem.OrderType || basketItem.orderType || basketItem.order_type || 'MARKET',
+      // SL (stop-limit) entry: the trigger travels with the leg to the broker.
+      triggerPrice: basketItem.TriggerPrice || basketItem.triggerPrice || 0,
       productType: basketItem.ProductType || 'CARRYFORWARD',
       quantity: isClosure ? closureQuantity : (basketItem.Quantity || 1),
       segment: basketItem.Segment || 'OPTIONS',

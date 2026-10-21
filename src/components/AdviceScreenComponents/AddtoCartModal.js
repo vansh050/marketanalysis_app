@@ -26,7 +26,7 @@ import IsMarketHours from '../../utils/isMarketHours';
 import { computeTradeVariant } from '../../utils/tradeVariant';
 import { isOrderSuccess, isOrderRejected } from '../../utils/orderStatusUtils';
 import { validateBrokerSession } from '../../utils/brokerSessionUtils';
-import { validateStockExchanges, convertToBasketItem, fetchFreshKiteProtectionPrices, resolveZerodhaSymbol } from '../../utils/brokerPublisher';
+import { validateStockExchanges, convertToBasketItem, fetchFreshKiteProtectionPrices, resolveZerodhaSymbol, stopOrderProblem } from '../../utils/brokerPublisher';
 import useZerodhaSymbolMap from '../../hooks/useZerodhaSymbolMap';
 import {useCart} from '../CartContext';
 import {getLastKnownPrice} from './DynamicText/websocketPrice';
@@ -1185,6 +1185,25 @@ const AddToCartModal = ({
       Toast.show({type: 'error', text1: 'Quantity needed', text2: missingQuantityMessage(missingQty), visibilityTime: 7000});
       return;
     }
+    // Trigger (SL) legs: refuse when the trigger is missing or the market
+    // already crossed it. Unreadable LTP never blocks.
+    const stopProblem = stopOrderProblem(
+      stockDetails.map(stock => {
+        const resolved = resolveZerodhaSymbol(stock, symbolMap);
+        const liveLtp = getLastKnownPrice(resolved.tradingsymbol) || getLastKnownPrice(stock.tradingSymbol);
+        return {
+          symbol: resolved.tradingsymbol || stock.tradingSymbol,
+          transactionType: stock.transactionType,
+          orderType: stock.orderType,
+          triggerPrice: stock.triggerPrice,
+          ltp: liveLtp && liveLtp !== '-' && parseFloat(liveLtp) > 0 ? liveLtp : resolved.cachedLtp || 0,
+        };
+      }),
+    );
+    if (stopProblem) {
+      Toast.show({type: 'error', text1: 'Trigger order not placed', text2: stopProblem, visibilityTime: 7000});
+      return;
+    }
     const basket = stockDetails.map(stock => {
       // Scripmaster-resolved symbol/exchange (-EQ strip, BE→BSE, etc).
       const resolved = resolveZerodhaSymbol(stock, symbolMap);
@@ -1201,9 +1220,10 @@ const AddToCartModal = ({
           : resolved.cachedLtp || 0);
       let orderPrice = 0;
 
-      if (stock.orderType === 'LIMIT') {
+      // SL (stop-limit) keeps the advisor's limit; only MARKET uses the LTP.
+      if (stock.orderType === 'LIMIT' || stock.orderType === 'SL') {
         orderPrice = parseFloat(stock.price || 0);
-      } else if (stock.orderType === 'MARKET' || stock.orderType === 'SL') {
+      } else if (stock.orderType === 'MARKET') {
         orderPrice = ltp && ltp !== '-' ? parseFloat(ltp) : 0;
       }
 
@@ -1225,6 +1245,7 @@ const AddToCartModal = ({
         price: orderPrice,
         quantity: kiteShares,
         tag: tradeTag,
+        triggerPrice: stock.triggerPrice,
       });
       console.log('[ZerodhaPublisher] Basket item:', JSON.stringify(basketItem));
 
