@@ -3,6 +3,14 @@
  * access API") before its stored expiry, and Broker connection still said
  * "Upstox connected" with a green tick.
  */
+// The validator's import chain reaches executionBundleSafety, which imports
+// Revopush (untransformed ESM in node_modules). The test only needs the
+// classifier, so stub the OTA client and the token signer (pure-jwt).
+jest.mock('@revopush/react-native-code-push', () => ({
+  InstallMode: {ON_NEXT_RESTART: 'ON_NEXT_RESTART'},
+  checkForUpdate: jest.fn(() => Promise.resolve(null)),
+}));
+jest.mock('../utils/SecurityTokenManager', () => ({generateToken: () => 'tok'}));
 import {classifyFundsResponse} from '../utils/brokerSessionValidator';
 
 const fs = require('fs');
