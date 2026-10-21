@@ -78,7 +78,11 @@ def asc_request(method, path, token, body = nil, allow_not_found: false)
 end
 
 escaped_identifier = URI.encode_www_form_component(bundle_identifier)
-bundle = asc_request(:get, "/v1/bundleIds?filter[identifier]=#{escaped_identifier}&limit=1", token).dig('data', 0)
+# filter[identifier] is a prefix match: "com.x.TradeLiveActivity" also returns
+# "com.x.TradeLiveActivityWidget". Take only the exact identifier.
+bundle = asc_request(:get, "/v1/bundleIds?filter[identifier]=#{escaped_identifier}&limit=200", token)
+         .fetch('data', [])
+         .find { |item| item.dig('attributes', 'identifier') == bundle_identifier }
 unless bundle
   warn("Registering bundle ID #{bundle_identifier}")
   bundle = asc_request(
