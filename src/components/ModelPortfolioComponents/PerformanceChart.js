@@ -89,6 +89,7 @@ const PerformanceChart = ({ modelName, advisor, showTitle = true }) => {
   const [allAlignedData, setAllAlignedData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [cardWidth, setCardWidth] = useState(0);
   const [selectedPeriod, setSelectedPeriod] = useState('1Y');
   const [selectedPoint, setSelectedPoint] = useState(null);
 
@@ -479,7 +480,11 @@ const PerformanceChart = ({ modelName, advisor, showTitle = true }) => {
   const yMin = Math.floor(Math.min(...allVals) - 2);
   const yMax = Math.ceil(Math.max(...allVals) + 2);
 
-  const chartWidth = screenWidth - 40; // fit within screen with padding
+  // Size from the card actually rendered (designs wrap the chart in their own
+  // gutters), not from the screen: a screen-based width overflowed the card,
+  // so gifted-charts scrolled sideways and the right edge looked empty
+  // (Kyzen tester report 2026-10-21). Until measured, use the old estimate.
+  const chartWidth = cardWidth || screenWidth - 40;
   const chartHeight = 220;
 
   return (
@@ -666,13 +671,20 @@ const PerformanceChart = ({ modelName, advisor, showTitle = true }) => {
           shadowOpacity: 0.08,
           shadowRadius: 8,
         }}>
-        <View style={{ position: 'relative', paddingLeft: 4 }}>
+        <View
+          style={{ position: 'relative', paddingLeft: 4 }}
+          onLayout={e => {
+            const w = Math.round(e.nativeEvent.layout.width);
+            if (w > 0 && w !== cardWidth) setCardWidth(w);
+          }}>
           <LineChart
             data={giftedPortfolio}
             {...(giftedIndex ? {data2: giftedIndex} : {})}
             height={chartHeight}
-            width={chartWidth - 44}
+            // card width − paddingLeft (4) − yAxisLabelWidth (34) − spacing slack
+            width={Math.max(120, chartWidth - 50)}
             adjustToWidth
+            disableScroll
             curved
             thickness={2.5}
             thickness2={2}

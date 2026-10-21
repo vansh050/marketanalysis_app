@@ -43,6 +43,19 @@ describe('sell-authorization retry keeps the customer informed', () => {
     expect(ddpi).toContain("'Recalculating your orders…'");
   });
 
+  test('a concurrent account reconciliation waits once and retries calculation', () => {
+    expect(ddpi).toContain(
+      "import {accountRecoveryMetadata} from '../utils/accountRecoveryUx';",
+    );
+    expect(handler).toContain("setRetryStage('verifying')");
+    expect(handler).toContain('recovery.retryAfterSeconds * 1000');
+    expect(handler).toContain('response = await calculate();');
+    expect(ddpi).toContain("'Verifying your broker account…'");
+    expect(handler).toContain(
+      'Broker verification is still finishing. Wait a moment, then tap Try again. No orders were placed.',
+    );
+  });
+
   test('an authorization save failure does not block the recalculation', () => {
     // Money-path guard rule: block only on positive evidence.
     expect(handler).toContain('authorizationSaved = false;');

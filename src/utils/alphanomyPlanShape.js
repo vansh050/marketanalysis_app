@@ -124,6 +124,9 @@ export const shapeMpPlan = (plan, { badgeTop = 'TOP', badgeBot = '100' } = {}) =
         originalPrice: originalValue ? formatINR(originalValue) : null,
         saveBadge: discount > 0 ? `Save ${Math.round(discount)}%` : null,
         freq: pricing?.label || 'Monthly',
+        // Rebalance cadence (catalog-enriched from model_portfolio.frequency).
+        // `freq` above is the BILLING period — never show it as "Rebalance".
+        rebalance: plan.portfolioUpdateCycle || null,
         minInvest: formatMinInvest(plan.minInvestment),
         volatility: formatVolatility(plan.volatility),
         cagr: formatCagr(plan),

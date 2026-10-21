@@ -3195,7 +3195,8 @@ const RebalanceModal = ({
           } else if (
             (allSell || isMixed) &&
             rejectedSellCount >= 1 &&
-            successCount === 0
+            successCount === 0 &&
+            sellAuthRejected
           ) {
             setShowOtherBrokerModel(true);
             setOpenRebalanceModal(false);
@@ -3208,10 +3209,16 @@ const RebalanceModal = ({
         } else if (
           (allSell || isMixed) &&
           rejectedSellCount >= 1 &&
-          (broker !== 'Fyers' || sellAuthRejected)
+          sellAuthRejected
         ) {
-          // Always show broker-specific TPIN modal for rejected sell orders
-          // Don't rely on CDSL keyword detection - error message formats can change
+          // Only a rejection the backend classified as sell authorization
+          // opens the TPIN/eDIS sheet (ccxt `classify_rejection`, plus
+          // `_stamp_portal_sell_auth_failure` for content-free portal-broker
+          // failures). Any other rejected sell — circuit band, surveillance,
+          // unsettled quantity — goes to the result screen with the broker's
+          // own reason. Opening the sheet for those made an endless
+          // authorize → recalculate → same rejection loop (Groww circuit
+          // rejections, 2026-10-19). Same rule as web UpdateRebalanceModal.
           setOpenSucessModal(false);
           setLoading(false);
           setOpenRebalanceModal(false);

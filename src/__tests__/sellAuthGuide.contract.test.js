@@ -36,6 +36,20 @@ describe('sell-auth sheets use the shared guide', () => {
     expect(body).not.toContain('Open Groww TPIN authorization');
   });
 
+  test("the portal sheet leads with today's approval, DDPI is optional (2026-10-19)", () => {
+    // Testers reported this per-session TPIN prompt as "DDPI being asked"
+    // because a large RECOMMENDED DDPI card came first.
+    const start = ddpi.indexOf('export function OtherBrokerModel');
+    const body = ddpi.slice(start, ddpi.indexOf('\nexport ', start + 10));
+    expect(body).not.toContain('Sell Authorization Required');
+    expect(body).toContain("Approve today's sell on");
+    const guide = body.indexOf('testID="sell-auth-guide-other-broker"');
+    const ddpiCard = body.indexOf('otherBrokerStyles.ddpiHeroCard');
+    expect(guide).toBeGreaterThan(-1);
+    expect(ddpiCard).toBeGreaterThan(guide);
+    expect(body).not.toContain('RECOMMENDED');
+  });
+
   test('every render site passes the sells to approve', () => {
     for (const f of [
       'src/components/AdviceScreenComponents/RebalanceAdviceContent.js',

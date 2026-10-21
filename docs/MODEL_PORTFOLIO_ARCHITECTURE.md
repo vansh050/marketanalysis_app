@@ -1,5 +1,36 @@
 # Model Portfolio Architecture
 
+## 2026-10-19 — TPIN return and the reconciliation lease
+
+Portal sell authorization may finish while reconciliation of the rejected SELL
+attempt still owns the broker-account lease. The resulting HTTP 409
+`accountRecovery.state = reconciling` is a temporary serialization result, not
+a TPIN failure. AlphaB2B's `OtherBrokerModel` now respects the server-provided
+bounded retry delay and retries the non-ordering Calculate once while showing a
+visible broker-verification state. A second busy response remains on the sheet
+with Try again; no lease is bypassed, no order is automatically replayed, and
+the customer must still review and accept the newly calculated basket.
+
+## 2026-10-10 — rebalance execute links open the card's Accept flow
+
+A WhatsApp/Telegram rebalance link (surfaces `rebalance` / `rebalance_execute`)
+now lands on Home and the `RebalanceCard` for that `model_name` runs
+`runAcceptRebalanceButton()` — the same Repair / pending-refresh / change-check
+branch as its Accept button and the Portfolio-tab "Invest" `openRebalanceFlow`
+event (both now call this one function). The card waits until repair data has
+loaded (`isDatafetchinRepair`), so a Repair is never opened as a fresh
+Calculate; an already-executed rebalance claims the link and says so without
+orders. The link places nothing — the customer confirms in the normal review.
+Full flow: `APP_ARCHITECTURE.md` § "Execute deep links".
+
+## 2026-10-07 — Repair "Mark as placed" records the real fill
+
+On a Repair row, the cautionary-listing chip now opens an inline editor for the
+shares and average price the broker actually filled, instead of saving the leg
+quantity at the live LTP (which sent `actualPrice: null`, and was rejected, when
+no LTP had arrived). The funds / partial / funding-pending / T1 chips no longer
+offer manual placement, because Repair re-places those legs. Details: § 6g.
+
 ## 2026-10-06 — a resolved model never acknowledges a different rebalance
 
 When the customer taps Accept, `RebalanceCard.handleRepairDiscovery` reads

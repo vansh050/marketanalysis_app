@@ -5,8 +5,9 @@
  * as `screens.TermandConditionsScreen`.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigation } from '@react-navigation/native';
+import { makeLegalWebViewGuard } from '../../utils/legalWebViewGuard';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
@@ -35,18 +36,9 @@ const TermsandConditionsScreen = () => {
         setIsValidUrl(urlPattern.test(tncURL));
     }, [tncURL]);
 
-    const handleShouldStartLoadWithRequest = useCallback(
-        (request) => {
-            if (request.url === tncURL) return true;
-            if (
-                request.url.startsWith(tncURL + '#') ||
-                request.url === 'about:blank'
-            )
-                return true;
-            navigation.goBack();
-            return false;
-        },
-        [tncURL, navigation],
+    const handleShouldStartLoadWithRequest = useMemo(
+        () => makeLegalWebViewGuard(tncURL),
+        [tncURL],
     );
 
     const Presentation = useComponent('screens.TermandConditionsScreen');

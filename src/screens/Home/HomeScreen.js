@@ -2196,7 +2196,7 @@ const HomeScreen = ({ }) => {
   // src/screens/Drawer/ModelPortfolioScreen.js — same auth headers,
   // same advisorTag/userEmail dependencies). Returns nulls until the
   // user is authenticated AND the advisor config has resolved.
-  const { heroPlan, modelPlans, bespokePlan, heroPlanRaw, bespokePlanRaw, bespokeCategoryGroups, refetch: refetchPlanSummary } = useHomePlanSummary({
+  const { heroPlan, modelPlans, bespokePlan, heroPlanRaw, bespokePlanRaw, bespokeCategoryGroups, featuredPlans, refetch: refetchPlanSummary } = useHomePlanSummary({
     userEmail,
     // Keep Home on the same tenant-resolution path as the Plans tab. Some
     // white-label builds intentionally omit these values from fetched config
@@ -2290,6 +2290,15 @@ const HomeScreen = ({ }) => {
     onConnectBroker: () => navigation.navigate('Broker Setting'),
     // Variant-facing plan summaries.
     heroPlan, modelPlans, bespokePlan,
+    // Admin-featured plans of any type + opener for one plan's detail screen.
+    featuredPlans,
+    openPlanDetail: (rawPlan, kind) => {
+      if (!rawPlan) {return navigation.navigate('Plans');}
+      navigation.navigate(kind === 'bespoke' ? 'BespokePerformanceScreen' : 'MPPerformanceScreen', {
+        modelName: rawPlan.name || rawPlan.model_name,
+        specificPlan: rawPlan,
+      });
+    },
     heroPlanRaw, bespokePlanRaw,
     // Variant-facing plan categories: bespoke plans grouped by the advisor's
     // `bespoke_category`, category images, and catalogue entry points. The

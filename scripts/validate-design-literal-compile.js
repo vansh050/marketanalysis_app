@@ -60,11 +60,17 @@ if (defaultCacheKey === fixtureCacheKey) {
   throw new Error('Design literal Metro cache key does not vary by variant');
 }
 
+// Tests may legitimately jest.mock()/require() the literalTokens module; only
+// shipped app and design code must have the marker import compiled away.
+const isTestFile = name => /\.test\.[jt]sx?$/.test(name);
+
 const walk = (directory, files = []) => {
   for (const entry of fs.readdirSync(directory, {withFileTypes: true})) {
     const target = path.join(directory, entry.name);
-    if (entry.isDirectory()) {walk(target, files);}
-    else if (EXTENSIONS.has(path.extname(entry.name))) {files.push(target);}
+    if (entry.isDirectory()) {
+      if (entry.name !== '__tests__') {walk(target, files);}
+    }
+    else if (EXTENSIONS.has(path.extname(entry.name)) && !isTestFile(entry.name)) {files.push(target);}
   }
   return files;
 };

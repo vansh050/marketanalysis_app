@@ -39,6 +39,7 @@ import {useTrade} from '../screens/TradeContext';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 import {getAccountEmail} from '../utils/accountEmail';
 import {tagSellAuthorizationRetryCalculation} from '../utils/rebalanceHelpers';
+import {accountRecoveryMetadata} from '../utils/accountRecoveryUx';
 import {
   getDhanSellTrades,
   isDhanSellAuthorizationReady,
@@ -2245,7 +2246,8 @@ export function OtherBrokerModel({
 
   const [showOtherBroker, setShowOtherBroker] = useState(false);
   const [loadingRebalance, setLoadingRebalance] = useState(false);
-  // Progress of the authorized-recalculate step: 'saving' | 'recalculating' | null.
+  // Progress of the authorized-recalculate step:
+  // 'saving' | 'recalculating' | 'verifying' | null.
   const [retryStage, setRetryStage] = useState(null);
   const [retryError, setRetryError] = useState(null);
   const handleContinue = async () => {
@@ -2375,20 +2377,42 @@ export function OtherBrokerModel({
       userFund: funds?.data?.availablecash,
       accessToken: jwtToken,
     };
+    const calculate = () => axios.request({
+      method: 'post',
+      url: `${server.ccxtServer.baseUrl}rebalance/calculate`,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Advisor-Subdomain': getTenantSubdomain(configData),
+        'aq-encrypted-key': generateToken(
+          Config.REACT_APP_AQ_KEYS,
+          Config.REACT_APP_AQ_SECRET,
+        ),
+      },
+      data: JSON.stringify(payload),
+    });
     try {
-      const response = await axios.request({
-        method: 'post',
-        url: `${server.ccxtServer.baseUrl}rebalance/calculate`,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Advisor-Subdomain': getTenantSubdomain(configData),
-          'aq-encrypted-key': generateToken(
-            Config.REACT_APP_AQ_KEYS,
-            Config.REACT_APP_AQ_SECRET,
-          ),
-        },
-        data: JSON.stringify(payload),
-      });
+      let response;
+      try {
+        response = await calculate();
+      } catch (error) {
+        const recovery = accountRecoveryMetadata(error);
+        if (error?.response?.status !== 409 || !recovery.running) {
+          throw error;
+        }
+
+        // Authorization can return while the failed SELL attempt's durable
+        // reconciler still owns the account lease. This is expected, temporary
+        // safety state—not a failed TPIN flow. Respect the server's bounded
+        // retry hint once, keep the sheet open, and recalculate only after the
+        // existing read-only verification had a chance to finish. Calculate
+        // remains non-ordering; the customer still reviews before placement.
+        setRetryStage('verifying');
+        await new Promise(resolve =>
+          setTimeout(resolve, recovery.retryAfterSeconds * 1000),
+        );
+        setRetryStage('recalculating');
+        response = await calculate();
+      }
       setCaluculatedPortfolioData(
         tagSellAuthorizationRetryCalculation(response.data, {
           broker,
@@ -2419,6 +2443,13 @@ export function OtherBrokerModel({
       console.log(error);
       setRetryStage(null);
       setLoadingRebalance(false);
+      const recovery = accountRecoveryMetadata(error);
+      if (error?.response?.status === 409 && recovery.running) {
+        setRetryError(
+          'Broker verification is still finishing. Wait a moment, then tap Try again. No orders were placed.',
+        );
+        return;
+      }
       const detail =
         error?.response?.data?.message ||
         error?.response?.data?.error ||
@@ -2484,36 +2515,13 @@ export function OtherBrokerModel({
                 <View style={{flexDirection: 'row', alignItems: 'center', alignSelf: 'center', marginBottom: 12}}>
                   <AlertTriangle size={22} color={designColor('e43d3d')} />
                   <Text style={[styles.title, {marginLeft: 8, fontSize: 18}]}>
-                    Sell Authorization Required
+                    Approve today's sell on {broker || 'your broker'}
                   </Text>
                 </View>
 
-                <View style={otherBrokerStyles.ddpiHeroCard}>
-                  <View style={otherBrokerStyles.ddpiHeroBadge}>
-                    <Text style={otherBrokerStyles.ddpiHeroBadgeText}>RECOMMENDED</Text>
-                  </View>
-                  <Text style={otherBrokerStyles.ddpiHeroTitle}>
-                    Activate DDPI — Sell Freely, Forever
-                  </Text>
-                  <Text style={otherBrokerStyles.ddpiHeroBody}>
-                    DDPI is a one-time, SEBI-approved authorization that lets you sell stocks without daily TPIN/OTP hassle. Set it up once and never see this screen again.
-                  </Text>
-                  <TouchableOpacity
-                    onPress={() => useModalStore.getState().openModal('DdpiHelp', {broker})}
-                    style={otherBrokerStyles.ddpiHeroButton}
-                    activeOpacity={0.7}>
-                    <Text style={otherBrokerStyles.ddpiHeroButtonText}>
-                      Activate DDPI on {broker}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                <View style={otherBrokerStyles.dividerRow}>
-                  <View style={otherBrokerStyles.dividerLine} />
-                  <Text style={otherBrokerStyles.dividerText}>or authorize for today</Text>
-                  <View style={otherBrokerStyles.dividerLine} />
-                </View>
-
+                {/* Today's CDSL approval first: it is the step this sell needs.
+                    DDPI came first and largest, so testers reported this
+                    per-session TPIN prompt as "DDPI being asked" (2026-10-19). */}
                 <SellAuthGuideCard
                   broker={broker}
                   configData={configData}
@@ -2521,6 +2529,32 @@ export function OtherBrokerModel({
                   sellOrders={sellOrders}
                   testID="sell-auth-guide-other-broker"
                 />
+
+                <View style={otherBrokerStyles.dividerRow}>
+                  <View style={otherBrokerStyles.dividerLine} />
+                  <Text style={otherBrokerStyles.dividerText}>optional: skip this step in future</Text>
+                  <View style={otherBrokerStyles.dividerLine} />
+                </View>
+
+                <View style={otherBrokerStyles.ddpiHeroCard}>
+                  <View style={otherBrokerStyles.ddpiHeroBadge}>
+                    <Text style={otherBrokerStyles.ddpiHeroBadgeText}>OPTIONAL</Text>
+                  </View>
+                  <Text style={otherBrokerStyles.ddpiHeroTitle}>
+                    Activate DDPI once with {broker || 'your broker'}
+                  </Text>
+                  <Text style={otherBrokerStyles.ddpiHeroBody}>
+                    DDPI is a one-time, SEBI-approved authorization. With it active you can sell without approving each day with your CDSL TPIN. Not needed for today's sell.
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => useModalStore.getState().openModal('DdpiHelp', {broker})}
+                    style={otherBrokerStyles.ddpiHeroButton}
+                    activeOpacity={0.7}>
+                    <Text style={otherBrokerStyles.ddpiHeroButtonText}>
+                      How to activate DDPI on {broker}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
 
@@ -2545,6 +2579,8 @@ export function OtherBrokerModel({
                 <Text style={otherBrokerStyles.retryStatusText}>
                   {retryStage === 'saving'
                     ? 'Saving your authorization…'
+                    : retryStage === 'verifying'
+                    ? 'Verifying your broker account…'
                     : 'Recalculating your orders…'}
                 </Text>
               </View>

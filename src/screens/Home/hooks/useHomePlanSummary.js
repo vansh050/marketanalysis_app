@@ -36,6 +36,7 @@ import Config from '../../../utils/safeConfig';
 import { generateToken } from '../../../utils/SecurityTokenManager';
 import { shapeMpPlan, shapeBespokePlan } from '../../../utils/alphanomyPlanShape';
 import { groupBespokePlansByCategory } from '../../../utils/planCategories';
+import { buildFeaturedPlans } from '../../../utils/featuredPlans';
 
 const TIMEOUT_MS = 10000;
 
@@ -119,8 +120,17 @@ export default function useHomePlanSummary({ userEmail, advisorTag, headerName }
         [bespokePlans],
     );
 
+    // Admin-curated Featured list across plan types (Plan.is_featured, set from
+    // the web admin Plan card). Ordered by the admin's `priority` (unranked
+    // last), model portfolios before bespoke on ties. Empty = nothing featured;
+    // designs fall back to their previous list.
+    const featuredPlans = useMemo(
+        () => buildFeaturedPlans(mpList, bespokeList),
+        [mpList, bespokeList],
+    );
+
     return {
         heroPlan, modelPlans, bespokePlan, heroPlanRaw, bespokePlanRaw,
-        bespokePlans, bespokeCategoryGroups, refetch,
+        bespokePlans, bespokeCategoryGroups, featuredPlans, refetch,
     };
 }

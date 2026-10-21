@@ -42,6 +42,7 @@ import useTokens from '../../theme/useTokens';
 import { useComponent } from '../../design/useDesign';
 import useHomeMarketSummary from '../Home/hooks/useHomeMarketSummary';
 import { shapeMpPlan, shapeBespokePlan } from '../../utils/alphanomyPlanShape';
+import { getSubscriptionStatusString } from '../../utils/subscriptionStatus';
 import {useAccountEmail} from '../../utils/accountEmail';
 import {
   getAdvisorContentProfile,
@@ -92,6 +93,20 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
   // Declared AFTER `user` so we don't TDZ-read an undeclared binding.
   const userName = userDetails?.name || user?.displayName || '';
 
+  // Client-list subscriptions + groups (`api/all-clients/user/<email>`).
+  // Admin-added bespoke subscribers exist only here, not in the strict
+  // catalog `subscription` flag, so cards consult both — same rule as
+  // BespokePerformanceScreen (Kyzen tester report 2026-10-21).
+  const [subscriptionData, setSubscriptionData] = useState(null);
+  const isBespokeEntitled = useCallback(
+    (plan) => {
+      if (plan?.subscription) return true;
+      const status = getSubscriptionStatusString(plan?.name || plan?.model_name, subscriptionData);
+      return status === 'active' || status === 'renew';
+    },
+    [subscriptionData],
+  );
+
   // Variant-facing alphanomy plan rows — derived from the same catalog
   // state the legacy MP card list reads (`allStrategy`, `allBespoke`).
   // Default presentation ignores `alphanomyPlans`.
@@ -114,9 +129,12 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
             );
             return {...shaped, isSubscribed, subscriptionReady: modelPortfolioEntitlementsLoaded};
           }).filter(Boolean),
-          bespoke: (allBespoke || []).map((p) => shapeBespokePlan(p)).filter(Boolean),
+          bespoke: (allBespoke || []).map((p) => {
+            const shaped = shapeBespokePlan(p);
+            return shaped ? {...shaped, isSubscribed: isBespokeEntitled(p)} : null;
+          }).filter(Boolean),
       }),
-      [allStrategy, allBespoke, modelPortfolioStrategyfinal, modelPortfolioEntitlementsLoaded],
+      [allStrategy, allBespoke, modelPortfolioStrategyfinal, modelPortfolioEntitlementsLoaded, isBespokeEntitled],
   );
   const [loading, setLoading] = useState();
   // undefined = all bespoke plans; a name or null (uncategorised) = filtered.
@@ -372,6 +390,16 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
   };
 
   const handlePricingCardClick = modelName => {
+    // Already-entitled bespoke customer: open the plan, never the payment.
+    // (`renew` still goes to payment so the customer can extend.)
+    if (
+      (allBespoke || []).includes(modelName) &&
+      (modelName?.subscription ||
+        getSubscriptionStatusString(modelName?.name || modelName?.model_name, subscriptionData) === 'active')
+    ) {
+      handleCardClickBespoke(modelName);
+      return;
+    }
     setModalContext({
       specificPlan: modelName,
       specificPlanDetails: modelName,
@@ -488,7 +516,6 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
     });
   };
 
-  const [subscriptionData, setSubscriptionData] = useState(null);
   const getAllSubscriptionData = () => {
     let reqConfig = {
       method: 'get',
@@ -531,7 +558,7 @@ const ModelPortfolioScreen = ({type = '', onDataLoaded}) => {
       data={item}
       setSelectedCard={setSelectedCard}
       details={item.details}
-      isSubscribed={item?.subscription}
+      isSubscribed={isBespokeEntitled(item)}
       subscriptionData={subscriptionData}
       tradeRecoTypes={item.tradeRecoTypes}
       researchMethod={item.researchMethod}

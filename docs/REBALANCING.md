@@ -1,5 +1,49 @@
 # Rebalancing Architecture
 
+## 2026-10-19 Sell-authorization retry waits for account reconciliation
+
+After a portal broker rejects a SELL for missing authorization, its durable
+read-only reconciler can still hold the broker-account lease when the customer
+returns from TPIN and taps **Authorized — recalculate**. A concurrent
+`/rebalance/calculate` correctly returns HTTP 409 with
+`accountRecovery.state = reconciling`; it is not evidence that authorization
+failed and no order is placed by Calculate.
+
+`OtherBrokerModel` now keeps the authorization sheet open, displays
+**Verifying your broker account…**, honors the server's bounded
+`retryAfterSeconds`, and retries Calculate once. If verification is still
+running, the sheet remains actionable with a truthful Try again message. The
+retry never bypasses the account lease, never replays the rejected order, and
+still returns to the immutable review before any placement.
+
+## 2026-10-13 Home-card Accept: advisor tag always present
+
+The home rebalance card's Accept sends
+`advisor: configData.config.REACT_APP_ADVISOR_SPECIFIC_TAG`. A fork whose env
+omits the tag (Kyzen) sent no advisor, `/rebalance/calculate` answered 400
+`"advisor is missing"` and the card stayed on "Checking broker...".
+`getConfigData()` now falls back to the tenant name
+(`REACT_APP_HEADER_NAME`) for the tag; Kyzen also sets it in `.env.kyzen`.
+
+## 2026-10-13 Model-portfolio detail Accept: no silent calculate failure
+
+`MPPerformanceScreen.calculateRebalance` (model detail → Accept rebalance)
+sends `model_id` from `latestRebalance.model_Id`, falling back to the
+strategy's latest `model.rebalanceHistory[].model_Id`; with neither it tells
+the customer the rebalance is not ready and sends nothing. `userFund`
+defaults to `'0'` (the server re-reads funds). Previously either field could
+be undefined, JSON dropped it, `/rebalance/calculate` answered 400
+`{"keyError":"<key> is missing"}`, and the screen's bare `.catch` only
+stopped the spinner — the button looked dead. Calculate errors now show an
+alert with the server's message. (Hardening. The Kyzen report of 2026-10-13
+was the home-card path and a missing `advisor` — see the next entry.)
+
+## 2026-10-12 RebalanceModal named host tokens (release/deploy_5.2)
+
+`RebalanceModal.js` colours/fonts overridable by a variant are named tokens
+(`rebalance.*` in `designs/default/tokens/hostTokens.json`); with default values
+the file equals 5.1 exactly. No calculation, placement, funding or repair logic
+changed; all 5.1 rebalance fixes are retained.
 ## 2026-10-02 One broker probe per Accept Rebalance tap
 
 Before this change one Home-card **Accept Rebalance** tap ran, in series:

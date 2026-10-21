@@ -34,8 +34,8 @@ below are intentional and tested.
 - Repo: `https://github.com/alpha112233/Alphab2bapp`
 - Local clone: `/Users/pratik/PycharmProjects/Alphab2bapp`
 - Tracked branch: `release/deploy_5.1`
-- Last merged commit: `222267d5` (content sync 2026-10-17; previous `0e68359d`
-  on 2026-10-02). Per-file: 94 stale + 42 new + 32 undeclared `src/`
+- Last merged commit: `94f41855` (content port 2026-10-21; previous
+  `222267d5` on 2026-10-17, `0e68359d` on 2026-10-02). 2026-10-17 detail: Per-file: 94 stale + 42 new + 32 undeclared `src/`
   differences set to upstream. Kept: `designs/registry.js` variant lines,
   `babel.config.js` worklets plugin (reanimated 4 hold), and the
   `LoginScreen.js` Android Web-OAuth fallback — rebuilt on top of upstream's
@@ -144,3 +144,20 @@ decide whether to migrate.
 ### 2026-10-08 targeted port
 
 Ported Alphab2bapp `87a06db7` (rebalance card pending-badge wording): `RebalanceCard.js`, `utils/accountRecoveryUx.js`, `rebalanceCardGate.test.js`, new `pendingVerificationBadge.test.js`. No OTA.
+
+### 2026-10-21 — content port through `94f41855`
+
+Upstream `222267d5..94f41855` by content (SL trigger `bec07198` and Kite tick
+`a25969a6` were already ported as `749392b` / `8747d93`). Set to upstream:
+sell-auth sheet only on a classified rejection + portal-broker sheet leads
+with today's approval + wait for reconciliation before retry (`RebalanceModal.js`,
+`DdpiModal.js`, sell-auth contract tests), auth bearer kept across a
+pre-sign-in request (`authTokenInterceptor.js`), admin-featured plans of any
+type / admin-added bespoke subscribers / chart width / legal WebView guard
+(`featuredPlans.js`, `legalWebViewGuard.js`, `HomeScreen.js`,
+`useHomePlanSummary.js`, `alphanomyPlanShape.js`, `ModelPortfolioScreen.js`,
+`PerformanceChart.js`, Privacy/Terms screens), design-literal validator skips
+tests, and the matching REBALANCING / MODEL_PORTFOLIO / SELL_AUTH doc entries.
+Kept: `LoginScreen.js` + `GoogleWebSignInModal.js`, tenant-aware tests,
+MarketAnalysis Revopush/OTA config, `ios-build.yml`, reanimated 4 hold.
+Skipped: AlphaPro version bumps and OTA records. No OTA, no build.

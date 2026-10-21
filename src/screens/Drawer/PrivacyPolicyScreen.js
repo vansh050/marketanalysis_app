@@ -5,8 +5,9 @@
  * as `screens.PrivacyPolicyScreen`.
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useNavigation } from '@react-navigation/native';
+import { makeLegalWebViewGuard } from '../../utils/legalWebViewGuard';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
@@ -35,18 +36,9 @@ const PrivacyPolicyScreen = () => {
         }
     }, [privacyURL]);
 
-    const handleShouldStartLoadWithRequest = useCallback(
-        (request) => {
-            if (request.url === privacyURL) return true;
-            if (
-                request.url.startsWith(privacyURL + '#') ||
-                request.url === 'about:blank'
-            )
-                return true;
-            navigation.goBack();
-            return false;
-        },
-        [privacyURL, navigation],
+    const handleShouldStartLoadWithRequest = useMemo(
+        () => makeLegalWebViewGuard(privacyURL),
+        [privacyURL],
     );
 
     const Presentation = useComponent('screens.PrivacyPolicyScreen');

@@ -99,7 +99,13 @@ async function resolveFirebaseToken(forceRefresh = false) {
   }
   if (tokenRequest) return tokenRequest;
 
-  tokenRequest = (async () => {
+  // The promise is assigned BEFORE its body can settle, and only this promise
+  // clears the slot. Before 2026-10-21 a call with no signed-in user finished
+  // synchronously: `finally` ran first, then the settled null promise was
+  // stored and never cleared, so every later request in the process went out
+  // without a bearer — even after sign-in (Kyzen: Target mix empty).
+  const request = (async () => {
+    await null;
     try {
       const auth = getAuth();
       const user = auth && auth.currentUser;
@@ -118,10 +124,11 @@ async function resolveFirebaseToken(forceRefresh = false) {
       if (forceRefresh) cachedToken = null;
       return forceRefresh ? null : cachedToken;
     } finally {
-      tokenRequest = null;
+      if (tokenRequest === request) tokenRequest = null;
     }
   })();
-  return tokenRequest;
+  tokenRequest = request;
+  return request;
 }
 
 /** Server code for "the token proves a different customer than you asked for". */
