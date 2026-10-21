@@ -409,7 +409,7 @@ function guardFetchArgs(input, init) {
 function installFetchGuard() {
   if (state.fetchGuardInstalled) return;
   try {
-    const g = typeof globalThis !== 'undefined' ? globalThis : global;
+    const g = typeof global !== 'undefined' ? global : null;
     if (!g || typeof g.fetch !== 'function') return;
     const original = g.fetch;
     state.originalFetch = original.bind ? original.bind(g) : original;

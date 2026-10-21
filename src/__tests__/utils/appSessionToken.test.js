@@ -201,8 +201,7 @@ describe('appSessionToken', () => {
     const p1 = ast.maybeRefreshAppSessionToken();
     const p2 = ast.maybeRefreshAppSessionToken({force: true});
     expect(p1).toBe(p2);
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let i = 0; i < 20 && !resolve; i++) await Promise.resolve();
     resolve(okResponse());
     await p1;
     expect(global.fetch).toHaveBeenCalledTimes(1);
