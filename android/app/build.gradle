@@ -18,7 +18,10 @@ react {
     }
 }
 
-def enableProguardInReleaseBuilds = false
+// R8 (shrink + obfuscate) is opt-in until a minified release has been tested
+// on devices: ./gradlew bundleRelease -PenableR8=true
+def enableProguardInReleaseBuilds = project.hasProperty("enableR8") &&
+    project.property("enableR8").toString().toBoolean()
 def jscFlavor = 'org.webkit:android-jsc:+'
 // OTA plumbing is shared, but this fork intentionally has no baked-in
 // deployment. Supply a MarketAnalysis-specific key at build time if enabled.
