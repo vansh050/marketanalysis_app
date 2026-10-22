@@ -563,12 +563,15 @@ const ReviewTradeModal = ({
       const formattedParts = formatSymbol(symbol);
 
       return (
-        <TouchableOpacity
-          style={styles.rowContainer}
-          onPress={() => toggleTradeExpansion(item.tradeId)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.leftContainer}>
+        // The row is a plain View: the row-wide Touchable took the tap from
+        // the nested quantity TextInput on Android, so the quantity could
+        // not be typed. Tapping the symbol block (or the chevron) still expands.
+        <View style={styles.rowContainer}>
+          <TouchableOpacity
+            style={styles.leftContainer}
+            onPress={() => toggleTradeExpansion(item.tradeId)}
+            activeOpacity={0.7}
+          >
             {formattedParts ? (
               <View style={{flexDirection: 'column'}}>
                 <Text style={styles.symbol}>
@@ -635,7 +638,7 @@ const ReviewTradeModal = ({
                 )}
               </View>
             )}
-          </View>
+          </TouchableOpacity>
           <View style={styles.quantitySection}>
         <TouchableOpacity
           onPress={() =>
@@ -694,7 +697,7 @@ const ReviewTradeModal = ({
               <Trash2Icon size={18} color={'black'} />
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       );
     };
 
@@ -1242,7 +1245,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   quantityInput: {
-    height: 20,
+    height: 28,
     padding: 0,
     maxWidth: '60%',
     width: 45,
