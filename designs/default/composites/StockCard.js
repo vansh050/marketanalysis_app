@@ -386,7 +386,10 @@ const StockCard = ({ viewModel, actions, slots }) => {
                       paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4,
                     }}>
                       <Text style={{fontSize: 10, fontFamily: 'Poppins-Medium', color: positionStatus === 'Open' ? '#16A34A' : '#6B7280'}}>
-                        {positionStatus}
+                        {/* A filled entry reads "Holding": testers took
+                            "Open" to mean the order was still pending
+                            (2026-10-22). Unfilled advice keeps its status. */}
+                        {isOpenPosition && positionStatus === 'Open' ? 'Holding' : positionStatus}
                       </Text>
                     </View>
                   ) : null}

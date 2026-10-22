@@ -17,4 +17,11 @@ describe('open position broker label', () => {
     expect(card).toContain("positionBroker ? ` in ${positionBroker}` : ''");
     expect(card.match(/positionBroker \? ` in \$\{positionBroker\}` : ''/g)).toHaveLength(2);
   });
+
+  test('a filled open position is tagged Holding, unfilled advice keeps its status', () => {
+    const card = read('designs/default/composites/StockCard.js');
+    expect(card).toContain(
+      "{isOpenPosition && positionStatus === 'Open' ? 'Holding' : positionStatus}",
+    );
+  });
 });
