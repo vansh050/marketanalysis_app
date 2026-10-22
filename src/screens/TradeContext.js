@@ -448,7 +448,9 @@ export const TradeProvider = ({children}) => {
           tenantSubdomain,
         );
 
-        const requesturl = `${server.server.baseUrl}api/model-portfolio/subscribed-strategies/${userEmail}`;
+        // view=summary: full history only on the latest two rebalances' advice
+        // (aq_backend utilities/rebalanceHistorySummary.js) — this is polled.
+        const requesturl = `${server.server.baseUrl}api/model-portfolio/subscribed-strategies/${userEmail}?view=summary`;
         const requestKey = `${userEmail}|${tenantSubdomain}`;
         requestEntry = modelPortfolioRequestRef.current;
         if (!requestEntry || requestEntry.key !== requestKey) {

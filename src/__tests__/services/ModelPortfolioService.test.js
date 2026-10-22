@@ -68,7 +68,7 @@ describe('ModelPortfolioService', () => {
     test('getSubscribedStrategies calls correct endpoint', async () => {
       await getSubscribedStrategies('user@test.com', mockConfigData);
       expect(axios.get).toHaveBeenCalledWith(
-        `${server.server.baseUrl}api/model-portfolio/subscribed-strategies/user@test.com`,
+        `${server.server.baseUrl}api/model-portfolio/subscribed-strategies/user@test.com?view=summary`,
         expect.objectContaining({headers: expect.any(Object)}),
       );
     });

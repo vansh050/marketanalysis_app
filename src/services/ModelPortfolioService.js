@@ -25,7 +25,7 @@ function getHeaders(configData) {
  */
 export async function getSubscribedStrategies(userEmail, configData) {
   const response = await axios.get(
-    `${server.server.baseUrl}api/model-portfolio/subscribed-strategies/${userEmail}`,
+    `${server.server.baseUrl}api/model-portfolio/subscribed-strategies/${userEmail}?view=summary`,
     {headers: getHeaders(configData)},
   );
   return response.data;
