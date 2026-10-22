@@ -1126,7 +1126,10 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
         Toast.show({
           type: 'error',
           text1: 'Could not safely open Zerodha',
+          // The server names the blocking attempt; axios' own message is
+          // only "Request failed with status code 409" (2026-10-22).
           text2:
+            error?.response?.data?.message ||
             error?.message ||
             'Please try again. No order was sent to Zerodha.',
           visibilityTime: 7000,

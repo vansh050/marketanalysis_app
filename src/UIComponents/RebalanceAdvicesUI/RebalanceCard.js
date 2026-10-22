@@ -19,7 +19,8 @@ import CryptoJS from 'react-native-crypto-js';
 import Toast from 'react-native-toast-message';
 import {classifyFundsResponse} from '../../utils/brokerSessionValidator';
 import {hasVerifiedExecutionCompletion} from '../../utils/modelPortfolioExecution';
-import {isPublisherLegTerminal} from '../../utils/publisherOrderLabel';
+import {isPublisherLegTerminal, stillCheckingZerodhaAlert} from '../../utils/publisherOrderLabel';
+
 import {
   accountRecoveryTitle,
   holdingsReviewCanResolve,
@@ -522,10 +523,7 @@ const RebalanceCard = ({
             ],
           );
         } else {
-          Alert.alert(
-            'Still checking Zerodha',
-            'Nothing was retried. Refresh again after broker verification completes.',
-          );
+          Alert.alert(...stillCheckingZerodhaAlert(orderResults));
         }
         return;
       }
@@ -660,10 +658,7 @@ const RebalanceCard = ({
           {headers: requestHeaders, timeout: 15000},
         );
         if (cancellation?.data?.resolved !== true) {
-          Alert.alert(
-            'Still checking Zerodha',
-            'Nothing was retried. Refresh again after broker verification completes.',
-          );
+          Alert.alert(...stillCheckingZerodhaAlert(pendingOrders));
           return;
         }
       }

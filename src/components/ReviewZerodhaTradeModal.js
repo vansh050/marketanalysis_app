@@ -893,7 +893,9 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
       Toast.show({
         type: 'error',
         text1: 'Could not safely open Zerodha',
-        text2: 'The server could not prepare order recovery. Please try again.',
+        text2:
+          error?.response?.data?.message ||
+          'The server could not prepare order recovery. Please try again.',
         visibilityTime: 6000,
       });
       return;
