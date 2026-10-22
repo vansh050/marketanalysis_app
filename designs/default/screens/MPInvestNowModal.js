@@ -603,7 +603,7 @@ const MPInvestNowModal = ({ viewModel, actions, slots }) => {
         ) : (
           <View style={styles.buttonContent}>
             <Text style={styles.stepButtonText}>
-              Continue to Investment
+              Continue
             </Text>
             <ChevronRight size={16} color="#fff" />
           </View>
@@ -1225,6 +1225,7 @@ const MPInvestNowModal = ({ viewModel, actions, slots }) => {
           <ScrollView
             style={styles.content}
             contentContainerStyle={styles.scrollContentContainer}
+            keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={false}>
             <View style={styles.stepsContainer}>
               {steps.map((step, index) => (
