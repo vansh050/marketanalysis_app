@@ -1,6 +1,7 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+apply plugin: "com.google.gms.google-services"
 apply plugin: "com.google.firebase.crashlytics"
 apply from: project(':react-native-config').projectDir.getPath() + "/dotenv.gradle"
 
@@ -18,9 +19,9 @@ react {
     }
 }
 
-// R8 (shrink + obfuscate) is opt-in until a minified release has been tested
-// on devices: ./gradlew bundleRelease -PenableR8=true
-def enableProguardInReleaseBuilds = project.hasProperty("enableR8") &&
+// R8 shrinks and obfuscates release builds. Escape hatch if a minified build
+// misbehaves: ./gradlew bundleRelease -PenableR8=false
+def enableProguardInReleaseBuilds = !project.hasProperty("enableR8") ||
     project.property("enableR8").toString().toBoolean()
 def jscFlavor = 'org.webkit:android-jsc:+'
 // OTA plumbing is shared, but this fork intentionally has no baked-in
@@ -173,7 +174,6 @@ dependencies {
 }
 
 apply from: file("../../node_modules/react-native-vector-icons/fonts.gradle")
-apply plugin: "com.google.gms.google-services"
 apply from: "../../node_modules/@revopush/react-native-code-push/android/codepush.gradle"
 
 // react-native-config bakes every env value into the APK/AAB as plain text.
