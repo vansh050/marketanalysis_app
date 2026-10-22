@@ -206,6 +206,14 @@ export const ConfigProvider = ({ children }) => {
                             // BEFORE payment/Digio). Default OFF, mirrors web's
                             // `=== true` gate in loginRoutes.js /frontend-config.
                             kycBlockingEnabled:      d.kycBlockingEnabled === true,
+                            // MITC signature method before payment: 'digio' (Aadhaar/OTP
+                            // eSign on digio.in) or 'whatsapp_otp' (our click-wrap MITC
+                            // confirmed with a WhatsApp OTP, hostingsol consent service).
+                            // Mirrors web AppConfigContext.mitcSignatureMode; the payment
+                            // routes enforce the same mode server-side.
+                            mitcSignatureMode:       d.mitcSignatureMode === 'whatsapp_otp' ? 'whatsapp_otp' : 'digio',
+                            // Consent scope: per plan, or one global signature.
+                            perPlanDigio:            d.perPlanDigio === true,
                             // Phone-first login flow (Onboarding video carousel →
                             // PhoneLogin capture, BEFORE the standard email/Google
                             // Login screen). Default OFF, mirrors web's `=== true`
@@ -416,6 +424,11 @@ export const ConfigProvider = ({ children }) => {
                         // Checkout-time blocking KYC gate — DEFAULT-OFF. A failed
                         // frontend-config fetch (parityFlags == {}) leaves it OFF.
                         kycBlockingEnabled:      parityFlags.kycBlockingEnabled ?? false,
+                        // MITC signature method — DEFAULT 'digio'. A failed
+                        // frontend-config fetch keeps the Digio path; the server's
+                        // payment gate still refuses an unsigned purchase.
+                        mitcSignatureMode:       parityFlags.mitcSignatureMode ?? 'digio',
+                        perPlanDigio:            parityFlags.perPlanDigio ?? false,
                         // Whether the flags fetch above succeeded at all. The KYC gate
                         // blocks (retryable) rather than skipping when this is false.
                         parityFlagsLoaded:       parityFlags._parityFlagsLoaded === true,
@@ -723,6 +736,8 @@ export const ConfigProvider = ({ children }) => {
                                     portfolioHealth: newConfig.portfolioHealth,
                                     performanceSummaryEnabled: newConfig.performanceSummaryEnabled,
                                     kycBlockingEnabled: newConfig.kycBlockingEnabled,
+                                    mitcSignatureMode: newConfig.mitcSignatureMode,
+                                    perPlanDigio: newConfig.perPlanDigio,
                                     useSharedAngelOneKey: newConfig.useSharedAngelOneKey,
                                     phoneFirstLoginEnabled: newConfig.phoneFirstLoginEnabled,
                                     rebalanceFreezePlan: newConfig.rebalanceFreezePlan,

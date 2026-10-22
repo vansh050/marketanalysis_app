@@ -39,6 +39,7 @@ import {
 } from '../../FunctionCall/services/PhonePePaymentService';
 import Toast from 'react-native-toast-message';
 import server from '../../utils/serverConfig';
+import { getAuthedHeaders } from '../../utils/courseAuthHeaders';
 import Config from 'react-native-config';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import uuid from 'react-native-uuid';
@@ -126,6 +127,7 @@ import { useComponent } from '../../design/useDesign';
 // Rendered by the container, not the presentation — see the note at the
 // return statement (third-party WebView surfaces are not design surfaces).
 import DigioModal from './DigioModal';
+import WhatsAppMitcModal from './WhatsAppMitcModal';
 import DisclaimerModal from './DisclaimerModal';
 import DigioSuccessModal from './DigioSuccessModal';
 import TelegramCollectionModal from './TelegramCollectionModal';
@@ -1154,6 +1156,14 @@ const MPInvestNowModal = ({
   // AppAdvisor.digioConfig.digioEnabled is authoritative. Tenant behavior is
   // configured in the backend, never hardcoded in this shared checkout.
   const isDigioEnabled = isDigioEnabledFromBackend(config?.digioEnabled);
+  // 'whatsapp_otp' replaces the Digio eSign step with the MITC confirmed by a
+  // WhatsApp OTP (WhatsAppMitcModal). Only the pre-payment check uses it —
+  // same as web PricingPage. Server payment routes enforce the same mode.
+  const useWhatsAppMitc =
+    config?.mitcSignatureMode === 'whatsapp_otp' && digioCheck === 'beforePayment';
+  // Consent scope must match the server gate: per plan, or one global record.
+  const whatsappMitcPlanId = config?.perPlanDigio === true ? specificPlan?._id || '' : '';
+  const [whatsappMitcOpen, setWhatsappMitcOpen] = useState(false);
 
   const getInitialAuthMethod = () => {
     const aadhaarEnabled = configData?.aadhaarBasedAuthentication === true ||
@@ -2696,6 +2706,24 @@ const MPInvestNowModal = ({
     }
   };
 
+  // Same status call the payment routes trust. A failed lookup reads as "not
+  // signed" so the customer is shown the MITC rather than a payment the
+  // server would refuse.
+  const isWhatsAppMitcSigned = async () => {
+    try {
+      const headers = await getAuthedHeaders();
+      const response = await axios.get(`${server.server.baseUrl}api/mitc/consent/status`, {
+        params: { plan_id: whatsappMitcPlanId },
+        headers,
+        timeout: 10000,
+      });
+      return response?.data?.completed === true;
+    } catch (err) {
+      console.error('[WhatsAppMitc] consent status check failed:', err?.message);
+      return false;
+    }
+  };
+
   const handleDigioPayment = async () => {
     // Immediate feedback across the WHOLE digio sequence — lead-user update,
     // server digio-status check, MITC PDF download + upload are several
@@ -2709,6 +2737,16 @@ const MPInvestNowModal = ({
       if (!isDigioEnabled) {
         console.log('Digio is disabled for this advisor, proceeding to payment');
         handlePaymentType();
+        return;
+      }
+
+      if (useWhatsAppMitc) {
+        if (await isWhatsAppMitcSigned()) {
+          console.log('[WhatsAppMitc] Already accepted — proceeding to payment');
+          handlePaymentType();
+        } else {
+          setWhatsappMitcOpen(true);
+        }
         return;
       }
 
@@ -3930,6 +3968,20 @@ const MPInvestNowModal = ({
           PayUWebView,
         }}
       />
+
+      {whatsappMitcOpen ? (
+        <WhatsAppMitcModal
+          open={whatsappMitcOpen}
+          name={name}
+          phone={mobileNumber}
+          planId={whatsappMitcPlanId}
+          onClose={() => setWhatsappMitcOpen(false)}
+          onComplete={() => {
+            setWhatsappMitcOpen(false);
+            handlePaymentType();
+          }}
+        />
+      ) : null}
 
       {digioModalOpen ? (
         <DigioModal
