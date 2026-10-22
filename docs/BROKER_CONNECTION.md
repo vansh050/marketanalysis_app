@@ -1,5 +1,18 @@
 # Broker Connection Architecture
 
+## Arihant TOTP accounts get no SMS (2026-10-22)
+
+Arihant's `initiate-login` returns `twoFAType`. For `"TOTP"` accounts no OTP
+is sent by SMS or email: the code is the current 6-digit value from the
+authenticator app linked to the Arihant login (confirmed on a neotrader
+account, 2026-10-22). `ArihantConnectModal` now keeps `twoFAType`: for TOTP
+(or when the customer chose to save the seed on the phone) the OTP step says
+to use the authenticator code and hides Resend; otherwise it keeps the
+SMS/email wording and Resend. Same change on web (`ArihantConnection.js`).
+Server side the same day: ccxt no longer requires `secretKey` for Arihant
+(TOTP accounts get no refresh token, which made every funds/holdings/order
+credential lookup fail) and funds now sends `segment=ALL`.
+
 ## AlphaB2B runtime tenant changes must remint the SDK session (2026-10-02)
 
 The SDK session JWT is scoped to one advisor tenant. In the AlphaB2B master

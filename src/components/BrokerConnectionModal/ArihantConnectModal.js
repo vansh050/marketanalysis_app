@@ -64,6 +64,11 @@ const ArihantConnectModal = ({
   const [otp, setOtp] = useState('');
   const [txnId, setTxnId] = useState('');
   const [otpExpiry, setOtpExpiry] = useState(null);
+  // Arihant's initiate-login reports how the second factor is delivered.
+  // A "TOTP" account gets no SMS/email: the code comes from the
+  // authenticator app linked to the Arihant login (2026-10-22, a neotrader
+  // customer waited for an SMS that never comes).
+  const [twoFAType, setTwoFAType] = useState('');
   const [step, setStep] = useState('creds'); // creds | otp
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -73,6 +78,7 @@ const ArihantConnectModal = ({
   const [userDetails, setUserDetails] = useState(null);
   const [hasSavedTotp, setHasSavedTotp] = useState(false);
   const [saveTotpOnDevice, setSaveTotpOnDevice] = useState(false);
+  const isTotp = saveTotpOnDevice || /totp/i.test(twoFAType);
   const [deviceTotpSeed, setDeviceTotpSeed] = useState('');
   const [storedApiKeyWire, setStoredApiKeyWire] = useState('');
   const deviceReconnectStartedRef = React.useRef(false);
@@ -104,6 +110,7 @@ const ArihantConnectModal = ({
     setStep('creds');
     setOtp('');
     setTxnId('');
+    setTwoFAType('');
     setStoredApiKeyWire('');
     setError('');
     setLoading(false);
@@ -184,6 +191,8 @@ const ArihantConnectModal = ({
       } else {
         setTxnId(data.txnId);
         setOtpExpiry(data.otpExpiryTime || null);
+        setTwoFAType(String(data.twoFAType || ''));
+        const totpAccount = /totp/i.test(String(data.twoFAType || ''));
         setStep('otp');
         setResendCooldown(30);
         const enrollmentSeed = overrides.totpSeed || (
@@ -211,10 +220,12 @@ const ArihantConnectModal = ({
         if (showAlert) {
           showAlert(
             'success',
-            saveTotpOnDevice ? 'Enter Arihant TOTP' : 'OTP sent',
+            saveTotpOnDevice || totpAccount ? 'Enter Arihant TOTP' : 'OTP sent',
             saveTotpOnDevice
               ? 'Enter the current TOTP from your Arihant authenticator setup to finish and protect quick reconnect.'
-              : data.message || 'OTP sent to your registered mobile/email.',
+              : totpAccount
+                ? 'No SMS is sent for this account. Enter the 6-digit code from the authenticator app linked to your Arihant login.'
+                : 'OTP sent to your registered mobile/email.',
           );
         }
       }
@@ -443,10 +454,12 @@ const ArihantConnectModal = ({
       otp={{
         value: otp,
         onChange: (t) => setOtp(t.replace(/\D/g, '').slice(0, 8)),
-        sentToText: saveTotpOnDevice
-          ? 'Enter the current TOTP from your Arihant authenticator.'
+        sentToText: isTotp
+          ? 'No SMS is sent for this account. Enter the current 6-digit code from the authenticator app (e.g. Google Authenticator) linked to your Arihant login.'
           : 'Enter the OTP Arihant sent to your registered mobile/email.',
-        onResend: resendOtp,
+        // A TOTP code is generated on the customer's device; resend has
+        // nothing to send.
+        onResend: isTotp ? undefined : resendOtp,
         resendDisabled: resendCooldown > 0,
         resendLabel: resendCooldown > 0 ? `Resend in ${resendCooldown}s` : 'Resend OTP',
         expiryHint: otpExpiry ? `OTP expires at: ${String(otpExpiry)}` : '',
