@@ -487,7 +487,13 @@ const UpstoxModal = ({
           setIsLoading(false);
 
           // SDK pilot dual-write — see brokerSdkBridge.js.
-          if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+          // Skipped once quick reconnect is saved: its check logged in again
+          // and the server now holds that newer token, while brokerData still
+          // carries the OAuth token Upstox just revoked. Writing it here (fire
+          // and forget, so it lands last) put the dead token back with no
+          // expiry and the card flipped to "Session Expired" seconds after
+          // "Connected Successfully" (2026-10-23 QA, Mongo oplog 09:30:15).
+          if (!quickReconnectSaved && sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
             sdkDualWriteSafely(
               sdkConnectBroker(sdkBridge.client, 'Upstox', brokerData),
               'Upstox',
