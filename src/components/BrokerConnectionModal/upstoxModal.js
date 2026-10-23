@@ -466,6 +466,10 @@ const UpstoxModal = ({
         .then(async response => {
           console.log('[Upstox] Broker connection saved successfully');
           let quickReconnectSaved = false;
+          // Captured before the attempt: even a failed attempt may already
+          // have saved a newer token on the server (verify succeeded, then the
+          // local seed save threw, or the client timed out).
+          const quickReconnectAttempted = Boolean(pendingTotpEnrollmentRef.current);
           if (pendingTotpEnrollmentRef.current) {
             try {
               quickReconnectSaved = await verifyAndSaveQuickReconnect();
@@ -493,7 +497,7 @@ const UpstoxModal = ({
           // and forget, so it lands last) put the dead token back with no
           // expiry and the card flipped to "Session Expired" seconds after
           // "Connected Successfully" (2026-10-23 QA, Mongo oplog 09:30:15).
-          if (!quickReconnectSaved && sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+          if (!quickReconnectAttempted && sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
             sdkDualWriteSafely(
               sdkConnectBroker(sdkBridge.client, 'Upstox', brokerData),
               'Upstox',

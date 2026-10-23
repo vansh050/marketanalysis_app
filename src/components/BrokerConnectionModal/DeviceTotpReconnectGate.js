@@ -617,6 +617,11 @@ const DeviceTotpReconnectGate = ({
     return React.isValidElement(fallback)
       ? React.cloneElement(fallback, {
           fetchBrokerStatusModal: handleFallbackSuccess,
+          // True while a quick-reconnect login is staged to run after this
+          // connect. That login saves a newer session, so the modal must not
+          // fire its SDK dual-write with the older token (it can land last
+          // and restore a token the broker already revoked — 2026-10-23).
+          isQuickReconnectPending: () => Boolean(pendingEnrollment.current),
           initialCredentials: stagedApiCredentials || undefined,
           initialUserId: serverUserId.current,
           initialEgressReady: Boolean(stagedApiCredentials),

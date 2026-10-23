@@ -64,6 +64,7 @@ const FyersConnect = ({
   onClose,
   setShowBrokerModal,
   fetchBrokerStatusModal,
+  isQuickReconnectPending,
   reauthConfig,
   initialCredentials,
   initialEgressReady = false,
@@ -320,7 +321,9 @@ const FyersConnect = ({
       // alongside the legacy save (PUT /api/user/connect-broker)
       // so we can verify /sdk/v1/connections/Fyers/connect in
       // production. Failure logged, never blocks legacy success.
-      if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+      // Skipped when the quick-reconnect gate will log in again after this
+      // save: that newer session must be the last write, not this token.
+      if (!isQuickReconnectPending?.() && sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
         sdkDualWriteSafely(
           sdkConnectBroker(sdkBridge.client, 'Fyers', brokerData),
           'Fyers',

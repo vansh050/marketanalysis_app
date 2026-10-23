@@ -30,6 +30,7 @@ const MotilalModal = ({
   onClose,
   setShowBrokerModal,
   fetchBrokerStatusModal,
+  isQuickReconnectPending,
   reauthConfig,
   initialCredentials,
   initialEgressReady = false,
@@ -232,8 +233,10 @@ const MotilalModal = ({
         .then(response => {
           console.log('[Motilal] Broker connection saved successfully');
 
-          // SDK pilot dual-write — see brokerSdkBridge.js.
-          if (sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
+          // SDK pilot dual-write — see brokerSdkBridge.js. Skipped when the
+          // quick-reconnect gate will log in again right after this save:
+          // that newer session must be the last write, not this token.
+          if (!isQuickReconnectPending?.() && sdkBridge.enabled && sdkBridge.ready && sdkBridge.client) {
             sdkDualWriteSafely(
               sdkConnectBroker(sdkBridge.client, 'Motilal Oswal', brokerData),
               'Motilal Oswal',
