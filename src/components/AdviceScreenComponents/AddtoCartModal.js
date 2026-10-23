@@ -27,6 +27,7 @@ import { computeTradeVariant } from '../../utils/tradeVariant';
 import { isOrderSuccess, isOrderRejected } from '../../utils/orderStatusUtils';
 import { validateBrokerSession } from '../../utils/brokerSessionUtils';
 import { validateStockExchanges, convertToBasketItem, fetchFreshKiteProtectionPrices, resolveZerodhaSymbol, stopOrderProblem } from '../../utils/brokerPublisher';
+import {confirmStopOrderSession} from '../../utils/stopOrderSession';
 import useZerodhaSymbolMap from '../../hooks/useZerodhaSymbolMap';
 import {useCart} from '../CartContext';
 import {getLastKnownPrice} from './DynamicText/websocketPrice';
@@ -697,6 +698,10 @@ const AddToCartModal = ({
       });
       return;
     }
+    // SL legs are rejected by brokers during the exchange call auctions
+    // (9:00–9:08, and NSE's 3:15–3:35 PM closing auction since Aug 2026).
+    // Warn before anything is sent; the customer may still continue.
+    if (!(await confirmStopOrderSession(cartItems))) return;
 
     const sessionValid = await validateBrokerSession(broker, jwtToken, { checkFreshness: true });
     if (!sessionValid) return;

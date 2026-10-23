@@ -31,6 +31,7 @@ import MPCard from '../../components/ModelPortfolioComponents/MPCard';
 import {getAuth} from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
 import { convertToBasketItem, fetchFreshKiteProtectionPrices, validateStockExchanges, stopOrderProblem } from '../../utils/brokerPublisher';
+import {confirmStopOrderSession} from '../../utils/stopOrderSession';
 import {getLastKnownPrice} from '../../components/AdviceScreenComponents/DynamicText/websocketPrice';
 import {useNavigation, useFocusEffect} from '@react-navigation/native';
 import EmptyMP from '../../assets/emptyModelPortfolio.svg';
@@ -534,7 +535,11 @@ const IgnoreTradesScreen = () => {
     }
   };
 
-  const placeOrder = () => {
+  const placeOrder = async () => {
+    // SL legs are rejected by brokers during the exchange call auctions
+    // (9:00–9:08, and NSE's 3:15–3:35 PM closing auction since Aug 2026).
+    // Warn before anything is sent; the customer may still continue.
+    if (!(await confirmStopOrderSession(stockDetails))) return;
     setLoading(true);
     // Prepare the payload based on broker
     const getOrderPayload = () => {
@@ -731,6 +736,10 @@ const IgnoreTradesScreen = () => {
   const [mbasket, setmbasket] = useState(null);
 
   const handlefinal = async () => {
+    // SL legs are rejected by brokers during the exchange call auctions
+    // (9:00–9:08, and NSE's 3:15–3:35 PM closing auction since Aug 2026).
+    // Warn before anything is sent; the customer may still continue.
+    if (!(await confirmStopOrderSession(stockDetails))) return;
     // Pre-flight: refuse to send orders with missing exchange. Kite Publisher
     // silently drops basket items whose symbol/exchange combo it can't resolve.
     const exchangeCheck = validateStockExchanges(stockDetails);

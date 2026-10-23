@@ -33,6 +33,7 @@ import IIFLReviewTradeModal from '../IIFLReviewTradeModal';
 import WebSocketManager from './DynamicText/WebSocketManager';
 import { getLastKnownPrice } from './DynamicText/websocketPrice';
 import { validateStockExchanges, convertToBasketItem, fetchFreshKiteProtectionPrices, resolveZerodhaSymbol, stopOrderProblem } from '../../utils/brokerPublisher';
+import {confirmStopOrderSession} from '../../utils/stopOrderSession';
 import useZerodhaSymbolMap from '../../hooks/useZerodhaSymbolMap';
 import {useRefreshBrokerStatus} from '../../hooks/useRefreshBrokerStatus';
 import {isFundsErrorOrMissing} from '../../utils/rebalanceHelpers';
@@ -846,6 +847,10 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
   };
 
   const executePlaceOrder = async (stockDetails, verifiedSession = null) => {
+    // SL legs are rejected by brokers during the exchange call auctions
+    // (9:00–9:08, and NSE's 3:15–3:35 PM closing auction since Aug 2026).
+    // Warn before anything is sent; the customer may still continue.
+    if (!(await confirmStopOrderSession(stockDetails))) return;
     setLoading(true);
 
     const effectiveBasketId = basketId || stockDetails?.[0]?.basketId;
