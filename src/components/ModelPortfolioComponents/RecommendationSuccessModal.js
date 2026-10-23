@@ -60,6 +60,7 @@ import useTokens from '../../theme/useTokens';
 import portfolioEvents, { PORTFOLIO_EVENTS } from '../../utils/portfolioEvents';
 import {refreshSingleOrderStatus} from '../../services/OrderService';
 import CustomerExecutionReportModal from '../CustomerExecutionReportModal';
+import {resolvePublisherNotFound} from '../../utils/publisherOutcome';
 
 const CheckedIcon = require('../../assets/checked.png');
 const FailureIcon = require('../../assets/cross.png');
@@ -246,7 +247,10 @@ const RecommendationSuccessModal = ({
           `${server.server.baseUrl}api/zerodha/publisher/record-orders`,
           {
             stockDetails: publisherStockDetails,
-            publisherResults: [{status: 'success', source: 'manual_refresh'}],
+            // Never claim a Kite success we did not receive: with "success"
+            // and no matching order the server records a non-terminal PENDING
+            // ("do not place it again") on an order Kite never had.
+            publisherResults: [{status: 'unknown', source: 'manual_refresh'}],
             userEmail,
             broker: 'Zerodha',
             attemptId,
@@ -259,7 +263,13 @@ const RecommendationSuccessModal = ({
         const refreshed =
           recordResponse?.data?.response || recordResponse?.data?.results || [];
         if (Array.isArray(refreshed) && refreshed.length > 0) {
-          setOrderResponse(refreshed);
+          const attemptCreatedAt =
+            item?.attemptCreatedAt ??
+            orderResponse?.find?.(row => row?.attemptCreatedAt)?.attemptCreatedAt;
+          // Display only: a verified absence past the retry guard reads as
+          // NOT SENT. The raw server rows below stay what is persisted.
+          const displayed = resolvePublisherNotFound(refreshed, {attemptCreatedAt});
+          setOrderResponse(displayed);
           if (modelId) {
             await axios.post(
               `${server.server.baseUrl}api/model-portfolio-db-update`,
@@ -273,12 +283,17 @@ const RecommendationSuccessModal = ({
               {headers},
             );
           }
+          const notPlaced = displayed.every(row => row?.orderStatus === 'NOT_OBSERVED');
           Toast.show({
             type: refreshed.some(row => row?.orderId) ? 'success' : 'info',
             text1: refreshed.some(row => row?.orderId)
               ? 'Broker status refreshed'
-              : 'Still awaiting Zerodha confirmation',
-            text2: 'Every basket leg was checked against your latest Kite order book.',
+              : notPlaced
+                ? 'Not placed at Zerodha'
+                : 'Still awaiting Zerodha confirmation',
+            text2: notPlaced
+              ? 'Kite has no record of this order. You can place it again.'
+              : 'Every basket leg was checked against your latest Kite order book.',
             visibilityTime: 4000,
           });
           return;
@@ -1115,7 +1130,11 @@ const RecommendationSuccessModal = ({
                 </View>
 
                 <View style={styles.statusTextContainer}>
-                  <Text style={styles.statusTitle}>Order Failed</Text>
+                  <Text style={styles.statusTitle}>
+                    {orderResponse?.every?.(row => row?.orderStatus === 'NOT_OBSERVED')
+                      ? `Not placed at ${currentBroker || 'the broker'}`
+                      : 'Order Failed'}
+                  </Text>
 
                   {/* Show the right reason summary based on which banners are
                       showing below. The cautionary + low-funds banners carry

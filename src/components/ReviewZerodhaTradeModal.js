@@ -1108,6 +1108,8 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
     stopKitePolling();
 
     let submittedStockDetails = selectPublisherStockDetails([], stockDetails);
+    // Hoisted like submittedStockDetails so the catch below can stamp it too.
+    let recoveredAttempt = null;
     try {
       if (
         zerodhaStatus === null ||
@@ -1122,6 +1124,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
         attempt,
       } = await fetchData();
       submittedStockDetails = recoveredStockDetails;
+      recoveredAttempt = attempt;
       const resolvedUserEmail =
         (await getAccountEmailAsync()) ||
         userEmail ||
@@ -1185,10 +1188,12 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
         ? buildUnconfirmedPublisherResults(
             submittedStockDetails,
             confirmationMessage,
+            attempt,
           )
         : sanitizePublisherRecordResults(
             orderResults,
             confirmationMessage,
+            attempt,
           );
 
       setOrderPlacementResponse(displayedResults);
@@ -1242,6 +1247,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
         buildUnconfirmedPublisherResults(
           submittedStockDetails,
           confirmationMessage,
+          recoveredAttempt,
         ),
       );
       setOpenSucessModal(true);

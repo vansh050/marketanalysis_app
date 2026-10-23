@@ -67,6 +67,7 @@ import {
   isZerodhaPublisherRetryGuarded,
   parseZerodhaPublisherAttempt,
   sanitizePublisherRecordResults,
+  resolvePublisherNotFound,
 } from '../../utils/publisherOutcome';
 
 // Single merged import — six separate `from '../DdpiModal'` lines made
@@ -746,10 +747,12 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
         if (isZerodhaPublisherRetryGuarded(attempt)) {
           // Fresh attempt, order book is empty so far — block this slide
           // and ask the user to verify Kite before sliding again.
-          const unconfirmedResults = buildUnconfirmedPublisherResults(
-            pendingTrades,
-            pendingMessage,
-          );
+          // The server read the whole Kite order book and this order is not in
+          // it. Still inside the retry guard, so keep it pending, but say what
+          // we actually know and when it can be placed again.
+          const unconfirmedResults = resolvePublisherNotFound(results, {
+            attemptCreatedAt: attempt.createdAt,
+          }).map(row => ({...row, attemptId: row.attemptId || attempt.attemptId}));
           setOrderPlacementResponse(unconfirmedResults);
           setOpenSucessModal(true);
           setOpenReviewTrade(false);
@@ -776,8 +779,8 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       if (isZerodhaPublisherRetryGuarded(attempt)) {
         const unconfirmedResults =
           results.length > 0
-            ? sanitizePublisherRecordResults(results, pendingMessage)
-            : buildUnconfirmedPublisherResults(pendingTrades, pendingMessage);
+            ? sanitizePublisherRecordResults(results, pendingMessage, attempt)
+            : buildUnconfirmedPublisherResults(pendingTrades, pendingMessage, attempt);
         setOrderPlacementResponse(unconfirmedResults);
         setOpenSucessModal(true);
         setOpenReviewTrade(false);
@@ -794,8 +797,8 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       if (!reopen) {
         const unconfirmedResults =
           results.length > 0
-            ? sanitizePublisherRecordResults(results, pendingMessage)
-            : buildUnconfirmedPublisherResults(pendingTrades, pendingMessage);
+            ? sanitizePublisherRecordResults(results, pendingMessage, attempt)
+            : buildUnconfirmedPublisherResults(pendingTrades, pendingMessage, attempt);
         setOrderPlacementResponse(unconfirmedResults);
         setOpenSucessModal(true);
         setOpenReviewTrade(false);
@@ -813,7 +816,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       );
       if (isZerodhaPublisherRetryGuarded(attempt)) {
         setOrderPlacementResponse(
-          buildUnconfirmedPublisherResults(pendingTrades, pendingMessage),
+          buildUnconfirmedPublisherResults(pendingTrades, pendingMessage, attempt),
         );
         setOpenSucessModal(true);
         setOpenReviewTrade(false);
@@ -828,7 +831,7 @@ const StockAdvices = React.memo(({ userEmail, orderscreen, type }) => {
       const reopen = await confirmReopenKite();
       if (!reopen) {
         setOrderPlacementResponse(
-          buildUnconfirmedPublisherResults(pendingTrades, pendingMessage),
+          buildUnconfirmedPublisherResults(pendingTrades, pendingMessage, attempt),
         );
         setOpenSucessModal(true);
         setOpenReviewTrade(false);

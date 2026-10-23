@@ -194,7 +194,20 @@ export function classifyPublisherRecordResults(results) {
   return 'recorded';
 }
 
-export function sanitizePublisherRecordResults(results, message) {
+// Rows shown as "awaiting confirmation" carry the attempt they came from, so a
+// later Refresh can re-check that exact attempt and, once the retry guard has
+// passed, turn a verified absence into NOT SENT instead of "awaiting" forever.
+const stampAttempt = (row, attempt) => {
+  if (!attempt) return row;
+  const attemptCreatedAt = Number(attempt.createdAt);
+  return {
+    ...row,
+    attemptId: row.attemptId || attempt.attemptId || '',
+    ...(Number.isFinite(attemptCreatedAt) ? {attemptCreatedAt} : {}),
+  };
+};
+
+export function sanitizePublisherRecordResults(results, message, attempt) {
   const rows = asNonEmptyArray(results);
   if (!rows) return [];
 
@@ -209,18 +222,18 @@ export function sanitizePublisherRecordResults(results, message) {
 
   return rows.map(row => {
     const status = String(row?.orderStatus || '').trim().toLowerCase();
-    if (!notFoundStatuses.has(status)) return row;
-    return {
+    if (!notFoundStatuses.has(status)) return stampAttempt(row, attempt);
+    return stampAttempt({
       ...row,
       orderStatus: 'pending',
       orderPlacement: 'pending',
       orderStatusMessage: safeMessage,
       message_aq: safeMessage,
-    };
+    }, attempt);
   });
 }
 
-export function buildUnconfirmedPublisherResults(stockDetails, message) {
+export function buildUnconfirmedPublisherResults(stockDetails, message, attempt) {
   const safeMessage =
     message ||
     'Order confirmation is pending. Please check your Kite order book and do not place the same order again.';
@@ -237,5 +250,59 @@ export function buildUnconfirmedPublisherResults(stockDetails, message) {
     orderPlacement: 'pending',
     orderStatusMessage: safeMessage,
     message_aq: safeMessage,
-  }));
+  })).map(row => stampAttempt(row, attempt));
+}
+
+export const ZERODHA_NOT_PLACED_MESSAGE =
+  'Not placed at Zerodha. Kite has no record of this order, so you can place it again.';
+
+const formatRetryTime = ms => {
+  const d = new Date(ms);
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, '0');
+  return `${h % 12 || 12}:${m} ${h < 12 ? 'AM' : 'PM'}`;
+};
+
+/**
+ * A record-back answered order_not_found: the server read the full Zerodha
+ * order book (every order, whichever way it was placed) and this leg is not in
+ * it. Inside the retry guard that can still be Kite catching up or the
+ * customer mid-login, so the row stays pending, with the time retry opens.
+ * After the guard it is a verified absence: NOT_OBSERVED, shown as NOT SENT,
+ * which the customer may place again. Rows the server did not call
+ * order_not_found are returned unchanged. Without a known attempt time the row
+ * stays pending — the guard fails safe (2026-07-29 duplicate incident).
+ */
+export function resolvePublisherNotFound(
+  results,
+  {attemptCreatedAt, now = Date.now(), guardMs = ZERODHA_PUBLISHER_RETRY_GUARD_MS} = {},
+) {
+  const rows = asNonEmptyArray(results);
+  if (!rows) return [];
+  const notFound = new Set(['order_not_found', 'order not found', 'not_found']);
+  return rows.map(row => {
+    if (!notFound.has(String(row?.orderStatus || '').trim().toLowerCase())) return row;
+    const createdAt = Number(row?.attemptCreatedAt ?? attemptCreatedAt);
+    if (Number.isFinite(createdAt) && now - createdAt >= guardMs) {
+      return {
+        ...row,
+        orderStatus: 'NOT_OBSERVED',
+        orderPlacement: 'not_sent',
+        orderStatusMessage: ZERODHA_NOT_PLACED_MESSAGE,
+        message_aq: ZERODHA_NOT_PLACED_MESSAGE,
+      };
+    }
+    const retryNote = Number.isFinite(createdAt)
+      ? ` If you closed Kite without placing it, you can place it again after ${formatRetryTime(createdAt + guardMs)}.`
+      : '';
+    const message = `Zerodha has no record of this order yet.${retryNote} Check Kite Orders first.`;
+    return {
+      ...row,
+      ...(Number.isFinite(createdAt) ? {attemptCreatedAt: createdAt} : {}),
+      orderStatus: 'pending',
+      orderPlacement: 'pending',
+      orderStatusMessage: message,
+      message_aq: message,
+    };
+  });
 }
