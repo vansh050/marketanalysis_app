@@ -8,7 +8,6 @@
  */
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { useParams } from 'react-router-native';
 import { Dimensions } from 'react-native';
 import axios from 'axios';
 import moment from 'moment';
@@ -50,7 +49,7 @@ const colorPalette = [
 ];
 
 const BespokePerformanceScreen = ({ route }) => {
-    const { modelName, specificPlan } = route.params;
+    const { modelName, specificPlan, fileName } = route.params;
     const { configData } = useTrade();
     const config = useConfig();
     const navigation = useNavigation();
@@ -58,7 +57,6 @@ const BespokePerformanceScreen = ({ route }) => {
 
     const auth = getAuth();
     const user = auth.currentUser;
-    const { fileName } = useParams();
     const userEmail = getAccountEmail();
 
     // Header gradient + accent colors resolved from the current design tokens

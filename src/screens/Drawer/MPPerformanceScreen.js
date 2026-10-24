@@ -23,7 +23,6 @@ import {
   TouchableOpacity,
   Alert,
 } from 'react-native';
-import {useParams} from 'react-router-native';
 import axios from 'axios';
 import moment from 'moment';
 import CryptoJS from 'react-native-crypto-js';
@@ -89,7 +88,7 @@ const firstPositive = (...values) =>
   values.find(value => Number.isFinite(Number(value)) && Number(value) > 0);
 
 const MPPerformanceScreen = ({route}) => {
-  const {modelName, specificPlan} = route.params;
+  const {modelName, specificPlan, fileName} = route.params;
   const {
     configData,
     modelPortfolioStrategyfinal,
@@ -116,7 +115,6 @@ const MPPerformanceScreen = ({route}) => {
 
   const auth = getAuth();
   const user = auth.currentUser;
-  const {fileName} = useParams();
   const userEmail = getAccountEmail();
 
   // State
