@@ -8,7 +8,7 @@ import Config from 'react-native-config';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import axios from 'axios';
 
-import { io } from "socket.io-client";
+import { subscribeLTP } from '../utils/ltpPoller';
 import { useTotalAmount } from './AdviceScreenComponents/DynamicText/websocketPrice';
 import eventEmitter from './EventEmitter';
 import IsMarketHours from '../utils/isMarketHours';
@@ -168,87 +168,44 @@ const ReviewZerodhaTradeModal = ({
   const jwtToken = userDetails && userDetails.jwtToken;
 
   const [ltp, setLtp] = useState([]);
-  const socketRef = useRef(null);
+  const ltpReleasesRef = useRef(new Map());
   const subscribedSymbolsRef = useRef(new Set());
-  const failedSubscriptionsRef = useRef({});
   let dataArray = [];
-  // WebSocket connection for market data
-  useEffect(() => {
-    socketRef.current = io(server.ccxtWs.baseUrl, {
-      transports: ["websocket"],
-      query: { EIO: "4" },
-    });
-
-    const handleMarketData = (data) => {
-      setLtp((prev) => {
-        const index = prev.findIndex(
-          (item) => item.tradingSymbol === data.stockSymbol
-        );
-
-        if (index !== -1) {
-          const existingItem = prev[index];
-
-          // Update state only if the price has changed
-          if (existingItem.lastPrice !== data.last_traded_price) {
-            const newLtp = [...prev];
-            newLtp[index] = {
-              ...existingItem,
-              lastPrice: data.last_traded_price,
-            };
-            return newLtp;
-          } else {
-            return prev; // No change, return previous state
-          }
-        } else {
-          // Add new stock price if not present in the state
-          return [
-            ...prev,
-            {
-              tradingSymbol: data.stockSymbol,
-              lastPrice: data.last_traded_price,
-            },
-          ];
-        }
-      });
-    };
-
-    socketRef.current.on("market_data", handleMarketData);
-
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.off("market_data", handleMarketData);
-        socketRef.current.disconnect();
+  // Market data: the shared REST poller (utils/ltpPoller.js). The socket.io
+  // feed on ccxt.alphaquark.in this used no longer exists.
+  const handleMarketData = useCallback((symbol, price) => {
+    setLtp((prev) => {
+      const index = prev.findIndex((item) => item.tradingSymbol === symbol);
+      if (index === -1) {
+        return [...prev, { tradingSymbol: symbol, lastPrice: price }];
       }
+      if (prev[index].lastPrice === price) return prev;
+      const next = [...prev];
+      next[index] = { ...prev[index], lastPrice: price };
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    const releases = ltpReleasesRef.current;
+    return () => {
+      releases.forEach((release) => release());
+      releases.clear();
     };
   }, []);
 
-  // Subscribe to symbols via API
+  // Start polling each symbol once.
   const getCurrentPrice = useCallback(() => {
     if (!dataArray || dataArray.length === 0) return;
-
-    const symbolsToSubscribe = dataArray.filter(
-      (trade) =>
-        !subscribedSymbolsRef.current.has(trade.symbol) &&
-        (!failedSubscriptionsRef.current[trade.symbol] ||
-          failedSubscriptionsRef.current[trade.symbol] < 3)
-    );
-
-    symbolsToSubscribe.forEach((trade) => {
-      const data = { symbol: trade.symbol, exchange: trade.exchange };
-
-      axios
-        .post(`${server.ccxtWs.httpUrl}/websocket/subscribe`, data)
-        .then(() => {
-          subscribedSymbolsRef.current.add(trade.symbol);
-          delete failedSubscriptionsRef.current[trade.symbol];
-        })
-        .catch((error) => {
-          console.error(`Error subscribing to ${trade.symbol}:`, error);
-          failedSubscriptionsRef.current[trade.symbol] =
-            (failedSubscriptionsRef.current[trade.symbol] || 0) + 1;
-        });
+    dataArray.forEach((trade) => {
+      if (!trade || !trade.symbol || subscribedSymbolsRef.current.has(trade.symbol)) return;
+      subscribedSymbolsRef.current.add(trade.symbol);
+      ltpReleasesRef.current.set(
+        trade.symbol,
+        subscribeLTP(trade.symbol, trade.exchange, (price) => handleMarketData(trade.symbol, price))
+      );
     });
-  }, [dataArray]);
+  }, [dataArray, handleMarketData]);
 
   // Fetch current price when dataArray changes
   useEffect(() => {

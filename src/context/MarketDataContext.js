@@ -84,10 +84,11 @@ export function MarketDataProvider({children, websocketUrl}) {
   // former `import {ccxtServer}` resolved to undefined and this fallback was
   // dead — wsUrl became undefined and the subscribe fetch hit
   // "undefinedwebsocket/subscribe". Silent: no crash, market data just never
-  // subscribed. `ccxtServer` was also the wrong key (the HTTP API base); every
-  // other websocket/subscribe call site uses `server.ccxtWs.httpUrl`.
+  // subscribed. `ccxtServer` was also the wrong key (the HTTP API base).
   // Trailing slashes are stripped so a caller-supplied websocketUrl works either way.
-  const wsUrl = (websocketUrl || server.ccxtWs.httpUrl || '').replace(/\/+$/, '');
+  // ccxt.alphaquark.in (the old `server.ccxtWs`) no longer serves market data.
+  // Note: this provider is not mounted in the app today.
+  const wsUrl = (websocketUrl || server.websocket.baseUrl || '').replace(/\/+$/, '');
 
   // --- Cache persistence ---
   const loadFromCache = useCallback(async () => {

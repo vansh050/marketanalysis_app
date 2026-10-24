@@ -1,107 +1,84 @@
 // priceManager.js
 import {useState, useEffect, useRef} from 'react';
-import axios from 'axios';
-import {io} from 'socket.io-client';
-import server from '../../../utils/serverConfig';
+import {fetchLTP} from '../../../utils/marketDataLTP';
+import {
+  subscribeLTP,
+  onAnyLTP,
+  getLastLTP,
+  getAllLTPs,
+} from '../../../utils/ltpPoller';
 
+// Prices come from the shared REST poller (utils/ltpPoller.js). The socket.io
+// feed this used on ccxt.alphaquark.in no longer exists, so every price here
+// was empty — including the totals in the trade review modals.
 const WebSocketManager = (() => {
   let instance = null;
-  let subscribers = new Map();
-  let socket = null;
-  let lastPrices = new Map();
-  let initialized = false;
-  let priceUpdateCallbacks = new Set(); // Add this for global price update notifications
+  // symbol -> Map(callback | NO_CB -> [release functions])
+  const handles = new Map();
+  const NO_CB = '__no_callback__';
+
+  const remember = (symbol, cb, release) => {
+    if (!handles.has(symbol)) handles.set(symbol, new Map());
+    const byCb = handles.get(symbol);
+    const k = cb || NO_CB;
+    if (!byCb.has(k)) byCb.set(k, []);
+    byCb.get(k).push(release);
+  };
 
   return {
     getInstance() {
       if (!instance) {
         instance = {
-          connect() {
-            if (socket) return;
-
-            socket = io(`${server.ccxtWs.baseUrl}/ltp`, {
-              transports: ['websocket'],
-              query: {EIO: '4'},
-            });
-
-            socket.on('market_data', data => {
-              lastPrices.set(data.stockSymbol, data.last_traded_price);
-              const callbacks = subscribers.get(data.stockSymbol) || [];
-              callbacks.forEach(callback => callback(data.last_traded_price));
-              // Notify global price update listeners
-              priceUpdateCallbacks.forEach(callback =>
-                callback(data.stockSymbol, data.last_traded_price),
-              );
-            });
-
-            initialized = true;
-          },
+          connect() {},
 
           isInitialized() {
-            return initialized;
+            return true;
           },
 
           getLastPrice(symbol) {
-            return lastPrices.get(symbol);
+            return getLastLTP(symbol);
           },
 
-          // Add method to subscribe to all price updates
           subscribeToUpdates(callback) {
-            priceUpdateCallbacks.add(callback);
-            return () => priceUpdateCallbacks.delete(callback);
+            return onAnyLTP(callback);
           },
 
           async fetchInitialPrice(symbol) {
             try {
-              const response = await axios.get(
-                `${server.ccxtWs.httpUrl}/api/price/${symbol}`,
-              );
-              const price = response.data.last_traded_price;
-              lastPrices.set(symbol, price);
-              return price;
+              const price = await fetchLTP(symbol, 'NSE');
+              return price || null;
             } catch (error) {
               return null;
             }
           },
 
           subscribe(symbol, callback) {
-            if (!subscribers.has(symbol)) {
-              subscribers.set(symbol, []);
-              this.subscribeToAPI(symbol);
-            }
-            if (callback) {
-              subscribers.get(symbol).push(callback);
-            }
+            remember(symbol, callback, subscribeLTP(symbol, 'NSE', callback || null));
           },
 
           unsubscribe(symbol, callback) {
-            if (!callback) {
-              subscribers.delete(symbol);
-              return;
-            }
-            const callbacks = subscribers.get(symbol) || [];
-            subscribers.set(
-              symbol,
-              callbacks.filter(cb => cb !== callback),
-            );
+            const byCb = handles.get(symbol);
+            if (!byCb) return;
+            const keys = callback ? [callback] : [...byCb.keys()];
+            keys.forEach(k => {
+              const list = byCb.get(k) || [];
+              if (callback) {
+                const release = list.pop();
+                if (release) release();
+                if (list.length === 0) byCb.delete(k);
+              } else {
+                // No callback: drop every listener for the symbol (old behaviour).
+                list.forEach(release => release());
+                byCb.delete(k);
+              }
+            });
+            if (byCb.size === 0) handles.delete(symbol);
           },
 
-          async subscribeToAPI(symbol) {
-            try {
-              await axios.post(
-                `${server.ccxtWs.httpUrl}/websocket/subscribe`,
-                {
-                  symbol,
-                  exchange: 'NSE',
-                },
-              );
-            } catch (error) {
-              // Subscription error - silent
-            }
-          },
+          subscribeToAPI() {},
 
           getAllPrices() {
-            return Object.fromEntries(lastPrices);
+            return getAllLTPs();
           },
         };
       }
@@ -109,16 +86,6 @@ const WebSocketManager = (() => {
     },
   };
 })();
-
-// Initialize when module loads
-const initializeWebSocket = () => {
-  const wsManager = WebSocketManager.getInstance();
-  if (!wsManager.isInitialized()) {
-    wsManager.connect();
-  }
-};
-
-initializeWebSocket();
 
 // Hook for UI components that need to display prices
 export const useLTP = symbol => {

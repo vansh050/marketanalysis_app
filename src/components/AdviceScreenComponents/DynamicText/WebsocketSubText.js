@@ -1,124 +1,35 @@
 import React, { useState, useEffect } from "react";
 import { Text, StyleSheet, View } from "react-native";
-import axios from 'axios';
-import { io } from "socket.io-client";
-import server from '../../../utils/serverConfig';
+import { subscribeLTP } from '../../../utils/ltpPoller';
 
 import { designColor, designFont } from '../../../design/literalTokens';
 
-// Create a singleton WebSocket manager
+// Prices come from the shared REST poller (utils/ltpPoller.js); the socket.io
+// feed on ccxt.alphaquark.in this used no longer exists.
 const WebSocketManager = (() => {
   let instance = null;
-  let subscribers = new Map();
-  let socket = null;
-  
+  const releases = new Map(); // callback -> release function
   return {
     getInstance() {
       if (!instance) {
         instance = {
-          connect() {
-            if (socket) return;
-            
-            socket = io(`${server.ccxtWs.baseUrl}/ltp`, {
-              transports: ["websocket"],
-              query: { EIO: "4" },
-              reconnection: true,
-              reconnectionAttempts: 5,
-              reconnectionDelay: 1000
-            });
-
-            socket.on("connect", () => {
-              // Resubscribe to all existing symbols when connection is established
-              subscribers.forEach((callbacks, symbol) => {
-                if (callbacks.length > 0) {
-                  this.subscribeToAPI(symbol, callbacks[0].exchange);
-                }
-              });
-            });
-
-            socket.on("market_data", (data) => {
-              const callbacks = subscribers.get(data.stockSymbol) || [];
-              callbacks.forEach(callback => callback(data.last_traded_price));
-            });
-
-            socket.on("disconnect", (reason) => {
-              // WebSocket disconnected - silent
-            });
-
-            socket.on("connect_error", (error) => {
-              // WebSocket connection error - silent
-            });
-          },
-          
+          connect() {},
           subscribe(symbol, exchange, callback) {
-            // Attach exchange information to the callback
-            callback.exchange = exchange;
-
-            if (!subscribers.has(symbol)) {
-              subscribers.set(symbol, []);
-            }
-            subscribers.get(symbol).push(callback);
-
-            // Immediately subscribe to API for this symbol
-            this.subscribeToAPI(symbol, exchange);
+            releases.set(callback, subscribeLTP(symbol, exchange || 'NSE', callback));
           },
-          
           unsubscribe(symbol, callback) {
-            const callbacks = subscribers.get(symbol) || [];
-            subscribers.set(symbol, callbacks.filter(cb => cb !== callback));
-            
-            if (subscribers.get(symbol).length === 0) {
-              subscribers.delete(symbol);
-              // Optional: Add API unsubscribe logic here
-            }
+            const release = releases.get(callback);
+            if (release) release();
+            releases.delete(callback);
           },
-          
-          async subscribeToAPI(symbol, exchange, retries = 3, delay = 3000) {
-            // Ensure socket is connected before subscribing
-            if (!socket || !socket.connected) {
-              this.connect();
-              await new Promise(resolve => setTimeout(resolve, 1000)); // Small delay to ensure connection
-            }
-
-            for (let attempt = 1; attempt <= retries; attempt++) {
-              try {
-                const response = await axios.post(`${server.ccxtWs.httpUrl}/websocket/subscribe`, {
-                  symbol: symbol,
-                  exchange: exchange
-                }, {
-                  headers: {
-                    'Content-Type': 'application/json'
-                  }
-                });
-
-               // console.log(`Successfully subscribed to ${symbol} on ${exchange}`, response.data);
-                return; // Exit early if subscription is successful
-              } catch (error) {
-                //console.error(`Attempt ${attempt} failed: Error subscribing to ${symbol} on ${exchange}:`, error);
-                
-                // If it's the last attempt, stop retrying
-                if (attempt === retries) {
-                  //console.error(`All ${retries} attempts failed for ${symbol}. Subscription failed.`);
-                  break;
-                }
-                
-                // Wait for the specified delay before retrying
-                await new Promise(resolve => setTimeout(resolve, delay));
-              }
-            }
-          },
-          
           disconnect() {
-            if (socket) {
-              socket.disconnect();
-              socket = null;
-            }
-            subscribers.clear();
-          }
+            releases.forEach(release => release());
+            releases.clear();
+          },
         };
       }
       return instance;
-    }
+    },
   };
 })();
 

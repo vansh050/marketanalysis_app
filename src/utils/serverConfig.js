@@ -2,10 +2,6 @@ const server = {
   ccxtServer: {
     baseUrl: `https://ccxtprod.alphaquark.in/`,
   },
-  ccxtWs: {
-    baseUrl: 'wss://ccxt.alphaquark.in',
-    httpUrl: 'https://ccxt.alphaquark.in',
-  },
   server: {
     baseUrl: `https://server.alphaquark.in/`,
   },

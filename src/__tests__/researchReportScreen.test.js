@@ -21,7 +21,7 @@ jest.mock('../utils/variantHelper', () => ({
     configData?.subdomain ||
     'test',
 }));
-jest.mock('../utils/serverConfig', () => ({__esModule: true, default: {server: {baseUrl: 'https://backend.test/'}, ccxtServer: {baseUrl: 'https://ccxt.test/'}, ccxtWs: {httpUrl: 'https://quotes.test'}}}));
+jest.mock('../utils/serverConfig', () => ({__esModule: true, default: {server: {baseUrl: 'https://backend.test/'}, ccxtServer: {baseUrl: 'https://ccxt.test/'}}}));
 jest.mock('../components/AdviceScreenComponents/DynamicText/WebSocketManager', () => { const instance = {subscribeToAllSymbols: jest.fn().mockResolvedValue(undefined)}; return {__esModule: true, default: {getInstance: jest.fn(() => instance)}}; });
 jest.mock('../design/useDesign', () => ({
   useComponent: () => require('../../designs/default/screens/ResearchReportScreen').default,
