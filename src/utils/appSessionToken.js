@@ -12,8 +12,12 @@
  *   - `generateToken()` (SecurityTokenManager) stays synchronous and keeps its
  *     signature. It asks `getIssuedAppSessionToken()` and, when that returns
  *     null, returns exactly the static token it always returned.
- *   - Nothing ever waits for this module. A fetch runs in the background and
- *     only benefits LATER requests.
+ *   - A signed-in user's request to Node/ccxt that would carry the app's own
+ *     static token waits (up to 8 s, never past a back-off) for an issued
+ *     token: the axios interceptor and the fetch guard call
+ *     `upgradeTokenFor`. The static token is only for signed-out requests;
+ *     once the embedded pair is the public pre-login pair, it opens nothing
+ *     else.
  *   - The token lives in memory only (never AsyncStorage).
  *   - Expiry is measured from when the token was RECEIVED, with the
  *     server's `expiresIn`, on the device clock. The server `exp` claim is
@@ -343,6 +347,78 @@ export function getIssuedAppSessionToken() {
   }
 }
 
+const ENSURE_TIMEOUT_MS = 8 * 1000;
+
+/**
+ * Async read for requests that are about to leave without an issued token
+ * while a user is signed in. Waits (bounded) for the background fetch instead
+ * of letting the request go out with the app's own static token: once the
+ * embedded pair is the public pre-login pair, that token only opens the
+ * pre-login routes. Never forces past a back-off. Returns null when signed
+ * out, disabled, or the token could not be obtained in time.
+ */
+export async function ensureIssuedAppSessionToken({timeoutMs = ENSURE_TIMEOUT_MS} = {}) {
+  try {
+    const ready = getIssuedAppSessionToken();
+    if (ready) return ready;
+    if (!isAppSessionEnabled() || !currentUser()) return null;
+    const pending = state.inflight || maybeRefreshAppSessionToken();
+    let timer = null;
+    await Promise.race([
+      pending,
+      new Promise(resolve => {
+        timer = setTimeout(resolve, timeoutMs);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    return getIssuedAppSessionToken();
+  } catch (_) {
+    return null;
+  }
+}
+
+export function isSignedIn() {
+  return Boolean(currentUser());
+}
+
+// The app's own static token: a JWT whose apiKey is the app's embedded key.
+// Tokens signed for other key pairs are left alone.
+let ownApiKey;
+export function setOwnApiKey(key) {
+  ownApiKey = key || undefined;
+}
+
+function decodePayload(token) {
+  try {
+    const part = String(token).split('.')[1];
+    if (!part) return null;
+    const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = b64 + '==='.slice((b64.length + 3) % 4);
+    const decode = typeof atob === 'function' ? atob : require('base-64').decode;
+    return JSON.parse(decode(pad));
+  } catch (_) {
+    return null;
+  }
+}
+
+export function isOwnStaticToken(value) {
+  if (!value || typeof value !== 'string' || !ownApiKey) return false;
+  if (isIssuedAppSessionToken(value)) return false;
+  const payload = decodePayload(value);
+  return Boolean(payload && payload.apiKey === ownApiKey);
+}
+
+/**
+ * For a signed-in user, the token a Node/ccxt request should carry instead of
+ * the app's static token, or null to send it unchanged.
+ */
+export async function upgradeTokenFor(url, value, reqTenant) {
+  if (!isAppSessionUrl(url) || !isOwnStaticToken(value) || !isSignedIn()) return null;
+  const issued = await ensureIssuedAppSessionToken();
+  if (issued && issuedTokenAllowedFor(url, issued, reqTenant)) return issued;
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // fetch() guard: an issued token must only reach Node/ccxt. A handful of
 // fetch() call sites send `aq-encrypted-key` to other hosts (support brain
@@ -406,6 +482,35 @@ function guardFetchArgs(input, init) {
   }
 }
 
+// Returns a promise of upgraded init when the request carries the app's
+// static token to Node/ccxt for a signed-in user; otherwise null (sync path).
+function upgradeFetchArgs(input, init) {
+  try {
+    if (!init || !init.headers || !isSignedIn()) return null;
+    const url = typeof input === 'string' ? input : input && input.url;
+    if (!isAppSessionUrl(url)) return null;
+    const h = init.headers;
+    const isHeaders = typeof h.get === 'function' && typeof h.set === 'function';
+    const k = isHeaders ? null : headerKey(h, 'aq-encrypted-key');
+    const value = isHeaders ? h.get('aq-encrypted-key') : k && h[k];
+    if (!isOwnStaticToken(value)) return null;
+    const tk = isHeaders ? null : headerKey(h, 'X-Advisor-Subdomain');
+    const tenant = isHeaders ? h.get('X-Advisor-Subdomain') : tk ? h[tk] : null;
+    return upgradeTokenFor(url, value, tenant)
+      .then(issued => {
+        if (!issued) return init;
+        if (isHeaders) {
+          h.set('aq-encrypted-key', issued);
+          return init;
+        }
+        return {...init, headers: {...h, [k]: issued}};
+      })
+      .catch(() => init);
+  } catch (_) {
+    return null;
+  }
+}
+
 function installFetchGuard() {
   if (state.fetchGuardInstalled) return;
   try {
@@ -414,7 +519,11 @@ function installFetchGuard() {
     const original = g.fetch;
     state.originalFetch = original.bind ? original.bind(g) : original;
     g.fetch = function aqGuardedFetch(input, init) {
-      return original.call(this === undefined ? g : this, input, guardFetchArgs(input, init));
+      const self = this === undefined ? g : this;
+      const guarded = guardFetchArgs(input, init);
+      const pending = upgradeFetchArgs(input, guarded);
+      if (!pending) return original.call(self, input, guarded);
+      return pending.then(next => original.call(self, input, next));
     };
     state.fetchGuardInstalled = true;
   } catch (_) {}

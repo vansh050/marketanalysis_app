@@ -55,6 +55,8 @@ import {
   issuedTokenAllowedFor,
   clearAppSessionToken,
   getStaticToken,
+  upgradeTokenFor,
+  ensureIssuedAppSessionToken,
 } from './appSessionToken';
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
@@ -230,12 +232,13 @@ export function isTokenRejection401(error) {
 
 /**
  * The request carried an issued token and got 401: drop the cached token
- * and replay once with the static token. GET/HEAD/OPTIONS always; other
- * methods only when the body proves the token itself was rejected.
+ * and replay once with a freshly issued one (never the static token).
+ * GET/HEAD/OPTIONS always; other methods only when the body proves the token
+ * itself was rejected, so a broker rejection is never replayed.
  */
-export function shouldRetryWithStatic(error) {
+export function shouldRetryWithFreshIssued(error) {
   const config = error?.config;
-  if (!config || !config.__aqIssuedToken || config.__aqStaticRetried) return false;
+  if (!config || !config.__aqIssuedToken || config.__aqIssuedRetried) return false;
   if (error?.response?.status !== 401) return false;
   const method = String(config.method || 'get').toLowerCase();
   if (method === 'get' || method === 'head' || method === 'options') return true;
@@ -279,6 +282,20 @@ export function installAuthTokenInterceptor() {
       } catch (_) {
         // Never let the app-session policy break a request.
       }
+      // Signed in: the app's static token is replaced by the issued token.
+      try {
+        const issued = await upgradeTokenFor(
+          config.url,
+          readHeader(config.headers, 'aq-encrypted-key'),
+          readHeader(config.headers, 'X-Advisor-Subdomain'),
+        );
+        if (issued) {
+          writeHeader(config, 'aq-encrypted-key', issued);
+          config.__aqIssuedToken = issued;
+        }
+      } catch (_) {
+        // The request leaves unchanged.
+      }
       try {
         if (!isTrackedApiUrl(config && config.url)) return config;
         try {
@@ -306,15 +323,16 @@ export function installAuthTokenInterceptor() {
     response => response,
     async error => {
       const config = error?.config;
-      // App-session fallback: an issued token was rejected → static, once.
+      // An issued token was rejected → one retry with a fresh issued token.
       try {
-        if (shouldRetryWithStatic(error)) {
-          const fallback = getStaticToken();
-          if (fallback) {
-            clearAppSessionToken();
-            config.__aqStaticRetried = true;
-            delete config.__aqIssuedToken;
-            writeHeader(config, 'aq-encrypted-key', fallback);
+        if (shouldRetryWithFreshIssued(error)) {
+          const rejected = config.__aqIssuedToken;
+          clearAppSessionToken();
+          config.__aqIssuedRetried = true;
+          const fresh = await ensureIssuedAppSessionToken();
+          if (fresh && fresh !== rejected) {
+            config.__aqIssuedToken = fresh;
+            writeHeader(config, 'aq-encrypted-key', fresh);
             return axios(config);
           }
         }

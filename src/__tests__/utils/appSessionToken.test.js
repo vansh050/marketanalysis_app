@@ -1,6 +1,7 @@
 /**
- * App-session tokens: server-issued per-user `aq-encrypted-key`, with the
- * static client-signed token as the unconditional fallback.
+ * App-session tokens: server-issued per-user `aq-encrypted-key`. The static
+ * client-signed token is for signed-out requests only; a signed-in request
+ * to Node/ccxt waits for the issued token instead of falling back.
  */
 const mockAuth = {currentUser: null};
 const mockAuthListeners = [];
@@ -240,5 +241,63 @@ describe('appSessionToken', () => {
     });
     const sentOtherTenant = underlying.mock.calls[underlying.mock.calls.length - 1][1];
     expect(isStatic(sentOtherTenant.headers['aq-encrypted-key'])).toBe(true);
+  });
+
+  it('ensureIssuedAppSessionToken: null when signed out, waits for the fetch when signed in', async () => {
+    expect(await ast.ensureIssuedAppSessionToken()).toBeNull();
+    expect(global.fetch).not.toHaveBeenCalled();
+    mockAuth.currentUser = user();
+    global.fetch.mockResolvedValue(okResponse());
+    expect(await ast.ensureIssuedAppSessionToken()).toBe('issued-1');
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('ensureIssuedAppSessionToken does not force past a back-off', async () => {
+    mockAuth.currentUser = user();
+    global.fetch.mockResolvedValue(statusResponse(503));
+    expect(await ast.ensureIssuedAppSessionToken()).toBeNull();
+    expect(await ast.ensureIssuedAppSessionToken()).toBeNull();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('isOwnStaticToken recognises only the app key pair static token', () => {
+    expect(ast.isOwnStaticToken(generateStaticToken(KEY, SECRET))).toBe(true);
+    expect(ast.isOwnStaticToken(generateStaticToken('other-key', SECRET))).toBe(false);
+    expect(ast.isOwnStaticToken('not-a-jwt')).toBe(false);
+    expect(ast.isOwnStaticToken(null)).toBe(false);
+  });
+
+  it('fetch guard: a signed-in Node/ccxt request leaves with the issued token, not the static one', async () => {
+    const underlying = jest.fn().mockResolvedValue(okResponse());
+    global.fetch = underlying;
+    ast.initAppSessionTokens();
+    const staticToken = generateStaticToken(KEY, SECRET);
+
+    // Signed out: the static (pre-login) token goes unchanged.
+    await global.fetch('https://api.test/api/admin/frontend-config', {headers: {'aq-encrypted-key': staticToken}});
+    expect(underlying.mock.calls[0][1].headers['aq-encrypted-key']).toBe(staticToken);
+
+    // Signed in, no token cached yet: the request waits for one.
+    mockAuth.currentUser = user();
+    await global.fetch('https://ccxt.test/x', {headers: {'aq-encrypted-key': staticToken}});
+    const last = underlying.mock.calls[underlying.mock.calls.length - 1];
+    expect(last[0]).toBe('https://ccxt.test/x');
+    expect(last[1].headers['aq-encrypted-key']).toBe('issued-1');
+
+    // Another host keeps the static token.
+    await global.fetch('https://brain.test/voice/token', {headers: {'aq-encrypted-key': staticToken}});
+    const brain = underlying.mock.calls[underlying.mock.calls.length - 1][1];
+    expect(brain.headers['aq-encrypted-key']).toBe(staticToken);
+  });
+
+  it('fetch guard: a static token signed for another key pair is left alone', async () => {
+    const underlying = jest.fn().mockResolvedValue(okResponse());
+    global.fetch = underlying;
+    ast.initAppSessionTokens();
+    mockAuth.currentUser = user();
+    const partner = generateStaticToken('partner-key', SECRET);
+    await global.fetch('https://api.test/x', {headers: {'aq-encrypted-key': partner}});
+    expect(underlying).toHaveBeenCalledTimes(1);
+    expect(underlying.mock.calls[0][1].headers['aq-encrypted-key']).toBe(partner);
   });
 });

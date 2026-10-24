@@ -4,6 +4,7 @@ import Config from 'react-native-config';
 import { decode } from 'react-native-pure-jwt';
 import {
   getIssuedAppSessionToken,
+  setOwnApiKey,
   setStaticTokenProvider,
 } from './appSessionToken';
  
@@ -109,8 +110,9 @@ class SecurityTokenManager {
   }
 }
 
-// The static, client-signed token — exactly what generateToken() returned
-// before the app-session migration. Used directly by the 401 fallback.
+// The static, client-signed token. Only signed-out requests should leave with
+// it: the interceptor and fetch guard replace it with the issued token for a
+// signed-in user, and nothing falls back to it after a rejection.
 export const generateStaticToken = (apiKey,secretKey) => {
   const manager = SecurityTokenManager.getInstance();
   return manager.generateServiceToken(apiKey,secretKey);
@@ -136,6 +138,7 @@ export const generateToken = (apiKey,secretKey) => {
 };
 
 setStaticTokenProvider(() => generateStaticToken(AQ_KEY, AQ_SECRET));
+setOwnApiKey(AQ_KEY);
 
 export const verifyToken = (token,secretKey) => {
   const manager = SecurityTokenManager.getInstance();

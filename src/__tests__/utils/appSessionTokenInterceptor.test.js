@@ -1,7 +1,8 @@
 /**
- * authTokenInterceptor × app-session tokens: an issued token that gets a 401
- * is retried ONCE with the static token, only when the issued token was
- * actually sent; issued tokens never reach other hosts.
+ * authTokenInterceptor × app-session tokens: a signed-in request's static
+ * token is replaced by the issued token; an issued token that gets a 401 is
+ * retried ONCE with a freshly issued token (never the static token); issued
+ * tokens never reach other hosts.
  */
 const mockReq = [];
 const mockResp = [];
@@ -37,13 +38,15 @@ jest.mock('../../utils/appSessionToken', () => {
       (!reqTenant || reqTenant === 'prod'),
     getStaticToken: () => 'STATIC',
     clearAppSessionToken: jest.fn(),
+    upgradeTokenFor: jest.fn(async () => null),
+    ensureIssuedAppSessionToken: jest.fn(async () => 'ISSUED2'),
   };
 });
 
 const ast = require('../../utils/appSessionToken');
 const {
   installAuthTokenInterceptor,
-  shouldRetryWithStatic,
+  shouldRetryWithFreshIssued,
   isTokenRejection401,
 } = require('../../utils/authTokenInterceptor');
 
@@ -51,6 +54,10 @@ beforeAll(() => installAuthTokenInterceptor());
 beforeEach(() => {
   mockAxiosCall.mockReset();
   ast.clearAppSessionToken.mockClear();
+  ast.upgradeTokenFor.mockReset();
+  ast.upgradeTokenFor.mockResolvedValue(null);
+  ast.ensureIssuedAppSessionToken.mockReset();
+  ast.ensureIssuedAppSessionToken.mockResolvedValue('ISSUED2');
 });
 
 const request = cfg => mockReq[0](cfg);
@@ -81,24 +88,45 @@ describe('request policy', () => {
     expect(cfg.__aqIssuedToken).toBeUndefined();
   });
 
-  it('leaves a static token untouched', async () => {
+  it('replaces the static token with the issued token when upgradeTokenFor returns one', async () => {
+    ast.upgradeTokenFor.mockResolvedValueOnce('ISSUED');
+    const cfg = await request({url: 'https://api.test/api/x', headers: {'aq-encrypted-key': 'some.static.jwt'}});
+    expect(cfg.headers['aq-encrypted-key']).toBe('ISSUED');
+    expect(cfg.__aqIssuedToken).toBe('ISSUED');
+  });
+
+  it('leaves a static token untouched when there is no issued token', async () => {
     const cfg = await request({url: 'https://api.test/api/x', headers: {'aq-encrypted-key': 'some.static.jwt'}});
     expect(cfg.headers['aq-encrypted-key']).toBe('some.static.jwt');
     expect(cfg.__aqIssuedToken).toBeUndefined();
   });
 });
 
-describe('401 fallback to static', () => {
-  it('retries once with the static token when the issued token was sent', async () => {
+describe('401 retry with a fresh issued token', () => {
+  it('retries once with a fresh issued token, never the static one', async () => {
     mockAxiosCall.mockResolvedValue({status: 200, data: 'ok'});
     const cfg = await request({url: 'https://api.test/api/x', method: 'get', headers: {'aq-encrypted-key': 'ISSUED'}});
     const res = await onError(err401(cfg));
     expect(res.data).toBe('ok');
     expect(mockAxiosCall).toHaveBeenCalledTimes(1);
     const retried = mockAxiosCall.mock.calls[0][0];
-    expect(retried.headers['aq-encrypted-key']).toBe('STATIC');
-    expect(retried.__aqStaticRetried).toBe(true);
+    expect(retried.headers['aq-encrypted-key']).toBe('ISSUED2');
+    expect(retried.__aqIssuedRetried).toBe(true);
     expect(ast.clearAppSessionToken).toHaveBeenCalled();
+  });
+
+  it('no fresh token → the 401 is passed through, nothing falls back to static', async () => {
+    ast.ensureIssuedAppSessionToken.mockResolvedValue(null);
+    const cfg = await request({url: 'https://ccxt.test/x', method: 'get', headers: {'aq-encrypted-key': 'ISSUED'}});
+    await expect(onError(err401(cfg))).rejects.toBeDefined();
+    expect(mockAxiosCall).not.toHaveBeenCalled();
+  });
+
+  it('the same rejected token is not replayed', async () => {
+    ast.ensureIssuedAppSessionToken.mockResolvedValue('ISSUED');
+    const cfg = await request({url: 'https://ccxt.test/x', method: 'get', headers: {'aq-encrypted-key': 'ISSUED'}});
+    await expect(onError(err401(cfg))).rejects.toBeDefined();
+    expect(mockAxiosCall).not.toHaveBeenCalled();
   });
 
   it('does not retry when the static token was sent', async () => {
@@ -108,7 +136,7 @@ describe('401 fallback to static', () => {
     expect(mockAxiosCall).not.toHaveBeenCalled();
   });
 
-  it('never loops: a second 401 after the static retry is passed through', async () => {
+  it('never loops: a second 401 after the retry is passed through', async () => {
     const cfg = await request({url: 'https://ccxt.test/x', method: 'get', headers: {'aq-encrypted-key': 'ISSUED'}});
     mockAxiosCall.mockImplementation(async retriedCfg => {
       const again = await request(retriedCfg);
@@ -120,16 +148,16 @@ describe('401 fallback to static', () => {
 
   it('POST is replayed only on proof the token itself was rejected', async () => {
     const cfg = await request({url: 'https://ccxt.test/order', method: 'post', headers: {'aq-encrypted-key': 'ISSUED'}});
-    expect(shouldRetryWithStatic(err401(cfg, {error: 'Broker session expired'}))).toBe(false);
-    expect(shouldRetryWithStatic(err401(cfg, {error: 'Invalid token', status: 1}))).toBe(true);
-    expect(shouldRetryWithStatic(err401(cfg, {success: false, message: 'Token has expired'}))).toBe(true);
-    expect(shouldRetryWithStatic(err401(cfg, {code: 'APP_SESSION_INVALID'}))).toBe(true);
+    expect(shouldRetryWithFreshIssued(err401(cfg, {error: 'Broker session expired'}))).toBe(false);
+    expect(shouldRetryWithFreshIssued(err401(cfg, {error: 'Invalid token', status: 1}))).toBe(true);
+    expect(shouldRetryWithFreshIssued(err401(cfg, {success: false, message: 'Token has expired'}))).toBe(true);
+    expect(shouldRetryWithFreshIssued(err401(cfg, {code: 'APP_SESSION_INVALID'}))).toBe(true);
     expect(isTokenRejection401({response: {status: 403, data: {error: 'Invalid token'}}})).toBe(false);
   });
 
   it('non-401 errors are not replayed', () => {
     expect(
-      shouldRetryWithStatic({config: {__aqIssuedToken: 'ISSUED', method: 'get'}, response: {status: 500}}),
+      shouldRetryWithFreshIssued({config: {__aqIssuedToken: 'ISSUED', method: 'get'}, response: {status: 500}}),
     ).toBe(false);
   });
 });
