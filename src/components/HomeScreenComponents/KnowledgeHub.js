@@ -103,7 +103,7 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
     const handleDownload = async (pdfID) => {
         setIsLoading(true);
         try {
-            const response = await axios.get(`${server.ccxtServer.baseUrl}/misc/pdfs/download/${pdfID}`, {
+            const response = await axios.get(`${server.ccxtServer.baseUrl}misc/pdfs/download/${pdfID}`, {
                 headers: {
                     "Content-Type": "application/json",
                     "X-Advisor-Subdomain":  configData?.config?.REACT_APP_HEADER_NAME,
@@ -160,7 +160,7 @@ const KnowledgeHub = ({ type = "all", maxItems = 1, ...props }) => {
     const handleViewPDF = async (pdfID) => {
         setIsLoading(true);
         try {
-            const response = await axios.get(`${server.ccxtServer.baseUrl}/misc/pdfs/download/${pdfID}`, {
+            const response = await axios.get(`${server.ccxtServer.baseUrl}misc/pdfs/download/${pdfID}`, {
                 headers: {
                     "Content-Type": "application/json",
                     "X-Advisor-Subdomain":  configData?.config?.REACT_APP_HEADER_NAME,

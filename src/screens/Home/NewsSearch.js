@@ -75,7 +75,7 @@ const NewsSearch = ({ setIsSearchActive, isSearchActive }) => {
     setLoading(true);
     try {
       const response = await axios.post(
-        `${server.ccxtServer.baseUrl}/angelone/get-symbol-name-exchange`,
+        `${server.ccxtServer.baseUrl}angelone/get-symbol-name-exchange`,
         { symbol: query },
         {
           headers: {

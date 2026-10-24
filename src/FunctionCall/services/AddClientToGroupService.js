@@ -1,4 +1,3 @@
-import {encryptApiKey} from '../utils/cryptoUtils';
 import server from '../../utils/serverConfig';
 import {logPayment} from '../../utils/Logging';
 import Config from 'react-native-config';

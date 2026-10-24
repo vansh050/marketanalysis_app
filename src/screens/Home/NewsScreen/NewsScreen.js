@@ -93,7 +93,7 @@ const NewsScreen = ({isVisible}) => {
       setLoading(true);
       try {
         const response = await axios.post(
-          `${server.ccxtServer.baseUrl}/angelone/get-symbol-name-exchange`,
+          `${server.ccxtServer.baseUrl}angelone/get-symbol-name-exchange`,
           { symbol: query },
           { headers: {
                                   'Content-Type': 'application/json',
@@ -279,7 +279,7 @@ const NewsScreen = ({isVisible}) => {
       length: 10,  // Set the length parameter as required
     };
     const response = await axios.post(
-      `${server.ccxtServer.baseUrl}/misc/user_news_history`,
+      `${server.ccxtServer.baseUrl}misc/user_news_history`,
       payload,
       {
         headers: {
@@ -331,7 +331,7 @@ const NewsScreen = ({isVisible}) => {
 
 
 const PurchaseToken = async (email, tokensToPurchase, defaultTokens) => {
-  const apiUrl = `${server.ccxtServer.baseUrl}/misc/add-tokens`;
+  const apiUrl = `${server.ccxtServer.baseUrl}misc/add-tokens`;
   const payload = {
       email: email,
       tokens_to_add: tokensToPurchase,
@@ -425,7 +425,7 @@ const getToken = async (email, defaultTokens) => {
       };
       console.log('Summarize Payload:', summarizePayload);
       const summarizeResponse = await axios.post(
-        `${server.ccxtServer.baseUrl}/misc/summarize-stock-news`,
+        `${server.ccxtServer.baseUrl}misc/summarize-stock-news`,
         summarizePayload, // Payload should be the second argument
         {
           headers: {

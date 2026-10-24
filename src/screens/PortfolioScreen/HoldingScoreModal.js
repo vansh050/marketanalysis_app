@@ -31,7 +31,7 @@ const  HoldingScoreModal = ({modalVisible,scoreSymbol,setModalVisible}) => {
         console.log('stocksss:',stockSymbol);
       // Remove "-EQ" or any other suffix after "-" and append ".NS"
       const cleanedSymbol = stockSymbol.replace(/-.*$/, "") + ".NS";
-      console.log(`${server.ccxtServer.baseUrl}/misc/calculate-stocks-scores-runtime`);
+      console.log(`${server.ccxtServer.baseUrl}misc/calculate-stocks-scores-runtime`);
       console.log('Payload:', "stocks:", [cleanedSymbol], // ✅ Send cleaned symbol with ".NS"
         "date:", new Date().toISOString().split("T")[0],)
         const payload = {
@@ -41,7 +41,7 @@ const  HoldingScoreModal = ({modalVisible,scoreSymbol,setModalVisible}) => {
         console.log('paylll----:',payload);
       try {
         const response = await axios.post(
-          `${server.ccxtServer.baseUrl}/misc/calculate-stocks-scores-runtime`, 
+          `${server.ccxtServer.baseUrl}misc/calculate-stocks-scores-runtime`, 
           payload,
           {
             headers: {

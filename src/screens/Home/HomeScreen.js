@@ -1453,7 +1453,7 @@ const HomeScreen = ({ }) => {
     setIsLoading(true);
     try {
       const response = await axios.get(
-        `${server.ccxtServer.baseUrl}/misc/pdfs/download/${pdfID}`,
+        `${server.ccxtServer.baseUrl}misc/pdfs/download/${pdfID}`,
         {
           headers: {
             'Content-Type': 'application/json',

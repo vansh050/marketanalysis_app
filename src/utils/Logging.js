@@ -1,6 +1,5 @@
 import axios from "axios";
 import server from "./serverConfig";
-import { encryptApiKey } from "./cryptoUtils";
 import Config from "react-native-config";
 import { generateToken } from "./SecurityTokenManager";
 import { sanitizeKiteDiagnosticUrl } from "./publisherOutcome";

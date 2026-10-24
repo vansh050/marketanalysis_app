@@ -507,7 +507,7 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
 
 
   const getUpdatedBasket = async (stockDetails) => {
-    const apiUrl = `${server.ccxtWs.httpUrl}/zerodha/fno/symbol-lotsize`;
+    const apiUrl = `${server.ccxtServer.baseUrl}zerodha/fno/symbol-lotsize`;
 
   
     // Filter relevant symbols

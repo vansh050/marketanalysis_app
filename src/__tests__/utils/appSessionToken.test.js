@@ -303,6 +303,12 @@ describe('appSessionToken', () => {
 
   describe('signed in, no issued token: never the static token on a private route', () => {
     const Toast = require('react-native-toast-message');
+    beforeEach(() => {
+      Config.REACT_APP_AQ_KEYS_PUBLIC = 'true';
+    });
+    afterEach(() => {
+      delete Config.REACT_APP_AQ_KEYS_PUBLIC;
+    });
     const staticToken = () => generateStaticToken(KEY, SECRET);
     const setup = responses => {
       const underlying = jest.fn();
@@ -325,6 +331,15 @@ describe('appSessionToken', () => {
       ).rejects.toMatchObject({code: 'APP_SESSION_REQUIRED', isAppSessionRequired: true});
       expect(sentTo(underlying, 'https://api.test/api/user/getUser/a@b.c')).toHaveLength(0);
       expect(Toast.show).toHaveBeenCalledTimes(1);
+    });
+
+    it('a build whose embedded pair is NOT public sends the static token (no positive evidence to block)', async () => {
+      delete Config.REACT_APP_AQ_KEYS_PUBLIC;
+      const underlying = setup([statusResponse(500), statusResponse(500)]);
+      const st = staticToken();
+      await global.fetch('https://api.test/api/private', {headers: {'aq-encrypted-key': st}});
+      expect(sentTo(underlying, 'https://api.test/api/private')[0][1].headers['aq-encrypted-key']).toBe(st);
+      expect(Toast.show).not.toHaveBeenCalled();
     });
 
     it('a failed first fetch is retried once (forced) and the request gets the issued token', async () => {

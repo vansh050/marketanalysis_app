@@ -2099,7 +2099,7 @@ const getAllTrades = (options = {}) => {
   const fetchPdf = async () => {
     try {
       const response = await axios.get(
-        `${server.ccxtServer.baseUrl}/misc/pdfs?advisor=${advisortag}`,
+        `${server.ccxtServer.baseUrl}misc/pdfs?advisor=${advisortag}`,
         {
           headers: {
             'Content-Type': 'application/json',
@@ -2128,7 +2128,7 @@ const getAllTrades = (options = {}) => {
     setIsDatafetchingvideos(true);
     try {
       const response = await axios.get(
-        `${server.ccxtServer.baseUrl}/misc/videos?advisor=${advisortag}`,
+        `${server.ccxtServer.baseUrl}misc/videos?advisor=${advisortag}`,
         {
           headers: {
             'Content-Type': 'application/json',

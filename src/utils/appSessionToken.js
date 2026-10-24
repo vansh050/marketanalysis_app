@@ -23,9 +23,11 @@
  *     server's `expiresIn`, on the device clock. The server `exp` claim is
  *     never compared with the device clock (devices drift; the static token
  *     even uses an IST-shifted clock).
- *   - A signed-in request that still has no issued token after that wait
- *     (and one throttled forced retry) is NOT sent with the static token
- *     unless its route is on the public pre-login list
+ *   - In a build whose embedded pair is the public pre-login pair
+ *     (`REACT_APP_AQ_KEYS_PUBLIC=true`), a signed-in request that still has
+ *     no issued token after that wait (and one throttled forced retry) is NOT
+ *     sent with the static token unless its route is on the public pre-login
+ *     list
  *     (./publicPreloginRoutes.js): it fails with an `APP_SESSION_REQUIRED`
  *     error and a visible "please retry" toast. Exceptions, both explicit:
  *     the server said the feature is off (404 / 503 — its rollback lever),
@@ -506,7 +508,22 @@ export async function upgradeTokenFor(url, value, reqTenant, method = 'GET') {
   if (issued) return null;
   if (isPublicRouteFor(method, url)) return null;
   if (isAppSessionServerDisabled()) return null;
+  // Block only on positive evidence that the static token cannot open this
+  // route: the build says its embedded pair is the public pre-login pair.
+  // A build that still carries a full-access pair sends the static token, as
+  // before — failing to fetch our own token is not evidence the request
+  // would be refused (CLAUDE.md: guards fail closed only on positive evidence).
+  if (!embeddedKeyIsPublic()) return null;
   throw appSessionRequiredError(method, url);
+}
+
+/**
+ * `REACT_APP_AQ_KEYS_PUBLIC=true` is set in the env of builds whose embedded
+ * `REACT_APP_AQ_KEYS` pair is the route-limited public pre-login pair.
+ */
+export function embeddedKeyIsPublic() {
+  const flag = Config?.REACT_APP_AQ_KEYS_PUBLIC;
+  return flag === true || String(flag || '').trim().toLowerCase() === 'true';
 }
 
 // ---------------------------------------------------------------------------
