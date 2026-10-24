@@ -300,4 +300,75 @@ describe('appSessionToken', () => {
     expect(underlying).toHaveBeenCalledTimes(1);
     expect(underlying.mock.calls[0][1].headers['aq-encrypted-key']).toBe(partner);
   });
+
+  describe('signed in, no issued token: never the static token on a private route', () => {
+    const Toast = require('react-native-toast-message');
+    const staticToken = () => generateStaticToken(KEY, SECRET);
+    const setup = responses => {
+      const underlying = jest.fn();
+      responses.forEach(r => underlying.mockResolvedValueOnce(r));
+      underlying.mockResolvedValue(okResponse());
+      global.fetch = underlying;
+      ast.initAppSessionTokens();
+      mockAuth.currentUser = user();
+      Toast.show.mockClear();
+      return underlying;
+    };
+    const sentTo = (underlying, url) => underlying.mock.calls.filter(c => c[0] === url);
+    const tokenCalls = underlying =>
+      underlying.mock.calls.filter(c => String(c[0]).endsWith('api/app-session/token')).length;
+
+    it('rejects with APP_SESSION_REQUIRED and shows a toast; nothing leaves', async () => {
+      const underlying = setup([statusResponse(500), statusResponse(500)]);
+      await expect(
+        global.fetch('https://api.test/api/user/getUser/a@b.c', {headers: {'aq-encrypted-key': staticToken()}}),
+      ).rejects.toMatchObject({code: 'APP_SESSION_REQUIRED', isAppSessionRequired: true});
+      expect(sentTo(underlying, 'https://api.test/api/user/getUser/a@b.c')).toHaveLength(0);
+      expect(Toast.show).toHaveBeenCalledTimes(1);
+    });
+
+    it('a failed first fetch is retried once (forced) and the request gets the issued token', async () => {
+      const underlying = setup([statusResponse(500)]);
+      await global.fetch('https://ccxt.test/rebalance/x', {
+        method: 'POST',
+        headers: {'aq-encrypted-key': staticToken()},
+      });
+      expect(sentTo(underlying, 'https://ccxt.test/rebalance/x')[0][1].headers['aq-encrypted-key']).toBe('issued-1');
+    });
+
+    it('the forced retry is throttled across requests', async () => {
+      const underlying = setup([statusResponse(500), statusResponse(500), statusResponse(500)]);
+      const call = () =>
+        global.fetch('https://api.test/api/private', {headers: {'aq-encrypted-key': staticToken()}});
+      await expect(call()).rejects.toMatchObject({code: 'APP_SESSION_REQUIRED'});
+      expect(tokenCalls(underlying)).toBe(2);
+      await expect(call()).rejects.toMatchObject({code: 'APP_SESSION_REQUIRED'});
+      expect(tokenCalls(underlying)).toBe(2); // in back-off and the retry gap has not elapsed
+      expect(sentTo(underlying, 'https://api.test/api/private')).toHaveLength(0);
+    });
+
+    it('public pre-login routes still leave with the static token', async () => {
+      const underlying = setup([statusResponse(500), statusResponse(500), statusResponse(500)]);
+      const st = staticToken();
+      await global.fetch('https://api.test/api/admin/frontend-config', {headers: {'aq-encrypted-key': st}});
+      await global.fetch('https://ccxt.test//misc/pdfs?advisor=x', {headers: {'aq-encrypted-key': st}});
+      expect(sentTo(underlying, 'https://api.test/api/admin/frontend-config')[0][1].headers['aq-encrypted-key']).toBe(st);
+      expect(sentTo(underlying, 'https://ccxt.test//misc/pdfs?advisor=x')[0][1].headers['aq-encrypted-key']).toBe(st);
+    });
+
+    it('server says the feature is off (503): static token, no error (rollback lever)', async () => {
+      const underlying = setup([statusResponse(503)]);
+      const st = staticToken();
+      await global.fetch('https://api.test/api/private', {headers: {'aq-encrypted-key': st}});
+      expect(sentTo(underlying, 'https://api.test/api/private')[0][1].headers['aq-encrypted-key']).toBe(st);
+      expect(ast.isAppSessionServerDisabled()).toBe(true);
+    });
+
+    it('client kill switch: static token, never an error', async () => {
+      Config.REACT_APP_APP_SESSION_TOKENS = 'false';
+      mockAuth.currentUser = user();
+      const st = staticToken();
+      expect(await ast.upgradeTokenFor('https://api.test/api/private', st, 'prod', 'GET')).toBeNull();
+    });
+  });
 });

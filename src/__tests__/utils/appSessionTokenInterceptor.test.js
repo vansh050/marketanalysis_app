@@ -95,6 +95,21 @@ describe('request policy', () => {
     expect(cfg.__aqIssuedToken).toBe('ISSUED');
   });
 
+  it('rejects the request (never sends static) when upgradeTokenFor says a session is required', async () => {
+    const err = Object.assign(new Error('session'), {code: 'APP_SESSION_REQUIRED', isAppSessionRequired: true});
+    ast.upgradeTokenFor.mockRejectedValueOnce(err);
+    await expect(
+      request({url: 'https://api.test/api/x', method: 'post', headers: {'aq-encrypted-key': 'some.static.jwt'}}),
+    ).rejects.toBe(err);
+    expect(ast.upgradeTokenFor).toHaveBeenCalledWith('https://api.test/api/x', 'some.static.jwt', undefined, 'POST');
+  });
+
+  it('any other upgrade failure leaves the request unchanged', async () => {
+    ast.upgradeTokenFor.mockRejectedValueOnce(new Error('boom'));
+    const cfg = await request({url: 'https://api.test/api/x', headers: {'aq-encrypted-key': 'some.static.jwt'}});
+    expect(cfg.headers['aq-encrypted-key']).toBe('some.static.jwt');
+  });
+
   it('leaves a static token untouched when there is no issued token', async () => {
     const cfg = await request({url: 'https://api.test/api/x', headers: {'aq-encrypted-key': 'some.static.jwt'}});
     expect(cfg.headers['aq-encrypted-key']).toBe('some.static.jwt');

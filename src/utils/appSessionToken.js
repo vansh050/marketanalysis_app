@@ -23,6 +23,13 @@
  *     server's `expiresIn`, on the device clock. The server `exp` claim is
  *     never compared with the device clock (devices drift; the static token
  *     even uses an IST-shifted clock).
+ *   - A signed-in request that still has no issued token after that wait
+ *     (and one throttled forced retry) is NOT sent with the static token
+ *     unless its route is on the public pre-login list
+ *     (./publicPreloginRoutes.js): it fails with an `APP_SESSION_REQUIRED`
+ *     error and a visible "please retry" toast. Exceptions, both explicit:
+ *     the server said the feature is off (404 / 503 — its rollback lever),
+ *     and a request that names a different tenant than the token's.
  *   - Kill switch: `REACT_APP_APP_SESSION_TOKENS=false` → never fetches, so
  *     every request carries the static token (pre-migration behaviour).
  *   - 404 / 503 (server not deployed / APP_SESSION_DISABLED) → stop asking for
@@ -41,6 +48,7 @@ import {AppState} from 'react-native';
 import Config from 'react-native-config';
 import server from './serverConfig';
 import {getTenantSubdomain} from './variantHelper';
+import {isPublicPreloginRoute} from './publicPreloginRoutes';
 
 export const TOKEN_PATH = 'api/app-session/token';
 export const MIN_USABLE_MS = 120 * 1000; // never hand out a token with <120 s left
@@ -56,6 +64,8 @@ const state = {
   inflight: null,
   nextAttemptAt: 0,
   failures: 0,
+  disabledUntil: 0, // server answered 404/503: the feature is off there
+  lastForcedAt: 0,
   issued: [], // recent issued token values, so guards can recognise them
   timer: null,
   authUnsub: null,
@@ -161,6 +171,7 @@ export function clearAppSessionToken() {
 function backoff(kind) {
   if (kind === 'disabled') {
     state.nextAttemptAt = now() + DISABLED_BACKOFF_MS;
+    state.disabledUntil = state.nextAttemptAt;
     return;
   }
   state.failures += 1;
@@ -265,6 +276,7 @@ async function fetchIssuedToken(user) {
 
   state.failures = 0;
   state.nextAttemptAt = 0;
+  state.disabledUntil = 0;
   state.cache = {
     token,
     uid: user.uid,
@@ -348,6 +360,24 @@ export function getIssuedAppSessionToken() {
 }
 
 const ENSURE_TIMEOUT_MS = 8 * 1000;
+export const FORCED_RETRY_MIN_GAP_MS = 15 * 1000;
+
+/** The server answered 404/503 for the token endpoint (feature off there). */
+export function isAppSessionServerDisabled() {
+  return now() < state.disabledUntil;
+}
+
+function waitFor(pending, timeoutMs) {
+  let timer = null;
+  return Promise.race([
+    pending,
+    new Promise(resolve => {
+      timer = setTimeout(resolve, timeoutMs);
+    }),
+  ]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
 
 /**
  * Async read for requests that are about to leave without an issued token
@@ -357,20 +387,28 @@ const ENSURE_TIMEOUT_MS = 8 * 1000;
  * pre-login routes. Never forces past a back-off. Returns null when signed
  * out, disabled, or the token could not be obtained in time.
  */
-export async function ensureIssuedAppSessionToken({timeoutMs = ENSURE_TIMEOUT_MS} = {}) {
+export async function ensureIssuedAppSessionToken({
+  timeoutMs = ENSURE_TIMEOUT_MS,
+  retry = false,
+} = {}) {
   try {
     const ready = getIssuedAppSessionToken();
     if (ready) return ready;
     if (!isAppSessionEnabled() || !currentUser()) return null;
-    const pending = state.inflight || maybeRefreshAppSessionToken();
-    let timer = null;
-    await Promise.race([
-      pending,
-      new Promise(resolve => {
-        timer = setTimeout(resolve, timeoutMs);
-      }),
-    ]);
-    if (timer) clearTimeout(timer);
+    await waitFor(state.inflight || maybeRefreshAppSessionToken(), timeoutMs);
+    const got = getIssuedAppSessionToken();
+    if (got || !retry) return got;
+    // `retry`: the request cannot leave without an issued token. Try once
+    // more past a back-off, at most once per FORCED_RETRY_MIN_GAP_MS across
+    // all requests, and never while the server says the feature is off.
+    if (state.inflight) {
+      await waitFor(state.inflight, timeoutMs);
+      return getIssuedAppSessionToken();
+    }
+    if (isAppSessionServerDisabled()) return null;
+    if (now() - state.lastForcedAt < FORCED_RETRY_MIN_GAP_MS) return null;
+    state.lastForcedAt = now();
+    await waitFor(maybeRefreshAppSessionToken({force: true}), timeoutMs);
     return getIssuedAppSessionToken();
   } catch (_) {
     return null;
@@ -408,15 +446,67 @@ export function isOwnStaticToken(value) {
   return Boolean(payload && payload.apiKey === ownApiKey);
 }
 
+export const APP_SESSION_REQUIRED = 'APP_SESSION_REQUIRED';
+export const APP_SESSION_REQUIRED_MESSAGE =
+  'We could not verify your session. Check your connection and try again.';
+const TOAST_GAP_MS = 30 * 1000;
+let lastToastAt = 0;
+
+function showSessionToast() {
+  try {
+    const t = now();
+    if (t - lastToastAt < TOAST_GAP_MS) return;
+    lastToastAt = t;
+    const mod = require('react-native-toast-message');
+    const Toast = (mod && mod.default) || mod;
+    if (Toast && typeof Toast.show === 'function') {
+      Toast.show({type: 'error', text1: 'Session not ready', text2: APP_SESSION_REQUIRED_MESSAGE});
+    }
+  } catch (_) {}
+}
+
+/**
+ * Error for a signed-in request that has no issued token and is not on the
+ * public pre-login list. Deliberately has no `response`: callers must not
+ * mistake it for a server 401 (broker token expiry, sign-out, …).
+ */
+export function appSessionRequiredError(method, url) {
+  const err = new Error(APP_SESSION_REQUIRED_MESSAGE);
+  err.code = APP_SESSION_REQUIRED;
+  err.isAppSessionRequired = true;
+  err.method = String(method || 'GET').toUpperCase();
+  try {
+    err.path = String(url || '').split('?')[0];
+  } catch (_) {}
+  showSessionToast();
+  return err;
+}
+
+export function isPublicRouteFor(method, url) {
+  return isPublicPreloginRoute(method, url, {
+    node: server?.server?.baseUrl,
+    ccxt: server?.ccxtServer?.baseUrl,
+  });
+}
+
 /**
  * For a signed-in user, the token a Node/ccxt request should carry instead of
- * the app's static token, or null to send it unchanged.
+ * the app's static token, or null to send it unchanged. Throws an
+ * `APP_SESSION_REQUIRED` error instead of letting a signed-in request leave
+ * with the static token on a route the public pre-login key cannot open.
  */
-export async function upgradeTokenFor(url, value, reqTenant) {
+export async function upgradeTokenFor(url, value, reqTenant, method = 'GET') {
   if (!isAppSessionUrl(url) || !isOwnStaticToken(value) || !isSignedIn()) return null;
-  const issued = await ensureIssuedAppSessionToken();
+  if (!isAppSessionEnabled()) return null;
+  const issued = await ensureIssuedAppSessionToken({retry: true});
   if (issued && issuedTokenAllowedFor(url, issued, reqTenant)) return issued;
-  return null;
+  // The request names another tenant than the token's: the issued token
+  // cannot serve it, so it leaves as before (cross-tenant call sites are
+  // listed in docs/APP_SESSION_TOKENS_CLIENT.md).
+  if (issued) return null;
+  if (isPublicRouteFor(method, url)) return null;
+  if (isAppSessionServerDisabled()) return null;
+  throw appSessionRequiredError(method, url);
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +586,7 @@ function upgradeFetchArgs(input, init) {
     if (!isOwnStaticToken(value)) return null;
     const tk = isHeaders ? null : headerKey(h, 'X-Advisor-Subdomain');
     const tenant = isHeaders ? h.get('X-Advisor-Subdomain') : tk ? h[tk] : null;
-    return upgradeTokenFor(url, value, tenant)
+    return upgradeTokenFor(url, value, tenant, init.method || 'GET')
       .then(issued => {
         if (!issued) return init;
         if (isHeaders) {
@@ -505,7 +595,11 @@ function upgradeFetchArgs(input, init) {
         }
         return {...init, headers: {...h, [k]: issued}};
       })
-      .catch(() => init);
+      .catch(err => {
+        // Never send a signed-in request with the static token instead.
+        if (err && err.isAppSessionRequired) throw err;
+        return init;
+      });
   } catch (_) {
     return null;
   }
@@ -570,6 +664,7 @@ export function initAppSessionTokens() {
 /** Test-only: reset all module state. */
 export function __resetAppSessionTokensForTests() {
   clearTimer();
+  lastToastAt = 0;
   try {
     if (typeof state.authUnsub === 'function') state.authUnsub();
   } catch (_) {}
@@ -581,6 +676,8 @@ export function __resetAppSessionTokensForTests() {
     inflight: null,
     nextAttemptAt: 0,
     failures: 0,
+    disabledUntil: 0,
+    lastForcedAt: 0,
     issued: [],
     timer: null,
     authUnsub: null,
@@ -592,3 +689,8 @@ export function __resetAppSessionTokensForTests() {
 }
 
 export const __state = state;
+
+/** Test-only: allow the throttled session toast to show again. */
+export function __resetSessionToastForTests() {
+  lastToastAt = 0;
+}

@@ -288,12 +288,16 @@ export function installAuthTokenInterceptor() {
           config.url,
           readHeader(config.headers, 'aq-encrypted-key'),
           readHeader(config.headers, 'X-Advisor-Subdomain'),
+          String(config.method || 'get').toUpperCase(),
         );
         if (issued) {
           writeHeader(config, 'aq-encrypted-key', issued);
           config.__aqIssuedToken = issued;
         }
-      } catch (_) {
+      } catch (err) {
+        // Signed in, no issued token, route not public: fail the request
+        // (APP_SESSION_REQUIRED) rather than send it with the static token.
+        if (err && err.isAppSessionRequired) throw err;
         // The request leaves unchanged.
       }
       try {
