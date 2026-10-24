@@ -1,5 +1,33 @@
 # CLAUDE.md — AlphaQuark B2B Mobile App
 
+## 🔴 BLOCKING: Secrets rules (Pratik, 2026-10-24)
+
+These three caused the 2025–26 platform-key exposure (a public secret gave
+full backend access; see `aq_backend_github/docs/KEY_ROTATION_CHECKLIST.md`).
+No exceptions, no "temporary" versions. If a task seems to need one, stop and ask.
+
+1. **Never sign with a secret in browser or app code.** Anything in a web
+   bundle (`VITE_*`, `REACT_APP_*`, `NEXT_PUBLIC_*`, `EXPO_PUBLIC_*`) or a
+   mobile app (`react-native-config`, `--dart-define`, Info.plist, Gradle) is
+   public. Never use it to hold an API secret, sign an `aq-encrypted-key` /
+   JWT / HMAC, or call `encryptApiKey(...)` client-side. Instead, call your own
+   server, which adds the key (pattern: AlphaQuarkWeb1 `server/routes/aqProxy.js`),
+   or use a server-issued per-user token (backend `appSessionToken`).
+2. **Never commit on servers.** No `git commit`, `git push`, `git stash` of
+   real changes, or edits to tracked files on a production or staging host.
+   Hosts only `git pull` and build. Make the change locally or in CI, review
+   it, push, then deploy. If an emergency forces a server edit, recreate it
+   as a normal commit the same day and reset the server copy.
+3. **Never commit `.env` files or backups of them.** That covers `.env`,
+   `.env.*` (`.env.bak`, `.env.save`, `.env.backup_*`, `.env.production`),
+   `*.env`, credentials JSON and service-account keys, and build output that
+   has inlined them (`build*/`, `dist*/`). Only `.env.example` with blank or
+   fake values may be committed. Before committing, run
+   `git diff --cached --name-only` and refuse if any such file is staged.
+   Never write a secret value into code, comments or docs; use a placeholder
+   like `<AQ_SECRET>`. If one is already committed, say so, rotate it, and
+   untrack it without deleting the server's copy.
+
 ## Project Overview
 
 This is the **AlphaQuark B2B Mobile App** — a React Native application enabling advisory clients to connect stock brokers, receive trade recommendations, subscribe to model portfolios, and execute rebalance trades. It is the mobile counterpart to the web app at `../prod-alphaquark-github`.
