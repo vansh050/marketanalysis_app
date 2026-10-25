@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import io from "socket.io-client";
 import axios from "axios";
-import Config from "react-native-config";
+import Config from '../../../config/env';
 
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 5000; // 5 seconds

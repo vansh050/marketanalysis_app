@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import { ChevronLeft, XIcon } from 'lucide-react-native';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 
 import { useColors } from '../../theme/useColors';
 import LinkifiedUrl from '../../UIComponents/BrokerConnectionUI/HelpUI/LinkifiedUrl';

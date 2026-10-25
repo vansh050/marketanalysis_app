@@ -23,7 +23,7 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {View} from 'react-native';
 import {WebView} from 'react-native-webview';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {generateToken} from '../../utils/SecurityTokenManager';
 
 const BRAIN = 'https://customersupport.alphaquark.in';

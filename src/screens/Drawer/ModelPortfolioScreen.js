@@ -30,7 +30,7 @@ import {getAuth} from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
 import {resolveImageUrl} from '../../utils/resolveImageUrl';
 import {GitForkIcon} from 'lucide-react-native';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import MPCardBespoke from '../../components/ModelPortfolioComponents/MPCardBespoke';

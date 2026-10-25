@@ -9,7 +9,7 @@ import server from '../../utils/serverConfig';
 import { designColor, designFont } from '../../design/literalTokens';
 const { width, height } = Dimensions.get('window');
 const screenWidth = Dimensions.get('window').width;
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 const screenHeight = Dimensions.get('window').height;
 // YouTube API Key + Channel ID. Both come from .env (gitignored). The

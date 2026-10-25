@@ -13,7 +13,7 @@ import React, { useState, useEffect } from 'react';
 import { Alert } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { useComponent } from '../../design/useDesign';
 import useTokens from '../../theme/useTokens';
 import server from '../../utils/serverConfig';

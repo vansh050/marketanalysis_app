@@ -3,7 +3,7 @@ import server from "../../utils/serverConfig";
 
 import { addISTOffset } from "../../utils/dateUtils";
 import { generateToken } from "../../utils/SecurityTokenManager";
-import Config from "react-native-config";
+import Config from '../../config/env';
 import { useTrade } from "../../screens/TradeContext";
 
 

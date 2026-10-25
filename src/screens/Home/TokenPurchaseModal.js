@@ -16,7 +16,7 @@ import { Coins, X } from 'lucide-react-native';
 import RazorpayCheckout from "react-native-razorpay";
 import AwesomeAlert from 'react-native-awesome-alerts';
 import Coin from '../../assets/coin.svg';
-import Config from "react-native-config";
+import Config from '../../config/env';
 import { useTrade } from '../TradeContext';
 import { getAdvisorSubdomain } from '../../utils/variantHelper';
 import { designColor, designFont } from '../../design/literalTokens';

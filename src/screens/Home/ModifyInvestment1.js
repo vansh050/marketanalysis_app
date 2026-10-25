@@ -2,7 +2,7 @@ import React, {useEffect, useRef, useState} from 'react';
 import {View, Text, TextInput, TouchableOpacity, ScrollView, Modal, ActivityIndicator, StyleSheet} from 'react-native';
 import Toast from 'react-native-toast-message';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useTrade} from '../TradeContext';

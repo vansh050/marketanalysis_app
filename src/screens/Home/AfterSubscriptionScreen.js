@@ -2,7 +2,7 @@ import React, {useState, useEffect, useRef, useCallback} from 'react';
 import {getAuth} from '@react-native-firebase/auth';
 import {useFocusEffect, useNavigation} from '@react-navigation/native';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import moment from 'moment';
 
 import server from '../../utils/serverConfig';

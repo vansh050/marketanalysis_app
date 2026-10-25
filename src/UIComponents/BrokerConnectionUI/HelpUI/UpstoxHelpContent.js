@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
 } from 'react-native';
-import Config from 'react-native-config';
+import Config from '../../../config/env';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import LinkifiedUrl from './LinkifiedUrl';
 import { designColor, designFont } from '../../../design/literalTokens';

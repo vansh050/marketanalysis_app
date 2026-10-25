@@ -2,7 +2,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import server from './serverConfig';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import { generateToken } from './SecurityTokenManager';
 
 import {getAdvisorSubdomain, getBuildTenantSubdomain, getTenantSubdomain} from './variantHelper';

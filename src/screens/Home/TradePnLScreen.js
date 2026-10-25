@@ -1,7 +1,7 @@
 import React, {useCallback, useEffect, useState} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';

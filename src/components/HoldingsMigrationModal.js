@@ -11,7 +11,7 @@
 
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import server from '../utils/serverConfig';
 import { generateToken } from '../utils/SecurityTokenManager';
 import { useComponent } from '../design/useDesign';

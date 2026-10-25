@@ -1,7 +1,7 @@
 import React, {useState, useCallback, useEffect} from 'react';
 import axios from 'axios';
 import debounce from 'lodash.debounce';
-import Config from 'react-native-config';
+import Config from '../../../config/env';
 
 import TokenPurchaseModal from '../TokenPurchaseModal';
 import Loader from '../../../utils/Loader';

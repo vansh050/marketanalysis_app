@@ -45,7 +45,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import eventEmitter from '../../components/EventEmitter';
 import {useModal} from '../../components/ModalContext';
 import {useCart} from '../../components/CartContext';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useTrade} from '../TradeContext';
 import {useConfig} from '../../context/ConfigContext';

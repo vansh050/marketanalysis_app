@@ -24,7 +24,7 @@ import {
 } from 'react-native-safe-area-context';
 import { handleOAuthCallback } from './src/services/ZerodhaOAuthService';
 import { handleSmartLink, captureInstallReferrer } from './src/utils/smartLink';
-import Config from 'react-native-config';
+import Config from './src/config/env';
 
 import Navigation from './src/components/Navigation';
 import {CartProvider} from './src/components/CartContext';

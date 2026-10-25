@@ -19,7 +19,7 @@ import {
 } from '../../utils/fyersAppId';
 import CryptoJS from 'react-native-crypto-js';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import FyersConnectUI from '../../UIComponents/BrokerConnectionUI/FyersConnectUI';

@@ -23,7 +23,7 @@
  */
 import axios from 'axios';
 import { Alert, Linking } from 'react-native';
-import Config from 'react-native-config';
+import Config from '../config/env';
 
 import server from './serverConfig';
 import { generateToken } from './SecurityTokenManager';

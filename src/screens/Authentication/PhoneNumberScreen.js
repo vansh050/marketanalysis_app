@@ -5,14 +5,14 @@
  * Handlers preserved from pre-migration, with one incidental fix: the legacy
  * file referenced `Config.REACT_APP_AQ_KEYS` / `Config.REACT_APP_AQ_SECRET`
  * without importing `Config` (a pre-existing ReferenceError bug). Added the
- * `import Config from 'react-native-config'` line to make the call actually
+ * `import Config from '../../config/env';` line to make the call actually
  * work. Noted in CHANGELOG.
  */
 
 import React, { useCallback, useState } from 'react';
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { useNavigation } from '@react-navigation/native';
 import { getAuth } from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';

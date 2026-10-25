@@ -22,7 +22,7 @@ import {Platform, AppState, Linking} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import RazorpayCheckout from 'react-native-razorpay';
 import { CFPaymentGatewayService } from 'react-native-cashfree-pg-sdk';

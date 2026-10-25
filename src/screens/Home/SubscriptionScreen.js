@@ -6,7 +6,7 @@ import BrokerSelectionModal from '../../components/BrokerSelectionModal';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import server from '../../utils/serverConfig';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import Toast from 'react-native-toast-message';
 import crashlytics from '@react-native-firebase/crashlytics';

@@ -41,7 +41,7 @@
 
 import { useCallback, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../../config/env';
 import { useTrade } from '../../TradeContext';
 import server from '../../../utils/serverConfig';
 import { generateToken } from '../../../utils/SecurityTokenManager';

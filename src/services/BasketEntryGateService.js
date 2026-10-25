@@ -5,7 +5,7 @@
  * same decision that the ccxt execution boundary enforces. Exit legs bypass it.
  */
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../config/env';
 
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';

@@ -48,7 +48,7 @@ import {
   Linking,
 } from 'react-native';
 import RazorpayCheckout from 'react-native-razorpay';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import { CFPaymentGatewayService } from 'react-native-cashfree-pg-sdk';
 import {
   CFDropCheckoutPayment,

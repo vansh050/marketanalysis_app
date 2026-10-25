@@ -14,7 +14,7 @@
  */
 import React, {useEffect, useMemo, useState} from 'react';
 import {AqSdkClient, AqSdkProvider, ExecuteAdviceOverlay as _MaybeExecuteAdviceOverlay} from '@alphaquark/mobile-sdk';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import {getAuth} from '@react-native-firebase/auth';
 
 import {getTenantSubdomain} from '../utils/variantHelper';

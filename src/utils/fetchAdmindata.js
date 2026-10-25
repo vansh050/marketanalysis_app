@@ -1,5 +1,5 @@
 import server from "./serverConfig";
-import Config from "react-native-config";
+import Config from '../config/env';
 import { generateToken } from "./SecurityTokenManager";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {getRuntimeAdvisorConfig} from './runtimeAdvisor';

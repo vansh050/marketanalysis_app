@@ -4,7 +4,7 @@ import { useWindowDimensions } from 'react-native';
 import { XIcon, Trash2Icon,CandlestickChartIcon, ChevronRight,ShoppingBag,Minus,Plus } from 'lucide-react-native';
 import Icon1 from 'react-native-vector-icons/Feather';
 import server from '../utils/serverConfig'
-import Config from 'react-native-config';
+import Config from '../config/env';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import axios from 'axios';
 

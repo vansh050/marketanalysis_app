@@ -18,7 +18,7 @@ import {WebView} from 'react-native-webview';
 import {getAuth} from '@react-native-firebase/auth';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import {useTrade} from '../screens/TradeContext';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';
 import {getAccountEmail} from '../utils/accountEmail';

@@ -5,7 +5,7 @@ import server from '../../utils/serverConfig';
 import axios from 'axios';
 import { designColor } from '../../design/literalTokens';
 const {height: screenHeight} = Dimensions.get('window');
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import AngleOneConnectUI from '../../UIComponents/BrokerConnectionUI/AngelOneConnectUI';
 import { useTrade } from '../../screens/TradeContext';

@@ -18,7 +18,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { getAuth } from '@react-native-firebase/auth';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import server from '../utils/serverConfig';
 import { generateToken } from '../utils/SecurityTokenManager';
 import useModalStore from '../GlobalUIModals/modalStore';

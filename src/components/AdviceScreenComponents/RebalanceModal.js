@@ -26,7 +26,7 @@ import {canAttemptRebalancePlacement} from '../../utils/rebalanceMarketGate';
 import { useConfig } from '../../context/ConfigContext';
 import axios from 'axios';
 import DummyBrokerHoldingConfirmation from './DummyBrokerHoldingConfirmation';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import WebView from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';

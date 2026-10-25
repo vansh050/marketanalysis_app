@@ -3,7 +3,7 @@ import {Keyboard} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {getAuth} from '@react-native-firebase/auth';
 
 import server from '../../utils/serverConfig';

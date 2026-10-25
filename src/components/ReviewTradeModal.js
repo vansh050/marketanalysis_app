@@ -34,7 +34,7 @@ import {getTenantSubdomain} from '../utils/variantHelper';
 import CheckBox from '@react-native-community/checkbox';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import SliderButton from './SliderButton';
 import LinearGradient from 'react-native-linear-gradient';
 import { designColor, designFont } from '../design/literalTokens';

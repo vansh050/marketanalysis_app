@@ -2,7 +2,7 @@ import React, {useState} from 'react';
 import {Keyboard, Platform} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import Toast from 'react-native-toast-message';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import DeviceInfo from 'react-native-device-info';
 import messaging from '@react-native-firebase/messaging';
 import AsyncStorage from '@react-native-async-storage/async-storage';

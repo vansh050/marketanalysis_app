@@ -4,7 +4,7 @@ import {calculateNewExpiryDate} from '../../utils/calculateExpiryDate';
 import {logPayment} from '../../utils/Logging';
 import {sendNotifications} from './SendNotificationService';
 import {addClientToGroupSubscription} from './AddClientToGroupService';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 

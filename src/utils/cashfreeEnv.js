@@ -39,7 +39,7 @@
  * surface.
  */
 
-import Config from 'react-native-config';
+import Config from '../config/env';
 import { CFEnvironment } from 'cashfree-pg-api-contract';
 
 export function getCashfreeEnvironment() {

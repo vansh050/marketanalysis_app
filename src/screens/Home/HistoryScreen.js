@@ -27,7 +27,7 @@ import {useNavigation} from '@react-navigation/native';
 import CalendarPicker from 'react-native-calendar-picker';
 import Accordion from 'react-native-collapsible/Accordion';
 import {generateToken} from '../../utils/SecurityTokenManager';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {useTrade} from '../TradeContext';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import {getAccountEmail} from '../../utils/accountEmail';

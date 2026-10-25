@@ -4,7 +4,7 @@ import axios from "axios";
 import WebSocketManager from "../../components/AdviceScreenComponents/DynamicText/WebSocketManager";
 import { useTrade } from "../../screens/TradeContext";
 import server from "../../utils/serverConfig";
-import Config from "react-native-config";
+import Config from '../../config/env';
 import { generateToken } from "../../utils/SecurityTokenManager";
 import { fetchLTPBatch } from "../../utils/marketDataLTP";
 

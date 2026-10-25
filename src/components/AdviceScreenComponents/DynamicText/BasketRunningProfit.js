@@ -2,7 +2,7 @@ import React, {useMemo, useCallback, useState} from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import {IndianRupee} from 'lucide-react-native';
 import Icon1 from 'react-native-vector-icons/FontAwesome';
-import Config from 'react-native-config';
+import Config from '../../../config/env';
 import useLTPStore from './useLtpStore';
 import {symbolName} from 'typescript';
 

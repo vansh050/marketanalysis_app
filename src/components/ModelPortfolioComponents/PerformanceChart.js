@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { LineChart } from 'react-native-gifted-charts';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import server from '../../utils/serverConfig';
 import { BarChart2, TrendingUp, TrendingDown } from 'lucide-react-native';

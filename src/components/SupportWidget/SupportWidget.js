@@ -10,7 +10,7 @@ import {
   PermissionsAndroid,
   KeyboardAvoidingView,
 } from 'react-native';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {useConfig} from '../../context/ConfigContext';
 import VoiceCallWebView from './VoiceCallWebView';
 

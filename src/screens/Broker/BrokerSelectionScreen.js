@@ -28,7 +28,7 @@ import axios from 'axios';
 import { brokerRegistry, BROKER_AUTH_TYPE, getApiBrokerName } from '../../config/brokerRegistry';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import useModalStore from '../../GlobalUIModals/modalStore';
 import {getAccountEmail} from '../../utils/accountEmail';

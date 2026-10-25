@@ -31,7 +31,7 @@ import {
   WebViewBrokerAuthFlow,
   getBrokerFormSchema,
 } from '@alphaquark/mobile-sdk';
-import Config from 'react-native-config';
+import Config from '../config/env';
 
 import { designColor } from '../design/literalTokens';
 

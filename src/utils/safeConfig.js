@@ -2,7 +2,7 @@
 let Config = {};
 
 try {
-  const NativeConfig = require('react-native-config');
+  const NativeConfig = require('../config/env');
   Config = NativeConfig.default || NativeConfig || {};
 } catch (error) {
   console.warn('react-native-config failed to load, using empty config:', error.message);

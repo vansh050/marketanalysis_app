@@ -2,7 +2,7 @@
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
 import server from '../utils/serverConfig';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import {generateToken} from '../utils/SecurityTokenManager';
 
 const checkValidApiAnSecret = details => {

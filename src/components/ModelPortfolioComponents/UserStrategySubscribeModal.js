@@ -48,7 +48,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import SliderButton from '../SliderButton';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useTotalAmount} from '../AdviceScreenComponents/DynamicText/websocketPrice';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import Toast from 'react-native-toast-message';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import {useTrade} from '../../screens/TradeContext';

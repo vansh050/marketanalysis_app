@@ -18,7 +18,7 @@
 import React, { useCallback, useState } from 'react';
 import { Keyboard } from 'react-native';
 import auth from '@react-native-firebase/auth';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import axios from 'axios';
 import { useNavigation } from '@react-navigation/native';
 import server from '../../utils/serverConfig';

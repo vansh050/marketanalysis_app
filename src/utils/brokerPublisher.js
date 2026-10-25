@@ -12,7 +12,7 @@
 import server from './serverConfig';
 import axios from 'axios';
 import {generateToken} from './SecurityTokenManager';
-import RNConfig from 'react-native-config';
+import RNConfig from '../config/env';
 import {getAccountEmailAsync} from './accountEmail';
 import {getAdvisorSubdomain, getTenantSubdomain} from './variantHelper';
 import {Alert} from 'react-native';

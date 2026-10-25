@@ -40,7 +40,7 @@ import {
 import Toast from 'react-native-toast-message';
 import server from '../../utils/serverConfig';
 import { getAuthedHeaders } from '../../utils/courseAuthHeaders';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import uuid from 'react-native-uuid';
 import RazorpayCheckout from 'react-native-razorpay';

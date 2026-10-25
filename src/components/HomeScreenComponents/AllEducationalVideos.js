@@ -3,7 +3,7 @@ import { View, Text, FlatList, Image, StyleSheet, TouchableOpacity, Modal,Dimens
 import YoutubePlayer from 'react-native-youtube-iframe';
 import axios from 'axios';
 import { XIcon } from 'lucide-react-native';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 
 import { designColor, designFont } from '../../design/literalTokens';
 

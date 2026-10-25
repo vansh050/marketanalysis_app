@@ -1,6 +1,6 @@
 // ConfigContext.js
 import React, {createContext, useState, useContext, useEffect} from 'react';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import axios from 'axios';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';

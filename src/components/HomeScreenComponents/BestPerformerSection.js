@@ -7,7 +7,7 @@ import axios from 'axios';
 import { FadeLoading } from 'react-native-fade-loading';
 
 import moment from 'moment';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { useTrade } from '../../screens/TradeContext';
 import LinkOpeningWeb from '../../screens/Home/NewsScreen/LinkOpeningWeb';
 import { Title } from 'react-native-paper';

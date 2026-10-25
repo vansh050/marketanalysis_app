@@ -11,7 +11,7 @@ import {
 import {useTrade} from '../../screens/TradeContext';
 import ProfileModal from '../ProfileModal';
 import LinearGradient from 'react-native-linear-gradient';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 
 import { designColor, designFont } from '../../design/literalTokens';
 

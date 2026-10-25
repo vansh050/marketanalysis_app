@@ -1,6 +1,6 @@
 import server from '../../utils/serverConfig';
 import {logPayment} from '../../utils/Logging';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {generateToken} from '../../utils/SecurityTokenManager';
 
 const advisorTag = Config.REACT_APP_ADVISOR_SPECIFIC_TAG;

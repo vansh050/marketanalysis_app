@@ -15,7 +15,7 @@ import {
 import {X, Shield, ExternalLink} from 'lucide-react-native';
 import {WebView} from 'react-native-webview';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {getAuth} from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';

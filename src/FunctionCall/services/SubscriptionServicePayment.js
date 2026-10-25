@@ -2,7 +2,7 @@ import axios from "axios";
 import server from "../../utils/serverConfig";
 import { sendNotifications } from "./SendNotificationService";
 import { logPayment } from "../utils/logger";
-import Config from "react-native-config";
+import Config from '../../config/env';
 import { generateToken } from "../../utils/SecurityTokenManager";
 import { useTrade } from "../../screens/TradeContext";
 

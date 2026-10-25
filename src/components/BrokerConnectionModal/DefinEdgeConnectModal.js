@@ -37,7 +37,7 @@ import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
 import { getAuth } from '@react-native-firebase/auth';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';

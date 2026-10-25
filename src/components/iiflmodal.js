@@ -22,7 +22,7 @@ import {ChevronLeft, XIcon} from 'lucide-react-native';
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {WebView} from 'react-native-webview';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import Toast from 'react-native-toast-message';
 
 import BrokerConnectStepperSheet from './BrokerConnectionModal/BrokerConnectStepperSheet';

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import server from './serverConfig';
 import {generateToken} from './SecurityTokenManager';
 import {getTenantSubdomain} from './variantHelper';

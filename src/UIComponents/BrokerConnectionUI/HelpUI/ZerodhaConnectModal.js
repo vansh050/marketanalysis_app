@@ -4,7 +4,7 @@ import {getAuth} from '@react-native-firebase/auth';
 import server from '../../utils/serverConfig';
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
-import Config from 'react-native-config';
+import Config from '../../../config/env';
 import Toast from 'react-native-toast-message';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import ZerodhaConnectUI from '../../UIComponents/BrokerConnectionUI/ZerodhaConnectUI';

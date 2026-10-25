@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import {X, ChevronDown, ArrowUp, ArrowDown} from 'lucide-react-native';
 import server from '../utils/serverConfig';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import {generateToken} from '../utils/SecurityTokenManager';
 import axios from 'axios';
 import {useTrade} from '../screens/TradeContext';

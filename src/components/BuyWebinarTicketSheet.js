@@ -23,7 +23,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import { CFPaymentGatewayService } from 'react-native-cashfree-pg-sdk';
 import {
   CFDropCheckoutPayment,

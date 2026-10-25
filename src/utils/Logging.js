@@ -1,6 +1,6 @@
 import axios from "axios";
 import server from "./serverConfig";
-import Config from "react-native-config";
+import Config from '../config/env';
 import { generateToken } from "./SecurityTokenManager";
 import { sanitizeKiteDiagnosticUrl } from "./publisherOutcome";
 

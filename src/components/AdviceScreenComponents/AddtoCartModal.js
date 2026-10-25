@@ -48,7 +48,7 @@ import {ActivateNowModel} from '../DdpiModal';
 import {FyersTpinModal} from '../DdpiModal';
 import {OtherBrokerModel} from '../DdpiModal';
 import CryptoJS from 'react-native-crypto-js';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { useConfig } from '../../context/ConfigContext';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useModal} from '../ModalContext';

@@ -4,7 +4,7 @@ import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
 import server from '../../utils/serverConfig';
 import CryptoJS from 'react-native-crypto-js';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import { getStoredBrokerCreds } from '../../utils/brokerCredentials';
 import KotakConnectUI from '../../UIComponents/BrokerConnectionUI/KotakConnectUI';

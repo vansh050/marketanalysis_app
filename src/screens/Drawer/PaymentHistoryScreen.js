@@ -23,7 +23,7 @@ import Share from 'react-native-share';
 import { decode as atob, encode as btoa } from 'base-64';
 import Toast from 'react-native-toast-message';
 import { getAuth } from '@react-native-firebase/auth';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import FileViewer from 'react-native-file-viewer';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';

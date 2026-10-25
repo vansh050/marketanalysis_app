@@ -3,7 +3,7 @@
 // the customer's own choice) and applies choices to the review rows. Mirrors
 // the web ReviewTradeModel wiring. Never blocks; fails open to no notices.
 import {useCallback, useEffect, useRef, useState} from 'react';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import server from '../utils/serverConfig';
 import {generateToken} from '../utils/SecurityTokenManager';
 import {getCustomerAuthHeaders} from '../utils/customerAuthHeaders';

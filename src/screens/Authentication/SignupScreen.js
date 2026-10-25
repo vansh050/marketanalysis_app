@@ -10,7 +10,7 @@ import { Keyboard } from 'react-native';
 import auth from '@react-native-firebase/auth';
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import moment from 'moment';
 import { useNavigation } from '@react-navigation/native';

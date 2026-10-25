@@ -11,7 +11,7 @@ import { makeLegalWebViewGuard } from '../../utils/legalWebViewGuard';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';
 import { useComponent } from '../../design/useDesign';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 
 import { designColor } from '../../design/literalTokens';
 

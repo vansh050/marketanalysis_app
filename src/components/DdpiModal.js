@@ -17,7 +17,7 @@ import DDPI from '../assets/DDPI.png';
 import LinearGradient from 'react-native-linear-gradient';
 import Toast from 'react-native-toast-message';
 import WebView from 'react-native-webview';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import YoutubePlayer from 'react-native-youtube-iframe';
 import axios from 'axios';
 import server from '../utils/serverConfig';

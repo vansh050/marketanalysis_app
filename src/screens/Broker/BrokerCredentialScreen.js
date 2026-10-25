@@ -23,7 +23,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { WebView } from 'react-native-webview';
 import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import CryptoJS from 'react-native-crypto-js';
 
 import server from '../../utils/serverConfig';

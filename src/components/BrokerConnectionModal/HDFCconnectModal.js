@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import server from '../../utils/serverConfig';
 import CryptoJS from 'react-native-crypto-js';
 import { getAuth } from '@react-native-firebase/auth';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 
 import axios from 'axios';

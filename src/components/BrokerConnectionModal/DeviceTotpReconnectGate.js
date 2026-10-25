@@ -3,7 +3,7 @@ import axios from 'axios';
 import {AppState} from 'react-native';
 import {getAuth} from '@react-native-firebase/auth';
 import crashlytics from '@react-native-firebase/crashlytics';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';

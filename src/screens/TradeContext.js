@@ -20,7 +20,7 @@ import {fetchBrokerSpecificHoldings} from '../FunctionCall/fetchBrokerSpecificHo
 import {fetchOrderBook, fetchPendingOrders} from '../services/BrokerOrderBookAPI';
 
 import {getConfigData, isUserDataComplete} from '../utils/storageUtils';
-import Config from 'react-native-config';
+import Config from '../config/env';
 const TradeContext = createContext();
 
 import {generateToken} from '../utils/SecurityTokenManager';

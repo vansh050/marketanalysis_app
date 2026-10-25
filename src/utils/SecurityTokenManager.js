@@ -1,6 +1,6 @@
  
 import sign from 'jwt-encode';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import { decode } from 'react-native-pure-jwt';
 import {
   getIssuedAppSessionToken,

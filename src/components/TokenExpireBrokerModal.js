@@ -5,7 +5,7 @@ import Toast from 'react-native-toast-message';
 import { Info, Eye, EyeOff, X } from "lucide-react-native";
 import server from '../utils/serverConfig';
 import { generateToken } from '../utils/SecurityTokenManager';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import useModalStore from '../GlobalUIModals/modalStore';
 import { refreshGrowwSession } from '../utils/growwRefresh';
 import {getTenantSubdomain} from '../utils/variantHelper';

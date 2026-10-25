@@ -15,7 +15,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {Alert} from 'react-native';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 
 import server from '../../utils/serverConfig';
 import LowFundsRebalanceWarning from '../../components/LowFundsRebalanceWarning';

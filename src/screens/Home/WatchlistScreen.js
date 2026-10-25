@@ -22,7 +22,7 @@ import {useFocusEffect} from '@react-navigation/native';
 import useLTPStore from '../../components/AdviceScreenComponents/DynamicText/useLtpStore';
 import WebSocketManager from '../../components/AdviceScreenComponents/DynamicText/WebSocketManager';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import server from '../../utils/serverConfig';
 import {useTrade} from '../TradeContext';

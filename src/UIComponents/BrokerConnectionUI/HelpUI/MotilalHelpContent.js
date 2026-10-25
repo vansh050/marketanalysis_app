@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Linking, TouchableOpacity, Dimensions } from 'react-native';
-import Config from 'react-native-config';
+import Config from '../../../config/env';
 import YoutubePlayer from "react-native-youtube-iframe";
 import LinkifiedUrl from './LinkifiedUrl';
 import { designColor, designFont } from '../../../design/literalTokens';

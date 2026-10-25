@@ -2,7 +2,7 @@ import React, {useState, useEffect, useCallback} from 'react';
 import {useNavigation} from '@react-navigation/native';
 import axios from 'axios';
 import moment from 'moment';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 
 import server from '../../utils/serverConfig';
 import {resolveImageUrl} from '../../utils/resolveImageUrl';

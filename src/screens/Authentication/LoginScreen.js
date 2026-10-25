@@ -19,7 +19,7 @@
 import React, { useCallback, useState } from 'react';
 import { Keyboard, Platform } from 'react-native';
 import auth from '@react-native-firebase/auth';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import appleAuth from '@invertase/react-native-apple-authentication';
 import axios from 'axios';

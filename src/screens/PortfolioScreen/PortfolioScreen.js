@@ -17,7 +17,7 @@ import server from '../../utils/serverConfig';
 import CryptoJS from 'react-native-crypto-js';
 import ModelPFCard from './ModelPFCard';
 import formatCurrency from '../../utils/formatCurrency';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {useTrade} from '../TradeContext';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import WebSocketManager from '../../components/AdviceScreenComponents/DynamicText/WebSocketManager';

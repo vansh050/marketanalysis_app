@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Text, StyleSheet, View } from "react-native";
-import Config from "react-native-config";
+import Config from '../../../config/env';
 import { IndianRupee } from "lucide-react-native";
 import Icon1 from 'react-native-vector-icons/FontAwesome';
 // Import the WebSocketManager

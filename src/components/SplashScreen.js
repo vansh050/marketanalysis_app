@@ -1,7 +1,7 @@
 import React, {useState, useEffect, useRef} from 'react';
 import {View, Image, StyleSheet, Dimensions} from 'react-native';
 import ProgressBar from 'react-native-progress-bar-horizontal';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import AlphaQuarkLogo from '../assets/logo.png';
 import useTokens from '../theme/useTokens';
 import auth from '@react-native-firebase/auth';

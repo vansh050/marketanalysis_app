@@ -24,7 +24,7 @@ import axios from 'axios';
 import server from '../utils/serverConfig';
 import Svg, {Circle, Defs, LinearGradient, Stop} from 'react-native-svg';
 import Toast from 'react-native-toast-message';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import {generateToken} from '../utils/SecurityTokenManager';
 import {useTrade} from '../screens/TradeContext';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';

@@ -63,7 +63,7 @@ import eventEmitter from '../EventEmitter';
 import {View, Text, StyleSheet, ScrollView, TouchableOpacity, Pressable, ActivityIndicator} from 'react-native';
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import crashlytics from '@react-native-firebase/crashlytics';
 import {
   BrokerCredentialForm,

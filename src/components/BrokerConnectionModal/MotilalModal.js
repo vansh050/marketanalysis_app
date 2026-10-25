@@ -6,7 +6,7 @@ import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
 
 import { generateToken } from '../../utils/SecurityTokenManager';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import MotilalConnectUI from '../../UIComponents/BrokerConnectionUI/MotilalConnectUI';
 import { useTrade } from '../../screens/TradeContext';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';

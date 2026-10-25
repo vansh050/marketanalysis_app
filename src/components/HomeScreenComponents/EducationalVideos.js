@@ -4,7 +4,7 @@ import YoutubePlayer from 'react-native-youtube-iframe';
 import axios from 'axios';
 import { XIcon } from 'lucide-react-native';
 import { FadeLoading } from 'react-native-fade-loading';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { useTrade } from '../../screens/TradeContext';
 import APP_VARIANTS from '../../utils/Config';
 

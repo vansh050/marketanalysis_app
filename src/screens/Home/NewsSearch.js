@@ -13,7 +13,7 @@ import axios from "axios";
 import debounce from "lodash.debounce";
 import dayjs from 'dayjs';
 import moment from "moment";
-import Config from "react-native-config";
+import Config from '../../config/env';
 import { generateToken } from "../../utils/SecurityTokenManager";
 
 import CalendarPicker from "react-native-calendar-picker";

@@ -28,7 +28,7 @@ import moment from 'moment';
 import CryptoJS from 'react-native-crypto-js';
 import {getAuth} from '@react-native-firebase/auth';
 import {useNavigation} from '@react-navigation/native';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { useComponent } from '../../design/useDesign';
 
 import server from '../../utils/serverConfig';

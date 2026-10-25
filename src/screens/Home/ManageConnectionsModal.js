@@ -13,7 +13,7 @@ import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
 import Toast from 'react-native-toast-message';
 import server from '../../utils/serverConfig';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import { useTrade } from '../TradeContext';

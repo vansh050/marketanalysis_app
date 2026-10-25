@@ -47,7 +47,7 @@
  * ============================================================================
  */
 import {AppState} from 'react-native';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import server from './serverConfig';
 import {getTenantSubdomain} from './variantHelper';
 import {isPublicPreloginRoute} from './publicPreloginRoutes';

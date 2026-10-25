@@ -9,7 +9,7 @@
  * Cross-ref: Alphab2bapp/docs/COURSES_WEBINARS_MOBILE_PORTING.md §3.1.
  */
 
-import Config from 'react-native-config';
+import Config from '../config/env';
 import { getAuth } from '@react-native-firebase/auth';
 import {getAdvisorSubdomain, getTenantSubdomain} from './variantHelper';
 import { generateToken } from './SecurityTokenManager';

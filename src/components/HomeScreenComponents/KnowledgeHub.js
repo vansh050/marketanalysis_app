@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import {Linking, Platform} from 'react-native';
 import moment from 'moment';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import RNFS from 'react-native-fs';
 import {decode as atob} from 'base-64';
 import { useNavigation } from "@react-navigation/native";

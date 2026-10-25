@@ -4,7 +4,7 @@
  * Ported from prod-alphaquark-github for feature parity.
  */
 import {generateToken} from './SecurityTokenManager';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import server from './serverConfig';
 
 // In-memory LTP cache with timestamps

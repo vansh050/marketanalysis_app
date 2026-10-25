@@ -18,7 +18,7 @@ import {useNavigation} from '@react-navigation/native';
 import IIFLReviewTradeModal from '../IIFLReviewTradeModal';
 
 import moment from 'moment';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {generateToken} from '../../utils/SecurityTokenManager';
 
 import eventEmitter from '../EventEmitter';

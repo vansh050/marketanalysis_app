@@ -28,7 +28,7 @@ import {useNavigation, useRoute} from '@react-navigation/native';
 import server from '../utils/serverConfig';
 import {getAuth} from '@react-native-firebase/auth';
 import Toast from 'react-native-toast-message';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import {generateToken} from '../utils/SecurityTokenManager';
 import {useTrade} from '../screens/TradeContext';
 import {getAdvisorSubdomain, getTenantSubdomain} from '../utils/variantHelper';

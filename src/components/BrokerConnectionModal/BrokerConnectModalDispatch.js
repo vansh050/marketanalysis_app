@@ -74,7 +74,7 @@
  */
 
 import React, {useState} from 'react';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {useConfig} from '../../context/ConfigContext';
 import {getAccountEmailAsync} from '../../utils/accountEmail';
 import {startAccountReconciliation} from '../../services/ModelPortfolioService';

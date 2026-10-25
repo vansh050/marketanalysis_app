@@ -4,7 +4,7 @@ import { Alert } from 'react-native';
 import RazorpayCheckout from 'react-native-razorpay';
 import Toast from 'react-native-toast-message'
 import formatCurrency from './formateCurrency';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import { generateToken } from '../utils/SecurityTokenManager';
 import { useTrade } from '../screens/TradeContext';
 import { designColor } from '../design/literalTokens';

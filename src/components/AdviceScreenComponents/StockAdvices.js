@@ -79,7 +79,7 @@ import {
 // (2026-07-18, proven via unminified release bundle inspection).
 import DdpiModal, { OtherBrokerModel, ActivateNowModel, DhanTpinModal, AngleOneTpinModal, FyersTpinModal } from '../DdpiModal';
 import BrokerConnectModalDispatch from '../BrokerConnectionModal/BrokerConnectModalDispatch';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import notifee, { EventType } from '@notifee/react-native';
 
 import { generateToken } from '../../utils/SecurityTokenManager';

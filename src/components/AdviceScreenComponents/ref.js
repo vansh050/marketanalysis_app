@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { WebView } from 'react-native-webview';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import {getTenantSubdomain} from '../../utils/variantHelper';
 const ZerodhaOrderScreen = ({ route, navigation }) => {

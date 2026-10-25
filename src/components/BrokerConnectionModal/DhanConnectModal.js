@@ -1,6 +1,6 @@
 import React, {useEffect, useMemo, useRef, useState} from 'react';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {getAuth} from '@react-native-firebase/auth';
 
 import server from '../../utils/serverConfig';

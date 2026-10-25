@@ -21,7 +21,7 @@ import { Linking } from "react-native"
 import RNFS from "react-native-fs"
 import Share from "react-native-share"
 import { decode as atob } from "base-64"
-import Config from "react-native-config"
+import Config from '../../config/env';
 import { useTrade } from "../../screens/TradeContext"
 import { generateToken } from "../../utils/SecurityTokenManager"
 import APP_VARIANTS from "../../utils/Config"

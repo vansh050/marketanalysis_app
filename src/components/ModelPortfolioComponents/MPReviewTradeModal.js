@@ -28,7 +28,7 @@ import CryptoJS from 'react-native-crypto-js';
 import useWebSocketCurrentPrice from '../../FunctionCall/useWebSocketCurrentPrice';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { designColor, designFont } from '../../design/literalTokens';
 const {height: screenHeight} = Dimensions.get('window');
 import {generateToken} from '../../utils/SecurityTokenManager';

@@ -3,7 +3,7 @@ import {useWindowDimensions} from 'react-native';
 import {useNavigation} from '@react-navigation/native';
 import {useTrade} from '../TradeContext';
 import server from '../../utils/serverConfig';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useConfig} from '../../context/ConfigContext';
 import RebalanceNotificationComponent from './RebalanceNotificationComponent';

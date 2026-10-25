@@ -36,7 +36,7 @@ import {
 } from '../../utils/deepLinkExecuteTarget';
 import LinearGradient from 'react-native-linear-gradient';
 import RenderHTML from 'react-native-render-html';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {useNavigation} from '@react-navigation/native';
 import { designColor, designFont, designToken } from '../../design/literalTokens';
 const Alpha100 = require('../../assets/mpf_1.png');

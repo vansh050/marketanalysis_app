@@ -22,7 +22,7 @@ import {
   findNodeHandle,
 } from 'react-native';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import server from '../../utils/serverConfig';
 import { Picker } from '@react-native-picker/picker';
 import { debounce } from 'lodash';

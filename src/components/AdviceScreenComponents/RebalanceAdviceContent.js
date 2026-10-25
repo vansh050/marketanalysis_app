@@ -31,7 +31,7 @@ import DdpiModal from '../DdpiModal';
 import {ActivateNowModel} from '../DdpiModal';
 import {AngleOneTpinModal} from '../DdpiModal';
 import {FyersTpinModal} from '../DdpiModal';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import {OtherBrokerModel} from '../DdpiModal';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import { designColor, designFont, designToken} from '../../design/literalTokens';

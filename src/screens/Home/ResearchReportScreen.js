@@ -5,7 +5,7 @@ import RNFS from 'react-native-fs';
 import Toast from 'react-native-toast-message';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { getAuth } from '@react-native-firebase/auth';
 import { useTrade } from '../TradeContext';
 import { useConfig } from '../../context/ConfigContext';

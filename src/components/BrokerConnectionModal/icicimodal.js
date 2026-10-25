@@ -5,7 +5,7 @@ import server from '../../utils/serverConfig';
 import axios from 'axios';
 import CryptoJS from 'react-native-crypto-js';
 
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import ICICIConnectUI from '../../UIComponents/BrokerConnectionUI/ICICIConnectUI';
 import BrokerConnectStepperSheet from './BrokerConnectStepperSheet';

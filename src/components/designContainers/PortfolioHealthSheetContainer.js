@@ -1,7 +1,7 @@
 import React, {useCallback, useState} from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
 import {useConfig} from '../../context/ConfigContext';

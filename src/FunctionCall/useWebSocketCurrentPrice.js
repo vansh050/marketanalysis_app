@@ -20,7 +20,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import io from 'socket.io-client';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../config/env';
 import server from '../utils/serverConfig';
 import {getAccountEmail} from '../utils/accountEmail';
 import {fetchLTPBatch} from '../utils/marketDataLTP';

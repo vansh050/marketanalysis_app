@@ -27,7 +27,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useFocusEffect } from '@react-navigation/native';
 import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
 import eventEmitter from '../../components/EventEmitter';

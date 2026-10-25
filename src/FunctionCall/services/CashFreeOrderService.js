@@ -23,7 +23,7 @@
 
 import axios from 'axios';
 import { Platform } from 'react-native';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import server from '../../utils/serverConfig';
 import { getPublicHeaders } from '../../utils/courseAuthHeaders';
 import { validateChargeableAmount } from '../../utils/validateChargeableAmount';

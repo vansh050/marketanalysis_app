@@ -16,7 +16,7 @@ import Icon from 'react-native-vector-icons/Feather';
 import MaterialIcon from 'react-native-vector-icons/MaterialCommunityIcons';
 import server from '../../utils/serverConfig';
 import { generateToken } from '../../utils/SecurityTokenManager';
-import Config from 'react-native-config';
+import Config from '../../config/env';
 import { getAuth } from '@react-native-firebase/auth';
 import axios from 'axios';
 import { useTrade } from '../../screens/TradeContext';
