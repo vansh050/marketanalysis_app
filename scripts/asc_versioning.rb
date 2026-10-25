@@ -119,6 +119,22 @@ version_trains = (asv['data'] || []).map do |v|
     state: v.dig('attributes', 'appStoreState')
   }
 end.select { |v| !v[:version].to_s.empty? }
+
+# The binary attached to an App Store version can carry a different marketing
+# version than the version record's name, and Apple judges the BINARY: AlphaPro
+# record "25" shipped a 26 binary, so build 28 at 26 was refused on 2026-10-25
+# ("train version '26' is closed"); Kyzen record "1.0" holds a 2.8 binary.
+# Count those binaries' trains too.
+attached = asc_get("/v1/apps/#{app_id}/appStoreVersions?limit=200&include=build", token)
+build_ids = (attached['included'] || []).select { |i| i['type'] == 'builds' }.map { |i| i['id'] }
+build_ids.each_slice(50) do |ids|
+  pre = asc_get("/v1/builds?filter[id]=#{ids.join(',')}&include=preReleaseVersion&limit=50", token)
+  (pre['included'] || []).select { |i| i['type'] == 'preReleaseVersions' }.each do |i|
+    v = i.dig('attributes', 'version')
+    version_trains << { version: v, state: 'attached binary' } unless v.to_s.empty?
+  end
+end
+
 floor_train = version_trains.max_by { |v| v[:version].split('.').map(&:to_i) }
 floor = floor_train&.dig(:version)
 warn "App Store marketing-version floor: #{floor || 'none'} (#{floor_train&.dig(:state) || 'none'})"
