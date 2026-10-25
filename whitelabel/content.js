@@ -23,6 +23,14 @@
 // brand ("Markup Club", "MoneyMan Investments", …).
 export const PLATFORM_DISPLAY_NAME = 'Market Analysis Academy';
 
+// Plan checkout (MPInvestNowModal) copy. Empty = derived default: header
+// "Subscribe to <brand> Plan" (brand = CHECKOUT_BRAND_NAME, else the advisor's
+// appName, else PLATFORM_DISPLAY_NAME) with the plan name as a subtitle, and a
+// "Complete Payment" CTA. CHECKOUT_HEADER_TITLE replaces the whole title.
+export const CHECKOUT_BRAND_NAME = '';
+export const CHECKOUT_HEADER_TITLE = '';
+export const CHECKOUT_PAY_CTA_LABEL = '';
+
 // Persistent regulatory strip rendered at the app root. Empty string = the
 // banner slot renders nothing.
 export const MONEYMAN_COMPLIANCE_NOTICE = '';

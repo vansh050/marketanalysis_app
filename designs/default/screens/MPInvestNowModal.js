@@ -43,6 +43,8 @@
  *     specificPlan,            // object — the specific plan selected
  *     planName,                // string — display name
  *     planType,                // string — plan type label
+ *     checkoutTitle,           // string — header title ("Subscribe to <brand> Plan")
+ *     payCtaLabel,             // string — step-3 payment CTA ("Complete Payment")
  *
  *     // Step 0 — Personal Info
  *     name,                    // string
@@ -380,6 +382,8 @@ const MPInvestNowModal = ({ viewModel, actions, slots }) => {
     specificPlan = null,
     planName = '',
     planType = '',
+    checkoutTitle = '',
+    payCtaLabel = '',
 
     name = '',
     userEmail = '',
@@ -1159,7 +1163,7 @@ const MPInvestNowModal = ({ viewModel, actions, slots }) => {
           ) : (
             <View style={styles.buttonContent}>
               <Text style={styles.stepButtonText}>
-                🚀 Complete Investment
+                {payCtaLabel || 'Complete Payment'}
               </Text>
               <ChevronRight size={16} color="#fff" />
             </View>
@@ -1204,7 +1208,14 @@ const MPInvestNowModal = ({ viewModel, actions, slots }) => {
                       </Text>
                     </View>
                   ) : null}
-                  <Text style={styles.headerTitle}>{planName}</Text>
+                  <Text style={styles.headerTitle}>
+                    {checkoutTitle || 'Subscribe to Plan'}
+                  </Text>
+                  {planName ? (
+                    <Text style={styles.headerSubtitle} numberOfLines={2}>
+                      {planName}
+                    </Text>
+                  ) : null}
                 </View>
                 <TouchableOpacity onPress={onClose} style={styles.closeButton}>
                   <XIcon size={24} color="#fff" />
@@ -1336,6 +1347,12 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Poppins-SemiBold',
     color: '#fff',
+  },
+  headerSubtitle: {
+    marginTop: 2,
+    fontSize: 13,
+    fontFamily: 'Satoshi-Medium',
+    color: 'rgba(255, 255, 255, 0.85)',
   },
   headerTitleContainer: {
     flexDirection: 'column',

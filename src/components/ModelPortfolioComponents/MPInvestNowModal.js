@@ -48,6 +48,12 @@ import APP_VARIANTS from '../../utils/Config';
 import RNFS from 'react-native-fs';
 import { useTrade } from '../../screens/TradeContext';
 import { useConfig } from '../../context/ConfigContext';
+import { getPlatformDisplayName } from '../../utils/advisorContentProfile';
+import {
+  CHECKOUT_BRAND_NAME,
+  CHECKOUT_HEADER_TITLE,
+  CHECKOUT_PAY_CTA_LABEL,
+} from '../../utils/whitelabelContent';
 import useTokens from '../../theme/useTokens';
 import { useGstConfig } from '../../context/GstConfigContext';
 import { withGst, gstLabel } from '../../utils/gstHelpers';
@@ -3798,6 +3804,17 @@ const MPInvestNowModal = ({
     ? (planDetails?.type || specificPlan?.type).split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ')
     : '';
 
+  // Checkout header + payment CTA copy. A fork may set the whitelabel/content.js
+  // CHECKOUT_* keys; otherwise the title names the advisor's brand
+  // ("Subscribe to <brand> Plan") and the plan name moves to a subtitle.
+  const checkoutBrand = String(
+    CHECKOUT_BRAND_NAME || config?.appName || getPlatformDisplayName() || '',
+  ).trim();
+  const checkoutTitle =
+    CHECKOUT_HEADER_TITLE ||
+    (checkoutBrand ? `Subscribe to ${checkoutBrand} Plan` : 'Subscribe to Plan');
+  const payCtaLabel = CHECKOUT_PAY_CTA_LABEL || 'Complete Payment';
+
   // ============================================================================
   // BUILD viewModel + actions
   // ============================================================================
@@ -3821,6 +3838,8 @@ const MPInvestNowModal = ({
     specificPlan,
     planName: planDetails?.name || specificPlan?.name || '',
     planType: planTypeLabel,
+    checkoutTitle,
+    payCtaLabel,
 
     name,
     userEmail,
