@@ -26,7 +26,10 @@ import { designColor, designToken } from '../../design/literalTokens';
  *        @vapi-ai/react-native stack was removed for that reason — see CLAUDE.md
  *        "16 KB page-size check".) Chat works regardless of voice.
  *
- * Gated by the per-advisor flag `voiceSupportUserEnabled` (supportAQ →
+ * Voice is a separate opt-in: the 📞 button renders only when
+ * `voiceSupportCallEnabled` is true (advisor_config.voice_support_call_enabled,
+ * default OFF = text chat only). The widget itself is
+ * gated by the per-advisor flag `voiceSupportUserEnabled` (supportAQ →
  * advisor_config.voice_support_user_enabled, default OFF) + `visible`
  * (authenticated). Same gate as web; carries across white-labels.
  */
@@ -69,13 +72,20 @@ export default function SupportWidget({userEmail = '', visible = false}) {
   // was always disabled. Read it flat.
   const config = useConfig();
   const enabled = config?.voiceSupportUserEnabled === true && visible;
-  const voiceAvailable = true; // WebView-based voice — no native dependency
+  // WebView-based voice (no native dependency), but opt-in per advisor:
+  // default OFF shows text chat only.
+  const voiceAvailable = config?.voiceSupportCallEnabled === true;
   // Per-advisor brand for the widget header (white-label aware).
   const brandName = config?.whiteLabelText || config?.appName || 'AlphaQuark';
 
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState([
-    {from: 'bot', text: 'Hi! How can I help you today? Ask me anything, or tap 📞 to talk.'},
+    {
+      from: 'bot',
+      text: voiceAvailable
+        ? 'Hi! How can I help you today? Ask me anything, or tap 📞 to talk.'
+        : 'Hi! How can I help you today? Ask me anything.',
+    },
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);

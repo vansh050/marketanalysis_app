@@ -198,6 +198,9 @@ export const ConfigProvider = ({ children }) => {
                             portfolioHealth:         d.portfolioHealth || undefined,
                             // In-app support widget (chat + voice), customer side. Default OFF.
                             voiceSupportUserEnabled: d.voiceSupportUserEnabled === true,
+                            // Voice-call button inside that widget. Default OFF = text
+                            // chat only (advisor_config.voice_support_call_enabled).
+                            voiceSupportCallEnabled: d.voiceSupportCallEnabled === true,
                             // Client Performance Summary (fund-wise portfolio summary +
                             // value history + realised P&L). Default-ON, mirroring web's
                             // `!== false` gate in Routes/Admin/loginRoutes.js /frontend-config.
@@ -417,6 +420,7 @@ export const ConfigProvider = ({ children }) => {
                         portfolioHealthEnabled:  parityFlags.portfolioHealthEnabled  ?? false,
                         transitionEngineEnabled: parityFlags.transitionEngineEnabled ?? false,
                         voiceSupportUserEnabled: parityFlags.voiceSupportUserEnabled ?? false,
+                        voiceSupportCallEnabled: parityFlags.voiceSupportCallEnabled ?? false,
                         portfolioHealth:         parityFlags.portfolioHealth         ?? undefined,
                         // Client Performance Summary — DEFAULT-ON to match web. A failed
                         // frontend-config fetch (parityFlags == {}) still enables it.
@@ -733,6 +737,7 @@ export const ConfigProvider = ({ children }) => {
                                     portfolioHealthEnabled: newConfig.portfolioHealthEnabled,
                                     transitionEngineEnabled: newConfig.transitionEngineEnabled,
                                     voiceSupportUserEnabled: newConfig.voiceSupportUserEnabled,
+                                    voiceSupportCallEnabled: newConfig.voiceSupportCallEnabled,
                                     portfolioHealth: newConfig.portfolioHealth,
                                     performanceSummaryEnabled: newConfig.performanceSummaryEnabled,
                                     kycBlockingEnabled: newConfig.kycBlockingEnabled,
