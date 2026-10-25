@@ -134,7 +134,7 @@ import TelegramCollectionModal from './TelegramCollectionModal';
 import DatePickerSection from './DatePickerSection';
 import PayUWebView from '../PayUWebView';
 
-import { designColor, designFont } from '../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../design/literalTokens';
 
 function arrayBufferToBase64(buffer) {
   let binary = '';
@@ -1796,12 +1796,12 @@ const MPInvestNowModal = ({
         .build();
 
       const theme = new CFThemeBuilder()
-        .setNavigationBarBackgroundColor(designColor('94ee95'))
-        .setNavigationBarTextColor(designColor('ffffff'))
-        .setButtonBackgroundColor(designColor('ffc107'))
-        .setButtonTextColor(designColor('ffffff'))
-        .setPrimaryTextColor(designColor('212121'))
-        .setSecondaryTextColor(designColor('757575'))
+        .setNavigationBarBackgroundColor(designToken('cashfreeCheckout.plan.navBar.background'))
+        .setNavigationBarTextColor(designToken('cashfreeCheckout.plan.navBar.text'))
+        .setButtonBackgroundColor(designToken('cashfreeCheckout.plan.button.background'))
+        .setButtonTextColor(designToken('cashfreeCheckout.plan.button.text'))
+        .setPrimaryTextColor(designToken('cashfreeCheckout.plan.text.primary'))
+        .setSecondaryTextColor(designToken('cashfreeCheckout.plan.text.secondary'))
         .build();
 
       const dropPayment = new CFDropCheckoutPayment(

@@ -72,7 +72,7 @@ import {
   friendlyPaymentError,
 } from '../utils/cashfreeEnv';
 
-import { designColor } from '../design/literalTokens';
+import { designColor, designToken } from '../design/literalTokens';
 
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 const PAN_RE = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
@@ -569,12 +569,12 @@ export default function CoursePurchaseSheet({ visible, onClose, course, onPurcha
       .add(CFPaymentModes.PAY_LATER)
       .build();
     const theme = new CFThemeBuilder()
-      .setNavigationBarBackgroundColor(designColor('16a34a'))
-      .setNavigationBarTextColor(designColor('ffffff'))
-      .setButtonBackgroundColor(designColor('16a34a'))
-      .setButtonTextColor(designColor('ffffff'))
-      .setPrimaryTextColor(designColor('111827'))
-      .setSecondaryTextColor(designColor('6b7280'))
+      .setNavigationBarBackgroundColor(designToken('cashfreeCheckout.course.navBar.background'))
+      .setNavigationBarTextColor(designToken('cashfreeCheckout.course.navBar.text'))
+      .setButtonBackgroundColor(designToken('cashfreeCheckout.course.button.background'))
+      .setButtonTextColor(designToken('cashfreeCheckout.course.button.text'))
+      .setPrimaryTextColor(designToken('cashfreeCheckout.course.text.primary'))
+      .setSecondaryTextColor(designToken('cashfreeCheckout.course.text.secondary'))
       .build();
     const dropPayment = new CFDropCheckoutPayment(session, paymentModes, theme);
     try {

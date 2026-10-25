@@ -14,7 +14,7 @@ import Config from 'react-native-config';
 import {useConfig} from '../../context/ConfigContext';
 import VoiceCallWebView from './VoiceCallWebView';
 
-import { designColor } from '../../design/literalTokens';
+import { designColor, designToken } from '../../design/literalTokens';
 
 /**
  * In-app support widget for the mobile app (chat-first, voice optional).
@@ -172,7 +172,7 @@ export default function SupportWidget({userEmail = '', visible = false}) {
           width: 56,
           height: 56,
           borderRadius: 28,
-          backgroundColor: designColor('2563eb'),
+          backgroundColor: designToken('supportWidget.launcher.background'),
           alignItems: 'center',
           justifyContent: 'center',
           elevation: 6,
@@ -214,9 +214,9 @@ export default function SupportWidget({userEmail = '', visible = false}) {
           justifyContent: 'space-between',
           paddingHorizontal: 14,
           paddingVertical: 12,
-          backgroundColor: designColor('2563eb'),
+          backgroundColor: designToken('supportWidget.header.background'),
         }}>
-        <Text style={{color: designColor('fff'), fontWeight: '600', fontSize: 15}}>{brandName} Support</Text>
+        <Text style={{color: designToken('supportWidget.header.text'), fontWeight: '600', fontSize: 15}}>{brandName} Support</Text>
         <View style={{flexDirection: 'row', alignItems: 'center'}}>
           {voiceAvailable && (
             <TouchableOpacity
@@ -234,7 +234,7 @@ export default function SupportWidget({userEmail = '', visible = false}) {
             </TouchableOpacity>
           )}
           <TouchableOpacity onPress={() => setOpen(false)}>
-            <Text style={{color: designColor('fff'), fontSize: 22}}>×</Text>
+            <Text style={{color: designToken('supportWidget.header.text'), fontSize: 22}}>×</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -257,14 +257,14 @@ export default function SupportWidget({userEmail = '', visible = false}) {
               paddingHorizontal: 12,
               paddingVertical: 9,
               borderRadius: 12,
-              backgroundColor: m.from === 'user' ? designColor('2563eb') : designColor('fff'),
+              backgroundColor: m.from === 'user' ? designToken('supportWidget.userBubble.background') : designColor('fff'),
               borderWidth: m.from === 'user' ? 0 : 1,
               borderColor: designColor('e2e8f0'),
             }}>
-            <Text style={{color: m.from === 'user' ? designColor('fff') : designColor('0f172a'), fontSize: 13.5, lineHeight: 19}}>{m.text}</Text>
+            <Text style={{color: m.from === 'user' ? designToken('supportWidget.userBubble.text') : designColor('0f172a'), fontSize: 13.5, lineHeight: 19}}>{m.text}</Text>
           </View>
         ))}
-        {sending && <ActivityIndicator style={{marginTop: 8}} color={designColor('2563eb')} />}
+        {sending && <ActivityIndicator style={{marginTop: 8}} color={designToken('supportWidget.spinner.color')} />}
       </ScrollView>
 
       {/* input */}
@@ -295,11 +295,11 @@ export default function SupportWidget({userEmail = '', visible = false}) {
             width: 40,
             height: 40,
             borderRadius: 20,
-            backgroundColor: designColor('2563eb'),
+            backgroundColor: designToken('supportWidget.sendButton.background'),
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-          <Text style={{color: designColor('fff'), fontSize: 16}}>➤</Text>
+          <Text style={{color: designToken('supportWidget.sendButton.text'), fontSize: 16}}>➤</Text>
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
