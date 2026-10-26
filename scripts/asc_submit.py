@@ -28,7 +28,9 @@ import jwt
 
 BASE = "https://api.appstoreconnect.apple.com"
 EDITABLE = {"PREPARE_FOR_SUBMISSION", "DEVELOPER_REJECTED", "REJECTED", "METADATA_REJECTED"}
-OPEN_SUBMISSION = {"READY_FOR_REVIEW", "WAITING_FOR_REVIEW", "IN_REVIEW", "UNRESOLVED_ISSUES"}
+# READY_FOR_REVIEW = a draft that was never sent (e.g. a run refused by Apple
+# after creating it). Apple will not cancel it, so it is reused instead.
+OPEN_SUBMISSION = {"WAITING_FOR_REVIEW", "IN_REVIEW", "UNRESOLVED_ISSUES"}
 
 
 def die(msg):
@@ -86,6 +88,7 @@ def main():
             "type": "builds", "id": build["id"], "attributes": {"usesNonExemptEncryption": False}}})
 
     subs = call("GET", f"/v1/reviewSubmissions?filter[app]={app_id}&filter[platform]=IOS&limit=20")["data"]
+    draft = next((s for s in subs if s["attributes"].get("state") == "READY_FOR_REVIEW"), None)
     waiting = [s for s in subs if s["attributes"].get("state") in OPEN_SUBMISSION]
     if waiting:
         if not a.replace_waiting:
@@ -148,13 +151,22 @@ def main():
             "attributes": {"socialMedia": a.age_rating_social_media == "true"}}})
         print(f"age rating: social media = {a.age_rating_social_media}")
 
-    sub = call("POST", "/v1/reviewSubmissions", {"data": {
-        "type": "reviewSubmissions", "attributes": {"platform": "IOS"},
-        "relationships": {"app": {"data": {"type": "apps", "id": app_id}}}}})["data"]
-    call("POST", "/v1/reviewSubmissionItems", {"data": {
-        "type": "reviewSubmissionItems",
-        "relationships": {"reviewSubmission": {"data": {"type": "reviewSubmissions", "id": sub["id"]}},
-                          "appStoreVersion": {"data": {"type": "appStoreVersions", "id": ver["id"]}}}}})
+    if draft:
+        sub = draft
+        print(f"reusing unsent draft submission {sub['id']}")
+        items = call("GET", f"/v1/reviewSubmissions/{sub['id']}/items?include=appStoreVersion")["data"]
+        has_version = any((i.get("relationships", {}).get("appStoreVersion", {}).get("data") or {})
+                          .get("id") == ver["id"] for i in items)
+    else:
+        sub = call("POST", "/v1/reviewSubmissions", {"data": {
+            "type": "reviewSubmissions", "attributes": {"platform": "IOS"},
+            "relationships": {"app": {"data": {"type": "apps", "id": app_id}}}}})["data"]
+        has_version = False
+    if not has_version:
+        call("POST", "/v1/reviewSubmissionItems", {"data": {
+            "type": "reviewSubmissionItems",
+            "relationships": {"reviewSubmission": {"data": {"type": "reviewSubmissions", "id": sub["id"]}},
+                              "appStoreVersion": {"data": {"type": "appStoreVersions", "id": ver["id"]}}}}})
     r = call("PATCH", f"/v1/reviewSubmissions/{sub['id']}", {"data": {
         "type": "reviewSubmissions", "id": sub["id"], "attributes": {"submitted": True}}})
     print(f"submitted {mv} ({num}) for review: {r['data']['attributes']['state']}")
