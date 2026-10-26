@@ -15,6 +15,8 @@ import useTokens from '../../theme/useTokens';
 
 import { designColor, designFont } from '../../design/literalTokens';
 
+const isTelegramIdShape = id => Boolean(id && id.length >= 5 && /^\d+$/.test(id));
+
 const TelegramCollectionModal = ({
     visible,
     onClose,
@@ -22,6 +24,13 @@ const TelegramCollectionModal = ({
     setTelegramId,
     onSave,
     validateTelegramId,
+    // The design screen (designs/default/screens/MPInvestNowModal.js) passes
+    // these names instead. Reading only the names above threw
+    // "validateTelegramId is not a function" on first render and closed the
+    // app right after a successful payment (2026-10-26).
+    initialValue,
+    onValueChange,
+    validateId,
 }) => {
     // Get dynamic colors from config
     const config = useConfig();
@@ -29,24 +38,36 @@ const TelegramCollectionModal = ({
 
     const [showInstructions, setShowInstructions] = useState(false);
     const [isSaving, setIsSaving] = useState(false);
+    const [localValue, setLocalValue] = useState(initialValue || '');
+
+    const value = telegramId !== undefined ? telegramId : localValue;
+    const isValidId = validateTelegramId || validateId || isTelegramIdShape;
+    const updateValue = next => {
+        if (setTelegramId) {
+            setTelegramId(next);
+        } else {
+            setLocalValue(next);
+        }
+        onValueChange?.(next);
+    };
 
     const handleSave = async () => {
-        if (!validateTelegramId(telegramId)) {
+        if (!isValidId(value)) {
             return;
         }
 
         setIsSaving(true);
-        await onSave(telegramId);
+        await onSave(value);
         setIsSaving(false);
         onClose();
     };
 
     const handleSkip = () => {
-        setTelegramId('skipped');
+        updateValue('skipped');
         onClose();
     };
 
-    const isValid = validateTelegramId(telegramId);
+    const isValid = Boolean(isValidId(value));
 
     return (
         <Modal
@@ -179,11 +200,11 @@ const TelegramCollectionModal = ({
                             </Text>
                             <TextInput
                                 style={styles.input}
-                                value={telegramId === 'skipped' ? '' : telegramId}
+                                value={value === 'skipped' ? '' : value}
                                 onChangeText={text => {
                                     // Only allow numbers
                                     const numericValue = text.replace(/\D/g, '');
-                                    setTelegramId(numericValue);
+                                    updateValue(numericValue);
                                 }}
                                 placeholder="Enter your Telegram ID (e.g., 123456789)"
                                 placeholderTextColor={designColor('9ca3af')}
