@@ -821,7 +821,7 @@ const BespokePerformanceScreen = ({ viewModel, actions, slots }) => {
                                                     {investmentMgmt.length > 0 && (
                                                         <View style={{ backgroundColor: '#F8FAFC', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', padding: 16, marginBottom: 12 }}>
                                                             <Text style={{ fontSize: 16, fontWeight: '700', color: mainColor, marginBottom: 6 }}>
-                                                                Investment Management
+                                                                Research Recommendations
                                                             </Text>
                                                             <Text style={{ fontSize: 14, color: '#334155', lineHeight: 20 }}>
                                                                 {investmentMgmt}
@@ -831,7 +831,7 @@ const BespokePerformanceScreen = ({ viewModel, actions, slots }) => {
                                                     {researchInv.length > 0 && (
                                                         <View style={{ backgroundColor: '#F8FAFC', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', padding: 16 }}>
                                                             <Text style={{ fontSize: 16, fontWeight: '700', color: mainColor, marginBottom: 6 }}>
-                                                                Research Investment
+                                                                Who Should Consider These Recommendations
                                                             </Text>
                                                             <Text style={{ fontSize: 14, color: '#334155', lineHeight: 20 }}>
                                                                 {researchInv}
@@ -846,7 +846,7 @@ const BespokePerformanceScreen = ({ viewModel, actions, slots }) => {
                                                     </Text>
                                                     <Text style={{ fontSize: 14, color: '#475569', marginBottom: 16, lineHeight: 20 }}>
                                                         Start by subscribing to our{' '}
-                                                        <Text style={{ fontWeight: '600', color: '#1F54DB' }}>Research Investment Plan</Text>
+                                                        <Text style={{ fontWeight: '600', color: '#1F54DB' }}>Research Recommendation Plan</Text>
                                                         . Once subscribed, you'll receive personalized{' '}
                                                         <Text style={{ fontWeight: '600' }}>buy/sell recommendations</Text>{' '}
                                                         directly from our certified RA/RIA professionals —
