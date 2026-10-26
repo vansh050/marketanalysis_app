@@ -1,6 +1,6 @@
 /**
  * Advisors whose dedicated IPv4 is disabled get no whitelist IP: the callout
- * shows "contact your advisor" and Connect stays locked. The shared advisor
+ * shows "contact your admin" and Connect stays locked. The shared advisor
  * IP must never be shown on a connect screen — Motilal lets only one user
  * register an IP (Kyzen, 2026-10-26). Shared by AlphaPro and every fork.
  */
@@ -17,7 +17,7 @@ describe('IPv4 not enabled for the advisor', () => {
     expect(i).toBeGreaterThan(-1);
     const block = callout.slice(i, i + 900);
     expect(block).toContain('brokerEntry?.message');
-    expect(block).toContain('contact your advisor');
+    expect(block).toContain('contact your admin');
     expect(block).not.toMatch(/IpAddressBox|onAcknowledgeChange\(true\)/);
   });
 

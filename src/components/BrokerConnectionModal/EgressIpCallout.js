@@ -31,7 +31,7 @@
  *                             compute_broker_status branch 1.
  *   9. `ipv4_not_enabled`   — IPv4-only broker on an advisor whose
  *                             dedicated IPv4 is disabled: no IP, a
- *                             "contact your advisor" message, Connect
+ *                             "contact your admin" message, Connect
  *                             stays locked (2026-10-26).
  *
  * Parent contract (identical to web):
@@ -1104,7 +1104,7 @@ const EgressIpCallout = ({
         <View style={[styles.card, styles.cardNeutral]}>
           <Text style={styles.bodyText}>
             {brokerEntry?.message ||
-              `A dedicated static IP for ${brokerDisplay} is not enabled for your account yet. Please contact your advisor to enable it, then connect again.`}
+              `A dedicated static IP for ${brokerDisplay} is not enabled for your account yet. Please contact your admin to enable it, then connect again.`}
           </Text>
         </View>
       </View>
