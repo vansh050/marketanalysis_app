@@ -29,6 +29,10 @@
  *                             Motilal Oswal / Angel One / Arihant — see
  *                             ccxt-india common/egress_registry.py
  *                             compute_broker_status branch 1.
+ *   9. `ipv4_not_enabled`   — IPv4-only broker on an advisor whose
+ *                             dedicated IPv4 is disabled: no IP, a
+ *                             "contact your advisor" message, Connect
+ *                             stays locked (2026-10-26).
  *
  * Parent contract (identical to web):
  *   <EgressIpCallout
@@ -370,7 +374,11 @@ const EgressIpCallout = ({
       });
       await fetchStatus();
     } catch (err) {
-      if (err.response?.status === 402 && err.response?.data?.plan) {
+      if (err.response?.data?.error_code === 'ipv4_not_enabled') {
+        // Advisor has not enabled dedicated IPv4: show the
+        // contact-your-advisor state from /egress/me, not an error.
+        await fetchStatus();
+      } else if (err.response?.status === 402 && err.response?.data?.plan) {
         // customer_pays advisor — show the subscribe sheet, not an error.
         setPaymentInfo(err.response.data);
         setVerifyMsg(null);
@@ -1080,6 +1088,24 @@ const EgressIpCallout = ({
           {errorMsg && (
             <Text style={[styles.bodyRed, {marginTop: 6}]}>{errorMsg}</Text>
           )}
+        </View>
+      </View>
+    );
+  }
+
+  // ipv4_not_enabled — the advisor has not enabled dedicated IPv4, so
+  // there is no IP to whitelist (the shared advisor IP is never offered:
+  // Motilal lets only one user register an IP). Connect stays locked.
+  if (brokerState === 'ipv4_not_enabled') {
+    return (
+      <View style={styles.container}>
+        {MigrationBanner}
+        {SetupGuide}
+        <View style={[styles.card, styles.cardNeutral]}>
+          <Text style={styles.bodyText}>
+            {brokerEntry?.message ||
+              `A dedicated static IP for ${brokerDisplay} is not enabled for your account yet. Please contact your advisor to enable it, then connect again.`}
+          </Text>
         </View>
       </View>
     );
