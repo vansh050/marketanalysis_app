@@ -141,7 +141,12 @@ def main():
                     "type": "appStoreVersionLocalizations", "id": loc["id"],
                     "attributes": {"whatsNew": a.notes[:4000]}}})
 
-    decl = call("GET", f"/v1/appStoreVersions/{ver['id']}/ageRatingDeclaration")["data"]
+    # The age rating lives on the app info being edited, not on the version.
+    live = {"READY_FOR_DISTRIBUTION", "READY_FOR_SALE", "REPLACED_WITH_NEW_INFO"}
+    infos = call("GET", f"/v1/apps/{app_id}/appInfos")["data"]
+    info = next((i for i in infos if (i["attributes"].get("state")
+                 or i["attributes"].get("appStoreState")) not in live), infos[0])
+    decl = call("GET", f"/v1/appInfos/{info['id']}/ageRatingDeclaration")["data"]
     if decl["attributes"].get("socialMedia") is None:
         if a.age_rating_social_media is None:
             die("Apple's age rating has no answer for 'social media'; re-run with "
