@@ -68,6 +68,22 @@ export function parseKiteRedirectStatus(url) {
   return null;
 }
 
+/**
+ * True for the AlphaQuark page Kite returns to after a basket, when it carries
+ * a final status. The app must read that status and close the window, never
+ * show the page: it is the web site, so the customer would be left browsing it
+ * inside the app (2026-10-26, "Page not found" then the web home page after
+ * Finish). The ccxt callback host is excluded so its server-side work runs.
+ */
+export function isPublisherAppReturnUrl(url) {
+  if (!parseKiteRedirectStatus(url)) return false;
+  const host = (String(url).match(/^https?:\/\/([^/?#:]+)/i) || [])[1];
+  if (!host) return false;
+  const h = host.toLowerCase();
+  if (h.startsWith('ccxt')) return false;
+  return h === 'alphaquark.in' || h.endsWith('.alphaquark.in');
+}
+
 export const ZERODHA_PUBLISHER_ORDER_KEY = 'stockDetailsZerodhaOrder';
 export const ZERODHA_PUBLISHER_ATTEMPT_KEY = 'zerodhaPublisherAttempt';
 export const ZERODHA_PUBLISHER_RETRY_GUARD_MS = 3 * 60 * 1000;

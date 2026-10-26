@@ -2349,6 +2349,7 @@ const MPReviewTradeModal = ({
   if (visible && isWebView) {
     return (
       <PublisherWebViewOverlay
+        stopAtAppReturn
         source={publisherWebViewSource}
         webViewRef={webViewRef}
         onClose={handlePublisherClose}

@@ -1106,13 +1106,18 @@ const RebalanceModal = ({
 
   // --- Zerodha Publisher Flow Functions ---
 
+  // Kite returns to <tenant>.alphaquark.in. The literal "test" pointed the
+  // return at test.alphaquark.in, which does not exist; use the tenant like
+  // the other Publisher flows.
+  const kiteReturnTenant =
+    configData?.config?.REACT_APP_HEADER_NAME || Config.REACT_APP_HEADER_NAME;
   const generateHtmlForm = (basket, apiKey) => {
     return `<html>
       <body>
         <form id="zerodhaForm" method="POST" action="https://kite.zerodha.com/connect/basket">
           <input type="hidden" name="api_key" value="${apiKey}" />
           <input type="hidden" name="data" value='${JSON.stringify(basket)}' />
-          <input type="hidden" name="redirect_params" value="test=true" />
+          <input type="hidden" name="redirect_params" value="${kiteReturnTenant}=true" />
         </form>
         <script>
           document.getElementById('zerodhaForm').submit();
@@ -4009,6 +4014,7 @@ const RebalanceModal = ({
   if (visible && webView) {
     return (
       <PublisherWebViewOverlay
+        stopAtAppReturn
         source={publisherWebViewSource}
         webViewRef={webViewRef}
         onClose={handlePublisherClose}

@@ -18,6 +18,7 @@ import {XIcon} from 'lucide-react-native';
 import {create} from 'zustand';
 
 import { designColor } from '../design/literalTokens';
+import {isPublisherAppReturnUrl} from '../utils/publisherOutcome';
 
 const usePublisherWebViewStore = create(set => ({
   owner: null,
@@ -66,6 +67,9 @@ const PublisherWebViewOverlay = props => {
 
 export const PublisherWebViewHost = React.memo(() => {
   const config = usePublisherWebViewStore(state => state.config);
+  // The app-return URL already handed to the owner in this session, so the
+  // same return is not reported twice (it advances a two-phase basket).
+  const handledReturnRef = useRef({config: null, url: null});
   if (!config) {
     return null;
   }
@@ -75,8 +79,36 @@ export const PublisherWebViewHost = React.memo(() => {
     webViewRef,
     onClose,
     webViewStyle,
+    stopAtAppReturn,
+    onShouldStartLoadWithRequest,
+    onNavigationStateChange,
     ...webViewProps
   } = config;
+
+  if (handledReturnRef.current.config !== config) {
+    handledReturnRef.current = {config, url: null};
+  }
+
+  // Kite flows set stopAtAppReturn: when the window is about to open the
+  // AlphaQuark page Kite returns to, report its status and do not load it.
+  const handleShouldStart = request => {
+    const url = request?.url;
+    if (stopAtAppReturn && isPublisherAppReturnUrl(url)) {
+      if (handledReturnRef.current.url !== url) {
+        handledReturnRef.current.url = url;
+        onNavigationStateChange?.({...request, url, loading: false});
+      }
+      return false;
+    }
+    return onShouldStartLoadWithRequest ? onShouldStartLoadWithRequest(request) : true;
+  };
+
+  const handleNavigationStateChange = state => {
+    if (stopAtAppReturn && state?.url && state.url === handledReturnRef.current.url) {
+      return;
+    }
+    onNavigationStateChange?.(state);
+  };
 
   return (
     <SafeAreaView style={styles.overlay} testID="publisher-webview-host">
@@ -101,6 +133,8 @@ export const PublisherWebViewHost = React.memo(() => {
         sharedCookiesEnabled={true}
         keyboardDisplayRequiresUserAction={false}
         {...webViewProps}
+        onShouldStartLoadWithRequest={handleShouldStart}
+        onNavigationStateChange={handleNavigationStateChange}
       />
     </SafeAreaView>
   );
