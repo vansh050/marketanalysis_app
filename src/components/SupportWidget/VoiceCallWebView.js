@@ -4,10 +4,12 @@
  * react-native-webview.
  *
  * Flow:
- *   1. POST /voice/token with the app's `aq-encrypted-key` (same HS256 token the
- *      app signs for every API call) → the brain returns a short-lived (120s)
- *      signed voice token carrying {advisor, senderRef}. This gates the endpoint
- *      so randoms can't hit /voice to start (cost-incurring) calls.
+ *   1. POST {Node}/api/support/voice-token as the signed-in user (Firebase
+ *      bearer + the issued app-session token the interceptor puts in
+ *      `aq-encrypted-key`). Node checks the advisor's voice flag and returns a
+ *      short-lived (120s) voice token + its /voice URL. Tenant and email come
+ *      from the verified session, so the app does not choose them. (The brain's
+ *      old app-key POST /voice/token returns 410: app keys ship in the binary.)
  *   2. Load GET /voice?token=<token> in the WebView. The brain serves the page +
  *      a bundled Vapi WEB SDK (/voice-sdk.js) — no third-party CDN, real https
  *      secure context for getUserMedia. The Vapi PUBLIC key + assistant id live
@@ -23,10 +25,35 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {View} from 'react-native';
 import {WebView} from 'react-native-webview';
+import axios from 'axios';
 import Config from '../../config/env';
+import server from '../../utils/serverConfig';
 import {generateToken} from '../../utils/SecurityTokenManager';
+import {getTenantSubdomain} from '../../utils/variantHelper';
+import {getCustomerAuthHeaders} from '../../utils/customerAuthHeaders';
 
 const BRAIN = 'https://customersupport.alphaquark.in';
+
+/** Ask Node for a voice token for the signed-in user; returns the /voice URL. */
+export async function fetchVoiceUrl() {
+  const customerHeaders = (await getCustomerAuthHeaders()) || {};
+  const res = await axios.post(
+    `${server.server.baseUrl}api/support/voice-token`,
+    {surface: 'customer'},
+    {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Advisor-Subdomain': getTenantSubdomain(),
+        'aq-encrypted-key': generateToken(Config.REACT_APP_AQ_KEYS, Config.REACT_APP_AQ_SECRET),
+        ...customerHeaders,
+      },
+      timeout: 15000,
+    },
+  );
+  const data = res && res.data;
+  if (!data || !data.token) throw new Error('no_token');
+  return data.voiceUrl || `${BRAIN}/voice?token=${encodeURIComponent(data.token)}`;
+}
 
 export default function VoiceCallWebView({metadata, onStatus = () => {}}) {
   const ref = useRef(null);
@@ -34,29 +61,18 @@ export default function VoiceCallWebView({metadata, onStatus = () => {}}) {
   const advisor = (metadata && metadata.advisor) || '';
   const senderRef = (metadata && metadata.senderRef) || 'app_user';
 
-  // Fetch a short-lived voice token (proving we're a real app via aq-encrypted-key),
+  // Fetch a short-lived voice token from Node as the signed-in user,
   // then load the gated page. Runs on mount (the widget mounts only during a call).
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const aqKey = generateToken(
-          Config.REACT_APP_AQ_KEYS,
-          Config.REACT_APP_AQ_SECRET,
-        );
-        const res = await fetch(`${BRAIN}/voice/token`, {
-          method: 'POST',
-          headers: {'content-type': 'application/json', 'aq-encrypted-key': aqKey},
-          body: JSON.stringify({advisor, senderRef}),
-        });
-        if (!res.ok) throw new Error('token_http_' + res.status);
-        const data = await res.json().catch(() => ({}));
-        if (!data || !data.token) throw new Error('no_token');
-        if (!cancelled) {
-          setUri(`${BRAIN}/voice?token=${encodeURIComponent(data.token)}`);
-        }
+        const url = await fetchVoiceUrl();
+        if (!cancelled) setUri(url);
       } catch (e) {
-        if (!cancelled) onStatus('error', String((e && e.message) || e));
+        const code = e && e.response && e.response.data && e.response.data.code;
+        const status = e && e.response && e.response.status;
+        if (!cancelled) onStatus('error', code || (status ? 'token_http_' + status : String((e && e.message) || e)));
       }
     })();
     return () => {
