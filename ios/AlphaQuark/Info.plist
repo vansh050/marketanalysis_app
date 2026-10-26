@@ -18,6 +18,18 @@ BQIDAQAB
 	<false/>
 	<key/>
 	<string/>
+	<!-- UPI intent: lets the Cashfree SDK detect and open installed UPI apps -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>phonepe</string>
+		<string>tez</string>
+		<string>gpay</string>
+		<string>paytm</string>
+		<string>paytmmp</string>
+		<string>bhim</string>
+		<string>credpay</string>
+		<string>upi</string>
+	</array>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
