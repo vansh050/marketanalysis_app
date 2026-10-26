@@ -21,6 +21,10 @@ on:
         description: 'Hold for manual release after approval'
         required: false
         default: 'false'
+      age_rating_social_media:
+        description: "Answer to Apple's age-rating 'social media' question if it is blank (true/false)"
+        required: false
+        default: ''
 
 jobs:
   submit:
@@ -37,6 +41,7 @@ jobs:
           IN_NOTES: ${{ inputs.notes }}
           IN_REPLACE: ${{ inputs.replace_waiting }}
           IN_MANUAL: ${{ inputs.manual_release }}
+          IN_SOCIAL: ${{ inputs.age_rating_social_media }}
         run: |
           set -euo pipefail
           pip install --quiet pyjwt cryptography
@@ -47,4 +52,5 @@ jobs:
           [ -n "$IN_NOTES" ] && args+=(--notes "$IN_NOTES")
           [ "$IN_REPLACE" = "true" ] && args+=(--replace-waiting)
           [ "$IN_MANUAL" = "true" ] && args+=(--manual-release)
+          [ -n "$IN_SOCIAL" ] && args+=(--age-rating-social-media "$IN_SOCIAL")
           python3 scripts/asc_submit.py "${args[@]}"

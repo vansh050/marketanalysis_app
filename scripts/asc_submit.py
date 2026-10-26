@@ -6,7 +6,10 @@ Run by .github/workflows/ios-submit.yml with the same secrets as ios-build.yml.
 Env: ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_PATH (the .p8), ASC_BUNDLE_ID.
 Args: --build N (default: newest VALID build), --notes "What's new",
       --replace-waiting (cancel a submission already waiting for review and put
-      this build in its place), --manual-release.
+      this build in its place), --manual-release, --age-rating-social-media
+      true|false (answers Apple's age-rating "social media" question when it is
+      still blank; the answer is the app owner's declaration, so it is never
+      guessed).
 
 Refuses unless the build is VALID. The App Store version string is the build's
 marketing version: an editable version with that string is reused, otherwise a
@@ -58,6 +61,7 @@ def main():
     ap.add_argument("--notes", default="")
     ap.add_argument("--replace-waiting", action="store_true")
     ap.add_argument("--manual-release", action="store_true")
+    ap.add_argument("--age-rating-social-media", choices=["true", "false"])
     a = ap.parse_args()
 
     apps = call("GET", f"/v1/apps?filter[bundleId]={os.environ['ASC_BUNDLE_ID']}")["data"]
@@ -133,6 +137,16 @@ def main():
                 call("PATCH", f"/v1/appStoreVersionLocalizations/{loc['id']}", {"data": {
                     "type": "appStoreVersionLocalizations", "id": loc["id"],
                     "attributes": {"whatsNew": a.notes[:4000]}}})
+
+    decl = call("GET", f"/v1/appStoreVersions/{ver['id']}/ageRatingDeclaration")["data"]
+    if decl["attributes"].get("socialMedia") is None:
+        if a.age_rating_social_media is None:
+            die("Apple's age rating has no answer for 'social media'; re-run with "
+                "age_rating_social_media true or false (the app owner's declaration)")
+        call("PATCH", f"/v1/ageRatingDeclarations/{decl['id']}", {"data": {
+            "type": "ageRatingDeclarations", "id": decl["id"],
+            "attributes": {"socialMedia": a.age_rating_social_media == "true"}}})
+        print(f"age rating: social media = {a.age_rating_social_media}")
 
     sub = call("POST", "/v1/reviewSubmissions", {"data": {
         "type": "reviewSubmissions", "attributes": {"platform": "IOS"},
