@@ -212,6 +212,19 @@ const DhanConnectModal = ({
   const handleWebViewNavigationStateChange = navState => {
     const url = navState?.url;
     if (!url || hasProcessedCallback.current) return;
+    // ccxt's error branches return to the tenant page with status=error.
+    // Stop there instead of leaving the customer on the web site.
+    if (/[?&]status=error\b/.test(url) && /[?&]error=/.test(url)) {
+      hasProcessedCallback.current = true;
+      const match = url.match(/[?&]error=([^&#]*)/);
+      let reason = 'Dhan login failed';
+      try {
+        reason = decodeURIComponent((match?.[1] || '').replace(/\+/g, ' ')) || reason;
+      } catch {}
+      showAlert('error', 'Connection failed', reason);
+      onClose?.();
+      return;
+    }
     if (!url.includes('dhan_client_id=') || !url.includes('dhan_access_token=')) return;
     const query = url.split('?')[1];
     if (!query) return;

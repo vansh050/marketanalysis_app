@@ -84,3 +84,26 @@ describe('PublisherWebViewHost app return', () => {
     expect(onNav).not.toHaveBeenCalled();
   });
 });
+
+describe('other broker returns (2026-10-26 audit)', () => {
+  const {classifyZerodhaAuthReturn} = require('../../utils/publisherOutcome');
+  const fs = require('fs');
+  const path = require('path');
+  const read = rel => fs.readFileSync(path.join(__dirname, '../..', rel), 'utf8');
+
+  it('classifies the Zerodha CDSL authorisation return', () => {
+    expect(
+      classifyZerodhaAuthReturn('https://ccxtprod.alphaquark.in/zerodha/callback?type=holdings_auth&status=success&request_id=x'),
+    ).toBe('success');
+    expect(
+      classifyZerodhaAuthReturn('https://prod.alphaquark.in/stock-recommendation/?type=holdings_auth&status=cancelled'),
+    ).toBe('other');
+    expect(classifyZerodhaAuthReturn('https://x/?callback_url=1')).toBe('success');
+    expect(classifyZerodhaAuthReturn('https://kite.zerodha.com/connect/portfolio/authorise/holdings/k/r')).toBeNull();
+  });
+
+  it('Dhan and AliceBlue stop on ccxt error returns', () => {
+    expect(read('components/BrokerConnectionModal/DhanConnectModal.js')).toMatch(/status=error/);
+    expect(read('components/BrokerConnectionModal/AliceBlueConnect.js')).toContain("status && status !== '0'");
+  });
+});

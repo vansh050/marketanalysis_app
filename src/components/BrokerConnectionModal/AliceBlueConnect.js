@@ -247,7 +247,8 @@ const AliceBlueConnect = ({
       const accessToken = queryParams.access_token;
       const clientId = queryParams.client_id;
 
-      if (status === '1') {
+      // ccxt sends status=2 from its exception branch; anything but 0 failed.
+      if (status && status !== '0') {
         // AliceBlue connection failed
         const errorMsg = queryParams.error || 'Connection failed';
         console.error('[AliceBlue] OAuth failed:', errorMsg);

@@ -1,4 +1,5 @@
 import React, {useState, useEffect, useRef} from 'react';
+import {classifyZerodhaAuthReturn} from '../utils/publisherOutcome';
 import {
   Modal,
   View,
@@ -109,6 +110,7 @@ export default function DdpiModal({
       //  console.log("API Response:", data);
 
       if (data.status === 0) {
+        zerodhaAuthHandledRef.current = false;
         setAuthUrl(data.auth_url); // Set the authentication URL to open in WebView
         // Do NOT show confirmation overlay yet — user needs to complete
         // the CDSL TPIN + OTP flow in the WebView first. The overlay
@@ -178,6 +180,26 @@ export default function DdpiModal({
     }
   };
 
+  // Kite returns from the CDSL authorisation with type=holdings_auth and a
+  // status (through ccxt /zerodha/callback, then the tenant page). Older
+  // returns carried callback_url. Close the window on either; never show the
+  // web page it lands on. Returns true when the URL was a return.
+  const zerodhaAuthHandledRef = useRef(false);
+  const handleZerodhaAuthReturn = url => {
+    const outcome = classifyZerodhaAuthReturn(url);
+    if (!outcome) return false;
+    if (zerodhaAuthHandledRef.current) return true;
+    zerodhaAuthHandledRef.current = true;
+    setAuthUrl(null);
+    if (outcome === 'success') {
+      // CDSL TPIN + OTP completed — proceed without the manual checkbox.
+      handleProceed();
+    } else {
+      setShowTpinConfirmation(true);
+    }
+    return true;
+  };
+
   return (
     <>
       <Modal
@@ -239,21 +261,11 @@ export default function DdpiModal({
           onLoadEnd={() => console.log('WebView loading finished')}
           onNavigationStateChange={event => {
             console.log('url zerodha:', event.url);
-            if (event.url.includes('callback_url')) {
-              setAuthUrl(null);
-              // Auto-proceed — CDSL TPIN + OTP completed successfully.
-              // No need for manual "I've authorized" checkbox.
-              handleProceed();
-            }
+            handleZerodhaAuthReturn(event.url);
           }}
-          onShouldStartLoadWithRequest={request => {
-            if (request.url.includes('callback_url')) {
-              setAuthUrl(null);
-              handleProceed();
-              return false;
-            }
-            return true;
-          }}
+          onShouldStartLoadWithRequest={request =>
+            !handleZerodhaAuthReturn(request.url)
+          }
           renderLoading={() => <ActivityIndicator size="large" color={designColor('000')} />}
           onClose={() => {
             setAuthUrl(null);

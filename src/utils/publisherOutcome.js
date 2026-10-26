@@ -84,6 +84,19 @@ export function isPublisherAppReturnUrl(url) {
   return h === 'alphaquark.in' || h.endsWith('.alphaquark.in');
 }
 
+/**
+ * Zerodha CDSL holdings authorisation return. Kite comes back with
+ * type=holdings_auth and a status (older returns carried callback_url).
+ * Returns 'success', 'other' (cancelled/failed: ask the customer), or null
+ * when the URL is not a return.
+ */
+export function classifyZerodhaAuthReturn(url) {
+  if (typeof url !== 'string') return null;
+  if (url.includes('callback_url')) return 'success';
+  if (!/[?&]type=holdings_auth(?:[&#]|$)/i.test(url)) return null;
+  return parseKiteRedirectStatus(url) === 'success' ? 'success' : 'other';
+}
+
 export const ZERODHA_PUBLISHER_ORDER_KEY = 'stockDetailsZerodhaOrder';
 export const ZERODHA_PUBLISHER_ATTEMPT_KEY = 'zerodhaPublisherAttempt';
 export const ZERODHA_PUBLISHER_RETRY_GUARD_MS = 3 * 60 * 1000;
