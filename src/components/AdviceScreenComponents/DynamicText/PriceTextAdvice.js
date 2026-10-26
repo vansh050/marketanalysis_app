@@ -7,7 +7,7 @@ import Icon1 from 'react-native-vector-icons/FontAwesome';
 import WebSocketManager from "./WebSocketManager";
 import { isPriceInRecommendedRange } from "../../../utils/recommendationPnl";
 
-import { designColor, designFont } from '../../../design/literalTokens';
+import { designColor, designFont, designToken } from '../../../design/literalTokens';
 
 const PriceTextAdvice = React.memo(({ closurestatus, type, action, symbol, advisedPrice, advisedRangeCondition, Exchange, advisedRangeHigher, advisedRangeLower, priceOverride }) => {
   // const [price, setPrice] = useState(null);
@@ -145,7 +145,7 @@ const styles = StyleSheet.create({
   priceText1: {
     fontSize: 13,
     fontFamily: designFont('Poppins-Medium'),
-    color: designColor('000000ff'),
+    color: designToken('priceTextAdvice.mainLtp.color'),
     marginTop: 0,
   },
   redalert: {
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
   },
   value1: {
     fontSize: 13,
-    color: designColor('000'),
+    color: designToken('priceTextAdvice.value.color'),
     marginBottom: 4,
     fontFamily: designFont('Satoshi-Medium'),
   },

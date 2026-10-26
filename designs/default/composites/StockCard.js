@@ -51,6 +51,7 @@
  */
 
 import React from 'react';
+import {designToken} from '../../../src/design/literalTokens';
 import {
   View,
   Text,
@@ -226,9 +227,9 @@ const StockCard = ({ viewModel, actions, slots }) => {
                       style={{
                         padding: 6,
                         borderRadius: 20,
-                        backgroundColor: '#EBF5FF',
+                        backgroundColor: designToken('stockCard.attachment.backgroundColor'),
                       }}>
-                      <Paperclip size={16} color="#0056B7" />
+                      <Paperclip size={16} color={designToken('stockCard.attachment.iconColor')} />
                     </TouchableOpacity>
                   )}
                   {showExitBadge && (
@@ -376,16 +377,16 @@ const StockCard = ({ viewModel, actions, slots }) => {
               {(formattedPlanName || positionStatus) ? (
                 <View style={{flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 2, paddingHorizontal: 3.5}}>
                   {formattedPlanName ? (
-                    <Text style={{fontSize: 11, fontFamily: 'Poppins-Regular', color: '#6B7280'}}>
+                    <Text style={{fontSize: 11, fontFamily: 'Poppins-Regular', color: designToken('stockCard.planText.color')}}>
                       Plan: {formattedPlanName}
                     </Text>
                   ) : <View />}
                   {positionStatus ? (
                     <View style={{
-                      backgroundColor: positionStatus === 'Open' ? '#DCFCE7' : '#F3F4F6',
+                      backgroundColor: positionStatus === 'Open' ? designToken('stockCard.statusPill.open.backgroundColor') : designToken('stockCard.statusPill.other.backgroundColor'),
                       paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4,
                     }}>
-                      <Text style={{fontSize: 10, fontFamily: 'Poppins-Medium', color: positionStatus === 'Open' ? '#16A34A' : '#6B7280'}}>
+                      <Text style={{fontSize: 10, fontFamily: 'Poppins-Medium', color: positionStatus === 'Open' ? designToken('stockCard.statusPill.open.textColor') : designToken('stockCard.statusPill.other.textColor')}}>
                         {/* A filled entry reads "Holding": testers took
                             "Open" to mean the order was still pending
                             (2026-10-22). Unfilled advice keeps its status. */}
@@ -493,7 +494,7 @@ const StockCard = ({ viewModel, actions, slots }) => {
                       <Text
                         style={[
                           styles.addButtonText,
-                          {color: isSelected ? '#fff' : '#000'},
+                          {color: isSelected ? '#fff' : designToken('stockCard.secondaryButton.textColor')},
                         ]}>
                         {isSelected ? 'Remove' : 'Add to Cart'}
                       </Text>
@@ -542,7 +543,7 @@ const StockCard = ({ viewModel, actions, slots }) => {
                           alignContent: 'center',
                           alignItems: 'center',
                         }}>
-                        <MoveHorizontal size={14} color={'#475569'} />
+                        <MoveHorizontal size={14} color={designToken('stockCard.text.secondary')} />
                         <Text style={styles.label}>Recommended Range</Text>
                       </View>
 
@@ -575,7 +576,7 @@ const StockCard = ({ viewModel, actions, slots }) => {
                 <View style={styles.footer}>
                   <CalendarDays
                     size={18}
-                    color="#475569"
+                    color={designToken('stockCard.text.secondary')}
                     style={styles.iconSpacing}
                   />
                   <Text
@@ -617,7 +618,7 @@ const StockCard = ({ viewModel, actions, slots }) => {
                         <MinusIcon
                           style={{opacity: !advisedRangeCondition ? 0.6 : 1}}
                           size={16}
-                          color="#475569"
+                          color={designToken('stockCard.text.secondary')}
                         />
                       </TouchableOpacity>
                       <TextInput
@@ -637,7 +638,7 @@ const StockCard = ({ viewModel, actions, slots }) => {
                         <PlusIcon
                           style={{opacity: !advisedRangeCondition ? 0.6 : 1}}
                           size={16}
-                          color="#475569"
+                          color={designToken('stockCard.text.secondary')}
                         />
                       </TouchableOpacity>
                     </View>
@@ -797,7 +798,7 @@ const StockCard = ({ viewModel, actions, slots }) => {
 
 const styles = StyleSheet.create({
   manualPlacementButton: {alignSelf: 'flex-start', marginHorizontal: 15, marginBottom: 10, paddingVertical: 4},
-  manualPlacementText: {fontSize: 12, color: '#1D4ED8', fontFamily: 'Satoshi-SemiBold', textDecorationLine: 'underline'},
+  manualPlacementText: {fontSize: 12, color: designToken('stockCard.link.color'), fontFamily: 'Satoshi-SemiBold', textDecorationLine: 'underline'},
   container: {
     position: 'relative',
     marginHorizontal: 5,
@@ -812,9 +813,9 @@ const styles = StyleSheet.create({
     left: 2,
     right: 2,
     bottom: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.25)',
+    backgroundColor: designToken('stockCard.surface.backgroundColor'),
     borderRadius: 16,
-    shadowColor: 'rgba(255, 255, 255, 0.5)',
+    shadowColor: designToken('stockCard.surface.shadowColor'),
     shadowOffset: {width: 0, height: 0},
     shadowOpacity: 1,
     shadowRadius: 10,
@@ -834,11 +835,11 @@ const styles = StyleSheet.create({
   },
   addButton: {
     flex: 1,
-    backgroundColor: '#E8E8E880',
+    backgroundColor: designToken('stockCard.secondaryButton.backgroundColor'),
     borderRadius: 3,
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderColor: 'rgba(71, 85, 105, 0.3)',
+    borderColor: designToken('stockCard.secondaryButton.borderColor'),
     flexDirection: 'row',
     shadowColor: 'rgba(51, 65, 85, 0.4)',
     shadowOffset: {width: 0, height: 2},
@@ -850,7 +851,7 @@ const styles = StyleSheet.create({
     fontFamily: 'Poppins-Medium',
     fontSize: 12,
     marginTop: 2,
-    color: '#000',
+    color: designToken('stockCard.secondaryButton.textColor'),
   },
   footer: {
     flexDirection: 'row',
@@ -862,7 +863,7 @@ const styles = StyleSheet.create({
   },
   dateText: {
     fontSize: 10,
-    color: '#64748B',
+    color: designToken('stockCard.text.muted'),
     fontFamily: 'Poppins-Medium',
   },
   header: {
@@ -870,7 +871,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingBottom: 5,
-    borderBottomColor: 'rgba(226, 232, 240, 0.6)',
+    borderBottomColor: designToken('stockCard.divider.color'),
     borderBottomWidth: 1,
   },
   symbolContainer: {
@@ -881,7 +882,7 @@ const styles = StyleSheet.create({
   symbol: {
     fontSize: 14,
     fontFamily: 'Poppins-SemiBold',
-    color: '#0F172A',
+    color: designToken('stockCard.text.primary'),
     letterSpacing: 0.2,
   },
   actionBadge: {
@@ -954,7 +955,7 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 11,
-    color: '#0056B7',
+    color: designToken('stockCard.label.color'),
     marginBottom: 0,
     marginRight: 0,
     fontFamily: 'Poppins-Medium',
@@ -962,7 +963,7 @@ const styles = StyleSheet.create({
   },
   label1: {
     fontSize: 11,
-    color: '#0056B7',
+    color: designToken('stockCard.label.color'),
     marginBottom: 5,
     marginRight: 8,
     marginLeft: 0,
@@ -971,28 +972,28 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   animatedSection: {
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
+    backgroundColor: designToken('stockCard.expanded.backgroundColor'),
     borderBottomLeftRadius: 10,
     borderBottomRightRadius: 10,
     marginHorizontal: 15,
   },
   value: {
     fontSize: 15,
-    color: '#0369A1',
+    color: designToken('stockCard.value.color'),
     marginBottom: 4,
     fontFamily: 'Satoshi-Bold',
   },
   value1: {
     fontSize: 11,
-    color: '#0F172A',
+    color: designToken('stockCard.text.primary'),
     fontFamily: 'Poppins-Medium',
     fontWeight: '600',
   },
   quantityContainer: {
     flex: 1.2,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    backgroundColor: designToken('stockCard.quantity.backgroundColor'),
     borderWidth: 1.5,
-    borderColor: 'rgba(203, 213, 225, 0.6)',
+    borderColor: designToken('stockCard.quantity.borderColor'),
     borderRadius: 12,
     paddingVertical: 6,
     paddingHorizontal: 12,
@@ -1004,7 +1005,7 @@ const styles = StyleSheet.create({
   },
   quantityLabel: {
     fontSize: 12,
-    color: '#64748B',
+    color: designToken('stockCard.text.muted'),
     fontFamily: 'Satoshi-Medium',
     marginBottom: 4,
   },
@@ -1017,9 +1018,9 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 6,
-    backgroundColor: 'rgba(241, 245, 249, 0.8)',
+    backgroundColor: designToken('stockCard.quantity.buttonBackground'),
     borderWidth: 1,
-    borderColor: 'rgba(226, 232, 240, 0.6)',
+    borderColor: designToken('stockCard.quantity.buttonBorder'),
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1031,7 +1032,7 @@ const styles = StyleSheet.create({
   },
   tradeButton: {
     flex: 1,
-    backgroundColor: '#0056B7',
+    backgroundColor: designToken('stockCard.primaryButton.backgroundColor'),
     alignContent: 'center',
     alignSelf: 'center',
     borderRadius: 3,
@@ -1086,7 +1087,7 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   tradeButtonText: {
-    color: '#FFFFFF',
+    color: designToken('stockCard.primaryButton.textColor'),
     fontSize: 12,
     fontFamily: 'Poppins-Medium',
     marginTop: 2,
@@ -1108,22 +1109,22 @@ const styles = StyleSheet.create({
     height: 24,
     padding: 0,
     width: 40,
-    color: '#0F172A',
+    color: designToken('stockCard.text.primary'),
     fontSize: 14,
     fontFamily: 'Satoshi-Bold',
     textAlign: 'center',
     alignContent: 'center',
     alignItems: 'center',
     alignSelf: 'center',
-    borderColor: '#CBD5E1',
+    borderColor: designToken('stockCard.quantity.inputBorder'),
     borderRadius: 4,
   },
   cancelButton: {
     flex: 1,
-    backgroundColor: 'rgba(241, 245, 249, 0.8)',
+    backgroundColor: designToken('stockCard.quantity.buttonBackground'),
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: 'rgba(226, 232, 240, 0.6)',
+    borderColor: designToken('stockCard.quantity.buttonBorder'),
     paddingVertical: 10,
     paddingHorizontal: 16,
     alignItems: 'center',
@@ -1135,14 +1136,14 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   cancelButtonText: {
-    color: '#64748B',
+    color: designToken('stockCard.text.muted'),
     fontSize: 14,
     fontFamily: 'Satoshi-Medium',
     fontWeight: '500',
   },
   symbolBreakdownText: {
     fontSize: 11,
-    color: '#475569',
+    color: designToken('stockCard.text.secondary'),
     fontFamily: 'Poppins-Regular',
     letterSpacing: 0.3,
   },
@@ -1154,7 +1155,7 @@ const styles = StyleSheet.create({
   },
   slPtLabel: {
     fontSize: 10,
-    color: '#64748B',
+    color: designToken('stockCard.text.muted'),
     fontFamily: 'Poppins-Medium',
   },
   rangeWarningText: {
@@ -1165,7 +1166,7 @@ const styles = StyleSheet.create({
   },
   slPtValue: {
     fontSize: 11,
-    color: '#0F172A',
+    color: designToken('stockCard.text.primary'),
     fontFamily: 'Poppins-SemiBold',
   },
   statusBadge: {
