@@ -96,6 +96,18 @@ const FyersConnect = ({
   const brokerConnectRedirectURL =
     configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL;
 
+  // Any failure after Connect Fyers must hand the form back. `loading` locks
+  // the back arrow, Android back and the submit button, so leaving it set
+  // after a failed exchange or save trapped the customer on this sheet until
+  // they killed the app (Kyzen, 2026-10-27). The stale auth code and token
+  // are cleared too, so the next attempt starts a fresh login.
+  const resetAfterFailure = () => {
+    hasConnectedFyers.current = false;
+    setFyersAuthCode(null);
+    setFyersAccessToken(null);
+    setLoading(false);
+  };
+
   const userEmail = getAccountEmail();
   const [helpVisible, setHelpVisible] = useState(false);
 
@@ -274,7 +286,7 @@ const FyersConnect = ({
           }
         })
         .catch(error => {
-          hasConnectedFyers.current = false;
+          resetAfterFailure();
           setAutoStartFailed(true);
           recordFyersBreadcrumb('token_exchange_failed', {
             phase: 'exchange',
@@ -335,6 +347,7 @@ const FyersConnect = ({
         .request(config)
         .then(async response => {
           recordFyersBreadcrumb('connection_saved', {phase: 'persist'});
+          setLoading(false);
 
           // Update model portfolio with broker information
           recordFyersBreadcrumb('reconciliation_started', {phase: 'post_connect'});
@@ -384,6 +397,8 @@ const FyersConnect = ({
           }
         })
         .catch(error => {
+          resetAfterFailure();
+          setAutoStartFailed(true);
           recordFyersBreadcrumb('connection_save_failed', {
             phase: 'persist',
             errorCode: error?.response?.status
@@ -418,6 +433,7 @@ const FyersConnect = ({
 
   const handleClose = () => {
     setShowWebView(false);
+    resetAfterFailure();
   };
 
   const checkValidApiAnSecret = details => {
@@ -514,6 +530,8 @@ const FyersConnect = ({
       sheet.current?.dismiss();
       reauthHydratedRef.current = false;
       redirectMismatchHandled.current = false;
+      setShowWebView(false);
+      resetAfterFailure();
     }
   }, [isVisible]);
 

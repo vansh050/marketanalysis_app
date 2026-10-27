@@ -69,3 +69,31 @@ describe('Fyers OAuth render contract', () => {
     expect(ui).toContain('onContentProcessDidTerminate={handleWebViewRenderProcessGone}');
   });
 });
+
+describe('Fyers connect never traps the customer after a failure', () => {
+  const resets = (marker) => {
+    const at = source.indexOf(marker);
+    expect(at).toBeGreaterThan(-1);
+    return source.slice(at, at + 400);
+  };
+
+  test('one helper clears loading and the stale login', () => {
+    const helper = resets('const resetAfterFailure = () => {');
+    expect(helper).toContain('setLoading(false);');
+    expect(helper).toContain('setFyersAuthCode(null);');
+    expect(helper).toContain('setFyersAccessToken(null);');
+    expect(helper).toContain('hasConnectedFyers.current = false;');
+  });
+
+  test('a failed token exchange, a failed save and closing the login page all reset', () => {
+    expect(resets('.catch(error => {\n          resetAfterFailure();\n          setAutoStartFailed(true);\n          recordFyersBreadcrumb(\'token_exchange_failed\'')).toBeTruthy();
+    expect(source).toContain("resetAfterFailure();\n          setAutoStartFailed(true);\n          recordFyersBreadcrumb('connection_save_failed'");
+    expect(resets('const handleClose = () => {')).toContain('resetAfterFailure();');
+  });
+
+  test('hiding the sheet resets the flow so reopening shows a usable form', () => {
+    const hide = resets('sheet.current?.dismiss();');
+    expect(hide).toContain('setShowWebView(false);');
+    expect(hide).toContain('resetAfterFailure();');
+  });
+});
