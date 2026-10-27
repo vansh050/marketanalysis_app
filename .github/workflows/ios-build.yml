@@ -31,6 +31,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # Without the react-native-config .env the app ships with no server URLs or
+      # API keys and every server call fails (AlphaPro iOS 2.7, 2026-10).
+      # APP_ENV_FILE = the full .env used for this app's Android build.
+      - name: Restore and verify mobile runtime configuration
+        env:
+          APP_ENV_FILE: ${{ secrets.APP_ENV_FILE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APP_ENV_FILE:-}" ]; then
+            echo "ERROR: APP_ENV_FILE repository secret is not set."
+            exit 1
+          fi
+          printf '%s\n' "$APP_ENV_FILE" > .env
+          bash scripts/verify_mobile_env.sh .env marketanalysis marketanalysis
+
       - name: Select Xcode 26 (iOS 26 SDK required by App Store Connect)
         run: |
           set -euo pipefail
