@@ -57,7 +57,7 @@ android {
         applicationId "com.aq.marketanalysis"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 13
+        versionCode 14
         versionName "1.0.12"
         resValue "string", "CodePushDeploymentKey", codePushDeploymentKey
         buildConfigField "String", "B2B_DESIGN_VISUAL_BUILD", designVisualTestBuild ? '"true"' : '"false"'

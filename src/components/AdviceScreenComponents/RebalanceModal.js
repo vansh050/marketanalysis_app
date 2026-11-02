@@ -69,6 +69,7 @@ import {
 import {getAdvisorSubdomain, getTenantSubdomain} from '../../utils/variantHelper';
 import { convertResponse } from '../../utils/tradeUtils';
 import { isZerodhaSellAuthorized } from '../../utils/zerodhaDdpiGate';
+import {hasDeviceTotp} from '../../services/DeviceTotpVault';
 import {hasExplicitSellAuthRejection} from '../../utils/sellAuthMessage';
 import {isDhanSellAuthorizationReady} from '../../utils/dhanEdis';
 import useWebSocketCurrentPrice from '../../FunctionCall/useWebSocketCurrentPrice';
@@ -1803,6 +1804,30 @@ const RebalanceModal = ({
       return;
     }
 
+    // Device-TOTP DIRECT path (2026-11-02): a biometric device-TOTP Zerodha
+    // session has a live access_token that places server-side, so the Kite
+    // Publisher round-trip is unnecessary. Every Zerodha pre-flight gate above
+    // (session validity, equity-sell CDSL/TPIN authorization, exchange
+    // completeness) has already passed; hand off to the direct process-trade
+    // placement. ccxt re-proves the token is live and, if it is not, returns
+    // PUBLISHER_ROUTE_REQUIRED — surfaced to the user to reconnect, never a
+    // silent no-op. Enrollment check fails safe to the Publisher.
+    let zerodhaDeviceTotpEnrolled = false;
+    try {
+      zerodhaDeviceTotpEnrolled = await hasDeviceTotp({
+        advisor: getTenantSubdomain(configData),
+        broker: 'Zerodha',
+        userEmail,
+      });
+    } catch (_) {
+      zerodhaDeviceTotpEnrolled = false;
+    }
+    if (zerodhaDeviceTotpEnrolled) {
+      console.log('[RebalanceModal] Zerodha device-TOTP direct path — placing via process-trade (no Publisher).');
+      await placeOrder({zerodhaDirect: true});
+      return;
+    }
+
     publisherGateCancelledRef.current = false;
     settlementRiskAcceptedRef.current = false;
     setLoading(true);
@@ -2606,7 +2631,10 @@ const RebalanceModal = ({
 
   // --- End Fyers Publisher Flow Functions ---
 
-  const placeOrder = async () => {
+  const placeOrder = async (options = {}) => {
+    // options.zerodhaDirect: biometric device-TOTP Zerodha session places
+    // server-side via ccxt (no Kite Publisher). Set only by
+    // handleZerodhaRedirect after every Zerodha pre-flight gate has passed.
     console.log('[RebalanceModal] placeOrder called');
     console.log('[RebalanceModal] dataArray:', JSON.stringify(dataArray));
     console.log('[RebalanceModal] stockDetails:', JSON.stringify(stockDetails));
@@ -2790,6 +2818,11 @@ const RebalanceModal = ({
       ...additionalPayload,
       // Include CA pending info for partial trade recording (matching web)
       caPendingInfo: calculatedPortfolioData?.caPendingInfo || [],
+      // Device-TOTP DIRECT placement for Zerodha: tells ccxt to place via the
+      // real executor (TradingLogicZerodha) instead of the status-only Kite
+      // Publisher reader. ccxt re-proves the stored token is live before using
+      // it and otherwise returns PUBLISHER_ROUTE_REQUIRED (we fall back).
+      ...(options?.zerodhaDirect ? {zerodhaDirect: true} : {}),
     };
 
     console.log('[RebalanceModal] Final payload trades count:', payload.trades?.length);
@@ -2850,7 +2883,7 @@ const RebalanceModal = ({
     // to a second placement request, but always release the loading state.
     let sdkResponse = null;
     let sdkExecutionError = null;
-    if (sdkExecuteAdviceEnabled) {
+    if (sdkExecuteAdviceEnabled && !options?.zerodhaDirect) {
       try {
         const sdkResult = await sdkClient.executeAdvice(
           {
