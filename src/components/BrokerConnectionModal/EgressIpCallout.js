@@ -105,6 +105,11 @@ const WHITELIST_BROKERS = new Set([
   // and uses the customer's unique free Route64 IPv6; normal Dhan remains
   // partner-routed.
   'dhan_direct',
+  // Virtual mode over Zerodha's partner API host (api.kite.trade). The app +
+  // biometric-TOTP direct path places via the customer's OWN Kite Connect
+  // app, so the customer whitelists their unique free Route64 IPv6 in their
+  // own Kite developer console; normal Zerodha (Publisher) stays partner.
+  'zerodha_direct',
 ]);
 
 const BROKER_DISPLAY_NAMES = {
@@ -120,6 +125,7 @@ const BROKER_DISPLAY_NAMES = {
   arihant: 'Arihant Capital',
   definedge: 'DefinEdge Securities',
   dhan_direct: 'Dhan Direct API',
+  zerodha_direct: 'Zerodha Kite Connect',
 };
 
 const BROKER_DEV_PORTAL_URLS = {
@@ -135,6 +141,7 @@ const BROKER_DEV_PORTAL_URLS = {
   arihant: 'https://tradebridge.arihantplus.com/',
   definedge: 'https://myaccount.definedgesecurities.com/',
   dhan_direct: 'https://web.dhan.co/',
+  zerodha_direct: 'https://developers.kite.trade/apps',
 };
 
 const BROKER_WHITELIST_HINT = {
@@ -150,6 +157,7 @@ const BROKER_WHITELIST_HINT = {
   arihant: 'TradeBridge portal → API Keys → Whitelisted IPs',
   definedge: 'MyAccount → API Config → Whitelisted IPs',
   dhan_direct: 'My Profile → DhanHQ APIs → Static IP',
+  zerodha_direct: 'Kite Connect app → (your app) → whitelist this IP',
 };
 
 function buildHeaders(configData) {

@@ -140,6 +140,24 @@ const BROKERS = Object.freeze({
       {key: 'userId', label: 'Kite User ID', placeholder: 'For example, AB1234', upper: true},
       {key: 'password', label: 'Kite password', placeholder: 'Your Kite login password'},
     ],
+    apiFields: [
+      {
+        key: 'apiKey',
+        label: 'Kite Connect API key',
+        placeholder: 'Your own Kite Connect app API key',
+      },
+      {
+        key: 'apiSecret',
+        label: 'Kite Connect API secret',
+        placeholder: 'Paste your Kite Connect app API secret',
+        password: true,
+      },
+    ],
+    apiValid: values =>
+      /^.{3,512}$/.test(values.apiKey || '') &&
+      /^.{3,512}$/.test(values.apiSecret || ''),
+    apiError: 'Enter your own Kite Connect app API key and API secret.',
+    egressBrokerKey: 'zerodha_direct',
     totpSetup: {
       title: 'Create your Zerodha external TOTP key',
       portalUrl: 'https://support.zerodha.com/category/trading-and-markets/general-kite/login-credentials-of-trading-platforms/articles/time-based-otp-setup',
