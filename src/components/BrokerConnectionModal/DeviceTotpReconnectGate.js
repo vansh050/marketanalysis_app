@@ -293,6 +293,10 @@ const DeviceTotpReconnectGate = ({
       brokerConnectRedirectURL:
         configData?.config?.REACT_APP_BROKER_CONNECT_REDIRECT_URL || '',
       ccxtBaseUrl: server.ccxtServer.baseUrl,
+      // This gate is always the device-TOTP DIRECT flow; for Zerodha that
+      // selects the Kite Connect app-creation guide (API key + secret),
+      // not the Publisher/WebView OAuth guide.
+      deviceTotpDirect: true,
     });
   }, [brokerName, configData]);
 

@@ -93,6 +93,32 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
         'Review the authorization and return here automatically',
       ],
     },
+    // Device-TOTP DIRECT route only (DeviceTotpReconnectGate passes
+    // deviceTotpDirect:true). Here AlphaQuark places through the customer's
+    // OWN Kite Connect app, so they must create it once and paste its API key
+    // + secret. The plain `Zerodha` entry above stays the Kite Publisher /
+    // WebView OAuth guide used by Phase3SdkBrokerModal — do NOT merge them.
+    ZerodhaDirect: {
+      monogram: 'Z',
+      brandFrom: designColor('387ed1'),
+      brandTo: designColor('1f5fa9'),
+      title: 'Create your Kite Connect app',
+      portalUrl: 'https://developers.kite.trade/apps',
+      portalLabel: 'Open Kite Connect developer console',
+      redirectUrl: opts.brokerConnectRedirectURL || '',
+      noticeTitle: 'YOUR OWN KITE CONNECT APP',
+      noticeText:
+        'This route places orders through your personal Kite Connect app, so the API key and secret below are your own — created once on Zerodha’s developer console.',
+      guideSteps: [
+        'Open <b>developers.kite.trade</b> and sign in with your Kite (Zerodha) login',
+        'Kite Connect is a paid Zerodha subscription — complete the billing step if prompted',
+        'Click <b>Create new app</b> and choose the <b>Connect</b> type',
+        `Name the app <b>${wl}</b> and set the <b>Redirect URL</b> shown below`,
+        'Create the app, then open it and copy the <b>API key</b> and <b>API secret</b>',
+        'Paste the <b>API key</b> and <b>API secret</b> into the fields below',
+      ],
+      note: 'You create this Kite Connect app only once. Keep the API secret private — it is stored encrypted on AlphaQuark’s server and never shown again by Zerodha.',
+    },
     Dhan: {
       monogram: 'D',
       brandFrom: designColor('28a97b'),
@@ -334,7 +360,11 @@ export function getBrokerGuideConfig(brokerName, opts = {}) {
       note: "DefinEdge sessions last ~8 hours; you'll re-verify with OTP after that.",
     },
   };
-  return MAP[normalizedBrokerName] || null;
+  const effectiveName =
+    normalizedBrokerName === 'Zerodha' && opts.deviceTotpDirect
+      ? 'ZerodhaDirect'
+      : normalizedBrokerName;
+  return MAP[effectiveName] || null;
 }
 
 // Bold-segment renderer for the shared "<b>…</b>" guide copy.
