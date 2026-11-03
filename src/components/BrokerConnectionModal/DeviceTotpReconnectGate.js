@@ -33,6 +33,8 @@ import {
   isWrongPinError,
   waitForNextTotpWindow,
 } from '../../utils/deviceTotpEnrollment';
+import {isKiteAuthorizeRequired, kiteAuthorizeUrl} from '../../utils/kiteAppAuthorize';
+import KiteAppAuthorizeWebView from './KiteAppAuthorizeWebView';
 
 import { designColor } from '../../design/literalTokens';
 
@@ -385,18 +387,79 @@ const DeviceTotpReconnectGate = ({
     userEmail,
   ]);
 
+  // Zerodha BYO: the one-time "Authorize" of the customer's own Kite app runs
+  // in an in-app WebView; the promise resolves true once Kite redirects with a
+  // request_token (consent given), false if the customer closes it.
+  const [authorizeUrl, setAuthorizeUrl] = useState(null);
+  const authorizeResolveRef = useRef(null);
+  const requestKiteAuthorize = useCallback(
+    url =>
+      new Promise(resolve => {
+        authorizeResolveRef.current?.(false);
+        authorizeResolveRef.current = resolve;
+        setAuthorizeUrl(url);
+      }),
+    [],
+  );
+  const handleAuthorizeDone = useCallback(authorized => {
+    const resolve = authorizeResolveRef.current;
+    authorizeResolveRef.current = null;
+    setAuthorizeUrl(null);
+    resolve?.(authorized);
+  }, []);
+  useEffect(
+    () => () => {
+      authorizeResolveRef.current?.(false);
+      authorizeResolveRef.current = null;
+    },
+    [],
+  );
+
+  // Opens the Kite Authorize page when ccxt reports the customer's own app is
+  // not yet authorized. Returns true when consent was given (caller retries).
+  const authorizeKiteAppIfNeeded = useCallback(
+    async (error, apiKey) => {
+      if (!isKiteAuthorizeRequired(error)) return false;
+      const url = kiteAuthorizeUrl(error, apiKey);
+      if (!url) return false;
+      recordBreadcrumb('kite_authorize_opened', {branch: 'quick_reconnect'});
+      const authorized = await requestKiteAuthorize(url);
+      recordBreadcrumb(authorized ? 'kite_authorize_done' : 'kite_authorize_cancelled', {
+        branch: 'quick_reconnect',
+      });
+      return authorized;
+    },
+    [recordBreadcrumb, requestKiteAuthorize],
+  );
+
   const reconnect = useCallback(
-    async protectedValues => {
+    async (protectedValues, refreshValues) => {
       setLoading(true);
       recordBreadcrumb('quick_reconnect_started', {branch: 'quick_reconnect'});
-      try {
+      const post = async payload => {
         const firebaseToken = await getAuth().currentUser?.getIdToken?.();
         if (!firebaseToken) throw new Error('Please sign in again before reconnecting.');
         await axios.post(
           `${server.server.baseUrl}${definition.endpoint}`,
-          protectedValues,
+          payload,
           {headers: {...headers(), Authorization: `Bearer ${firebaseToken}`}},
         );
+      };
+      try {
+        try {
+          await post(protectedValues);
+        } catch (firstError) {
+          if (
+            !refreshValues ||
+            !(await authorizeKiteAppIfNeeded(firstError, protectedValues?.apiKey))
+          ) {
+            throw firstError;
+          }
+          // The customer may have just typed this window's TOTP into Kite;
+          // a reused code is rejected, so verify with the next window's.
+          await waitForNextTotpWindow();
+          await post(await refreshValues());
+        }
         recordBreadcrumb('quick_reconnect_succeeded', {branch: 'quick_reconnect'});
         return true;
       } catch (error) {
@@ -418,7 +481,7 @@ const DeviceTotpReconnectGate = ({
         setLoading(false);
       }
     },
-    [brokerName, definition, headers, recordBreadcrumb, showAlert],
+    [authorizeKiteAppIfNeeded, brokerName, definition, headers, recordBreadcrumb, showAlert],
   );
 
   const finishPendingEnrollment = useCallback(async () => {
@@ -448,16 +511,26 @@ const DeviceTotpReconnectGate = ({
       try {
         totp = await attempt();
       } catch (firstError) {
-        if (!isRetryableEnrollmentError(firstError)) throw firstError;
-        recordBreadcrumb('enrollment_retry', {
-          branch: 'oauth',
-          errorCode:
-            firstError?.response?.data?.error_code ||
-            (firstError?.response?.status
-              ? `http_${firstError.response.status}`
-              : 'network_error'),
-        });
-        totp = await attempt();
+        if (
+          await authorizeKiteAppIfNeeded(
+            firstError,
+            pending.apiCredentials?.apiKey,
+          )
+        ) {
+          totp = await attempt();
+        } else if (!isRetryableEnrollmentError(firstError)) {
+          throw firstError;
+        } else {
+          recordBreadcrumb('enrollment_retry', {
+            branch: 'oauth',
+            errorCode:
+              firstError?.response?.data?.error_code ||
+              (firstError?.response?.status
+                ? `http_${firstError.response.status}`
+                : 'network_error'),
+          });
+          totp = await attempt();
+        }
       }
       await saveDeviceTotpSeed(identity, pending.seed, totp, pending.values);
       recordBreadcrumb('enrollment_saved', {branch: 'oauth'});
@@ -486,7 +559,15 @@ const DeviceTotpReconnectGate = ({
           `You can enable ${brokerName} quick reconnect again later.`,
       );
     }
-  }, [brokerName, definition, headers, identity, recordBreadcrumb, showAlert]);
+  }, [
+    authorizeKiteAppIfNeeded,
+    brokerName,
+    definition,
+    headers,
+    identity,
+    recordBreadcrumb,
+    showAlert,
+  ]);
 
   const handleFallbackSuccess = useCallback(async (...args) => {
     recordBreadcrumb('oauth_refresh_started', {branch: 'oauth'});
@@ -536,16 +617,19 @@ const DeviceTotpReconnectGate = ({
 
   const unlockAndReconnect = useCallback(async () => {
     try {
-      const login = await unlockDeviceTotpLogin(identity);
-      if (!login?.totp) throw new Error(`The saved ${brokerName} login is incomplete.`);
-      const ok = await reconnect({
-        totp: login.totp,
-        mpin: login.mpin,
-        pin: login.pin,
-        password: login.password,
-        userId: login.userId,
-        twoFactor: login.twoFactor,
-      });
+      const unlockPayload = async () => {
+        const login = await unlockDeviceTotpLogin(identity);
+        if (!login?.totp) throw new Error(`The saved ${brokerName} login is incomplete.`);
+        return {
+          totp: login.totp,
+          mpin: login.mpin,
+          pin: login.pin,
+          password: login.password,
+          userId: login.userId,
+          twoFactor: login.twoFactor,
+        };
+      };
+      const ok = await reconnect(await unlockPayload(), unlockPayload);
       if (ok) await finishSuccess();
     } catch (error) {
       showAlert(
@@ -649,10 +733,14 @@ const DeviceTotpReconnectGate = ({
     [definition],
   );
 
+  const authorizeOverlay = authorizeUrl ? (
+    <KiteAppAuthorizeWebView url={authorizeUrl} onDone={handleAuthorizeDone} />
+  ) : null;
+
   if (!definition) return fallback;
   if (normalLogin) {
     const stagedApiCredentials = pendingEnrollment.current?.apiCredentials;
-    return React.isValidElement(fallback)
+    const fallbackElement = React.isValidElement(fallback)
       ? React.cloneElement(fallback, {
           fetchBrokerStatusModal: handleFallbackSuccess,
           // True while a quick-reconnect login is staged to run after this
@@ -671,6 +759,12 @@ const DeviceTotpReconnectGate = ({
           },
         })
       : fallback;
+    return (
+      <>
+        {fallbackElement}
+        {authorizeOverlay}
+      </>
+    );
   }
 
   const submitEnrollment = async () => {
@@ -724,7 +818,10 @@ const DeviceTotpReconnectGate = ({
           appSecret: apiValues.appSecret,
         }
       : {...apiValues};
-    const ok = await reconnect({totp: generatedCode, ...values, ...apiPayload});
+    const ok = await reconnect(
+      {totp: generatedCode, ...values, ...apiPayload},
+      () => ({totp: generateDeviceTotpFromSeed(seed), ...values, ...apiPayload}),
+    );
     if (!ok) return;
     try {
       await saveDeviceTotpSeed(identity, seed, '', values);
@@ -808,87 +905,90 @@ const DeviceTotpReconnectGate = ({
   const normalLoginDefault = !quickReconnectReady && !hasSaved && !saveOnDevice;
 
   return (
-    <BrokerConnectStepperSheet
-      isVisible={!!isVisible}
-      onClose={onClose}
-      broker={brokerName}
-      config={
-        quickReconnectReady
-          ? quickReconnectConfig
-          : normalLoginDefault
-          ? loginChoiceConfig
-          : sheetConfig
-      }
-      egressBrokerKey={
-        !quickReconnectReady && !normalLoginDefault && setupGuide
-          ? definition.egressBrokerKey
-          : null
-      }
-      customerId={serverUserId.current}
-      customerEmail={userEmail}
-      fields={fields}
-      deviceTotp={{
-        enabled: true,
-        placeBeforeFields: true,
-        hasSaved,
-        saveOnDevice,
-        onToggleSave: () => setSaveOnDevice(value => !value),
-        // The unlock is the primary button when quickReconnectReady; no
-        // duplicate small link in the card.
-        onUnlock: hasSaved && !quickReconnectReady ? unlockAndReconnect : undefined,
-        onForget: async () => {
-          await removeDeviceTotp(identity);
-          setHasSaved(false);
-          setSaveOnDevice(false);
-        },
-        protectLabel: `Enable ${brokerName} quick reconnect on this phone`,
-        savedLabel: `The ${brokerName} login is protected on this phone. Normal broker login remains available.`,
-        pendingLabel: saveOnDevice
-          ? 'Saved only after the broker verifies these details. It will not migrate to another phone.'
-          : `Optional. Reconnect next time with your fingerprint or screen lock instead of logging in. Switch this on to see the one-time setup (your own ${brokerName} API details and TOTP key).`,
-        setup: definition.totpSetup,
-        unlockLabel: 'Reconnect with biometric unlock',
-        forgetLabel: `Forget ${brokerName} quick reconnect on this phone`,
-      }}
-      phase="creds"
-      error={validationError}
-      canSubmit={
-        quickReconnectReady ||
-        normalLoginDefault ||
-        (saveOnDevice &&
-        !hasSaved &&
-        Boolean(seed) &&
-        definition.valid(values) &&
-        (!definition.apiValid || definition.apiValid(apiValues)))
-      }
-      submitLabel={
-        checking
-          ? 'Checking connection…'
-          : quickReconnectReady
-            ? 'Reconnect with biometric unlock'
+    <>
+      <BrokerConnectStepperSheet
+        isVisible={!!isVisible && !authorizeUrl}
+        onClose={onClose}
+        broker={brokerName}
+        config={
+          quickReconnectReady
+            ? quickReconnectConfig
             : normalLoginDefault
-            ? `Continue with ${brokerName} login`
-            : !requiresOAuth
-            ? 'Verify & enable quick reconnect'
-            : `Continue with ${brokerName} login`
-      }
-      loading={loading || checking}
-      onSubmit={
-        quickReconnectReady
-          ? unlockAndReconnect
-          : normalLoginDefault
-          ? goNormalLogin
-          : submitEnrollment
-      }
-      alternateAction={
-        normalLoginDefault
-          ? undefined
-          : {
-              label: `Continue with normal ${brokerName} login`,
-              onPress: goNormalLogin,
-            }
-      }
-    />
+            ? loginChoiceConfig
+            : sheetConfig
+        }
+        egressBrokerKey={
+          !quickReconnectReady && !normalLoginDefault && setupGuide
+            ? definition.egressBrokerKey
+            : null
+        }
+        customerId={serverUserId.current}
+        customerEmail={userEmail}
+        fields={fields}
+        deviceTotp={{
+          enabled: true,
+          placeBeforeFields: true,
+          hasSaved,
+          saveOnDevice,
+          onToggleSave: () => setSaveOnDevice(value => !value),
+          // The unlock is the primary button when quickReconnectReady; no
+          // duplicate small link in the card.
+          onUnlock: hasSaved && !quickReconnectReady ? unlockAndReconnect : undefined,
+          onForget: async () => {
+            await removeDeviceTotp(identity);
+            setHasSaved(false);
+            setSaveOnDevice(false);
+          },
+          protectLabel: `Enable ${brokerName} quick reconnect on this phone`,
+          savedLabel: `The ${brokerName} login is protected on this phone. Normal broker login remains available.`,
+          pendingLabel: saveOnDevice
+            ? 'Saved only after the broker verifies these details. It will not migrate to another phone.'
+            : `Optional. Reconnect next time with your fingerprint or screen lock instead of logging in. Switch this on to see the one-time setup (your own ${brokerName} API details and TOTP key).`,
+          setup: definition.totpSetup,
+          unlockLabel: 'Reconnect with biometric unlock',
+          forgetLabel: `Forget ${brokerName} quick reconnect on this phone`,
+        }}
+        phase="creds"
+        error={validationError}
+        canSubmit={
+          quickReconnectReady ||
+          normalLoginDefault ||
+          (saveOnDevice &&
+          !hasSaved &&
+          Boolean(seed) &&
+          definition.valid(values) &&
+          (!definition.apiValid || definition.apiValid(apiValues)))
+        }
+        submitLabel={
+          checking
+            ? 'Checking connection…'
+            : quickReconnectReady
+              ? 'Reconnect with biometric unlock'
+              : normalLoginDefault
+              ? `Continue with ${brokerName} login`
+              : !requiresOAuth
+              ? 'Verify & enable quick reconnect'
+              : `Continue with ${brokerName} login`
+        }
+        loading={loading || checking}
+        onSubmit={
+          quickReconnectReady
+            ? unlockAndReconnect
+            : normalLoginDefault
+            ? goNormalLogin
+            : submitEnrollment
+        }
+        alternateAction={
+          normalLoginDefault
+            ? undefined
+            : {
+                label: `Continue with normal ${brokerName} login`,
+                onPress: goNormalLogin,
+              }
+        }
+      />
+      {authorizeOverlay}
+    </>
   );
 };
 

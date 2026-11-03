@@ -293,7 +293,11 @@ describe('device-owned broker TOTP reconnect contract', () => {
       expect(reconnectGate).toContain(expected);
     }
     expect(reconnectGate).toContain(
-      'const ok = await reconnect({totp: generatedCode, ...values, ...apiPayload})',
+      '{totp: generatedCode, ...values, ...apiPayload}',
+    );
+    // The Kite-authorize retry re-sends the same API credentials with a fresh TOTP.
+    expect(reconnectGate).toContain(
+      '() => ({totp: generateDeviceTotpFromSeed(seed), ...values, ...apiPayload})',
     );
     expect(reconnectGate).toContain('definition.apiValid(apiValues)');
     for (const broker of ['Angel One', 'Motilal Oswal', 'Zerodha', 'Fyers']) {
