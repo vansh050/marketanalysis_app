@@ -16,6 +16,7 @@ import RNConfig from '../config/env';
 import {getAccountEmailAsync} from './accountEmail';
 import {getAdvisorSubdomain, getTenantSubdomain} from './variantHelper';
 import {Alert} from 'react-native';
+import IsMarketHours from './isMarketHours';
 
 const warnBeforeKiteReview = warnings => {
   const details = warnings.slice(0, 3).join('\n');
@@ -925,7 +926,10 @@ export function convertToBasketItem(broker, stock, symbolMap, overrides = {}) {
       product: mapKiteProductType(stock.productType, exchange),
       price,
       trigger_price: overrides.triggerPrice ?? stock.triggerPrice ?? 0,
-      variety: 'regular',
+      // Kite rejects `regular` orders once the market has closed. Outside
+      // 09:15-15:30 IST a basket only gets this far when an after-hours
+      // window is open, so send it as an AMO (runs at the next open).
+      variety: overrides.variety ?? (IsMarketHours() ? 'regular' : 'amo'),
       readonly: overrides.readonly ?? Number(quantity) > 100,
       tag,
     };

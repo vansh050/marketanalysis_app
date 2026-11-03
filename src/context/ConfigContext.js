@@ -393,6 +393,14 @@ export const ConfigProvider = ({ children }) => {
                         allowAfterHoursOrders: apiData.featureFlags?.allowAfterHoursOrders !== undefined
                             ? apiData.featureFlags.allowAfterHoursOrders
                             : (apiData.allowAfterHoursOrders !== undefined ? apiData.allowAfterHoursOrders : false),
+                        // Time-limited, broker-scoped after-hours window from
+                        // advisor_config (same record ccxt enforces). Old app
+                        // versions ignore these keys, so opening a window never
+                        // unlocks their buttons.
+                        afterHoursOrderBrokers: Array.isArray(apiData.afterHoursOrderBrokers)
+                            ? apiData.afterHoursOrderBrokers
+                            : [],
+                        afterHoursOrdersUntil: apiData.afterHoursOrdersUntil || null,
 
                         // Courses + Webinars per-advisor gates. Source of truth on
                         // the server is AdvisorConfig.{courses_enabled,webinars_enabled}

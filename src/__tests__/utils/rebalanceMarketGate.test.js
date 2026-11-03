@@ -25,3 +25,29 @@ describe('rebalance market gate', () => {
     expect(canAttemptRebalancePlacement({broker: 'Zerodha', marketOpen: true})).toBe(true);
   });
 });
+
+describe('server after-hours window', () => {
+  const now = Date.parse('2026-11-03T12:00:00Z');
+  const open = {
+    afterHoursOrderBrokers: ['Zerodha'],
+    afterHoursOrdersUntil: '2026-11-03T16:00:00Z',
+    now,
+  };
+
+  test('opens the gate for a listed broker before the expiry', () => {
+    expect(canAttemptRebalancePlacement({broker: 'zerodha', marketOpen: false, ...open})).toBe(true);
+  });
+
+  test('stays closed for an unlisted broker, after expiry, or without an expiry', () => {
+    expect(canAttemptRebalancePlacement({broker: 'Angel One', marketOpen: false, ...open})).toBe(false);
+    expect(canAttemptRebalancePlacement({
+      broker: 'Zerodha', marketOpen: false, ...open, now: Date.parse('2026-11-03T16:00:01Z'),
+    })).toBe(false);
+    expect(canAttemptRebalancePlacement({
+      broker: 'Zerodha', marketOpen: false, ...open, afterHoursOrdersUntil: null,
+    })).toBe(false);
+    expect(canAttemptRebalancePlacement({
+      broker: 'Zerodha', marketOpen: false, ...open, afterHoursOrdersUntil: 'garbage',
+    })).toBe(false);
+  });
+});

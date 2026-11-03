@@ -153,11 +153,19 @@ const RebalanceModal = ({
   // (used by the `marketGateOpen` review-trade gate) — that's been removed
   // since both refer to the same value. See docs/APP_ARCHITECTURE.md
   // § 4.5.2 Trade variant field.
-  const { allowAfterHoursOrders, rebalanceFreezePlan, repairFreezePlan } = useConfig() || {};
+  const {
+    allowAfterHoursOrders,
+    afterHoursOrderBrokers,
+    afterHoursOrdersUntil,
+    rebalanceFreezePlan,
+    repairFreezePlan,
+  } = useConfig() || {};
   const brokerAfterHoursOrdersAllowed = canAttemptRebalancePlacement({
     broker,
     marketOpen: false,
     allowAfterHoursOrders,
+    afterHoursOrderBrokers,
+    afterHoursOrdersUntil,
   });
 
   const sdkClient = useSdkClient();
@@ -3526,6 +3534,8 @@ const RebalanceModal = ({
     broker,
     marketOpen: IsMarketHours(),
     allowAfterHoursOrders,
+    afterHoursOrderBrokers,
+    afterHoursOrdersUntil,
   });
 
   // The Kite run returns before record-back and the order-book check finish.
