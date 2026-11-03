@@ -783,6 +783,36 @@ export function applyKiteMarketProtection(
   return { ...baseOrder, order_type: 'LIMIT', price: limitPrice, validity };
 }
 
+/**
+ * True for a Trade-to-Trade (T2T) / "BE" series Zerodha symbol. Kite rejects a
+ * MARKET order on these with the misleading "Insufficient permission for that
+ * call." — only LIMIT is accepted. Used to decide whether a MARKET leg the app
+ * could not price is safe to send (it is not) vs must be blocked (#44).
+ */
+export function isTradeToTradeSymbol(tradingSymbol) {
+  return /-BE$/i.test(String(tradingSymbol || '').trim());
+}
+
+/**
+ * Resolve the LTP used to turn a Kite review-and-place leg from MARKET into a
+ * protected LIMIT. For a MARKET leg prefer the server protection price
+ * (`freshLtp`, from /zerodha/convert-symbol's Redis cache), but fall back to
+ * the live poller price already shown in the "Current Price" column, then the
+ * cached LTP — the server feed is WebSocket-fed and does NOT carry T2T/illiquid
+ * scrips, the exact legs that most need the conversion (#44). For a non-MARKET
+ * leg the live/cached price is enough. Returns a number (0 when nothing is
+ * available — the caller must then block a T2T MARKET rather than send it).
+ * Mirrors the ccxt server-side broker-quote fallback (ccxt c0ba6568).
+ */
+export function resolveKiteReviewLtp({isMarket, freshLtp, liveLtp, cachedLtp}) {
+  const fresh = parseFloat(freshLtp) || 0;
+  const live = parseFloat(liveLtp) || 0;
+  const cached = parseFloat(cachedLtp) || 0;
+  if (isMarket && fresh > 0) return fresh;
+  if (live > 0) return live;
+  return cached > 0 ? cached : 0;
+}
+
 export function convertToBasketItem(broker, stock, symbolMap, overrides = {}) {
   if (broker === 'Zerodha') {
     const adviceSymbol = stock?.tradingSymbol || stock?.symbol || '';

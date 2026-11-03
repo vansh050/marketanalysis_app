@@ -26,7 +26,7 @@ import { generateToken } from '../utils/SecurityTokenManager';
 import { useTrade } from '../screens/TradeContext';
 import { useConfig } from '../context/ConfigContext';
 import Toast from 'react-native-toast-message';
-import { validateStockExchanges, stopOrderProblem, fetchFreshKiteProtectionPrices, getPublisherWebViewBaseUrl, resolveZerodhaSymbol, convertToBasketItem } from '../utils/brokerPublisher';
+import { validateStockExchanges, stopOrderProblem, fetchFreshKiteProtectionPrices, getPublisherWebViewBaseUrl, resolveZerodhaSymbol, convertToBasketItem, resolveKiteReviewLtp, isTradeToTradeSymbol } from '../utils/brokerPublisher';
 import { computeTradeVariant } from '../utils/tradeVariant';
 import useZerodhaSymbolMap from '../hooks/useZerodhaSymbolMap';
 import useKitePublisherPolling from '../hooks/useKitePublisherPolling';
@@ -862,6 +862,11 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
    // Fetch updated basket data
   const fetchedData = await getUpdatedBasket(taggedStockDetails);
 
+  // T2T/BE MARKET legs the app could not price (no server, live, or cached LTP)
+  // must NOT be sent — Kite rejects a MARKET on a -BE series with "Insufficient
+  // permission for that call." (#44). Collect and surface them instead of
+  // shipping a doomed order; the rest of the basket still goes through.
+  const blockedNoPriceLegs = [];
   const basket = taggedStockDetails.map((stock) => {
 
     console.log('stock detailskkkkkk  i get here-',stock);
@@ -879,12 +884,18 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
     const liveLtp =
       getLastKnownPrice(resolved.tradingsymbol) ||
       getLastKnownPrice(stock.tradingSymbol);
-    const ltp = isMarket
-      ? freshLtp
-      : (liveLtp && liveLtp !== '-' && parseFloat(liveLtp) > 0
-        ? liveLtp
-        : resolved.cachedLtp || 0);
-    const ltpNumeric = ltp && ltp !== "-" ? parseFloat(ltp) : 0;
+    // MARKET → LIMIT needs a price or the leg goes out as a bare MARKET, which
+    // Kite rejects on Trade-to-Trade (-BE) / illiquid scrips with the
+    // misleading "Insufficient permission for that call." (#44). The server
+    // protection price (freshLtp) is WebSocket-fed and does NOT carry those
+    // scrips, so fall back to the live poller price already shown in the
+    // "Current Price" column, then the cached LTP. See resolveKiteReviewLtp.
+    const ltpNumeric = resolveKiteReviewLtp({
+      isMarket,
+      freshLtp,
+      liveLtp,
+      cachedLtp: resolved.cachedLtp,
+    });
     // SL (stop-limit) keeps the advisor's limit, same as LIMIT.
     const orderPrice =
       stock.orderType === "LIMIT" || stock.orderType === "SL"
@@ -936,6 +947,15 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
       finalExchange = publisherExchange;
     }
 
+    // Positive-evidence block: a T2T/-BE leg that would go out as MARKET with
+    // no usable price is known to be rejected by Kite. Skip it (don't send a
+    // doomed order) and record it for the notice below. A LIMIT leg, or a
+    // MARKET leg that DID get priced into a LIMIT above, is unaffected.
+    if (isMarket && ltpNumeric <= 0 && isTradeToTradeSymbol(finalSymbol)) {
+      blockedNoPriceLegs.push(finalSymbol);
+      return null;
+    }
+
     const basketItem = convertToBasketItem('Zerodha', stock, symbolMap, {
       tradingsymbol: finalSymbol,
       exchange: finalExchange,
@@ -947,7 +967,37 @@ console.log('Review Modal in AsyncStorage:', storedCartItems);
     });
     console.log('[ZerodhaPublisher] final basket item:', JSON.stringify(basketItem));
     return basketItem;
-  });
+  }).filter(Boolean);
+
+  if (blockedNoPriceLegs.length) {
+    Toast.show({
+      type: 'info',
+      text1: 'Some orders need a limit price',
+      text2:
+        `${blockedNoPriceLegs.join(', ')} could not be priced ` +
+        '(Trade-to-Trade) — place them manually as LIMIT. The rest were sent.',
+      visibilityTime: 7000,
+    });
+  }
+
+  if (!basket.length) {
+    // Nothing placeable (every leg was an unpriceable T2T MARKET). Release the
+    // durable execution attempt we registered above so the account is not left
+    // mid-flight, mirroring the catch blocks.
+    await AsyncStorage.multiRemove([
+      ZERODHA_PUBLISHER_ORDER_KEY,
+      ZERODHA_PUBLISHER_ATTEMPT_KEY,
+    ]).catch(() => {});
+    await clearStoredPublisherAttempt().catch(() => {});
+    setWebView(false);
+    Toast.show({
+      type: 'error',
+      text1: 'No orders to place',
+      text2: 'No order was sent — none of the legs could be priced.',
+      visibilityTime: 6000,
+    });
+    return;
+  }
 
     try {
       // Generate HTML form content

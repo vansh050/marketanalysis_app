@@ -36,6 +36,8 @@ import {
   enrichPublisherLegPrices,
   getCircuitBand,
   getPublisherWebViewBaseUrl,
+  isTradeToTradeSymbol,
+  resolveKiteReviewLtp,
   resolveZerodhaSymbol,
   roundToKiteTick,
   stopOrderProblem,
@@ -627,5 +629,69 @@ describe('SL (stop-limit) trigger orders on the Kite Publisher path', () => {
       expect(source).toContain('triggerPrice: stock.triggerPrice');
       expect(source).not.toContain("stock.orderType === 'MARKET' || stock.orderType === 'SL'");
     });
+  });
+});
+
+// --------------------------------------------------------------------------- #
+// #44: device-TOTP Zerodha review-and-place price resolution + T2T MARKET block
+// --------------------------------------------------------------------------- #
+describe('resolveKiteReviewLtp (#44 LTP fallback)', () => {
+  test('MARKET prefers the server protection price when present', () => {
+    expect(resolveKiteReviewLtp({
+      isMarket: true, freshLtp: 101.2, liveLtp: 99, cachedLtp: 90,
+    })).toBe(101.2);
+  });
+
+  test('MARKET falls back to the live poller price when the server has none', () => {
+    // The #44 case: a -BE/illiquid scrip the WebSocket-fed server price misses,
+    // but the live poller (the "Current Price" column) already shows a price.
+    expect(resolveKiteReviewLtp({
+      isMarket: true, freshLtp: 0, liveLtp: 13.89, cachedLtp: 0,
+    })).toBe(13.89);
+  });
+
+  test('MARKET falls back to cached LTP when server and live are both empty', () => {
+    expect(resolveKiteReviewLtp({
+      isMarket: true, freshLtp: 0, liveLtp: '-', cachedLtp: 4.05,
+    })).toBe(4.05);
+  });
+
+  test('MARKET returns 0 when nothing can price the leg (caller must block)', () => {
+    expect(resolveKiteReviewLtp({
+      isMarket: true, freshLtp: 0, liveLtp: '-', cachedLtp: 0,
+    })).toBe(0);
+  });
+
+  test('non-MARKET ignores the server protection price, uses live then cached', () => {
+    expect(resolveKiteReviewLtp({
+      isMarket: false, freshLtp: 500, liveLtp: 99, cachedLtp: 90,
+    })).toBe(99);
+    expect(resolveKiteReviewLtp({
+      isMarket: false, freshLtp: 500, liveLtp: 0, cachedLtp: 90,
+    })).toBe(90);
+  });
+
+  test('string / NaN inputs are coerced safely', () => {
+    expect(resolveKiteReviewLtp({
+      isMarket: true, freshLtp: '15.44', liveLtp: null, cachedLtp: undefined,
+    })).toBe(15.44);
+    expect(resolveKiteReviewLtp({
+      isMarket: true, freshLtp: 'NaN', liveLtp: 'abc', cachedLtp: '2.40',
+    })).toBe(2.4);
+  });
+});
+
+describe('isTradeToTradeSymbol (#44 T2T block)', () => {
+  test('matches the -BE series (case-insensitive, trimmed)', () => {
+    expect(isTradeToTradeSymbol('TCIFINANCE-BE')).toBe(true);
+    expect(isTradeToTradeSymbol('rollt-be')).toBe(true);
+    expect(isTradeToTradeSymbol('  TVVISION-BE  ')).toBe(true);
+  });
+
+  test('does not match ordinary EQ / bare symbols', () => {
+    expect(isTradeToTradeSymbol('YESBANK-EQ')).toBe(false);
+    expect(isTradeToTradeSymbol('GTLINFRA')).toBe(false);
+    expect(isTradeToTradeSymbol('')).toBe(false);
+    expect(isTradeToTradeSymbol(null)).toBe(false);
   });
 });
