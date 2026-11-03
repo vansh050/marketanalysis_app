@@ -160,11 +160,14 @@ describe('device-owned broker TOTP reconnect contract', () => {
     );
     expect(dispatch).toContain('runtimeConfig?.deviceTotpEnabled === true');
     expect(reconnectGate).toContain('getBrokerGuideConfig(brokerName');
-    // First connect / enrollment keeps the mandatory setup (static IP) guide;
-    // it is hidden only once quick reconnect is saved AND usable.
-    expect(reconnectGate).toContain(
-      '!quickReconnectReady && setupGuide ? definition.egressBrokerKey : null',
+    // Quick-reconnect enrollment keeps the mandatory setup (static IP) guide;
+    // it is hidden when quick reconnect is saved AND usable, and on the default
+    // login choice (2026-11-03) — the normal-login modal (FyersConnect etc.)
+    // renders its own setup guide and egress callout.
+    expect(reconnectGate).toMatch(
+      /!quickReconnectReady && !normalLoginDefault && setupGuide\s*\?\s*definition\.egressBrokerKey\s*:\s*null/,
     );
+    expect(fyersConnect).toContain('egressBrokerKey="fyers"');
     expect(reconnectGate).toContain(
       'const quickReconnectReady = hasSaved && !requiresOAuth && !checking;',
     );
@@ -457,8 +460,8 @@ describe('device-owned broker TOTP reconnect contract', () => {
     );
     expect(reconnectGate).toContain("? 'Reconnect with biometric unlock'");
     expect(reconnectGate).toMatch(/canSubmit=\{\s*quickReconnectReady \|\|/);
-    expect(reconnectGate).toContain(
-      'config={quickReconnectReady ? quickReconnectConfig : sheetConfig}',
+    expect(reconnectGate).toMatch(
+      /config=\{\s*quickReconnectReady\s*\?\s*quickReconnectConfig\s*:\s*normalLoginDefault\s*\?\s*loginChoiceConfig\s*:\s*sheetConfig\s*\}/,
     );
     // No duplicate small link while the unlock is the primary button.
     expect(reconnectGate).toContain(
@@ -479,6 +482,24 @@ describe('device-owned broker TOTP reconnect contract', () => {
     expect(aliceBlue).toContain('Continue with AliceBlue login');
     expect(dhan).toContain("directOptIn ? 'Set up Direct API Quick Reconnect' : 'Continue with Dhan login'");
     expect(dhan).toContain("setFlowMode(directOptIn ? 'direct' : 'partner')");
+  });
+
+  test('default login choice hides the quick-reconnect setup guide (2026-11-03)', () => {
+    // A direct-login Zerodha customer was shown the whole Kite Connect
+    // app-creation guide, redirect URL and static-IP box. Until quick
+    // reconnect is switched on, the sheet is just the login button + switch.
+    const choice = reconnectGate.slice(
+      reconnectGate.indexOf('const loginChoiceConfig'),
+      reconnectGate.indexOf('if (!definition) return fallback;'),
+    );
+    expect(choice).toContain('guideSteps: [],');
+    expect(choice).toContain('hideStepChips: true,');
+    expect(choice).not.toContain('...setupGuide');
+    expect(reconnectGate).toMatch(
+      /!quickReconnectReady && !normalLoginDefault && setupGuide\s*\?\s*definition\.egressBrokerKey\s*:\s*null/,
+    );
+    // API/TOTP fields still appear only after the switch is on.
+    expect(reconnectGate).toContain('const fields = saveOnDevice && !hasSaved');
   });
 
   test('the connect sheet header shows the real broker logo', () => {

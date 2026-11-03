@@ -632,6 +632,22 @@ const DeviceTotpReconnectGate = ({
     }),
     [brokerName, definition],
   );
+  // Default (quick reconnect switched off): the customer only needs the
+  // broker's own login. Show nothing but the login button and the opt-in
+  // quick-reconnect switch — no API-key guide, redirect URL, static-IP box or
+  // step chips. Those are setup for quick reconnect and appear only once it is
+  // switched on (2026-11-03 owner decision: a direct-login Zerodha customer
+  // was shown the whole Kite Connect app-creation guide).
+  const loginChoiceConfig = useMemo(
+    () => ({
+      monogram: definition?.monogram,
+      brandFrom: definition?.colors?.[0],
+      brandTo: definition?.colors?.[1],
+      guideSteps: [],
+      hideStepChips: true,
+    }),
+    [definition],
+  );
 
   if (!definition) return fallback;
   if (normalLogin) {
@@ -796,9 +812,17 @@ const DeviceTotpReconnectGate = ({
       isVisible={!!isVisible}
       onClose={onClose}
       broker={brokerName}
-      config={quickReconnectReady ? quickReconnectConfig : sheetConfig}
+      config={
+        quickReconnectReady
+          ? quickReconnectConfig
+          : normalLoginDefault
+          ? loginChoiceConfig
+          : sheetConfig
+      }
       egressBrokerKey={
-        !quickReconnectReady && setupGuide ? definition.egressBrokerKey : null
+        !quickReconnectReady && !normalLoginDefault && setupGuide
+          ? definition.egressBrokerKey
+          : null
       }
       customerId={serverUserId.current}
       customerEmail={userEmail}
@@ -819,8 +843,9 @@ const DeviceTotpReconnectGate = ({
         },
         protectLabel: `Enable ${brokerName} quick reconnect on this phone`,
         savedLabel: `The ${brokerName} login is protected on this phone. Normal broker login remains available.`,
-        pendingLabel:
-          'Saved only after the broker verifies these details. It will not migrate to another phone.',
+        pendingLabel: saveOnDevice
+          ? 'Saved only after the broker verifies these details. It will not migrate to another phone.'
+          : `Optional. Reconnect next time with your fingerprint or screen lock instead of logging in. Switch this on to see the one-time setup (your own ${brokerName} API details and TOTP key).`,
         setup: definition.totpSetup,
         unlockLabel: 'Reconnect with biometric unlock',
         forgetLabel: `Forget ${brokerName} quick reconnect on this phone`,
