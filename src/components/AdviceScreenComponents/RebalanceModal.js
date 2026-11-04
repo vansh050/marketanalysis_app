@@ -1832,8 +1832,22 @@ const RebalanceModal = ({
     }
     if (zerodhaDeviceTotpEnrolled) {
       console.log('[RebalanceModal] Zerodha device-TOTP direct path — placing via process-trade (no Publisher).');
-      await placeOrder({zerodhaDirect: true});
-      return;
+      const directOutcome = await placeOrder({zerodhaDirect: true});
+      if (!directOutcome?.routeToPublisher) {
+        return;
+      }
+      // The server refused the direct route before anything was sent and
+      // before the rebalance plan was used (no own Kite Connect app, no
+      // dedicated IP, or the stored token cannot place). Fall through to the
+      // Kite window so the customer can still place, instead of a dead end
+      // (prashant@riomventures.com, 4 Nov 2026).
+      console.log('[RebalanceModal] Direct Zerodha refused by server — opening the Kite window instead.');
+      Toast.show({
+        type: 'info',
+        text1: 'Opening Kite to place your orders',
+        text2: 'Your biometric Zerodha login cannot place orders directly yet.',
+        visibilityTime: 5000,
+      });
     }
 
     publisherGateCancelledRef.current = false;
@@ -2976,6 +2990,11 @@ const RebalanceModal = ({
       }
     }
 
+    // Set when the server refuses a device-TOTP DIRECT Zerodha attempt with
+    // PUBLISHER_ROUTE_REQUIRED. That refusal happens before any broker call
+    // and before the frozen plan is consumed, so handleZerodhaRedirect falls
+    // back to the Kite Publisher window instead of showing not-sent rows.
+    let directRefusedRouteToPublisher = false;
     await (sdkExecutionError
       ? Promise.reject(sdkExecutionError)
       : sdkResponse
@@ -3366,6 +3385,15 @@ const RebalanceModal = ({
           error?.response?.data?.error ||
           error?.message ||
           'The order was rejected before it reached the broker.';
+        if (
+          options?.zerodhaDirect &&
+          error?.response?.status === 409 &&
+          refusalCode === 'PUBLISHER_ROUTE_REQUIRED'
+        ) {
+          directRefusedRouteToPublisher = true;
+          return;
+        }
+
         const isDefinitivePreDispatchRefusal = [
           'MARKET_CLOSED',
           'PUBLISHER_ROUTE_REQUIRED',
@@ -3492,6 +3520,9 @@ const RebalanceModal = ({
         getModelPortfolioStrategyDetails();
       });
     setIsReturningFromOtherBrokerModal(false);
+    if (directRefusedRouteToPublisher) {
+      return {routeToPublisher: true};
+    }
   };
 
   const handleClose = () => {
