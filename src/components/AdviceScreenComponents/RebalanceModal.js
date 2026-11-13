@@ -61,6 +61,7 @@ import {executionBundleHeaders, handleStaleExecutionBundle} from '../../utils/ex
 import {accountRecoveryMetadata} from '../../utils/accountRecoveryUx';
 import {summarizeFundingPendingLegs} from '../../utils/fundPendingGap';
 import {recordFundPendingInstruction} from '../../services/ModelPortfolioService';
+import {summarizeUnfilledModelLegs, formatRupees} from '../../utils/unfilledModelLegs';
 import {
   createZerodhaPublisherAttempt,
   parseKiteRedirectStatus,
@@ -932,7 +933,12 @@ const RebalanceModal = ({
       openModifyInvestment: true,
     });
   };
-  const isAlreadyAlignedCalculation = Boolean(
+  // A zero-trade calculation that leaves model stocks unbought is shown as
+  // "N stocks not bought yet" with an add-funds action, never as "Already
+  // Aligned" — and is not acknowledged as executed, so the customer can come
+  // back to it after adding money (markup/siddhartha 2026-11-13).
+  const unfilledModelLegs = summarizeUnfilledModelLegs(activeCalculatedPortfolioData);
+  const isZeroTradeCalculation = Boolean(
     dataArray.length === 0 &&
       !hasPendingSellAuthorization &&
       !showUnaffordableTargetsExplanation &&
@@ -945,6 +951,41 @@ const RebalanceModal = ({
       Array.isArray(activeCalculatedPortfolioData?.buy) &&
       Array.isArray(activeCalculatedPortfolioData?.sell),
   );
+  const showUnfilledModelLegs = isZeroTradeCalculation && !!unfilledModelLegs;
+  const isAlreadyAlignedCalculation = isZeroTradeCalculation && !unfilledModelLegs;
+  const [unfilledRecording, setUnfilledRecording] = useState(false);
+  const recordUnfilledLegsFunding = async () => {
+    const gap = unfilledModelLegs?.suggestedAmount || 0;
+    if (unfilledRecording || !(gap > 0) || typeof recalculateRebalance !== 'function') return;
+    setUnfilledRecording(true);
+    try {
+      await recordFundPendingInstruction(
+        {
+          userEmail,
+          userBroker: broker || 'DummyBroker',
+          modelName: storeModalName,
+          modelId: modelPortfolioModelId,
+          advisor: advisorTag,
+          gapAmount: gap,
+        },
+        configData,
+      );
+      Toast.show({
+        type: 'success',
+        text1: `₹${formatRupees(gap)} recorded`,
+        text2: 'Recalculating the buys for the stocks you do not hold yet…',
+      });
+      await recalculateRebalance();
+    } catch (error) {
+      Toast.show({
+        type: 'error',
+        text1: 'Could not add the amount',
+        text2: error?.response?.data?.message || error?.message || 'Please try again.',
+      });
+    } finally {
+      setUnfilledRecording(false);
+    }
+  };
   useEffect(() => {
     if (
       !visible ||
@@ -4565,6 +4606,99 @@ const RebalanceModal = ({
                         <Text
                           style={{
                             color: designToken('rebalanceNotice.bodyColor'),
+                            fontFamily: designFont('Poppins-Medium'),
+                            fontSize: 13,
+                          }}>
+                          Go back
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : showUnfilledModelLegs ? (
+                    <>
+                      <Text
+                        testID="rebalance-empty-unfilled-legs"
+                        style={{
+                          fontFamily: designFont('Poppins-SemiBold'),
+                          color: designColor('92400e'),
+                          fontSize: 18,
+                          textAlign: 'center',
+                          marginBottom: 12,
+                        }}>
+                        {unfilledModelLegs.symbols.length} stock
+                        {unfilledModelLegs.symbols.length === 1 ? ' in this model is' : 's in this model are'} not
+                        bought yet
+                      </Text>
+                      <Text
+                        style={{
+                          fontFamily: designFont('Poppins-Regular'),
+                          color: 'rgba(0,0,0,0.6)',
+                          textAlign: 'center',
+                          marginBottom: 12,
+                          fontSize: 14,
+                          lineHeight: 22,
+                          paddingHorizontal: 10,
+                        }}>
+                        Everything you hold matches the model, so nothing will be sold. To buy{' '}
+                        {unfilledModelLegs.names.join(', ')}, add money to this portfolio.
+                      </Text>
+                      {unfilledModelLegs.requiredAmount > 0 ? (
+                        <View style={[styles.fundingPendingBox, {marginBottom: 16}]}>
+                          <Text style={styles.fundingPendingBody}>
+                            About ₹{formatRupees(unfilledModelLegs.requiredAmount)} completes the model at
+                            the level of what you already hold.
+                            {unfilledModelLegs.suggestedAmount > 0 &&
+                            unfilledModelLegs.suggestedAmount < unfilledModelLegs.requiredAmount
+                              ? ` Your broker has ₹${formatRupees(unfilledModelLegs.suggestedAmount)} available now.`
+                              : ''}
+                          </Text>
+                        </View>
+                      ) : null}
+                      <TouchableOpacity
+                        testID="rebalance-unfilled-add-funds"
+                        disabled={unfilledRecording || loading}
+                        onPress={
+                          unfilledModelLegs.suggestedAmount > 0
+                            ? recordUnfilledLegsFunding
+                            : openUpdateInvestment
+                        }
+                        style={{
+                          backgroundColor: designColor('000'),
+                          paddingHorizontal: 24,
+                          paddingVertical: 12,
+                          borderRadius: 8,
+                          opacity: unfilledRecording || loading ? 0.5 : 1,
+                        }}>
+                        <Text
+                          style={{
+                            color: designColor('fff'),
+                            fontFamily: designFont('Poppins-Medium'),
+                            fontSize: 14,
+                          }}>
+                          {unfilledRecording || loading
+                            ? 'Recalculating…'
+                            : unfilledModelLegs.suggestedAmount > 0
+                            ? `Add ₹${formatRupees(unfilledModelLegs.suggestedAmount)} and recalculate`
+                            : 'Modify investment'}
+                        </Text>
+                      </TouchableOpacity>
+                      <Text
+                        style={{
+                          fontFamily: designFont('Poppins-Regular'),
+                          color: 'rgba(0,0,0,0.4)',
+                          textAlign: 'center',
+                          marginTop: 12,
+                          fontSize: 12,
+                          lineHeight: 18,
+                          paddingHorizontal: 10,
+                        }}>
+                        {unfilledModelLegs.suggestedAmount > 0
+                          ? 'This records the amount for this portfolio and recalculates. You review every order before anything is sent.'
+                          : 'Add funds with your broker, then increase your investment for this portfolio.'}
+                      </Text>
+                      <TouchableOpacity onPress={handleClose} style={{marginTop: 8, padding: 6}}>
+                        <Text
+                          style={{
+                            color: 'rgba(0,0,0,0.6)',
                             fontFamily: designFont('Poppins-Medium'),
                             fontSize: 13,
                           }}>
