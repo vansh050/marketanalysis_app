@@ -46,6 +46,7 @@ import {
     SafeAreaView,
     StyleSheet,
     Dimensions,
+    useWindowDimensions,
 } from 'react-native';
 import Modal from 'react-native-modal';
 import {
@@ -58,11 +59,14 @@ import {
 import LinearGradient from 'react-native-linear-gradient';
 import useTokens from '../../../src/theme/useTokens';
 import Text from '../primitives/Text';
+import { brokerGridLayout, GRID_GAP } from './brokerGridLayout';
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
 
 const BrokerSelectionModal = ({ viewModel, actions }) => {
     const tokens = useTokens();
+    const { width: windowWidth } = useWindowDimensions();
+    const { tileWidth } = brokerGridLayout(windowWidth);
     const {
         visible = false,
         mode = 'picker',
@@ -158,42 +162,36 @@ const BrokerSelectionModal = ({ viewModel, actions }) => {
                                     contentContainerStyle={styles.brokerScrollContent}
                                     showsVerticalScrollIndicator={false}
                                 >
-                                    <View>
-                                        {brokerRows.map((row, rowIndex) => (
-                                            <View key={rowIndex} style={styles.brokerRow}>
-                                                {row.map((b, index) => (
-                                                    <TouchableOpacity
-                                                        key={index}
-                                                        activeOpacity={0.7}
-                                                        style={[
-                                                            styles.brokerCard,
-                                                            pressedBroker === b.key && styles.brokerCardPressed,
-                                                        ]}
-                                                        onPressIn={() => onPressIn(b.key)}
-                                                        onPressOut={onPressOut}
-                                                        onPress={() => onBrokerSelect(b)}
-                                                    >
-                                                        <View style={styles.brokerLogoContainer}>
-                                                            <Image
-                                                                source={b.logo}
-                                                                style={styles.brokerLogo}
-                                                                resizeMode="contain"
-                                                            />
-                                                        </View>
-                                                        <Text
-                                                            style={styles.brokerName}
-                                                            numberOfLines={2}
-                                                            adjustsFontSizeToFit
-                                                            minimumFontScale={0.8}>
-                                                            {b.name}
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                ))}
-                                                {row.length < 4 &&
-                                                    Array.from({ length: 4 - row.length }).map((_, i) => (
-                                                        <View key={`ph-${i}`} style={styles.brokerCardPlaceholder} />
-                                                    ))}
-                                            </View>
+                                    <View style={styles.brokerGrid}>
+                                        {brokerRows.flat().map(b => (
+                                            <TouchableOpacity
+                                                key={b.key}
+                                                activeOpacity={0.7}
+                                                accessibilityRole="button"
+                                                accessibilityLabel={`Connect ${b.name}`}
+                                                style={[
+                                                    styles.brokerCard,
+                                                    { width: tileWidth },
+                                                    pressedBroker === b.key && styles.brokerCardPressed,
+                                                ]}
+                                                onPressIn={() => onPressIn(b.key)}
+                                                onPressOut={onPressOut}
+                                                onPress={() => onBrokerSelect(b)}
+                                            >
+                                                <View style={styles.brokerLogoContainer}>
+                                                    <Image
+                                                        source={b.logo}
+                                                        style={styles.brokerLogo}
+                                                        resizeMode="contain"
+                                                    />
+                                                </View>
+                                                <Text
+                                                    style={styles.brokerName}
+                                                    numberOfLines={2}
+                                                    maxFontSizeMultiplier={1.2}>
+                                                    {b.name}
+                                                </Text>
+                                            </TouchableOpacity>
                                         ))}
                                     </View>
                                 </ScrollView>
@@ -402,32 +400,33 @@ const styles = StyleSheet.create({
     header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24, marginTop: 10 },
     headerTitle: { fontSize: 18, fontFamily: 'Satoshi-Bold', color: '#FFFFFF', lineHeight: 30 },
     noticeBox: {
-        backgroundColor: 'rgba(0,0,0,0.3)', borderWidth: 2, borderColor: '#FFB800',
-        borderRadius: 12, padding: 16, marginBottom: 20,
+        backgroundColor: 'rgba(255,255,255,0.08)', borderLeftWidth: 3, borderLeftColor: '#FFB800',
+        borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12, marginBottom: 16,
     },
-    noticeTitle: { fontSize: 14, fontFamily: 'Satoshi-Bold', color: '#FFB800', marginBottom: 8 },
-    noticeText: { fontSize: 13, fontFamily: 'Satoshi-Regular', color: '#FFFFFF', lineHeight: 20, marginBottom: 4 },
+    noticeTitle: { fontSize: 12, fontFamily: 'Satoshi-Bold', color: '#FFD466', marginBottom: 4 },
+    noticeText: { fontSize: 12, fontFamily: 'Satoshi-Regular', color: 'rgba(255,255,255,0.85)', lineHeight: 17, marginBottom: 2 },
     brokerScrollView: { flex: 1, marginBottom: 16 },
     brokerScrollContent: { paddingBottom: 10 },
-    brokerRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 },
-    brokerCardPlaceholder: { width: (screenWidth - 60) / 4, aspectRatio: 1 },
+    brokerGrid: { flexDirection: 'row', flexWrap: 'wrap', columnGap: GRID_GAP, rowGap: GRID_GAP },
     brokerCard: {
-        width: (screenWidth - 70) / 4, aspectRatio: 1, backgroundColor: '#FFFFFF',
-        borderRadius: 16, alignItems: 'center', justifyContent: 'center', padding: 8,
+        minHeight: 92, backgroundColor: '#FFFFFF', borderRadius: 14,
+        alignItems: 'center', justifyContent: 'flex-start',
+        paddingTop: 12, paddingBottom: 8, paddingHorizontal: 6, overflow: 'hidden',
         shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
         shadowOpacity: 0.1, shadowRadius: 4, elevation: 3,
     },
-    brokerCardPressed: { backgroundColor: '#E8F4FF', transform: [{ scale: 0.95 }] },
-    brokerLogoContainer: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-    brokerLogo: { width: 36, height: 36 },
-    brokerName: { fontSize: 11, fontFamily: 'Satoshi-Medium', color: '#000', textAlign: 'center', width: '100%' },
+    brokerCardPressed: { backgroundColor: '#E8F4FF', transform: [{ scale: 0.96 }] },
+    brokerLogoContainer: { width: '100%', height: 36, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
+    brokerLogo: { width: '100%', height: '100%' },
+    brokerName: { fontSize: 11, lineHeight: 14, fontFamily: 'Satoshi-Medium', color: '#1A1A1A', textAlign: 'center', width: '100%' },
     continueButton: {
         backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 12, paddingVertical: 18,
         paddingHorizontal: 20, alignItems: 'center', justifyContent: 'center',
         borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)', marginBottom: 10, minHeight: 54,
     },
     continueButtonText: { fontSize: 16, fontFamily: 'Satoshi-Bold', color: '#FFFFFF' },
-    connectedButton: { backgroundColor: '#1B8D1B', borderColor: '#17A817' },
+    // Disconnecting is not the main action here: outlined, not a solid green CTA.
+    connectedButton: { backgroundColor: 'transparent', borderColor: 'rgba(255,255,255,0.6)' },
     connectedButtonText: { fontSize: 16, fontFamily: 'Satoshi-Bold', color: '#FFFFFF' },
     connectingButton: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.2)', borderColor: 'rgba(255,255,255,0.4)' },
     letUsKnowButton: { alignItems: 'center', paddingVertical: 10, marginBottom: 16 },

@@ -15,7 +15,7 @@ describe('portfolio funds display', () => {
 
   test('shows a verified amount or an explicit unavailable state', () => {
     const card = read('src/screens/PortfolioScreen/PortFolioCard.js');
-    expect(card).toContain("{'\\n'}Available cash:");
+    expect(card).toContain('Available cash');
     expect(card).toContain("? `₹ ${formatDisplayedMoney(availableCash)}`");
     expect(card).toContain(": 'Unavailable'");
   });

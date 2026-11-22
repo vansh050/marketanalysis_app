@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Text, StyleSheet } from 'react-native';
 import WebSocketManager from './WebSocketManager';
+import formatCurrency from '../../../utils/formatCurrency';
 
 import { designColor, designFont, designToken } from '../../../design/literalTokens';
 
@@ -57,9 +58,15 @@ const HoldingDynamicText = React.memo(
       };
     }, [symbol, exchange, updatePrice]);
 
+    // Indian grouping (1,23,456.70), always two decimals.
+    const money = (value) => {
+      const [whole, fraction] = Math.abs(value).toFixed(2).split('.');
+      return `${formatCurrency(Number(whole))}.${fraction}`;
+    };
+
     const formatRupee = (value) => {
-      if (value > 0) return `+₹${value.toFixed(2)}`;
-      if (value < 0) return `-₹${Math.abs(value).toFixed(2)}`;
+      if (value > 0) return `+₹${money(value)}`;
+      if (value < 0) return `-₹${money(value)}`;
       return '₹0.00';
     };
 
@@ -75,6 +82,20 @@ const HoldingDynamicText = React.memo(
         return <Text style={[styles.text, { color: pnlColor }]}>{formatRupee(profitOrLoss)}</Text>;
       case 'pnlPercent':
         return <Text style={[styles.text, { color: pnlColor }]}>{formatPercent(pnlPercent)}</Text>;
+      case 'currentValue':
+        // What the holding is worth at the live price; falls back to the
+        // invested amount until the first price arrives.
+        return (
+          <Text style={[styles.text, styles.value]}>
+            {`₹${money(currentPrice ? currentPrice * qty : invested || 0)}`}
+          </Text>
+        );
+      case 'pnlBoth':
+        return (
+          <Text style={[styles.text, styles.small, { color: pnlColor }]}>
+            {currentPrice ? `${formatRupee(profitOrLoss)} (${formatPercent(pnlPercent)})` : '—'}
+          </Text>
+        );
       case 'currentPrice':
         return <Text style={[styles.text]}>{currentPrice ? `₹${currentPrice.toFixed(2)}` : '₹-'}</Text>;
       default:
@@ -87,6 +108,14 @@ const styles = StyleSheet.create({
   text: {
     fontSize: 14,
     fontFamily: designFont('Satoshi-Medium'),
+  },
+  value: {
+    fontSize: 15,
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designToken('portfolio.text'),
+  },
+  small: {
+    fontSize: 12,
   },
 });
 

@@ -1178,122 +1178,82 @@ const PortfolioScreen = () => {
     setModalVisible(true);
   };
 
+  // Holding row (2026-11-22): name + current value, then quantity/average +
+  // P&L, then invested + LTP. The old row led with "Qty. … • Avg." above the
+  // name and printed amounts without Indian digit grouping.
+  const displaySymbol = symbol =>
+    String(symbol || '').replace(/-(EQ|BE|BZ|SM|ST)$/i, '');
+  const holdingMoney = value => {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n === 0) {
+      return '-';
+    }
+    const [whole, fraction] = Math.abs(n).toFixed(2).split('.');
+    return `₹${n < 0 ? '-' : ''}${formatCurrency(Number(whole))}.${fraction}`;
+  };
+
   const renderAllHoldings = ({item}) => {
     const investedAmount = item?.avgPrice * item?.quantity;
     const corporateActionNotice = pendingNoticeForHolding(item);
     return (
       <View style={styles.flatListContainerHolding}>
         <View style={styles.listItem}>
-          <View>
-            <View style={{flexDirection: 'column'}}>
-              <View style={styles.row1}>
-                <View style={{flexDirection: 'row'}}>
-                  <Text
-                    style={{
-                      fontSize: 12,
-                      color: designToken('portfolio.textMuted'),
-                      fontFamily: designFont('Satoshi-Regular'),
-                    }}>
-                    Qty.{' '}
-                  </Text>
-                  <Text style={styles.qtyAvg2}>{item?.quantity}</Text>
-                  <Text
-                    style={{
-                      marginLeft: 5,
-                      color: designToken('portfolio.text'),
-                      fontFamily: designFont('Satoshi-Bold'),
-                    }}>
-                    •
-                  </Text>
-                  <Text
-                    style={{
-                      marginHorizontal: 5,
-                      fontFamily: designFont('Satoshi-Regular'),
-                      fontSize: 12,
-                      color: designToken('portfolio.textMuted'),
-                    }}>
-                    Avg.
-                  </Text>
-                  <Text style={styles.qtyAvg2}>
-                    {item?.avgPrice != null
-                      ? parseFloat(item?.avgPrice).toFixed(2)
-                      : '-'}
-                  </Text>
-                </View>
-
-                <HoldingDynamicText
-                  symbol={item.symbol}
-                  exchange={item.exchange}
-                  investedAmount={investedAmount}
-                  quantity={item.quantity}
-                  type="pnlRupee"
-                />
-              </View>
-
-              <View
-                style={{
-                  flexDirection: 'row',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  marginVertical: 5,
-                }}>
-                <View style={{flexDirection: 'row', alignItems: 'center'}}>
-                  <Text style={styles.stockName}>{item?.symbol}</Text>
-                  {corporateActionNotice && (
-                    <TouchableOpacity
-                      accessibilityRole="button"
-                      accessibilityLabel={`${corporateActionNotice.symbol} corporate action information`}
-                      onPress={() => Alert.alert(
-                        corporateActionNotice.type === 'BONUS' ? 'Bonus shares pending' : 'Stock split adjustment',
-                        corporateActionMessage(corporateActionNotice, item?.quantity),
-                      )}
-                      style={{marginLeft: 8, padding: 4}}>
-                      <InfoIcon size={16} color={designToken('portfolio.warning')} />
-                    </TouchableOpacity>
+          <View style={holdingRowStyles.line}>
+            <View style={holdingRowStyles.nameWrap}>
+              <Text style={holdingRowStyles.name} numberOfLines={1}>
+                {displaySymbol(item?.symbol)}
+              </Text>
+              {corporateActionNotice && (
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={`${corporateActionNotice.symbol} corporate action information`}
+                  onPress={() => Alert.alert(
+                    corporateActionNotice.type === 'BONUS' ? 'Bonus shares pending' : 'Stock split adjustment',
+                    corporateActionMessage(corporateActionNotice, item?.quantity),
                   )}
-                  {/* <TouchableOpacity
-                    onPress={() => OpenScoreModel(item)}
-                    style={{marginLeft: 8}}>
-                    <InfoIcon size={14} color={'grey'} />
-                  </TouchableOpacity> */}
-                </View>
-                <View>
-                  <HoldingDynamicText
-                    symbol={item.symbol}
-                    exchange={item.exchange}
-                    liveLtp={getLTPForSymbol(item.symbol)}
-                    investedAmount={investedAmount}
-                    quantity={item?.quantity}
-                    type="pnlPercent"
-                  />
-                </View>
-              </View>
-              <View
-                style={{flexDirection: 'row', justifyContent: 'space-between'}}>
-                <View style={{flexDirection: 'row', marginLeft: 10}}>
-                  <Text style={styles.invested}>Invested: </Text>
-                  <Text style={styles.invested1}>
-                    ₹
-                    {item?.avgPrice * item?.quantity
-                      ? (item?.avgPrice * item?.quantity).toFixed(2)
-                      : '-'}
-                  </Text>
-                </View>
-
-                <View style={{flexDirection: 'row'}}>
-                  <Text style={styles.ltp}>LTP </Text>
-                  <PortfolioPositionText
-                    advisedRangeCondition={0}
-                    symbol={item.symbol}
-                    exchange={item.exchange}
-                    liveLtp={getLTPForSymbol(item.symbol)}
-                    stockDetails={BrokerHoldingsData}
-                    advisedPrice={0}
-                    type="ltpprice"
-                    data={item}
-                  />
-                </View>
-              </View>
+                  style={{marginLeft: 6, padding: 4}}>
+                  <InfoIcon size={16} color={designToken('portfolio.warning')} />
+                </TouchableOpacity>
+              )}
+            </View>
+            <HoldingDynamicText
+              symbol={item.symbol}
+              exchange={item.exchange}
+              investedAmount={investedAmount}
+              quantity={item?.quantity}
+              type="currentValue"
+            />
+          </View>
+          <View style={holdingRowStyles.line}>
+            <Text style={holdingRowStyles.meta}>
+              {`Qty ${item?.quantity ?? '-'} · Avg ${
+                item?.avgPrice != null ? holdingMoney(item?.avgPrice) : '-'
+              }`}
+            </Text>
+            <HoldingDynamicText
+              symbol={item.symbol}
+              exchange={item.exchange}
+              investedAmount={investedAmount}
+              quantity={item?.quantity}
+              type="pnlBoth"
+            />
+          </View>
+          <View style={holdingRowStyles.line}>
+            <Text style={holdingRowStyles.meta}>
+              {`Invested ${holdingMoney(investedAmount)}`}
+            </Text>
+            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+              <Text style={holdingRowStyles.meta}>LTP </Text>
+              <PortfolioPositionText
+                advisedRangeCondition={0}
+                symbol={item.symbol}
+                exchange={item.exchange}
+                liveLtp={getLTPForSymbol(item.symbol)}
+                stockDetails={BrokerHoldingsData}
+                advisedPrice={0}
+                type="ltpprice"
+                data={item}
+              />
             </View>
           </View>
         </View>
@@ -1632,5 +1592,26 @@ const brokerWarningStyles = StyleSheet.create({
   },
 });
 
+
+const holdingRowStyles = StyleSheet.create({
+  line: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 3,
+  },
+  nameWrap: {flexDirection: 'row', alignItems: 'center', flexShrink: 1, marginRight: 8},
+  name: {
+    fontSize: 15,
+    fontFamily: designFont('Satoshi-Bold'),
+    color: designToken('portfolio.text'),
+    flexShrink: 1,
+  },
+  meta: {
+    fontSize: 12,
+    fontFamily: designFont('Satoshi-Regular'),
+    color: designToken('portfolio.textMuted'),
+  },
+});
 
 export default PortfolioScreen;

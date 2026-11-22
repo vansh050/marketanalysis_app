@@ -96,7 +96,7 @@ const KotakConnectUI = ({
               </TouchableOpacity>
               <Text style={styles.headerTitle}>Connect to Kotak</Text>
             </View>
-            <Image source={kotakIcon} style={styles.headerIcon} />
+            <Image source={kotakIcon} style={styles.headerIcon} resizeMode="contain" />
           </LinearGradient>
 
           {/* If expanded → Show HelpContent Fullscreen */}

@@ -36,6 +36,7 @@ import {
     FlatList,
     TouchableOpacity,
     RefreshControl,
+    StyleSheet,
 } from 'react-native';
 
 import formatCurrency from '../../../src/utils/formatCurrency';
@@ -66,10 +67,10 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
         staleHoldingsAcknowledged,
         staleHoldingsAsOf,
 
-        // Refresh + gestures
+        // Refresh (the container's swipe panResponder is deliberately not
+        // attached: sideways swipes while scrolling switched tabs by accident)
         refreshing,
         onRefresh,
-        panResponder,
 
         // Renderers
         renderAllHoldings,
@@ -112,116 +113,69 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
 
     return (
         <>
-            <View {...panResponder.panHandlers} style={{ flex: 1 }}>
-                    <View style={{ backgroundColor: '#EFF0EE', flex: 1 }}>
-                    <View style={styles.headerContainer}>
-                        <View>
-                            <View style={{ marginHorizontal: 0 }}>
-                                <View style={styles.toggleBtnContainer}>
-                                    {modelPortfolioEnabled === true ? (
-                                        <TouchableOpacity
-                                            style={[
-                                                styles.toggleBtnButton,
-                                                selectedInnerTab === 1
-                                                    ? [styles.toggleBtnSelectedButton, { backgroundColor: mainColor }]
-                                                    : styles.toggleBtnUnselectedButton,
-                                            ]}
-                                            onPress={() => setSelectedInnerTab(1)}
-                                            activeOpacity={0.8}>
-                                            <Text
-                                                style={[
-                                                    styles.toggleBtnText,
-                                                    selectedInnerTab === 1
-                                                        ? styles.toggleBtnSelectedText
-                                                        : styles.toggleBtnUnselectedText,
-                                                ]}>
-                                                Model Portfolios
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ) : null}
-                                    <TouchableOpacity
-                                        style={[
-                                            styles.toggleBtnButton,
-                                            selectedInnerTab === 0
-                                                ? [styles.toggleBtnSelectedButton, { backgroundColor: mainColor }]
-                                                : styles.toggleBtnUnselectedButton,
-                                        ]}
-                                        onPress={() => setSelectedInnerTab(0)}
-                                        activeOpacity={0.8}>
-                                        <Text
-                                            style={[
-                                                styles.toggleBtnText,
-                                                selectedInnerTab === 0
-                                                    ? styles.toggleBtnSelectedText
-                                                    : styles.toggleBtnUnselectedText,
-                                            ]}>
-                                            All Holdings
-                                        </Text>
-                                    </TouchableOpacity>
-                                </View>
-                            </View>
-
-                            {selectedInnerTab === 0 && (
-                                <>
-                                    {!brokerSessionUsable && staleHoldingsAcknowledged ? (
-                                        <View style={styles.staleHoldingsBanner}>
-                                            <Text style={styles.staleHoldingsTitle}>Data is stale</Text>
-                                            <Text style={styles.staleHoldingsText}>
-                                                Showing broker holdings as of {staleHoldingsAsOf}.
-                                            </Text>
-                                        </View>
-                                    ) : null}
-                                    <View style={styles.tabContainer}>
-                                        <TouchableOpacity
-                                            style={[styles.tabButton, tabIndex === 2 && styles.activeTab]}
-                                            onPress={() => setTabIndex(2)}>
-                                            <View style={{ flexDirection: 'row' }}>
-                                                <Text style={[styles.tabText, tabIndex === 2 && styles.activeTabText]}>Holdings</Text>
-                                                {BrokerHoldingsData?.holding?.length > 0 && (
-                                                    <View
-                                                        style={{
-                                                            backgroundColor: tabIndex === 2 ? '#C84444' : 'grey',
-                                                            borderRadius: 15,
-                                                            width: 20,
-                                                            height: 20,
-                                                            justifyContent: 'center',
-                                                            alignItems: 'center',
-                                                            marginLeft: 5,
-                                                        }}>
-                                                        <Text style={styles.badgeText}>
-                                                            {BrokerHoldingsData?.holding?.length}
-                                                        </Text>
-                                                    </View>
-                                                )}
-                                            </View>
-                                        </TouchableOpacity>
-
-                                        <TouchableOpacity
-                                            style={[styles.tabButton, tabIndex === 1 && styles.activeTab]}
-                                            onPress={() => setTabIndex(1)}>
-                                            <View style={{ flexDirection: 'row' }}>
-                                                <Text style={[styles.tabText, tabIndex === 1 && styles.activeTabText]}>Positions</Text>
-                                                {PositionsData?.length > 0 && (
-                                                    <View
-                                                        style={{
-                                                            backgroundColor: tabIndex === 1 ? 'red' : 'grey',
-                                                            borderRadius: 15,
-                                                            width: 20,
-                                                            height: 20,
-                                                            justifyContent: 'center',
-                                                            alignItems: 'center',
-                                                            marginLeft: 5,
-                                                        }}>
-                                                        <Text style={styles.badgeText}>{PositionsData?.length}</Text>
-                                                    </View>
-                                                )}
-                                            </View>
-                                        </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+                    <View style={{ backgroundColor: '#FFFFFF', flex: 1 }}>
+                    {/* One row of tabs (2026-11-22). The old screen stacked a
+                        Model Portfolios / All Holdings toggle above a second
+                        Holdings / Positions row, with red count badges. */}
+                    <View style={localStyles.tabBar} accessibilityRole="tablist">
+                        {[
+                            {
+                                key: 'holdings',
+                                label: 'Holdings',
+                                count: BrokerHoldingsData?.holding?.length || 0,
+                                active: selectedInnerTab === 0 && tabIndex !== 1,
+                                onPress: () => { setSelectedInnerTab(0); setTabIndex(2); },
+                            },
+                            {
+                                key: 'positions',
+                                label: 'Positions',
+                                count: PositionsData?.length || 0,
+                                active: selectedInnerTab === 0 && tabIndex === 1,
+                                onPress: () => { setSelectedInnerTab(0); setTabIndex(1); },
+                            },
+                            ...(modelPortfolioEnabled === true
+                                ? [{
+                                    key: 'models',
+                                    label: 'Model portfolios',
+                                    count: processedData?.length || 0,
+                                    active: selectedInnerTab === 1,
+                                    onPress: () => setSelectedInnerTab(1),
+                                }]
+                                : []),
+                        ].map(tab => (
+                            <TouchableOpacity
+                                key={tab.key}
+                                accessibilityRole="tab"
+                                accessibilityState={{ selected: tab.active }}
+                                onPress={tab.onPress}
+                                activeOpacity={0.8}
+                                style={[
+                                    localStyles.tab,
+                                    tab.active && [localStyles.tabActive, { borderBottomColor: mainColor }],
+                                ]}>
+                                <Text
+                                    numberOfLines={1}
+                                    maxFontSizeMultiplier={1.3}
+                                    style={[localStyles.tabText, tab.active && [localStyles.tabTextActive, { color: mainColor }]]}>
+                                    {tab.label}
+                                </Text>
+                                {tab.count > 0 ? (
+                                    <View style={[localStyles.badge, tab.active && { backgroundColor: mainColor }]}>
+                                        <Text style={localStyles.badgeText} maxFontSizeMultiplier={1.2}>{tab.count}</Text>
                                     </View>
-                                </>
-                            )}
-                        </View>
+                                ) : null}
+                            </TouchableOpacity>
+                        ))}
                     </View>
+                    {selectedInnerTab === 0 && !brokerSessionUsable && staleHoldingsAcknowledged ? (
+                        <View style={styles.staleHoldingsBanner}>
+                            <Text style={styles.staleHoldingsTitle}>Data is stale</Text>
+                            <Text style={styles.staleHoldingsText}>
+                                Showing broker holdings as of {staleHoldingsAsOf}.
+                            </Text>
+                        </View>
+                    ) : null}
                     <View style={{ flex: 1, backgroundColor: '#fff', marginTop: 0 }}>
                         {selectedInnerTab === 0 ? (
                             tabIndex === 1 ? (
@@ -270,10 +224,18 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
                                 </SafeAreaView>
                             )
                         ) : (
-                            <SafeAreaView>
+                            <SafeAreaView style={{ flex: 1 }}>
                                 <FlatList
                                     data={processedData}
                                     style={styles.list}
+                                    contentContainerStyle={{ paddingBottom: 96 }}
+                                    refreshControl={
+                                        <RefreshControl
+                                            refreshing={refreshing}
+                                            onRefresh={onRefresh}
+                                            tintColor="black"
+                                        />
+                                    }
                                     renderItem={renderModalPFCard}
                                     keyExtractor={(item, index) => `${item?.modelName || index}_${index}`}
                                     ListHeaderComponent={
@@ -302,5 +264,39 @@ const PortfolioScreenPresentation = ({ portfolio }) => {
         </>
     );
 };
+
+const localStyles = StyleSheet.create({
+    tabBar: {
+        flexDirection: 'row',
+        paddingHorizontal: 8,
+        borderBottomWidth: StyleSheet.hairlineWidth,
+        borderBottomColor: '#D9DDE3',
+        backgroundColor: '#FFFFFF',
+    },
+    tab: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: 12,
+        paddingHorizontal: 4,
+        borderBottomWidth: 2,
+        borderBottomColor: 'transparent',
+    },
+    tabActive: {},
+    tabText: { fontSize: 14, fontFamily: 'Satoshi-Medium', color: '#5B6472', flexShrink: 1 },
+    tabTextActive: { fontFamily: 'Satoshi-Bold' },
+    badge: {
+        minWidth: 20,
+        height: 20,
+        borderRadius: 10,
+        paddingHorizontal: 5,
+        marginLeft: 6,
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: '#8A93A3',
+    },
+    badgeText: { fontSize: 11, fontFamily: 'Satoshi-Bold', color: '#FFFFFF' },
+});
 
 export default PortfolioScreenPresentation;

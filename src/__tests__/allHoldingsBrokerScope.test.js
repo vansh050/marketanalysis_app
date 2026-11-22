@@ -17,7 +17,8 @@ describe('broker-scoped All Holdings', () => {
     expect(presentation).toContain('data={BrokerHoldingsData?.holding}');
     expect(presentation).not.toContain('selectedPlan');
     expect(summary).not.toContain('Selected plan holdings');
-    expect(summary).toContain("'Broker Holdings P&L'");
+    expect(summary).toContain("'Broker Holdings value'");
+    expect(summary).toContain('broker account');
   });
 
   test('preserves and labels the last verified broker snapshot after Ignore', () => {

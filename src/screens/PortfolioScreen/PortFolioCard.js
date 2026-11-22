@@ -2,11 +2,23 @@ import React from 'react';
 import {View, Text, StyleSheet} from 'react-native';
 import LinearGradient from 'react-native-linear-gradient';
 import Svg, {Circle} from 'react-native-svg';
-import {useConfig} from '../../context/ConfigContext';
 import useTokens from '../../theme/useTokens';
 
 import { designColor, designFont } from '../../design/literalTokens';
 
+/**
+ * Broker portfolio summary at the top of the Holdings / Positions list.
+ *
+ * Reads LIVE BROKER HOLDINGS (allHoldingsData from the connected broker) —
+ * NOT the model-portfolio records. An unlabeled ₹0 above a model summary read
+ * as contradictory data (2026-07-18 report), so the card always names its
+ * source, and with no broker holdings says so instead of showing bare zeros.
+ *
+ * Layout (2026-11-22): one flowing column — label + source, the headline
+ * figure, then Invested / P&L / Cash side by side. Earlier versions placed
+ * every line with absolute offsets inside a 138px card, which clipped the
+ * cash line and overlapped with larger phone font sizes.
+ */
 const PortfolioCard = ({
   allHoldingsData,
   formatCurrency,
@@ -16,7 +28,6 @@ const PortfolioCard = ({
   isPositions,
   availableCash,
 }) => {
-  const config = useConfig();
   const tokens = useTokens();
   const gradient1 = tokens.colors.brand.gradientStart;
   const gradient2 = tokens.colors.brand.gradientEnd;
@@ -52,24 +63,41 @@ const PortfolioCard = ({
     ['totalinvvalue', 'totalprofitandloss', 'totalpnlpercentage'].some(key =>
       Object.prototype.hasOwnProperty.call(allHoldingsData, key),
     );
-  const summaryTitle = isPositions
-    ? 'Broker Positions P&L'
-    : 'Broker Holdings P&L';
+  const summaryTitle = isPositions ? 'Broker Positions P&L' : 'Broker Holdings value';
 
-  const formatPnL = value => {
+  const signedMoney = value => {
     const numValue = Number(value);
     if (isNaN(numValue)) {
       return '₹0';
     }
-    const absValue = Math.abs(numValue);
-    const formattedValue = formatDisplayedMoney(absValue);
+    const formattedValue = formatDisplayedMoney(Math.abs(numValue));
+    if (numValue > 0) {
+      return `+₹${formattedValue}`;
+    }
     return numValue < 0 ? `-₹${formattedValue}` : `₹${formattedValue}`;
   };
 
+  const isEmpty = invested === 0 && pnl === 0;
+  // Holdings lead with what the holdings are worth now; positions have no
+  // meaningful "value", so they lead with their P&L.
+  const headline = isEmpty
+    ? '—'
+    : isPositions
+      ? signedMoney(pnl)
+      : `₹${formatDisplayedMoney(invested + pnl)}`;
+
   const isPositive = returns >= 0;
-  const arrow = isPositive ? '▲' : '▼';
-  const arrowColor = isPositive ? designColor('23c36a') : designColor('ff6b6b');
-  const percentColor = isPositive ? designColor('5eea99') : designColor('ff6b6b');
+  const pnlColor = pnl === 0
+    ? designColor('fff')
+    : pnl > 0
+      ? designColor('5eea99')
+      : designColor('ffb3b3');
+  const returnsText = hasSummaryValues
+    ? `${isPositive ? '▲' : '▼'} ${Math.abs(returns).toFixed(2)}%`
+    : '—';
+  const cashText = hasAvailableCash
+    ? `₹ ${formatDisplayedMoney(availableCash)}`
+    : 'Unavailable';
 
   return (
     <View style={portfolioCardStyles.pcWrapper}>
@@ -78,7 +106,6 @@ const PortfolioCard = ({
         start={{x: 0, y: 0}}
         end={{x: 1, y: 1}}
         style={portfolioCardStyles.pcGradientCard}>
-        {/* Background Circle */}
         <Svg
           width="180"
           height="133"
@@ -88,75 +115,62 @@ const PortfolioCard = ({
           <Circle cx="130" cy="120" r="96" fill="white" fillOpacity="0.08" />
         </Svg>
 
-        {/* This card measures LIVE BROKER HOLDINGS (allHoldingsData from the
-            connected broker) — NOT the model-portfolio records below it. An
-            unlabeled ₹0 here right above a summary card showing real value
-            read as contradictory data (2026-07-18 report), so: label the
-            source, and when there are no broker holdings say why instead of
-            bare zeros. */}
-        <Text style={portfolioCardStyles.pcLabel}>{summaryTitle}</Text>
+        <Text style={portfolioCardStyles.pcLabel} maxFontSizeMultiplier={1.3}>
+          {summaryTitle}
+        </Text>
+        <Text style={portfolioCardStyles.pcSource} numberOfLines={1} maxFontSizeMultiplier={1.3}>
+          {holdingSource}
+        </Text>
 
-        {invested === 0 && pnl === 0 ? (
-          <>
-            <Text style={portfolioCardStyles.pcAmount}>—</Text>
-            <Text style={portfolioCardStyles.pcSubLabel}>
-              Source: {holdingSource}{'\n'}
-              Available cash:{' '}
-              <Text style={portfolioCardStyles.pcSubAmount}>
-                {hasAvailableCash
-                  ? `₹ ${formatDisplayedMoney(availableCash)}`
-                  : 'Unavailable'}
-              </Text>
+        <View style={portfolioCardStyles.pcHeadlineRow}>
+          <Text
+            style={portfolioCardStyles.pcAmount}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            maxFontSizeMultiplier={1.2}>
+            {headline}
+          </Text>
+          {!isEmpty && !isPositions ? (
+            <Text style={[portfolioCardStyles.pcReturns, {color: pnlColor}]} maxFontSizeMultiplier={1.3}>
+              {returnsText}
             </Text>
-          </>
-        ) : (
-          <>
-            {/* ✅ Value with proper negative sign placement and NaN handling */}
-            <Text style={portfolioCardStyles.pcAmount}>{formatPnL(pnl)}</Text>
+          ) : null}
+        </View>
 
-            {/* Invested */}
-            <Text style={portfolioCardStyles.pcSubLabel}>
-              Source: {holdingSource}{'\n'}
-              {isPositions ? 'Capital basis' : 'Invested'}&nbsp;{' '}
-              <Text style={portfolioCardStyles.pcSubAmount}>
-                ₹ {formatDisplayedRupees(invested)}
-              </Text>
-              {'\n'}Available cash:{' '}
-              <Text style={portfolioCardStyles.pcSubAmount}>
-                {hasAvailableCash
-                  ? `₹ ${formatDisplayedMoney(availableCash)}`
-                  : 'Unavailable'}
-              </Text>
-            </Text>
-          </>
-        )}
-
-        {/* Right P&L pill, returns percent */}
-        <View style={portfolioCardStyles.pcRightBox}>
-          <View style={portfolioCardStyles.pcPLHolder}>
-            <Text style={portfolioCardStyles.pcPLText}>P &amp; L</Text>
-          </View>
-          <View style={{marginTop: 4}}>
-            <Text style={portfolioCardStyles.pcReturnsLabel}>
-              Total Returns
-            </Text>
-            {/* ✅ Dynamic arrow and color with NaN handling */}
-            {hasSummaryValues ? (
-              <Text
-                style={[
-                  portfolioCardStyles.pcReturnsPercent,
-                  {color: percentColor},
-                ]}>
-                <Text
-                  style={[portfolioCardStyles.pcUpArrow, {color: arrowColor}]}>
-                  {arrow}
+        <View style={portfolioCardStyles.pcStats}>
+          {isEmpty ? null : (
+            <>
+              <View style={portfolioCardStyles.pcStat}>
+                <Text style={portfolioCardStyles.pcStatLabel} maxFontSizeMultiplier={1.3}>
+                  {isPositions ? 'Capital basis' : 'Invested'}
                 </Text>
-                &nbsp;
-                {Math.abs(returns).toFixed(2)}%
-              </Text>
-            ) : (
-              <Text style={portfolioCardStyles.pcReturnsPercent}>—</Text>
-            )}
+                <Text style={portfolioCardStyles.pcStatValue} numberOfLines={1} adjustsFontSizeToFit maxFontSizeMultiplier={1.3}>
+                  ₹ {formatDisplayedRupees(invested)}
+                </Text>
+              </View>
+              {isPositions ? null : (
+                <View style={portfolioCardStyles.pcStat}>
+                  <Text style={portfolioCardStyles.pcStatLabel} maxFontSizeMultiplier={1.3}>
+                    Total P&amp;L
+                  </Text>
+                  <Text
+                    style={[portfolioCardStyles.pcStatValue, {color: pnlColor}]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    maxFontSizeMultiplier={1.3}>
+                    {signedMoney(pnl)}
+                  </Text>
+                </View>
+              )}
+            </>
+          )}
+          <View style={portfolioCardStyles.pcStat}>
+            <Text style={portfolioCardStyles.pcStatLabel} maxFontSizeMultiplier={1.3}>
+              Available cash
+            </Text>
+            <Text style={portfolioCardStyles.pcStatValue} numberOfLines={1} adjustsFontSizeToFit maxFontSizeMultiplier={1.3}>
+              {cashText}
+            </Text>
           </View>
         </View>
       </LinearGradient>
@@ -166,24 +180,21 @@ const PortfolioCard = ({
 
 const portfolioCardStyles = StyleSheet.create({
   pcWrapper: {
-    marginTop: 17,
-    marginHorizontal: 10,
+    marginTop: 14,
+    marginHorizontal: 12,
+    marginBottom: 6,
   },
   pcGradientCard: {
-    width: '97%',
-    marginHorizontal: '1.5%',
-    borderRadius: 15,
+    borderRadius: 16,
     overflow: 'hidden',
-    minHeight: 138,
     shadowColor: designColor('000'),
-    shadowOffset: { width: 0, height: 2 },
+    shadowOffset: {width: 0, height: 2},
     shadowOpacity: 0.18,
     shadowRadius: 5,
     elevation: 5,
-    padding: 20,
-    position: 'relative',
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    paddingHorizontal: 18,
+    paddingTop: 16,
+    paddingBottom: 14,
   },
   circleSvg: {
     position: 'absolute',
@@ -191,82 +202,59 @@ const portfolioCardStyles = StyleSheet.create({
     top: -10,
   },
   pcLabel: {
-    position: 'absolute',
-    top: 18,
-    left: 22,
     color: designColor('fff'),
-    fontSize: 15,
+    fontSize: 13,
+    fontFamily: designFont('Satoshi-Medium'),
+    opacity: 0.9,
+  },
+  pcSource: {
+    color: designColor('fff'),
+    fontSize: 11,
     fontFamily: designFont('Satoshi-Regular'),
-    opacity: 0.82,
-    letterSpacing: 0.1,
+    opacity: 0.7,
+    marginTop: 1,
+  },
+  pcHeadlineRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    marginTop: 8,
+    flexWrap: 'wrap',
   },
   pcAmount: {
-    position: 'absolute',
-    top: 40,
-    left: 22,
     color: designColor('fff'),
-    fontSize: 32,
+    fontSize: 28,
+    lineHeight: 34,
     fontFamily: designFont('Satoshi-Bold'),
     fontWeight: '700',
-    letterSpacing: 0.5,
+    marginRight: 10,
+    flexShrink: 1,
   },
-  pcSubLabel: {
-    position: 'absolute',
-    top: 88,
-    left: 22,
+  pcReturns: {
+    fontSize: 14,
+    fontFamily: designFont('Satoshi-Bold'),
+  },
+  pcStats: {
+    flexDirection: 'row',
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: designColor('ffffff55'),
+  },
+  pcStat: {
+    flex: 1,
+    paddingRight: 8,
+  },
+  pcStatLabel: {
     color: designColor('fff'),
-    opacity: 0.81,
-    fontSize: 12,
+    opacity: 0.75,
+    fontSize: 11,
     fontFamily: designFont('Satoshi-Regular'),
-    letterSpacing: 0.2,
-    width: '55%',
-    lineHeight: 16,
+    marginBottom: 2,
   },
-  pcSubAmount: {
-    fontFamily: designFont('Satoshi-Regular'),
+  pcStatValue: {
     color: designColor('fff'),
-    opacity: 0.94,
-    fontSize: 12,
-    marginLeft: 2,
-  },
-  pcRightBox: {
-    position: 'absolute',
-    top: 18,
-    right: 18,
-    minWidth: 120,
-    alignItems: 'flex-end',
-  },
-  pcPLHolder: {
-    backgroundColor: designColor('ffffff44'),
-    borderRadius: 16,
-    paddingHorizontal: 16,
-    paddingVertical: 0,
-    marginBottom: 8,
-  },
-  pcPLText: {
-    color: designColor('fff'),
-    fontFamily: designFont('Poppins-Medium'),
-    fontSize: 13,
-    marginTop: 5,
-  },
-  pcReturnsLabel: {
-    color: designColor('fff'),
-    fontFamily: designFont('Satoshi-Regular'),
-    fontSize: 12,
-    opacity: 0.8,
-    textAlign: 'right',
-    marginBottom: 3,
-    letterSpacing: 0.1,
-  },
-  pcReturnsPercent: {
-    fontFamily: designFont('Satoshi-Medium'),
-    fontSize: 12,
-    letterSpacing: 0.12,
-    textAlign: 'right',
-  },
-  pcUpArrow: {
-    fontSize: 9,
-    fontFamily: designFont('Satoshi-Medium'),
+    fontSize: 14,
+    fontFamily: designFont('Satoshi-Bold'),
   },
 });
 

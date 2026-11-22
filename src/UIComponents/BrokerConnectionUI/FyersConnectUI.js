@@ -127,7 +127,7 @@ const FyersConnectUI = ({
               </Pressable>
               <Text style={styles.headerTitle}>Connect Fyers</Text>
             </View>
-            <Image source={fyersIcon} style={styles.headerIcon} />
+            <Image source={fyersIcon} style={styles.headerIcon} resizeMode="contain" />
           </LinearGradient>
 
           {showWebView ? (
