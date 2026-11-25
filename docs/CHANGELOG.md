@@ -1,5 +1,12 @@
 # Changelog
 
+## 2026-11-25 — One-time Cashfree coupon activation
+
+### Fixed
+
+- `src/components/ModelPortfolioComponents/MPInvestNowModal.js` sends the accepted coupon ID with the discounted amount. Cashfree order creation can then capture the configured plan duration for fulfillment.
+- `src/__tests__/cashfreePaymentLifecycleContract.test.js` checks the payload. `docs/MODEL_PORTFOLIO_ARCHITECTURE.md` records the request contract.
+
 ## 2026-10-21 — SL (stop-limit) trigger entry orders carry their trigger
 
 - Advisors send single-stock recos as `SL` entries (`OrderType: "SL"`,
