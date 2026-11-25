@@ -25,6 +25,15 @@ describe('Cashfree native payment lifecycle', () => {
     'src/components/ModelPortfolioComponents/MPInvestNowModal.js',
   );
 
+  test('one-time Cashfree order sends the accepted coupon ID with the discounted amount', () => {
+    const orderPayload = modalSource
+      .split('`${server.server.baseUrl}api/cashfree`,')[1]
+      .split('headers:')[0];
+
+    expect(orderPayload).toContain('amount: onetimeamount');
+    expect(orderPayload).toContain('couponId: appliedCouponId || undefined');
+  });
+
   test('success is gated on durable server completion', () => {
     expect(modalSource).toContain('await completionTask();\n      await clearPendingPayment();');
     expect(modalSource).toContain('await runCashfreeCompletion(\n              `one_time:${orderId}`');

@@ -717,6 +717,12 @@ Routes to one of `react-native-razorpay`, `react-native-cashfree-pg-sdk`, `PayUO
 > **⚠️ THREE payment-platform sources exist per tenant — they MUST agree (incident 2026-06-12).**
 > The live value the APP obeys is **`admin.paymentPlatform`** (the `is_primary` doc in the tenant DB's `admin` collection), served by `GET /api/adminControl/get-payment-platform` (`Routes/Admin/AdminControl/AdminControl.js:20`, default `'razorpay'` when unset). `appadvisors.paymentPlatform` is only the app's offline fallback, and the v3 `payment_gateway_configs.active_gateway` is what the **web** reads (`PaymentGatewayConfigService`). **Alphanomy incident:** `admin.paymentPlatform` was `'razorpay'` while only Cashfree was configured (`razorpay.key_id: null`) → app silently took the Razorpay branch → endless spinner on every payment, web fine (web read the v3 config). Evidence: server logs showed `POST /lead_user` then NO gateway-create call at all. Fix: set `admin.paymentPlatform: 'cashfree'` in the `alphanomy` DB (2026-06-12). **When debugging "payment spinner, no error": first compare `admin.paymentPlatform` vs `payment_gateway_configs.active_gateway` + `is_configured` in the tenant DB.** Backend hardening worth doing: make `get-payment-platform` derive from the v3 config when present, so the three sources can't drift.
 
+**One-time Cashfree coupons.** `MPInvestNowModal.js` sends the validated
+`couponId` with the discounted amount at `POST /api/cashfree`. The backend
+uses the coupon to identify the configured plan option and save its duration
+when it creates the order. For checkout without a coupon, the request omits
+the ID.
+
 **Cashfree environment + install-source handling** (`MPInvestNowModal.js` one-time seam L1348, recurring seam L1659; helpers in `src/utils/cashfreeEnv.js`)
 
 Both Cashfree seams (one-time `doPayment`, recurring `doSubscriptionPayment`) resolve the SDK environment through `getCashfreeEnvironment()` — the single source of truth shared with `CoursePurchaseSheet` / `BuyWebinarTicketSheet`. It honours `REACT_APP_CASHFREE_ENV`, defaults to `SANDBOX` in Metro debug, else maps `REACT_APP_ENV`. **Do not inline `Config.REACT_APP_ENV === 'production' ? …` or hardcode `CFEnvironment.PRODUCTION` again** — both were removed 2026-06-11 because they ran the PRODUCTION anti-fraud path even in dev.

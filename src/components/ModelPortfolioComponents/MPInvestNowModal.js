@@ -1602,6 +1602,7 @@ const MPInvestNowModal = ({
           capital: invetAmount,
           countryCode: countryCode,
           duration: oneTimeDurationPlan,
+          couponId: appliedCouponId || undefined,
         },
         {
           headers: {
